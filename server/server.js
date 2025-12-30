@@ -56,12 +56,12 @@ app.get('/health', (req, res) => {
 });
 
 // Auth routes (public)
-app.use('/api/auth', authRouter);
+app.use('/auth', authRouter);
 
 // Protected API Routes
-app.use('/api/tenants', authMiddleware, tenantsRouter);
-app.use('/api/stats', authMiddleware, statsRouter);
-app.use('/api/messages', authMiddleware, messagesRouter);
+app.use('/tenants', authMiddleware, tenantsRouter);
+app.use('/stats', authMiddleware, statsRouter);
+app.use('/messages', authMiddleware, messagesRouter);
 
 // Webhook route (public - for Meta)
 app.use('/webhook', webhooksRouter);
@@ -89,17 +89,17 @@ app.listen(PORT, () => {
 ║                                                              ║
 ║  Public Endpoints:                                           ║
 ║  • GET  /health              - Health check                  ║
-║  • POST /api/auth/login      - Login                         ║
-║  • POST /api/auth/register   - Register                      ║
-║  • GET  /api/auth/me         - Current user                  ║
+║  • POST /auth/login          - Login                         ║
+║  • POST /auth/register       - Register                      ║
+║  • GET  /auth/me             - Current user                  ║
 ║  • GET  /webhook             - Meta verification             ║
 ║  • POST /webhook             - Meta events                   ║
 ║                                                              ║
 ║  Protected Endpoints (require Bearer token):                 ║
-║  • GET  /api/tenants         - List tenants                  ║
-║  • POST /api/tenants         - Create tenant                 ║
-║  • GET  /api/stats/dashboard - Dashboard stats               ║
-║  • POST /api/messages/send   - Send WhatsApp message         ║
+║  • GET  /tenants           - List tenants                    ║
+║  • POST /tenants           - Create tenant                   ║
+║  • GET  /stats/dashboard   - Dashboard stats                 ║
+║  • POST /messages/send     - Send WhatsApp message           ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 });
