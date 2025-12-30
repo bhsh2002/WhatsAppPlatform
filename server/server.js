@@ -17,7 +17,7 @@ import { authMiddleware } from './middleware/auth.js';
 import db from './db/database.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3031;
 
 // Seed admin user if none exists
 const seedAdmin = async () => {

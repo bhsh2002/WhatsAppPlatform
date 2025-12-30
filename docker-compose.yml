@@ -3,17 +3,25 @@ services:
     build: ./server
     container_name: whatsapp-platform-server
     ports:
-      - "3001:3001"
+      - "3031:3031"
     volumes:
       - ./server/db:/app/db
       - ./server/.env:/app/.env
     restart: always
+    networks:
+      - proxy
 
   client:
     build: ./client
     container_name: whatsapp-platform-client
     ports:
-      - "80:80"
+      - "3133:80"
     depends_on:
       - server
     restart: always
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
