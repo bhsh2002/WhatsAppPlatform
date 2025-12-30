@@ -11,7 +11,7 @@ class ApiService {
     }
 
     async request(endpoint, options = {}) {
-        const url = `${this.baseUrl}${endpoint}`;
+        const url = `${this.baseUrl}${endpoint}/`;
         const headers = {
             'Content-Type': 'application/json',
             ...options.headers,
