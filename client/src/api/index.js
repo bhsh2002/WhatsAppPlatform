@@ -44,14 +44,14 @@ class ApiService {
 
     // Auth
     async login(username, password) {
-        return this.request('/api/auth/login', {
+        return this.request('/auth/login', {
             method: 'POST',
             body: JSON.stringify({ username, password }),
         });
     }
 
     async register(userData) {
-        return this.request('/api/auth/register', {
+        return this.request('/auth/register', {
             method: 'POST',
             body: JSON.stringify(userData),
         });
@@ -59,11 +59,11 @@ class ApiService {
 
     async getCurrentUser(token) {
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-        return this.request('/api/auth/me', { headers });
+        return this.request('/auth/me', { headers });
     }
 
     async changePassword(currentPassword, newPassword) {
-        return this.request('/api/auth/change-password', {
+        return this.request('/auth/change-password', {
             method: 'POST',
             body: JSON.stringify({ currentPassword, newPassword }),
         });
@@ -71,45 +71,45 @@ class ApiService {
 
     // Tenants
     async getTenants() {
-        return this.request('/api/tenants');
+        return this.request('/tenants');
     }
 
     async getTenant(id) {
-        return this.request(`/api/tenants/${id}`);
+        return this.request(`/tenants/${id}`);
     }
 
     async createTenant(data) {
-        return this.request('/api/tenants', {
+        return this.request('/tenants', {
             method: 'POST',
             body: JSON.stringify(data),
         });
     }
 
     async updateTenant(id, data) {
-        return this.request(`/api/tenants/${id}`, {
+        return this.request(`/tenants/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
         });
     }
 
     async deleteTenant(id) {
-        return this.request(`/api/tenants/${id}`, {
+        return this.request(`/tenants/${id}`, {
             method: 'DELETE',
         });
     }
 
     // Stats
     async getDashboardStats() {
-        return this.request('/api/stats/dashboard');
+        return this.request('/stats/dashboard');
     }
 
     async getActivity(limit = 10) {
-        return this.request(`/api/stats/activity?limit=${limit}`);
+        return this.request(`/stats/activity?limit=${limit}`);
     }
 
     // Messages
     async sendMessage(data) {
-        return this.request('/api/messages/send', {
+        return this.request('/messages/send', {
             method: 'POST',
             body: JSON.stringify(data),
         });
@@ -117,11 +117,11 @@ class ApiService {
 
     async getMessageLogs(params = {}) {
         const query = new URLSearchParams(params).toString();
-        return this.request(`/api/messages/logs${query ? '?' + query : ''}`);
+        return this.request(`/messages/logs${query ? '?' + query : ''}`);
     }
 
     async getWebhookLogs(limit = 50) {
-        return this.request(`/api/messages/webhook-logs?limit=${limit}`);
+        return this.request(`/messages/webhook-logs?limit=${limit}`);
     }
 
     // Health
