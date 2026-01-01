@@ -124,6 +124,14 @@ class ApiService {
         return this.request(`/api/messages/webhook-logs?limit=${limit}`);
     }
 
+    async getConversations() {
+        return this.request('/api/messages/conversations');
+    }
+
+    async getThreadMessages(phoneNumber, limit = 50) {
+        return this.request(`/api/messages/conversations/${phoneNumber}/messages?limit=${limit}`);
+    }
+
     // Health
     async checkHealth() {
         return this.request('/api/health');

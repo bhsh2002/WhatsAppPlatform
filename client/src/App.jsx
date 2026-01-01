@@ -7,6 +7,7 @@ import WhatsAppConsole from './pages/WhatsAppConsole/WhatsAppConsole';
 import Settings from './pages/Settings/Settings';
 import Logs from './pages/Logs/Logs';
 import Login from './pages/Login/Login';
+import WhatsAppChat from './pages/WhatsAppChat/WhatsAppChat';
 import { TenantProvider } from './context/TenantContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -89,6 +90,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <MainLayout><WhatsAppConsole /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <MainLayout><WhatsAppChat /></MainLayout>
           </ProtectedRoute>
         }
       />

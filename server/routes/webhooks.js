@@ -24,8 +24,6 @@ router.get('/', (req, res) => {
 
 // Webhook events handler (POST request from Meta)
 router.post('/', (req, res) => {
-    console.log('🔥 RAW REQUEST 🔥', req);
-    console.log('🔥 RAW BODY 🔥', req.body);
     const body = req.body;
 
     console.log('[Webhook] Received event:', JSON.stringify(body, null, 2));

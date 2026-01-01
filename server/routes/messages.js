@@ -196,4 +196,50 @@ router.get('/webhook-logs', (req, res) => {
     }
 });
 
+// Get conversations list (grouped by contact)
+router.get('/conversations', (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                CASE 
+                    WHEN direction = 'incoming' THEN sender 
+                    ELSE recipient 
+                END as contact,
+                MAX(created_at) as last_interaction,
+                (SELECT content FROM messages m2 WHERE m2.id = MAX(m1.id)) as last_message,
+                (SELECT COUNT(*) FROM messages m3 WHERE m3.sender = CASE WHEN m1.direction = 'incoming' THEN m1.sender ELSE m1.recipient END AND m3.direction = 'incoming' AND m3.status = 'received') as unread_count
+            FROM messages m1
+            GROUP BY contact
+            ORDER BY last_interaction DESC
+        `;
+
+        const conversations = db.prepare(query).all();
+        res.json(conversations);
+    } catch (error) {
+        console.error('[Messages] Conversations fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch conversations' });
+    }
+});
+
+// Get thread messages
+router.get('/conversations/:number/messages', (req, res) => {
+    try {
+        const contactNumber = req.params.number;
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = parseInt(req.query.offset) || 0;
+
+        const messages = db.prepare(`
+            SELECT * FROM messages 
+            WHERE sender = ? OR recipient = ?
+            ORDER BY created_at ASC
+            LIMIT ? OFFSET ?
+        `).all(contactNumber, contactNumber, limit, offset);
+
+        res.json(messages);
+    } catch (error) {
+        console.error('[Messages] Thread fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch thread messages' });
+    }
+});
+
 export default router;

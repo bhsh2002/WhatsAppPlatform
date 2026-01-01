@@ -4,6 +4,7 @@ import {
     LayoutDashboard,
     Users,
     MessageSquare,
+    MessageCircle,
     Settings,
     Activity,
     LogOut,
@@ -23,6 +24,7 @@ const Sidebar = () => {
     const navItems = [
         { label: 'لوحة القيادة', path: '/', icon: <LayoutDashboard size={20} /> },
         { label: 'إدارة العملاء', path: '/tenants', icon: <Users size={20} /> },
+        { label: 'المحادثات', path: '/chat', icon: <MessageCircle size={20} /> },
         { label: 'منصة واتساب', path: '/whatsapp', icon: <MessageSquare size={20} /> },
         { label: 'سجلات التشغيل', path: '/logs', icon: <Activity size={20} /> },
         { label: 'الإعدادات', path: '/settings', icon: <Settings size={20} /> },
