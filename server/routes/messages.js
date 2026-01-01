@@ -201,15 +201,37 @@ router.get('/conversations', (req, res) => {
     try {
         const query = `
             SELECT 
-                CASE 
-                    WHEN direction = 'incoming' THEN sender 
-                    ELSE recipient 
-                END as contact,
-                MAX(created_at) as last_interaction,
-                (SELECT content FROM messages m2 WHERE m2.id = MAX(m1.id)) as last_message,
-                (SELECT COUNT(*) FROM messages m3 WHERE m3.sender = CASE WHEN m1.direction = 'incoming' THEN m1.sender ELSE m1.recipient END AND m3.direction = 'incoming' AND m3.status = 'received') as unread_count
-            FROM messages m1
-            GROUP BY contact
+                contact,
+                created_at as last_interaction,
+                content as last_message,
+                (
+                    SELECT COUNT(*) 
+                    FROM messages m2 
+                    WHERE m2.sender = t.contact 
+                    AND m2.direction = 'incoming' 
+                    AND m2.status = 'received'
+                ) as unread_count
+            FROM (
+                SELECT 
+                    id,
+                    content,
+                    created_at,
+                    CASE 
+                        WHEN direction = 'incoming' THEN sender 
+                        ELSE recipient 
+                    END as contact,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY (
+                            CASE 
+                                WHEN direction = 'incoming' THEN sender 
+                                ELSE recipient 
+                            END
+                        ) 
+                        ORDER BY created_at DESC, id DESC
+                    ) as rn
+                FROM messages
+            ) t
+            WHERE rn = 1
             ORDER BY last_interaction DESC
         `;
 
