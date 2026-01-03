@@ -122,7 +122,7 @@ const WhatsAppChat = () => {
             setNewMessage('');
             setSelectedFile(null);
             setFilePreview(null);
-            fetchMessages(selectedChat.contact);
+            fetchMessages(selectedChat.contact, selectedChat.tenant_id);
         } catch (error) {
             console.error('Failed to send message:', error);
             setSendError(error.message || 'فشل في إرسال الرسالة');
