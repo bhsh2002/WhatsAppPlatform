@@ -11,7 +11,16 @@ class ApiService {
     }
 
     async request(endpoint, options = {}) {
-        const url = `${this.baseUrl}${endpoint}/`;
+        let url;
+        const queryIndex = endpoint.indexOf('?');
+
+        if (queryIndex !== -1) {
+            const path = endpoint.substring(0, queryIndex);
+            const query = endpoint.substring(queryIndex);
+            url = `${this.baseUrl}${path}${path.endsWith('/') ? '' : '/'}${query}`;
+        } else {
+            url = `${this.baseUrl}${endpoint}${endpoint.endsWith('/') ? '' : '/'}`;
+        }
         const headers = {
             'Content-Type': 'application/json',
             ...options.headers,
@@ -139,7 +148,7 @@ class ApiService {
         return this.request(`/api/messages/media/${mediaId}${query}`);
     }
 
-    async getMediaDownloadUrl(mediaId, tenantId = null) {
+    getMediaDownloadUrl(mediaId, tenantId = null) {
         const params = new URLSearchParams();
         if (tenantId) params.append('tenant_id', tenantId);
         if (this.authToken) params.append('token', this.authToken);

@@ -296,12 +296,12 @@ router.get('/conversations/:number/messages', (req, res) => {
         `;
         const params = [contactNumber, contactNumber];
 
-        if (tenant_id) {
+        if (tenant_id && tenant_id !== 'null' && tenant_id !== 'undefined') {
             query += ` AND tenant_id = ?`;
             params.push(tenant_id);
         } else {
-            // If tenant_id not provided, we might show all messages for that number across all tenants? 
-            // Or maybe valid non-tenant messages. For now let's assume if not provided we get all like before.
+            // Strict separation: If no tenant specified, only show messages with NULL tenant
+            query += ` AND tenant_id IS NULL`;
         }
 
         query += ` ORDER BY created_at ASC`;
@@ -553,84 +553,87 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             return res.status(400).json({ error: 'Missing API credentials' });
         }
 
-        // 1. Upload session
-        const stats = fs.statSync(file.path);
-        const sessionUrl = `${META_API_BASE}/${process.env.APP_ID}/uploads` +
-            `?file_length=${stats.size}` +
-            `&file_type=${file.mimetype}` +
-            `&access_token=${accessToken}`;
+        // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
+        const form = new FormData();
+        form.append('file', fs.createReadStream(file.path));
+        form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
 
-        const sessionResponse = await fetch(sessionUrl, { method: 'POST' });
-        const sessionData = await sessionResponse.json();
+        const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
 
-        if (!sessionData.id) {
-            console.error('Upload session failed:', sessionData);
-            return res.status(400).json({ error: 'Failed to create upload session', details: sessionData });
-        }
-
-        // 2. Upload file content
-        const fileStream = fs.createReadStream(file.path);
-        const uploadUrl = `https://graph.facebook.com/${META_API_VERSION}/${sessionData.id}`;
+        console.log(`[Messages] Uploading media to ${uploadUrl}`);
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
-                'Authorization': `OAuth ${accessToken}`,
-                'file_offset': '0'
+                'Authorization': `Bearer ${accessToken}`,
+                ...form.getHeaders()
             },
-            body: fileStream
+            body: form
         });
+
         const uploadData = await uploadResponse.json();
 
-        if (!uploadData.h) {
-            console.error('File upload failed:', uploadData);
-            return res.status(400).json({ error: 'Failed to upload file content', details: uploadData });
+        if (!uploadData.id) {
+            console.error('Media upload failed:', uploadData);
+            return res.status(400).json({ error: 'Failed to upload media to Meta', details: uploadData });
         }
 
-        // Cleanup local file
-        fs.unlinkSync(file.path);
+        const mediaId = uploadData.id;
+        console.log(`[Messages] Media uploaded. ID: ${mediaId}`);
 
-        // 3. Send message with media handle
-        const mediaHandle = uploadData.h;
-        const messagePayload = {
+        // 2. Send message with media ID
+        let payload = {
             messaging_product: 'whatsapp',
+            recipient_type: 'individual',
             to: recipient,
-            type: type || 'document',
-            [type || 'document']: {
-                id: mediaHandle,
-                caption: caption || undefined,
-                filename: file.originalname
-            }
+            type: type,
         };
 
-        const sendResponse = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+        payload[type] = {
+            id: mediaId,
+            caption: caption || ''
+        };
+
+        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(messagePayload),
+            body: JSON.stringify(payload),
         });
 
-        const sendData = await sendResponse.json();
-        const success = sendResponse.ok;
+        const data = await response.json();
 
-        // Log to database
+        // Clean up text file
+        try {
+            fs.unlinkSync(file.path);
+        } catch (e) {
+            console.warn('Failed to delete temp file:', e);
+        }
+
+        if (!response.ok) {
+            return res.status(response.status).json({ success: false, error: data.error?.message, data });
+        }
+
+        // Save to database
         const messageRecord = {
-            tenant_id: tenant_id,
+            tenant_id: tenant_id || null, // Ensure tenant_id is stored
             direction: 'outgoing',
             recipient: recipient,
-            message_type: type || 'document',
-            content: caption || `[${type}: ${file.originalname}]`,
-            status: success ? 'sent' : 'failed',
-            wamid: sendData.messages?.[0]?.id || null,
-            error_message: sendData.error?.message || null,
-            media_id: mediaHandle // Store handle as ID for reference
+            message_type: type,
+            content: caption || `[${type}]`,
+            status: 'sent',
+            wamid: data.messages?.[0]?.id || null,
+            error_message: null,
+            media_id: mediaId, // Store media_id for retrieval
+            media_mime_type: file.mimetype
         };
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message, media_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message, media_id, media_mime_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             messageRecord.tenant_id,
             messageRecord.direction,
@@ -640,14 +643,11 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             messageRecord.status,
             messageRecord.wamid,
             messageRecord.error_message,
-            messageRecord.media_id
+            messageRecord.media_id,
+            messageRecord.media_mime_type
         );
 
-        if (success) {
-            res.json({ success: true, data: sendData });
-        } else {
-            res.status(sendResponse.status).json({ success: false, error: sendData.error?.message });
-        }
+        res.json({ success: true, message_id: data.messages?.[0]?.id, data });
 
     } catch (error) {
         console.error('[Messages] Send media file error:', error);
