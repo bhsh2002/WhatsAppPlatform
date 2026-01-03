@@ -26,7 +26,7 @@ const MainLayout = ({ children }) => {
                     sx={{
                         position: 'fixed',
                         top: 16,
-                        right: 16,
+                        left: 16,
                         zIndex: 1200,
                         bgcolor: 'background.paper',
                         boxShadow: 2,
@@ -45,7 +45,7 @@ const MainLayout = ({ children }) => {
                 {/* Mobile Drawer */}
                 <Drawer
                     variant="temporary"
-                    anchor={theme.direction === 'rtl' ? 'right' : 'left'}
+                    anchor={theme.direction === 'rtl' ? 'left' : 'right'}
                     open={mobileOpen}
                     onClose={handleDrawerToggle}
                     ModalProps={{ keepMounted: true }}
