@@ -2,6 +2,17 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import MainLayout from './components/Layout/MainLayout';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { TenantProvider } from './context/TenantContext';
+
+// Pages
+import Login from './pages/Login/Login';
+import Dashboard from './pages/Dashboard/Dashboard';
+import TenantList from './pages/Tenants/TenantList';
+import WhatsAppConsole from './pages/WhatsAppConsole/WhatsAppConsole';
+import WhatsAppChat from './pages/WhatsAppChat/WhatsAppChat';
+import Logs from './pages/Logs/Logs';
+import Settings from './pages/Settings/Settings';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }) => {
