@@ -140,9 +140,12 @@ class ApiService {
     }
 
     async getMediaDownloadUrl(mediaId, tenantId = null) {
-        const query = tenantId ? `?tenant_id=${tenantId}` : '';
-        // No trailing slash - the request method adds it
-        return `${this.baseUrl}/api/messages/media/${mediaId}/download${query}`;
+        const params = new URLSearchParams();
+        if (tenantId) params.append('tenant_id', tenantId);
+        if (this.authToken) params.append('token', this.authToken);
+
+        const queryString = params.toString() ? `?${params.toString()}` : '';
+        return `${this.baseUrl}/api/messages/media/${mediaId}/download${queryString}`;
     }
 
     async sendMediaMessage(data) {
@@ -154,8 +157,14 @@ class ApiService {
 
     async sendMediaFile(formData) {
         // Use fetch directly for FormData to avoid Content-Type header issues with automatic JSON stringification in request() wrapper
+        const headers = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
         const response = await fetch(`${this.baseUrl}/api/messages/send-media-file`, {
             method: 'POST',
+            headers,
             body: formData,
         });
 

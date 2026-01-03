@@ -288,6 +288,8 @@ router.get('/conversations/:number/messages', (req, res) => {
         const offset = parseInt(req.query.offset) || 0;
         const tenant_id = req.query.tenant_id;
 
+        console.log(`[Messages] Fetching thread for ${contactNumber}, tenant_id: ${tenant_id} (${typeof tenant_id})`);
+
         let query = `
             SELECT * FROM messages 
             WHERE (sender = ? OR recipient = ?)
