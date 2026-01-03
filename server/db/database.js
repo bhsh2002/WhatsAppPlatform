@@ -121,30 +121,8 @@ try {
   // Columns already exist or table is new
 }
 
-// Insert sample data if tables are empty
-const tenantCount = db.prepare('SELECT COUNT(*) as count FROM tenants').get();
-if (tenantCount.count === 0) {
-  const insertTenant = db.prepare(`
-    INSERT INTO tenants (name, phone, status, tier, credits, quality)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertActivity = db.prepare(`
-    INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status, created_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now', ?))
-  `);
-
-  // Insert sample tenants
-  insertTenant.run('مطاعم القمة', '+966500000001', 'Active', '1K', 500, 'High');
-  insertTenant.run('متجر الأزياء', '+966500000002', 'Warning', '1K', 120, 'Medium');
-  insertTenant.run('شركة التقنية الحديثة', '+966500000003', 'Active', '10K', 25000, 'High');
-  insertTenant.run('خدمات التوصيل السريع', '+966500000004', 'Suspended', '1K', 0, 'Low');
-  insertTenant.run('مجموعة العقار الدولية', '+966500000005', 'Active', 'Unlimited', 100000, 'High');
-
-  // Insert sample activities
-  insertActivity.run(1, 'مطاعم القمة', 'template_sent', 'إرسال حملة (Template)', 'success', '-2 minutes');
-  insertActivity.run(4, 'خدمات التوصيل السريع', 'webhook_update', 'تحديث Webhook', 'error', '-15 minutes');
-  insertActivity.run(2, 'متجر الأزياء', 'quality_drop', 'انخفاض الجودة (Quality Drop)', 'warning', '-1 hour');
-}
+// Sample data insertion disabled by default
+// const tenantCount = db.prepare('SELECT COUNT(*) as count FROM tenants').get();
+// if (tenantCount.count === 0) { ... }
 
 export default db;

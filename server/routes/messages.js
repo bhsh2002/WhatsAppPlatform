@@ -555,9 +555,12 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
         // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
         const form = new FormData();
+        const fileStats = fs.statSync(file.path);
+
         form.append('file', fs.createReadStream(file.path), {
             contentType: file.mimetype,
-            filename: file.originalname
+            filename: file.originalname,
+            knownLength: fileStats.size
         });
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
@@ -576,6 +579,10 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         });
 
         const uploadData = await uploadResponse.json();
+
+        if (!uploadResponse.ok) {
+            console.error('[Messages] Meta Upload Error Response:', JSON.stringify(uploadData));
+        }
 
         if (!uploadData.id) {
             console.error('Media upload failed:', uploadData);
