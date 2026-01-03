@@ -1,11 +1,11 @@
 import express from 'express';
 import db from '../db/database.js';
 import multer from 'multer';
-import FormData from 'form-data';
+
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { promisify } from 'util';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -557,28 +557,20 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
         const form = new FormData();
         const fileBuffer = fs.readFileSync(file.path);
+        const blob = new Blob([fileBuffer], { type: file.mimetype });
 
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-
-        form.append('file', fileBuffer, {
-            contentType: file.mimetype,
-            filename: file.originalname,
-        });
+        form.append('file', blob, file.originalname);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
 
-        const getLength = promisify(form.getLength.bind(form));
-        const length = await getLength();
-
-        console.log(`[Messages] Uploading media to ${uploadUrl} (Length: ${length})`);
+        console.log(`[Messages] Uploading media to ${uploadUrl}`);
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                'Content-Length': length,
-                ...form.getHeaders()
             },
             body: form
         });
