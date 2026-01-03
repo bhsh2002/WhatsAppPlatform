@@ -15,8 +15,15 @@ const WhatsAppChat = () => {
     const [showAttachMenu, setShowAttachMenu] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
     const [filePreview, setFilePreview] = useState(null);
+    const [sendError, setSendError] = useState(null);
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
+
+    // Get stored credentials from localStorage
+    const getCredentials = () => ({
+        token: localStorage.getItem('ab_wa_token') || '',
+        phoneId: localStorage.getItem('ab_wa_phoneId') || '',
+    });
 
     // Fetch conversations on load
     useEffect(() => {
@@ -63,24 +70,27 @@ const WhatsAppChat = () => {
         e.preventDefault();
         if ((!newMessage.trim() && !selectedFile) || !selectedChat) return;
 
+        const credentials = getCredentials();
+
+        // Check if credentials exist
+        if (!credentials.token || !credentials.phoneId) {
+            setSendError('لم يتم تكوين بيانات الربط. يرجى الذهاب إلى صفحة الإعدادات وإدخال Phone Number ID و Access Token.');
+            return;
+        }
+
         setSending(true);
+        setSendError(null);
+
         try {
-            if (selectedFile) {
-                // For now, we'll send a text message indicating file
-                // In production, you'd first upload the file to a server/CDN
-                // then send via api.sendMediaMessage
-                await api.sendMessage({
-                    recipient: selectedChat.contact,
-                    type: 'text',
-                    message: newMessage || `[ملف: ${selectedFile.name}]`,
-                });
-            } else {
-                await api.sendMessage({
-                    recipient: selectedChat.contact,
-                    type: 'text',
-                    message: newMessage,
-                });
-            }
+            const payload = {
+                recipient: selectedChat.contact,
+                type: 'text',
+                message: selectedFile ? (newMessage || `[ملف: ${selectedFile.name}]`) : newMessage,
+                phone_number_id: credentials.phoneId,
+                access_token: credentials.token,
+            };
+
+            await api.sendMessage(payload);
 
             setNewMessage('');
             setSelectedFile(null);
@@ -88,6 +98,7 @@ const WhatsAppChat = () => {
             fetchMessages(selectedChat.contact);
         } catch (error) {
             console.error('Failed to send message:', error);
+            setSendError(error.message || 'فشل في إرسال الرسالة');
         } finally {
             setSending(false);
         }
@@ -143,6 +154,33 @@ const WhatsAppChat = () => {
         } else {
             return date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
         }
+    };
+
+    const formatFullDate = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        const now = new Date();
+        const diff = now - date;
+        const oneDay = 24 * 60 * 60 * 1000;
+
+        if (diff < oneDay && date.getDate() === now.getDate()) {
+            return 'اليوم';
+        } else if (diff < 2 * oneDay && date.getDate() === now.getDate() - 1) {
+            return 'أمس';
+        } else {
+            return date.toLocaleDateString('ar-EG', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+            });
+        }
+    };
+
+    const getDateKey = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     };
 
     const getStatusIcon = (status, direction) => {
@@ -508,46 +546,75 @@ const WhatsAppChat = () => {
                         overflowY: 'auto',
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: '0.5rem'
+                        gap: '0.25rem'
                     }}>
-                        {messages.map((msg, idx) => (
-                            <div
-                                key={msg.id || idx}
-                                style={{
-                                    alignSelf: msg.direction === 'outgoing' ? 'flex-end' : 'flex-start',
-                                    maxWidth: '65%',
-                                    position: 'relative',
-                                    marginBottom: '4px'
-                                }}
-                            >
-                                <div style={{
-                                    padding: '0.4rem 0.6rem 0.5rem',
-                                    borderRadius: '0.8rem',
-                                    borderTopRightRadius: msg.direction === 'outgoing' ? 0 : '0.8rem',
-                                    borderTopLeftRadius: msg.direction === 'outgoing' ? '0.8rem' : 0,
-                                    background: msg.direction === 'outgoing' ? 'hsl(var(--color-success) / 0.3)' : 'hsl(var(--color-secondary))',
-                                    color: 'hsl(var(--color-foreground))',
-                                    border: `1px solid ${msg.direction === 'outgoing' ? 'hsl(var(--color-success) / 0.2)' : 'hsl(var(--color-secondary))'}`,
-                                    fontSize: '0.93rem',
-                                    lineHeight: 1.4
-                                }}>
-                                    {renderMessageContent(msg)}
-                                    <div style={{
-                                        display: 'flex',
-                                        justifyContent: 'flex-end',
-                                        alignItems: 'center',
-                                        gap: '0.25rem',
-                                        marginTop: '0.2rem',
-                                        fontSize: '0.65rem',
-                                        color: 'hsl(var(--color-muted-foreground))',
-                                        opacity: 0.8
-                                    }}>
-                                        {formatTime(msg.created_at)}
-                                        {getStatusIcon(msg.status, msg.direction)}
+                        {messages.map((msg, idx) => {
+                            const prevMsg = messages[idx - 1];
+                            const showDateSeparator = !prevMsg || getDateKey(msg.created_at) !== getDateKey(prevMsg.created_at);
+                            const isNewSender = !prevMsg || prevMsg.direction !== msg.direction;
+
+                            return (
+                                <React.Fragment key={msg.id || idx}>
+                                    {/* Date Separator */}
+                                    {showDateSeparator && (
+                                        <div style={{
+                                            display: 'flex',
+                                            justifyContent: 'center',
+                                            margin: '1rem 0'
+                                        }}>
+                                            <span style={{
+                                                background: 'hsl(var(--color-card))',
+                                                color: 'hsl(var(--color-muted-foreground))',
+                                                padding: '0.35rem 1rem',
+                                                borderRadius: '0.5rem',
+                                                fontSize: '0.75rem',
+                                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                            }}>
+                                                {formatFullDate(msg.created_at)}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Message Bubble */}
+                                    <div
+                                        style={{
+                                            alignSelf: msg.direction === 'outgoing' ? 'flex-end' : 'flex-start',
+                                            maxWidth: '65%',
+                                            position: 'relative',
+                                            marginTop: isNewSender && !showDateSeparator ? '0.75rem' : '0.15rem'
+                                        }}
+                                    >
+                                        <div style={{
+                                            padding: '0.5rem 0.75rem',
+                                            borderRadius: '0.8rem',
+                                            borderTopRightRadius: msg.direction === 'outgoing' ? 0 : '0.8rem',
+                                            borderTopLeftRadius: msg.direction === 'outgoing' ? '0.8rem' : 0,
+                                            background: msg.direction === 'outgoing' ? 'hsl(var(--color-success) / 0.3)' : 'hsl(var(--color-secondary))',
+                                            color: 'hsl(var(--color-foreground))',
+                                            border: `1px solid ${msg.direction === 'outgoing' ? 'hsl(var(--color-success) / 0.2)' : 'hsl(var(--color-secondary))'}`,
+                                            fontSize: '0.93rem',
+                                            lineHeight: 1.4,
+                                            boxShadow: '0 1px 1px rgba(0,0,0,0.05)'
+                                        }}>
+                                            {renderMessageContent(msg)}
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'flex-end',
+                                                alignItems: 'center',
+                                                gap: '0.25rem',
+                                                marginTop: '0.25rem',
+                                                fontSize: '0.65rem',
+                                                color: 'hsl(var(--color-muted-foreground))',
+                                                opacity: 0.8
+                                            }}>
+                                                {formatTime(msg.created_at)}
+                                                {getStatusIcon(msg.status, msg.direction)}
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
-                        ))}
+                                </React.Fragment>
+                            );
+                        })}
                         <div ref={messagesEndRef} />
                     </div>
 
@@ -593,6 +660,35 @@ const WhatsAppChat = () => {
                                 }}
                             >
                                 <X size={20} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Error Message */}
+                    {sendError && (
+                        <div style={{
+                            padding: '0.75rem 1rem',
+                            background: 'hsl(var(--color-destructive) / 0.15)',
+                            borderTop: '1px solid hsl(var(--color-destructive) / 0.3)',
+                            color: 'hsl(var(--color-destructive))',
+                            fontSize: '0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.5rem'
+                        }}>
+                            <span>{sendError}</span>
+                            <button
+                                onClick={() => setSendError(null)}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'hsl(var(--color-destructive))',
+                                    cursor: 'pointer',
+                                    padding: '0.25rem'
+                                }}
+                            >
+                                <X size={16} />
                             </button>
                         </div>
                     )}
