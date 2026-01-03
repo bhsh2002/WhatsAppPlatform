@@ -1,20 +1,33 @@
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
-    LayoutDashboard,
-    Users,
-    MessageSquare,
-    MessageCircle,
-    Settings,
-    Activity,
-    LogOut,
-    User
-} from 'lucide-react';
+    Box,
+    List,
+    ListItem,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Typography,
+    Avatar,
+    Divider,
+    Button
+} from '@mui/material';
+import {
+    Dashboard as DashboardIcon,
+    People as PeopleIcon,
+    Chat as ChatIcon,
+    WhatsApp as WhatsAppIcon,
+    Assessment as AssessmentIcon,
+    Settings as SettingsIcon,
+    Logout as LogoutIcon,
+    Person as PersonIcon
+} from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
 const Sidebar = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const handleLogout = () => {
         logout();
@@ -22,116 +35,126 @@ const Sidebar = () => {
     };
 
     const navItems = [
-        { label: 'لوحة القيادة', path: '/', icon: <LayoutDashboard size={20} /> },
-        { label: 'إدارة العملاء', path: '/tenants', icon: <Users size={20} /> },
-        { label: 'المحادثات', path: '/chat', icon: <MessageCircle size={20} /> },
-        { label: 'منصة واتساب', path: '/whatsapp', icon: <MessageSquare size={20} /> },
-        { label: 'سجلات التشغيل', path: '/logs', icon: <Activity size={20} /> },
-        { label: 'الإعدادات', path: '/settings', icon: <Settings size={20} /> },
+        { label: 'لوحة القيادة', path: '/', icon: <DashboardIcon /> },
+        { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
+        { label: 'المحادثات', path: '/chat', icon: <ChatIcon /> },
+        { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
+        { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
+        { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
     ];
 
     return (
-        <aside className="sidebar">
-            <div className="logo-area" style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{
-                    width: '40px',
-                    height: '40px',
-                    background: 'white',
-                    borderRadius: '10px',
+        <Box sx={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            bgcolor: 'background.paper',
+            borderRight: '1px solid rgba(0,0,0,0.12)'
+        }}>
+            {/* Logo Area */}
+            <Box sx={{
+                p: 3,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2
+            }}>
+                <Box sx={{
+                    width: 40,
+                    height: 40,
+                    bgcolor: 'primary.main',
+                    borderRadius: 2,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: '1.5rem',
+                    boxShadow: 2
                 }}>
-                    <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>⚡</span>
-                </div>
-                <div>
-                    <h2 style={{ fontSize: '1.1rem', marginBottom: 0 }}>مراقب واتساب</h2>
-                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))' }}>لوحة الإدارة المركزية</span>
-                </div>
-            </div>
+                    ⚡
+                </Box>
+                <Box>
+                    <Typography variant="h6" fontWeight={700} lineHeight={1.2}>
+                        مراقب واتساب
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                        لوحة الإدارة المركزية
+                    </Typography>
+                </Box>
+            </Box>
 
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
-                {navItems.map((item) => (
-                    <NavLink
-                        key={item.path}
-                        to={item.path}
-                        className={({ isActive }) =>
-                            isActive ? 'button button-secondary' : 'button'
-                        }
-                        style={({ isActive }) => ({
-                            justifyContent: 'flex-start',
-                            background: isActive ? 'hsl(var(--color-secondary))' : 'transparent',
-                            color: isActive ? 'white' : 'hsl(var(--color-muted-foreground))'
-                        })}
-                    >
-                        {item.icon}
-                        {item.label}
-                    </NavLink>
-                ))}
-            </nav>
+            <Divider />
 
-            {/* User info section */}
-            <div style={{
-                marginTop: 'auto',
-                borderTop: '1px solid hsl(var(--color-secondary))',
-                paddingTop: '1rem'
-            }}>
+            {/* Navigation */}
+            <List sx={{ flex: 1, px: 2, py: 2 }}>
+                {navItems.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    return (
+                        <ListItem key={item.path} disablePadding sx={{ mb: 1 }}>
+                            <ListItemButton
+                                onClick={() => navigate(item.path)}
+                                selected={isActive}
+                                sx={{
+                                    borderRadius: 2,
+                                    '&.Mui-selected': {
+                                        bgcolor: 'primary.light',
+                                        color: 'primary.contrastText',
+                                        '&:hover': { bgcolor: 'primary.dark' },
+                                        '& .MuiListItemIcon-root': { color: 'inherit' }
+                                    }
+                                }}
+                            >
+                                <ListItemIcon sx={{ minWidth: 40, color: isActive ? 'inherit' : 'text.secondary' }}>
+                                    {item.icon}
+                                </ListItemIcon>
+                                <ListItemText
+                                    primary={item.label}
+                                    primaryTypographyProps={{ fontWeight: isActive ? 600 : 400 }}
+                                />
+                            </ListItemButton>
+                        </ListItem>
+                    );
+                })}
+            </List>
+
+            <Divider />
+
+            {/* User Profile */}
+            <Box sx={{ p: 2 }}>
                 {user && (
-                    <div style={{
+                    <Box sx={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.75rem',
-                        padding: '0.75rem',
-                        background: 'hsl(var(--color-secondary) / 0.3)',
-                        borderRadius: 'var(--radius)',
-                        marginBottom: '0.75rem'
+                        gap: 1.5,
+                        mb: 2,
+                        p: 1.5,
+                        bgcolor: 'action.hover',
+                        borderRadius: 2
                     }}>
-                        <div style={{
-                            width: '36px',
-                            height: '36px',
-                            background: 'hsl(var(--color-accent))',
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}>
-                            <User size={18} color="white" />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{
-                                fontWeight: 600,
-                                fontSize: '0.9rem',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis'
-                            }}>
+                        <Avatar sx={{ bgcolor: 'secondary.main', width: 36, height: 36 }}>
+                            <PersonIcon />
+                        </Avatar>
+                        <Box sx={{ overflow: 'hidden' }}>
+                            <Typography variant="subtitle2" noWrap>
                                 {user.name || user.username}
-                            </div>
-                            <div style={{
-                                fontSize: '0.75rem',
-                                color: 'hsl(var(--color-muted-foreground))',
-                                textTransform: 'capitalize'
-                            }}>
-                                {user.role === 'admin' ? 'مدير' : user.role === 'viewer' ? 'مشاهد' : 'مستخدم'}
-                            </div>
-                        </div>
-                    </div>
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
+                                {user.role === 'admin' ? 'مدير' : 'مستخدم'}
+                            </Typography>
+                        </Box>
+                    </Box>
                 )}
 
-                <button
+                <Button
+                    fullWidth
+                    variant="outlined"
+                    color="error"
+                    startIcon={<LogoutIcon />}
                     onClick={handleLogout}
-                    className="button"
-                    style={{
-                        width: '100%',
-                        justifyContent: 'flex-start',
-                        color: 'hsl(var(--color-destructive))'
-                    }}
                 >
-                    <LogOut size={20} />
                     تسجيل الخروج
-                </button>
-            </div>
-        </aside>
+                </Button>
+            </Box>
+        </Box>
     );
 };
 

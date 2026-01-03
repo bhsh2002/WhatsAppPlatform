@@ -1,5 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Key, Smartphone, FileText, Plus, Trash2, CheckCircle, AlertCircle } from 'lucide-react';
+import {
+    Box,
+    Grid,
+    Card,
+    CardContent,
+    Typography,
+    TextField,
+    Button,
+    FormControl,
+    FormControlLabel,
+    Radio,
+    RadioGroup,
+    Checkbox,
+    Select,
+    MenuItem,
+    InputLabel,
+    IconButton,
+    InputAdornment,
+    Paper,
+    Divider,
+    Chip,
+    Alert
+} from '@mui/material';
+import {
+    Send as SendIcon,
+    Key as KeyIcon,
+    Smartphone as SmartphoneIcon,
+    Notes as NotesIcon,
+    Add as AddIcon,
+    Delete as DeleteIcon,
+    CheckCircle as CheckCircleIcon,
+    Error as ErrorIcon,
+    Terminal as TerminalIcon
+} from '@mui/icons-material';
 import api from '../../api';
 import { useTenants } from '../../context/TenantContext';
 
@@ -17,7 +50,7 @@ const WhatsAppConsole = () => {
         templateName: 'delivery_confirmation',
         templateLanguage: 'ar',
         templateParams: [],
-        sendViaBackend: true, // New: toggle between backend and direct
+        sendViaBackend: true,
         tenantId: '',
     });
 
@@ -100,7 +133,6 @@ const WhatsAppConsole = () => {
                     templateLanguage: messageForm.templateLanguage,
                     templateParams: messageForm.templateParams,
                     tenant_id: messageForm.tenantId || null,
-                    // Only send manual credentials if no tenant is selected
                     phone_number_id: messageForm.tenantId ? null : config.phoneId,
                     access_token: messageForm.tenantId ? null : config.token,
                 };
@@ -163,260 +195,240 @@ const WhatsAppConsole = () => {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h1>منصة واتساب المباشرة</h1>
-                    <p style={{ color: 'hsl(var(--color-muted-foreground))' }}>أداة تشخيص وإرسال مباشر للتفاعل مع Meta Graph API.</p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {serverOnline === null ? (
-                        <span style={{ color: 'hsl(var(--color-muted-foreground))' }}>فحص الخادم...</span>
-                    ) : serverOnline ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'hsl(var(--color-success))' }}>
-                            <CheckCircle size={18} />
-                            الخادم متصل
-                        </span>
-                    ) : (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'hsl(var(--color-destructive))' }}>
-                            <AlertCircle size={18} />
-                            الخادم غير متصل
-                        </span>
-                    )}
-                </div>
-            </div>
+        <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+                <Box>
+                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                        منصة واتساب المباشرة
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        أداة تشخيص وإرسال مباشر للتفاعل مع Meta Graph API.
+                    </Typography>
+                </Box>
+                <Chip
+                    icon={serverOnline ? <CheckCircleIcon /> : <ErrorIcon />}
+                    label={serverOnline === null ? "فحص الخادم..." : serverOnline ? "الخادم متصل" : "الخادم غير متصل"}
+                    color={serverOnline ? "success" : "error"}
+                    variant="outlined"
+                />
+            </Box>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem' }}>
+            <Grid container spacing={3}>
+                <Grid item xs={12} md={8}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {/* Configuration */}
+                        <Card elevation={2}>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <KeyIcon color="primary" />
+                                    بيانات الربط (Configuration)
+                                </Typography>
 
-                {/* Left Column: Controls */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-
-                    {/* Configuration Card */}
-                    <div className="card glass-panel">
-                        <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Key size={20} className="text-accent" />
-                            بيانات الربط (Configuration)
-                        </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <div className="form-group">
-                                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>Phone Number ID</label>
-                                <input
-                                    type="text"
-                                    value={config.phoneId}
-                                    onChange={e => setConfig({ ...config, phoneId: e.target.value })}
-                                    placeholder="10595..."
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>Access Token</label>
-                                <input
-                                    type="password"
-                                    value={config.token}
-                                    onChange={e => setConfig({ ...config, token: e.target.value })}
-                                    placeholder="EAA..."
-                                />
-                            </div>
-                        </div>
-
-                        {/* Backend toggle */}
-                        <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={messageForm.sendViaBackend}
-                                    onChange={(e) => setMessageForm({ ...messageForm, sendViaBackend: e.target.checked })}
-                                    style={{ width: 'auto' }}
-                                />
-                                <span style={{ fontSize: '0.85rem' }}>إرسال عبر الخادم (Backend)</span>
-                            </label>
-                            {messageForm.sendViaBackend && tenants.length > 0 && (
-                                <select
-                                    value={messageForm.tenantId}
-                                    onChange={(e) => setMessageForm({ ...messageForm, tenantId: e.target.value })}
-                                    style={{ width: '180px', padding: '0.4rem' }}
-                                >
-                                    <option value="">اختر عميل (اختياري)</option>
-                                    {tenants.map(t => (
-                                        <option key={t.id} value={t.id}>{t.name}</option>
-                                    ))}
-                                </select>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Message Tester Card */}
-                    <div className="card glass-panel">
-                        <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Smartphone size={20} className="text-accent" />
-                            اختبار الإرسال
-                        </h3>
-
-                        <form onSubmit={handleSend} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem' }}>رقم المستلم</label>
-                                <input
-                                    type="text"
-                                    value={messageForm.recipient}
-                                    onChange={e => setMessageForm({ ...messageForm, recipient: e.target.value })}
-                                    placeholder="مثال: 20100000000"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.8rem' }}>نوع الرسالة</label>
-                                <div style={{ display: 'flex', gap: '1rem' }}>
-                                    <label className={`button ${messageForm.type === 'text' ? 'button-primary' : 'button-secondary'}`} style={{ flex: 1 }}>
-                                        <input
-                                            type="radio"
-                                            name="type"
-                                            value="text"
-                                            checked={messageForm.type === 'text'}
-                                            onChange={() => setMessageForm({ ...messageForm, type: 'text' })}
-                                            style={{ display: 'none' }}
+                                <Grid container spacing={2} sx={{ mb: 2 }}>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            label="Phone Number ID"
+                                            value={config.phoneId}
+                                            onChange={e => setConfig({ ...config, phoneId: e.target.value })}
+                                            placeholder="10595..."
+                                            size="small"
                                         />
-                                        نص (Text)
-                                    </label>
-                                    <label className={`button ${messageForm.type === 'template' ? 'button-primary' : 'button-secondary'}`} style={{ flex: 1 }}>
-                                        <input
-                                            type="radio"
-                                            name="type"
-                                            value="template"
-                                            checked={messageForm.type === 'template'}
-                                            onChange={() => setMessageForm({ ...messageForm, type: 'template' })}
-                                            style={{ display: 'none' }}
+                                    </Grid>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            type="password"
+                                            label="Access Token"
+                                            value={config.token}
+                                            onChange={e => setConfig({ ...config, token: e.target.value })}
+                                            placeholder="EAA..."
+                                            size="small"
                                         />
-                                        قالب (Template)
-                                    </label>
-                                </div>
-                            </div>
+                                    </Grid>
+                                </Grid>
 
-                            {messageForm.type === 'text' ? (
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>نص الرسالة</label>
-                                    <textarea
-                                        rows="4"
-                                        value={messageForm.message}
-                                        onChange={e => setMessageForm({ ...messageForm, message: e.target.value })}
-                                        required
-                                    ></textarea>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem' }}>اسم القالب</label>
-                                            <input
-                                                type="text"
-                                                value={messageForm.templateName}
-                                                onChange={e => setMessageForm({ ...messageForm, templateName: e.target.value })}
-                                                required
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                                    <FormControlLabel
+                                        control={
+                                            <Checkbox
+                                                checked={messageForm.sendViaBackend}
+                                                onChange={(e) => setMessageForm({ ...messageForm, sendViaBackend: e.target.checked })}
                                             />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem' }}>كود اللغة</label>
-                                            <input
-                                                type="text"
-                                                value={messageForm.templateLanguage}
-                                                onChange={e => setMessageForm({ ...messageForm, templateLanguage: e.target.value })}
-                                                required
-                                            />
-                                        </div>
-                                    </div>
+                                        }
+                                        label="إرسال عبر الخادم (Backend)"
+                                    />
 
-                                    {/* Template Parameters Section */}
-                                    <div style={{ borderTop: '1px solid hsl(var(--color-secondary))', paddingTop: '1rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                                            <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>المتغيرات (Body Parameters)</label>
-                                            <button type="button" onClick={addParam} className="button button-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem' }}>
-                                                <Plus size={14} /> إضافة متغير
-                                            </button>
-                                        </div>
-
-                                        {getBodyParams().length === 0 ? (
-                                            <p style={{ fontSize: '0.8rem', color: 'hsl(var(--color-muted-foreground))', fontStyle: 'italic' }}>لا توجد متغيرات مضافة.</p>
-                                        ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                                {getBodyParams().map((param, index) => (
-                                                    <div key={index} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                        <span style={{ fontSize: '0.8rem', color: 'hsl(var(--color-muted-foreground))', width: '30px' }}>{`{{${index + 1}}}`}</span>
-                                                        <input
-                                                            type="text"
-                                                            placeholder={`قيمة المتغير ${index + 1}`}
-                                                            value={param.text}
-                                                            onChange={(e) => updateParam(index, e.target.value)}
-                                                            style={{ flex: 1, padding: '0.5rem' }}
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => removeParam(index)}
-                                                            style={{ background: 'none', border: 'none', color: 'hsl(var(--color-destructive))', cursor: 'pointer' }}
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
+                                    {messageForm.sendViaBackend && tenants.length > 0 && (
+                                        <FormControl size="small" sx={{ minWidth: 200 }}>
+                                            <Select
+                                                value={messageForm.tenantId}
+                                                onChange={(e) => setMessageForm({ ...messageForm, tenantId: e.target.value })}
+                                                displayEmpty
+                                            >
+                                                <MenuItem value="">اختر عميل (اختياري)</MenuItem>
+                                                {tenants.map(t => (
+                                                    <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
                                                 ))}
-                                            </div>
+                                            </Select>
+                                        </FormControl>
+                                    )}
+                                </Box>
+                            </CardContent>
+                        </Card>
+
+                        {/* Message Tester */}
+                        <Card elevation={2}>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                    <SmartphoneIcon color="primary" />
+                                    اختبار الإرسال
+                                </Typography>
+
+                                <form onSubmit={handleSend}>
+                                    <Grid container spacing={2}>
+                                        <Grid item xs={12}>
+                                            <TextField
+                                                fullWidth
+                                                label="رقم المستلم"
+                                                value={messageForm.recipient}
+                                                onChange={e => setMessageForm({ ...messageForm, recipient: e.target.value })}
+                                                placeholder="مثال: 20100000000"
+                                                required
+                                            />
+                                        </Grid>
+
+                                        <Grid item xs={12}>
+                                            <FormControl>
+                                                <RadioGroup
+                                                    row
+                                                    value={messageForm.type}
+                                                    onChange={(e) => setMessageForm({ ...messageForm, type: e.target.value })}
+                                                >
+                                                    <FormControlLabel value="text" control={<Radio />} label="نص (Text)" />
+                                                    <FormControlLabel value="template" control={<Radio />} label="قالب (Template)" />
+                                                </RadioGroup>
+                                            </FormControl>
+                                        </Grid>
+
+                                        {messageForm.type === 'text' ? (
+                                            <Grid item xs={12}>
+                                                <TextField
+                                                    fullWidth
+                                                    multiline
+                                                    rows={4}
+                                                    label="نص الرسالة"
+                                                    value={messageForm.message}
+                                                    onChange={e => setMessageForm({ ...messageForm, message: e.target.value })}
+                                                    required
+                                                />
+                                            </Grid>
+                                        ) : (
+                                            <>
+                                                <Grid item xs={12} sm={6}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="اسم القالب"
+                                                        value={messageForm.templateName}
+                                                        onChange={e => setMessageForm({ ...messageForm, templateName: e.target.value })}
+                                                        required
+                                                    />
+                                                </Grid>
+                                                <Grid item xs={12} sm={6}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="كود اللغة"
+                                                        value={messageForm.templateLanguage}
+                                                        onChange={e => setMessageForm({ ...messageForm, templateLanguage: e.target.value })}
+                                                        required
+                                                    />
+                                                </Grid>
+
+                                                <Grid item xs={12}>
+                                                    <Box sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                                            <Typography variant="subtitle2">المتغيرات (Body Parameters)</Typography>
+                                                            <Button size="small" startIcon={<AddIcon />} onClick={addParam}>
+                                                                إضافة
+                                                            </Button>
+                                                        </Box>
+
+                                                        {getBodyParams().map((param, index) => (
+                                                            <Box key={index} sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                                                                <Typography variant="body2" color="text.secondary" sx={{ pt: 1, width: 30 }}>
+                                                                    {`{{${index + 1}}}`}
+                                                                </Typography>
+                                                                <TextField
+                                                                    fullWidth
+                                                                    size="small"
+                                                                    value={param.text}
+                                                                    onChange={(e) => updateParam(index, e.target.value)}
+                                                                />
+                                                                <IconButton size="small" onClick={() => removeParam(index)} color="error">
+                                                                    <DeleteIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Box>
+                                                        ))}
+                                                    </Box>
+                                                </Grid>
+                                            </>
                                         )}
-                                    </div>
-                                </div>
-                            )}
 
-                            <button
-                                type="submit"
-                                className="button"
-                                disabled={status === 'loading'}
-                                style={{
-                                    background: 'linear-gradient(135deg, hsl(var(--color-accent)), #4338ca)',
-                                    color: 'white',
-                                    marginTop: '0.5rem',
-                                    padding: '1rem'
-                                }}
-                            >
-                                {status === 'loading' ? 'جاري الاتصال...' : (
-                                    <>
-                                        إرسال الآن <Send size={18} />
-                                    </>
-                                )}
-                            </button>
-                        </form>
-                    </div>
+                                        <Grid item xs={12}>
+                                            <Button
+                                                type="submit"
+                                                variant="contained"
+                                                size="large"
+                                                fullWidth
+                                                disabled={status === 'loading'}
+                                                startIcon={status !== 'loading' && <SendIcon />}
+                                            >
+                                                {status === 'loading' ? 'جاري الاتصال...' : 'إرسال الآن'}
+                                            </Button>
+                                        </Grid>
+                                    </Grid>
+                                </form>
+                            </CardContent>
+                        </Card>
+                    </Box>
+                </Grid>
 
-                </div>
+                <Grid item xs={12} md={4}>
+                    <Card elevation={2} sx={{ height: '100%', maxHeight: 600, display: 'flex', flexDirection: 'column' }}>
+                        <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 2 }}>
+                            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <TerminalIcon color="action" />
+                                سجلات التشغيل
+                            </Typography>
 
-                {/* Right Column: Logs */}
-                <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column', maxHeight: '600px' }}>
-                    <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <FileText size={20} />
-                        سجلات التشغيل (Live Logs)
-                    </h3>
-                    <div style={{
-                        background: '#0d0d0d',
-                        flex: 1,
-                        borderRadius: 'var(--radius)',
-                        padding: '1rem',
-                        overflowY: 'auto',
-                        fontFamily: 'monospace',
-                        fontSize: '0.85rem',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.5rem'
-                    }}>
-                        {logs.length === 0 && <span style={{ color: '#444' }}>بانتظار العمليات...</span>}
-                        {logs.map((log, i) => (
-                            <div key={i} style={{
-                                color: log.includes('Success') ? '#4ade80' : '#f87171',
-                                borderBottom: '1px solid #222',
-                                paddingBottom: '0.5rem'
+                            <Box sx={{
+                                bgcolor: '#0d0d0d',
+                                borderRadius: 2,
+                                p: 2,
+                                flex: 1,
+                                overflowY: 'auto',
+                                fontFamily: 'monospace',
+                                fontSize: '0.875rem'
                             }}>
-                                {log}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-            </div>
-        </div>
+                                {logs.length === 0 && (
+                                    <Typography color="text.secondary" variant="body2">بانتظار العمليات...</Typography>
+                                )}
+                                {logs.map((log, i) => (
+                                    <Box key={i} sx={{
+                                        color: log.includes('Success') ? '#4ade80' : '#f87171',
+                                        borderBottom: '1px solid #333',
+                                        pb: 1,
+                                        mb: 1
+                                    }}>
+                                        {log}
+                                    </Box>
+                                ))}
+                            </Box>
+                        </CardContent>
+                    </Card>
+                </Grid>
+            </Grid>
+        </Box>
     );
 };
 

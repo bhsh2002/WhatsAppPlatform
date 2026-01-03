@@ -1,15 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Sidebar from './components/Layout/Sidebar';
-import Dashboard from './pages/Dashboard/Dashboard';
-import TenantList from './pages/Tenants/TenantList';
-import WhatsAppConsole from './pages/WhatsAppConsole/WhatsAppConsole';
-import Settings from './pages/Settings/Settings';
-import Logs from './pages/Logs/Logs';
-import Login from './pages/Login/Login';
-import WhatsAppChat from './pages/WhatsAppChat/WhatsAppChat';
-import { TenantProvider } from './context/TenantContext';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { Box, CircularProgress } from '@mui/material';
+import MainLayout from './components/Layout/MainLayout';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }) => {
@@ -17,26 +9,18 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div style={{
+      <Box sx={{
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'hsl(var(--color-background))'
+        bgcolor: 'background.default'
       }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            border: '3px solid hsl(var(--color-secondary))',
-            borderTop: '3px solid hsl(var(--color-accent))',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 1rem'
-          }} />
-          <p style={{ color: 'hsl(var(--color-muted-foreground))' }}>جاري التحميل...</p>
-        </div>
-      </div>
+        <Box sx={{ textAlign: 'center' }}>
+          <CircularProgress size={40} thickness={4} />
+          <p style={{ marginTop: '1rem', color: 'text.secondary' }}>جاري التحميل...</p>
+        </Box>
+      </Box>
     );
   }
 
@@ -46,16 +30,6 @@ const ProtectedRoute = ({ children }) => {
 
   return children;
 };
-
-// Main layout with sidebar
-const MainLayout = ({ children }) => (
-  <div className="layout-wrapper">
-    <Sidebar />
-    <main className="main-content">
-      {children}
-    </main>
-  </div>
-);
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();

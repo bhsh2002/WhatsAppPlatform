@@ -1,6 +1,42 @@
 import React, { useState } from 'react';
 import { useTenants } from '../../context/TenantContext';
-import { MoreHorizontal, Search, Plus, Trash2, Edit, X, Check, Loader } from 'lucide-react';
+import {
+    Box,
+    Paper,
+    Typography,
+    Button,
+    TextField,
+    InputAdornment,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Chip,
+    IconButton,
+    Menu,
+    MenuItem,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Grid,
+    FormControl,
+    InputLabel,
+    Select,
+    CircularProgress,
+    Alert,
+    ListItemIcon
+} from '@mui/material';
+import {
+    Search as SearchIcon,
+    Add as AddIcon,
+    MoreVert as MoreVertIcon,
+    Edit as EditIcon,
+    Delete as DeleteIcon,
+    WhatsApp as WhatsAppIcon
+} from '@mui/icons-material';
 
 const TenantList = () => {
     const { tenants, loading, error, createTenant, updateTenant, deleteTenant } = useTenants();
@@ -18,11 +54,12 @@ const TenantList = () => {
         phone_number_id: '',
         access_token: ''
     });
-    const [actionMenu, setActionMenu] = useState(null);
+    const [anchorEl, setAnchorEl] = useState(null);
+    const [selectedTenantId, setSelectedTenantId] = useState(null);
     const [saving, setSaving] = useState(false);
 
     const filteredTenants = tenants.filter(tenant => {
-        const matchesSearch = tenant.name.includes(searchQuery) ||
+        const matchesSearch = tenant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             tenant.phone?.includes(searchQuery) ||
             tenant.id.toString().includes(searchQuery);
         const matchesStatus = !statusFilter ||
@@ -31,10 +68,20 @@ const TenantList = () => {
         return matchesSearch && matchesStatus;
     });
 
-    const getStatusBadge = (status, quality) => {
-        if (status === 'Suspended' || quality === 'Low') return <span className="badge badge-destructive">موقوف/حرج</span>;
-        if (status === 'Warning' || quality === 'Medium') return <span className="badge badge-warning">تحذير</span>;
-        return <span className="badge badge-success">نشط</span>;
+    const getStatusChip = (status, quality) => {
+        if (status === 'Suspended' || quality === 'Low') return <Chip label="موقوف/حرج" color="error" size="small" />;
+        if (status === 'Warning' || quality === 'Medium') return <Chip label="تحذير" color="warning" size="small" />;
+        return <Chip label="نشط" color="success" size="small" />;
+    };
+
+    const handleMenuOpen = (event, tenantId) => {
+        setAnchorEl(event.currentTarget);
+        setSelectedTenantId(tenantId);
+    };
+
+    const handleMenuClose = () => {
+        setAnchorEl(null);
+        setSelectedTenantId(null);
     };
 
     const openCreateModal = () => {
@@ -52,20 +99,23 @@ const TenantList = () => {
         setShowModal(true);
     };
 
-    const openEditModal = (tenant) => {
-        setEditingTenant(tenant);
-        setFormData({
-            name: tenant.name,
-            phone: tenant.phone || '',
-            tier: tenant.tier,
-            credits: tenant.credits,
-            status: tenant.status,
-            quality: tenant.quality,
-            phone_number_id: tenant.phone_number_id || '',
-            access_token: tenant.access_token || ''
-        });
-        setShowModal(true);
-        setActionMenu(null);
+    const openEditModal = () => {
+        const tenant = tenants.find(t => t.id === selectedTenantId);
+        if (tenant) {
+            setEditingTenant(tenant);
+            setFormData({
+                name: tenant.name,
+                phone: tenant.phone || '',
+                tier: tenant.tier,
+                credits: tenant.credits,
+                status: tenant.status,
+                quality: tenant.quality,
+                phone_number_id: tenant.phone_number_id || '',
+                access_token: tenant.access_token || ''
+            });
+            setShowModal(true);
+        }
+        handleMenuClose();
     };
 
     const handleSubmit = async (e) => {
@@ -85,304 +135,276 @@ const TenantList = () => {
         }
     };
 
-    const handleDelete = async (tenant) => {
-        if (confirm(`هل أنت متأكد من حذف "${tenant.name}"؟`)) {
+    const handleDelete = async () => {
+        const tenant = tenants.find(t => t.id === selectedTenantId);
+        if (tenant && window.confirm(`هل أنت متأكد من حذف "${tenant.name}"؟`)) {
             try {
                 await deleteTenant(tenant.id);
             } catch (error) {
                 alert('حدث خطأ: ' + error.message);
             }
         }
-        setActionMenu(null);
+        handleMenuClose();
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h1>إدارة العملاء</h1>
-                    <p style={{ color: 'hsl(var(--color-muted-foreground))' }}>قائمة جميع المشتركين وحالتهم التقنية.</p>
-                </div>
-                <button className="button button-primary" onClick={openCreateModal} style={{ gap: '0.5rem' }}>
-                    <Plus size={18} />
+        <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+                <Box>
+                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                        إدارة العملاء
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        قائمة جميع المشتركين وحالتهم التقنية.
+                    </Typography>
+                </Box>
+                <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={openCreateModal}
+                >
                     إضافة عميل جديد
-                </button>
-            </div>
+                </Button>
+            </Box>
 
-            <div className="glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem' }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                    <Search style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'hsl(var(--color-muted-foreground))' }} size={20} />
-                    <input
-                        type="text"
+            <Paper sx={{ p: 2, mb: 3 }}>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField
+                        fullWidth
+                        size="small"
                         placeholder="بحث باسم الشركة، رقم الهاتف، أو المعرف..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{ paddingRight: '2.8rem' }}
+                        InputProps={{
+                            startAdornment: (
+                                <InputAdornment position="start">
+                                    <SearchIcon color="action" />
+                                </InputAdornment>
+                            ),
+                        }}
                     />
-                </div>
-                <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    style={{ width: '200px' }}
-                >
-                    <option value="">كل الحالات</option>
-                    <option value="active">نشط</option>
-                    <option value="suspended">موقوف</option>
-                </select>
-            </div>
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                        <Select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            displayEmpty
+                        >
+                            <MenuItem value="">كل الحالات</MenuItem>
+                            <MenuItem value="active">نشط</MenuItem>
+                            <MenuItem value="suspended">موقوف</MenuItem>
+                        </Select>
+                    </FormControl>
+                </Box>
+            </Paper>
 
             {error && (
-                <div className="card" style={{ background: 'hsl(var(--color-destructive) / 0.1)', borderColor: 'hsl(var(--color-destructive))' }}>
-                    <p style={{ color: 'hsl(var(--color-destructive))' }}>خطأ: {error}</p>
-                </div>
+                <Alert severity="error" sx={{ mb: 3 }}>
+                    {error}
+                </Alert>
             )}
 
-            <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-                {loading ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: 'hsl(var(--color-muted-foreground))' }}>
-                        جاري التحميل...
-                    </div>
-                ) : filteredTenants.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: 'hsl(var(--color-muted-foreground))' }}>
-                        لا يوجد عملاء
-                    </div>
-                ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead style={{ background: 'hsl(var(--color-secondary) / 0.5)' }}>
-                            <tr style={{ textAlign: 'right' }}>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>اسم العميل</th>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>رقم الهاتف</th>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>المستوى (Tier)</th>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>الرصيد</th>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>جودة الرقم</th>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>الحالة</th>
-                                <th style={{ padding: '1.2rem', color: 'hsl(var(--color-muted-foreground))', fontWeight: 500 }}>إجراءات</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredTenants.map((tenant) => (
-                                <tr key={tenant.id} style={{ borderBottom: '1px solid hsl(var(--color-secondary))' }}>
-                                    <td style={{ padding: '1.2rem', fontWeight: 600 }}>{tenant.name}</td>
-                                    <td style={{ padding: '1.2rem', fontFamily: 'monospace' }}>{tenant.phone}</td>
-                                    <td style={{ padding: '1.2rem' }}>{tenant.tier}</td>
-                                    <td style={{ padding: '1.2rem' }}>{tenant.credits?.toLocaleString()} SAR</td>
-                                    <td style={{ padding: '1.2rem' }}>
-                                        <span style={{
-                                            color: tenant.quality === 'High' ? 'hsl(var(--color-success))' :
-                                                tenant.quality === 'Medium' ? 'hsl(var(--color-warning))' : 'hsl(var(--color-destructive))',
-                                            fontWeight: 600
-                                        }}>
-                                            {tenant.quality}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '1.2rem' }}>{getStatusBadge(tenant.status, tenant.quality)}</td>
-                                    <td style={{ padding: '1.2rem', position: 'relative' }}>
-                                        <button
-                                            className="button button-secondary"
-                                            style={{ padding: '0.4rem' }}
-                                            onClick={() => setActionMenu(actionMenu === tenant.id ? null : tenant.id)}
+            <TableContainer component={Paper}>
+                <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>اسم العميل</TableCell>
+                            <TableCell>رقم الهاتف</TableCell>
+                            <TableCell>المستوى (Tier)</TableCell>
+                            <TableCell>الرصيد</TableCell>
+                            <TableCell>جودة الرقم</TableCell>
+                            <TableCell>الحالة</TableCell>
+                            <TableCell align="right">إجراءات</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {loading ? (
+                            <TableRow>
+                                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                                    <CircularProgress />
+                                </TableCell>
+                            </TableRow>
+                        ) : filteredTenants.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                                    <Typography color="text.secondary">لا يوجد عملاء</Typography>
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            filteredTenants.map((tenant) => (
+                                <TableRow key={tenant.id} hover>
+                                    <TableCell sx={{ fontWeight: 600 }}>{tenant.name}</TableCell>
+                                    <TableCell sx={{ fontFamily: 'monospace' }}>{tenant.phone}</TableCell>
+                                    <TableCell>{tenant.tier}</TableCell>
+                                    <TableCell>{tenant.credits?.toLocaleString()} SAR</TableCell>
+                                    <TableCell>
+                                        <Typography
+                                            variant="body2"
+                                            fontWeight={600}
+                                            color={
+                                                tenant.quality === 'High' ? 'success.main' :
+                                                    tenant.quality === 'Medium' ? 'warning.main' : 'error.main'
+                                            }
                                         >
-                                            <MoreHorizontal size={18} />
-                                        </button>
-                                        {actionMenu === tenant.id && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                left: '0',
-                                                top: '100%',
-                                                background: 'hsl(var(--color-card))',
-                                                border: '1px solid hsl(var(--color-secondary))',
-                                                borderRadius: 'var(--radius)',
-                                                padding: '0.5rem',
-                                                zIndex: 100,
-                                                minWidth: '120px',
-                                                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                                            }}>
-                                                <button
-                                                    onClick={() => openEditModal(tenant)}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '0.5rem',
-                                                        width: '100%',
-                                                        padding: '0.5rem',
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        color: 'white',
-                                                        cursor: 'pointer',
-                                                        borderRadius: 'var(--radius)'
-                                                    }}
-                                                    onMouseOver={(e) => e.target.style.background = 'hsl(var(--color-secondary))'}
-                                                    onMouseOut={(e) => e.target.style.background = 'none'}
-                                                >
-                                                    <Edit size={16} /> تعديل
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(tenant)}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '0.5rem',
-                                                        width: '100%',
-                                                        padding: '0.5rem',
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        color: 'hsl(var(--color-destructive))',
-                                                        cursor: 'pointer',
-                                                        borderRadius: 'var(--radius)'
-                                                    }}
-                                                    onMouseOver={(e) => e.target.style.background = 'hsl(var(--color-destructive) / 0.1)'}
-                                                    onMouseOut={(e) => e.target.style.background = 'none'}
-                                                >
-                                                    <Trash2 size={16} /> حذف
-                                                </button>
-                                            </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
-            </div>
+                                            {tenant.quality}
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell>{getStatusChip(tenant.status, tenant.quality)}</TableCell>
+                                    <TableCell align="right">
+                                        <IconButton size="small" onClick={(e) => handleMenuOpen(e, tenant.id)}>
+                                            <MoreVertIcon />
+                                        </IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        )}
+                    </TableBody>
+                </Table>
+            </TableContainer>
 
-            {/* Modal */}
-            {showModal && (
-                <div style={{
-                    position: 'fixed',
-                    inset: 0,
-                    background: 'rgba(0,0,0,0.7)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 1000
-                }} onClick={() => setShowModal(false)}>
-                    <div
-                        className="card glass-panel"
-                        style={{ width: '500px', maxHeight: '90vh', overflow: 'auto' }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                            <h2>{editingTenant ? 'تعديل العميل' : 'إضافة عميل جديد'}</h2>
-                            <button className="button" style={{ padding: '0.3rem' }} onClick={() => setShowModal(false)}>
-                                <X size={20} />
-                            </button>
-                        </div>
+            <Menu
+                anchorEl={anchorEl}
+                open={Boolean(anchorEl)}
+                onClose={handleMenuClose}
+            >
+                <MenuItem onClick={openEditModal}>
+                    <ListItemIcon>
+                        <EditIcon fontSize="small" />
+                    </ListItemIcon>
+                    تعديل
+                </MenuItem>
+                <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
+                    <ListItemIcon>
+                        <DeleteIcon fontSize="small" color="error" />
+                    </ListItemIcon>
+                    حذف
+                </MenuItem>
+            </Menu>
 
-                        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem' }}>اسم العميل *</label>
-                                <input
-                                    type="text"
+            {/* Edit/Create Dialog */}
+            <Dialog open={showModal} onClose={() => setShowModal(false)} maxWidth="sm" fullWidth>
+                <form onSubmit={handleSubmit}>
+                    <DialogTitle>
+                        {editingTenant ? 'تعديل العميل' : 'إضافة عميل جديد'}
+                    </DialogTitle>
+                    <DialogContent dividers>
+                        <Grid container spacing={2}>
+                            <Grid item xs={12}>
+                                <TextField
+                                    fullWidth
+                                    label="اسم العميل"
                                     value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                     required
                                 />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem' }}>رقم الهاتف</label>
-                                <input
-                                    type="text"
+                            </Grid>
+                            <Grid item xs={12}>
+                                <TextField
+                                    fullWidth
+                                    label="رقم الهاتف"
                                     value={formData.phone}
                                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                     placeholder="+966500000000"
                                 />
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>المستوى</label>
-                                    <select
+                            </Grid>
+                            <Grid item xs={6}>
+                                <FormControl fullWidth>
+                                    <InputLabel>المستوى</InputLabel>
+                                    <Select
                                         value={formData.tier}
+                                        label="المستوى"
                                         onChange={(e) => setFormData({ ...formData, tier: e.target.value })}
                                     >
-                                        <option value="1K">1K</option>
-                                        <option value="10K">10K</option>
-                                        <option value="100K">100K</option>
-                                        <option value="Unlimited">Unlimited</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>الرصيد</label>
-                                    <input
-                                        type="number"
-                                        value={formData.credits}
-                                        onChange={(e) => setFormData({ ...formData, credits: parseInt(e.target.value) || 0 })}
-                                    />
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>الحالة</label>
-                                    <select
+                                        <MenuItem value="1K">1K</MenuItem>
+                                        <MenuItem value="10K">10K</MenuItem>
+                                        <MenuItem value="100K">100K</MenuItem>
+                                        <MenuItem value="Unlimited">Unlimited</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Grid>
+                            <Grid item xs={6}>
+                                <TextField
+                                    fullWidth
+                                    type="number"
+                                    label="الرصيد"
+                                    value={formData.credits}
+                                    onChange={(e) => setFormData({ ...formData, credits: parseInt(e.target.value) || 0 })}
+                                />
+                            </Grid>
+                            <Grid item xs={6}>
+                                <FormControl fullWidth>
+                                    <InputLabel>الحالة</InputLabel>
+                                    <Select
                                         value={formData.status}
+                                        label="الحالة"
                                         onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                                     >
-                                        <option value="Active">نشط</option>
-                                        <option value="Warning">تحذير</option>
-                                        <option value="Suspended">موقوف</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>الجودة</label>
-                                    <select
+                                        <MenuItem value="Active">نشط</MenuItem>
+                                        <MenuItem value="Warning">تحذير</MenuItem>
+                                        <MenuItem value="Suspended">موقوف</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Grid>
+                            <Grid item xs={6}>
+                                <FormControl fullWidth>
+                                    <InputLabel>الجودة</InputLabel>
+                                    <Select
                                         value={formData.quality}
+                                        label="الجودة"
                                         onChange={(e) => setFormData({ ...formData, quality: e.target.value })}
                                     >
-                                        <option value="High">High</option>
-                                        <option value="Medium">Medium</option>
-                                        <option value="Low">Low</option>
-                                    </select>
-                                </div>
-                            </div>
+                                        <MenuItem value="High">High</MenuItem>
+                                        <MenuItem value="Medium">Medium</MenuItem>
+                                        <MenuItem value="Low">Low</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Grid>
 
-                            <div style={{ borderTop: '1px solid hsl(var(--color-secondary))', paddingTop: '1rem', marginTop: '0.5rem' }}>
-                                <h4 style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>بيانات WhatsApp API (اختياري)</h4>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>Phone Number ID</label>
-                                        <input
-                                            type="text"
-                                            value={formData.phone_number_id}
-                                            onChange={(e) => setFormData({ ...formData, phone_number_id: e.target.value })}
-                                            placeholder="105956789012345"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>Access Token</label>
-                                        <input
-                                            type="password"
-                                            value={formData.access_token}
-                                            onChange={(e) => setFormData({ ...formData, access_token: e.target.value })}
-                                            placeholder="EAA..."
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                            <Grid item xs={12}>
+                                <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                                    <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <WhatsAppIcon fontSize="small" /> بيانات WhatsApp API (اختياري)
+                                    </Typography>
+                                </Box>
+                            </Grid>
 
-                            <button
-                                type="submit"
-                                className="button"
-                                disabled={saving}
-                                style={{
-                                    background: 'linear-gradient(135deg, hsl(var(--color-accent)), #4338ca)',
-                                    color: 'white',
-                                    marginTop: '1rem',
-                                    padding: '1rem'
-                                }}
-                            >
-                                {saving ? (
-                                    <><Loader size={18} className="spinning" /> جاري الحفظ...</>
-                                ) : (
-                                    <><Check size={18} /> {editingTenant ? 'حفظ التعديلات' : 'إضافة العميل'}</>
-                                )}
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            )}
-        </div>
+                            <Grid item xs={12}>
+                                <TextField
+                                    fullWidth
+                                    label="Phone Number ID"
+                                    value={formData.phone_number_id}
+                                    onChange={(e) => setFormData({ ...formData, phone_number_id: e.target.value })}
+                                    placeholder="105956789012345"
+                                />
+                            </Grid>
+
+                            <Grid item xs={12}>
+                                <TextField
+                                    fullWidth
+                                    type="password"
+                                    label="Access Token"
+                                    value={formData.access_token}
+                                    onChange={(e) => setFormData({ ...formData, access_token: e.target.value })}
+                                    placeholder="EAA..."
+                                />
+                            </Grid>
+                        </Grid>
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setShowModal(false)} color="inherit">
+                            إلغاء
+                        </Button>
+                        <Button
+                            type="submit"
+                            variant="contained"
+                            disabled={saving}
+                            startIcon={saving ? <CircularProgress size={20} /> : null}
+                        >
+                            {saving ? 'جاري الحفظ...' : (editingTenant ? 'حفظ التعديلات' : 'إضافة العميل')}
+                        </Button>
+                    </DialogActions>
+                </form>
+            </Dialog>
+        </Box>
     );
 };
 

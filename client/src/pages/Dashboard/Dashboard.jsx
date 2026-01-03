@@ -1,6 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { useTenants } from '../../context/TenantContext';
-import { Users, AlertTriangle, CheckCircle, Activity, RefreshCw } from 'lucide-react';
+import {
+    Box,
+    Grid,
+    Card,
+    CardContent,
+    Typography,
+    Button,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Paper,
+    Chip,
+    IconButton,
+    CircularProgress
+} from '@mui/material';
+import {
+    People as PeopleIcon,
+    CheckCircle as CheckCircleIcon,
+    Warning as WarningIcon,
+    Error as ErrorIcon,
+    Refresh as RefreshIcon,
+    History as HistoryIcon
+} from '@mui/icons-material';
 import api from '../../api';
 
 const Dashboard = () => {
@@ -31,14 +56,10 @@ const Dashboard = () => {
 
     const getStatusBadge = (status) => {
         switch (status) {
-            case 'success':
-                return <span className="badge badge-success">تم بنجاح</span>;
-            case 'error':
-                return <span className="badge badge-destructive">فشل</span>;
-            case 'warning':
-                return <span className="badge badge-warning">تحذير</span>;
-            default:
-                return <span className="badge">{status}</span>;
+            case 'success': return <Chip label="تم بنجاح" color="success" size="small" />;
+            case 'error': return <Chip label="فشل" color="error" size="small" />;
+            case 'warning': return <Chip label="تحذير" color="warning" size="small" />;
+            default: return <Chip label={status} size="small" />;
         }
     };
 
@@ -49,7 +70,7 @@ const Dashboard = () => {
             'message_received': 'رسالة واردة',
             'message_failed': 'فشل إرسال',
             'webhook_update': 'تحديث Webhook',
-            'quality_drop': 'انخفاض الجودة (Quality Drop)',
+            'quality_drop': 'انخفاض الجودة',
             'quality_update': 'تحديث جودة الرقم',
             'tenant_created': 'إضافة عميل جديد',
             'tenant_updated': 'تحديث بيانات العميل',
@@ -59,112 +80,145 @@ const Dashboard = () => {
     };
 
     const StatCard = ({ title, value, icon, color, description }) => (
-        <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'hsl(var(--color-muted-foreground))', fontSize: '0.9rem' }}>{title}</span>
-                <div style={{
-                    padding: '0.5rem',
-                    borderRadius: '50%',
-                    background: `hsl(var(--color-${color}) / 0.1)`,
-                    color: `hsl(var(--color-${color}))`
-                }}>
-                    {icon}
-                </div>
-            </div>
-            <h3 style={{ fontSize: '2rem' }}>{statsLoading ? '...' : value}</h3>
-            <span style={{ fontSize: '0.8rem', color: 'hsl(var(--color-muted-foreground))' }}>{description}</span>
-        </div>
+        <Card elevation={2} sx={{ height: '100%' }}>
+            <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                        {title}
+                    </Typography>
+                    <Box sx={{
+                        p: 1,
+                        borderRadius: '50%',
+                        bgcolor: `${color}.light`,
+                        color: `${color}.main`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        {icon}
+                    </Box>
+                </Box>
+                <Typography variant="h4" fontWeight={600} gutterBottom>
+                    {statsLoading ? '-' : value}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                    {description}
+                </Typography>
+            </CardContent>
+        </Card>
     );
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h1>نظرة عامة</h1>
-                    <p style={{ color: 'hsl(var(--color-muted-foreground))' }}>ملخص أداء المنصة وحالة العملاء لليوم.</p>
-                </div>
-                <button
-                    className="button button-secondary"
+        <Box sx={{ p: 3 }}>
+            {/* Header */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+                <Box>
+                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                        نظرة عامة
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        ملخص أداء المنصة وحالة العملاء لليوم.
+                    </Typography>
+                </Box>
+                <Button
+                    variant="outlined"
+                    startIcon={statsLoading || activityLoading ? <CircularProgress size={20} /> : <RefreshIcon />}
                     onClick={handleRefresh}
                     disabled={statsLoading || activityLoading}
-                    style={{ gap: '0.5rem' }}
                 >
-                    <RefreshCw size={18} className={statsLoading || activityLoading ? 'spinning' : ''} />
                     تحديث
-                </button>
-            </div>
+                </Button>
+            </Box>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
-                <StatCard
-                    title="إجمالي العملاء"
-                    value={stats.total}
-                    icon={<Users size={24} />}
-                    color="primary-foreground"
-                    description="جميع الشركات المسجلة"
-                />
-                <StatCard
-                    title="عملاء نشطين"
-                    value={stats.active}
-                    icon={<CheckCircle size={24} />}
-                    color="success"
-                    description="حالة الربط والتشغيل سليمة"
-                />
-                <StatCard
-                    title="تحتاج انتباه"
-                    value={stats.warning}
-                    icon={<AlertTriangle size={24} />}
-                    color="warning"
-                    description="جودة متوسطة أو اقتراب من الحدود"
-                />
-                <StatCard
-                    title="مشاكل حرجة"
-                    value={stats.critical}
-                    icon={<Activity size={24} />}
-                    color="destructive"
-                    description="حظر أو انقطاع خدمة"
-                />
-            </div>
+            {/* Stats Grid */}
+            <Grid container spacing={3} sx={{ mb: 4 }}>
+                <Grid item xs={12} sm={6} md={3}>
+                    <StatCard
+                        title="إجمالي العملاء"
+                        value={stats.total}
+                        icon={<PeopleIcon />}
+                        color="primary"
+                        description="جميع الشركات المسجلة"
+                    />
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                    <StatCard
+                        title="عملاء نشطين"
+                        value={stats.active}
+                        icon={<CheckCircleIcon />}
+                        color="success"
+                        description="حالة الربط والتشغيل سليمة"
+                    />
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                    <StatCard
+                        title="تحتاج انتباه"
+                        value={stats.warning}
+                        icon={<WarningIcon />}
+                        color="warning"
+                        description="جودة متوسطة أو اقتراب من الحدود"
+                    />
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                    <StatCard
+                        title="مشاكل حرجة"
+                        value={stats.critical}
+                        icon={<ErrorIcon />}
+                        color="error"
+                        description="حظر أو انقطاع خدمة"
+                    />
+                </Grid>
+            </Grid>
 
-            <div className="card glass-panel">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <h3>النشاط الأخير</h3>
-                    <button className="button button-secondary" onClick={() => window.location.href = '/logs'}>
+            {/* Recent Activity */}
+            <Card elevation={2}>
+                <Box sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
+                    <Typography variant="h6" fontWeight={600}>
+                        النشاط الأخير
+                    </Typography>
+                    <Button
+                        color="primary"
+                        endIcon={<HistoryIcon />}
+                        href="/logs"
+                    >
                         عرض السجل الكامل
-                    </button>
-                </div>
+                    </Button>
+                </Box>
 
                 {activityLoading ? (
-                    <div style={{ textAlign: 'center', padding: '2rem', color: 'hsl(var(--color-muted-foreground))' }}>
-                        جاري التحميل...
-                    </div>
+                    <Box sx={{ p: 4, textAlign: 'center' }}>
+                        <CircularProgress />
+                    </Box>
                 ) : activity.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '2rem', color: 'hsl(var(--color-muted-foreground))' }}>
+                    <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
                         لا توجد أنشطة حتى الآن
-                    </div>
+                    </Box>
                 ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ borderBottom: '1px solid hsl(var(--color-secondary))', textAlign: 'right' }}>
-                                <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الوقت</th>
-                                <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>العميل</th>
-                                <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الحدث</th>
-                                <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الحالة</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {activity.map((item) => (
-                                <tr key={item.id}>
-                                    <td style={{ padding: '1rem' }}>{item.relativeTime}</td>
-                                    <td style={{ padding: '1rem' }}>{item.tenant_name || 'غير محدد'}</td>
-                                    <td style={{ padding: '1rem' }}>{item.description || getEventDescription(item.event_type)}</td>
-                                    <td style={{ padding: '1rem' }}>{getStatusBadge(item.status)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                    <TableContainer>
+                        <Table>
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>الوقت</TableCell>
+                                    <TableCell>العميل</TableCell>
+                                    <TableCell>الحدث</TableCell>
+                                    <TableCell>الحالة</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {activity.map((item) => (
+                                    <TableRow key={item.id} hover>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{item.relativeTime}</TableCell>
+                                        <TableCell>{item.tenant_name || 'غير محدد'}</TableCell>
+                                        <TableCell>{item.description || getEventDescription(item.event_type)}</TableCell>
+                                        <TableCell>{getStatusBadge(item.status)}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
                 )}
-            </div>
-        </div>
+            </Card>
+        </Box>
     );
 };
 

@@ -1,6 +1,28 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { LogIn, User, Lock, AlertCircle, Loader } from 'lucide-react';
+import {
+    Box,
+    Card,
+    CardContent,
+    Typography,
+    TextField,
+    Button,
+    InputAdornment,
+    IconButton,
+    Alert,
+    Link,
+    CircularProgress
+} from '@mui/material';
+import {
+    Person as PersonIcon,
+    Lock as LockIcon,
+    Visibility,
+    VisibilityOff,
+    Email as EmailIcon,
+    Badge as BadgeIcon,
+    Login as LoginIcon,
+    HowToReg as HowToRegIcon
+} from '@mui/icons-material';
 
 const Login = () => {
     const { login, register, loading, error } = useAuth();
@@ -11,6 +33,7 @@ const Login = () => {
         name: '',
         email: ''
     });
+    const [showPassword, setShowPassword] = useState(false);
     const [localError, setLocalError] = useState('');
 
     const handleSubmit = async (e) => {
@@ -34,176 +57,172 @@ const Login = () => {
         }
     };
 
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
     return (
-        <div style={{
+        <Box sx={{
             minHeight: '100vh',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'linear-gradient(135deg, hsl(240 10% 3.9%), #0a0a1a)',
-            padding: '2rem'
+            bgcolor: 'background.default',
+            p: 2,
+            background: 'linear-gradient(135deg, #008069 0%, #005c4b 100%)' // WhatsApp-like gradient
         }}>
-            <div style={{
-                width: '100%',
-                maxWidth: '420px'
-            }}>
+            <Box sx={{ width: '100%', maxWidth: 420 }}>
                 {/* Logo */}
-                <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                    <div style={{
-                        width: '64px',
-                        height: '64px',
-                        background: 'white',
-                        borderRadius: '16px',
+                <Box sx={{ textAlign: 'center', mb: 4, color: 'white' }}>
+                    <Box sx={{
+                        width: 64,
+                        height: 64,
+                        bgcolor: 'white',
+                        borderRadius: 3,
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        marginBottom: '1rem'
+                        mb: 2,
+                        boxShadow: 3
                     }}>
-                        <span style={{ fontSize: '2rem' }}>⚡</span>
-                    </div>
-                    <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>مراقب واتساب</h1>
-                    <p style={{ color: 'hsl(var(--color-muted-foreground))' }}>لوحة الإدارة المركزية</p>
-                </div>
+                        <Typography variant="h3">⚡</Typography>
+                    </Box>
+                    <Typography variant="h5" fontWeight={700}>
+                        مراقب واتساب
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                        لوحة الإدارة المركزية
+                    </Typography>
+                </Box>
 
-                {/* Form Card */}
-                <div className="card glass-panel">
-                    <h2 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                        {isRegister ? 'إنشاء حساب جديد' : 'تسجيل الدخول'}
-                    </h2>
+                <Card elevation={8} sx={{ borderRadius: 3 }}>
+                    <CardContent sx={{ p: 4 }}>
+                        <Typography variant="h5" align="center" fontWeight={600} gutterBottom>
+                            {isRegister ? 'إنشاء حساب جديد' : 'تسجيل الدخول'}
+                        </Typography>
 
-                    {(localError || error) && (
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.75rem',
-                            background: 'hsl(var(--color-destructive) / 0.1)',
-                            border: '1px solid hsl(var(--color-destructive) / 0.3)',
-                            borderRadius: 'var(--radius)',
-                            marginBottom: '1rem',
-                            color: 'hsl(var(--color-destructive))'
-                        }}>
-                            <AlertCircle size={18} />
-                            <span style={{ fontSize: '0.9rem' }}>{localError || error}</span>
-                        </div>
-                    )}
-
-                    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-                                <User size={16} />
-                                اسم المستخدم
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.username}
-                                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                                placeholder="admin"
-                                required
-                                autoFocus
-                            />
-                        </div>
-
-                        {isRegister && (
-                            <>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-                                        الاسم الكامل
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        placeholder="محمد أحمد"
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-                                        البريد الإلكتروني
-                                    </label>
-                                    <input
-                                        type="email"
-                                        value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                        placeholder="email@example.com"
-                                    />
-                                </div>
-                            </>
+                        {(localError || error) && (
+                            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+                                {localError || error}
+                            </Alert>
                         )}
 
-                        <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-                                <Lock size={16} />
-                                كلمة المرور
-                            </label>
-                            <input
-                                type="password"
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                placeholder="••••••••"
+                        <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <TextField
+                                fullWidth
+                                label="اسم المستخدم"
+                                name="username"
+                                value={formData.username}
+                                onChange={handleChange}
                                 required
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <PersonIcon color="action" />
+                                        </InputAdornment>
+                                    ),
+                                }}
                             />
-                        </div>
 
-                        <button
-                            type="submit"
-                            className="button"
-                            disabled={loading}
-                            style={{
-                                background: 'linear-gradient(135deg, hsl(var(--color-accent)), #4338ca)',
-                                color: 'white',
-                                padding: '1rem',
-                                marginTop: '0.5rem'
-                            }}
-                        >
-                            {loading ? (
-                                <><Loader size={18} className="spinning" /> جاري التحميل...</>
-                            ) : (
-                                <><LogIn size={18} /> {isRegister ? 'إنشاء الحساب' : 'دخول'}</>
+                            {isRegister && (
+                                <>
+                                    <TextField
+                                        fullWidth
+                                        label="الاسم الكامل"
+                                        name="name"
+                                        value={formData.name}
+                                        onChange={handleChange}
+                                        InputProps={{
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <BadgeIcon color="action" />
+                                                </InputAdornment>
+                                            ),
+                                        }}
+                                    />
+                                    <TextField
+                                        fullWidth
+                                        label="البريد الإلكتروني"
+                                        name="email"
+                                        type="email"
+                                        value={formData.email}
+                                        onChange={handleChange}
+                                        InputProps={{
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <EmailIcon color="action" />
+                                                </InputAdornment>
+                                            ),
+                                        }}
+                                    />
+                                </>
                             )}
-                        </button>
-                    </form>
 
-                    <div style={{
-                        textAlign: 'center',
-                        marginTop: '1.5rem',
-                        paddingTop: '1.5rem',
-                        borderTop: '1px solid hsl(var(--color-secondary))'
-                    }}>
-                        <button
-                            onClick={() => {
-                                setIsRegister(!isRegister);
-                                setLocalError('');
-                            }}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                color: 'hsl(var(--color-accent))',
-                                cursor: 'pointer',
-                                fontSize: '0.9rem'
-                            }}
-                        >
-                            {isRegister ? 'لديك حساب؟ تسجيل الدخول' : 'ليس لديك حساب؟ إنشاء حساب جديد'}
-                        </button>
-                    </div>
-                </div>
+                            <TextField
+                                fullWidth
+                                label="كلمة المرور"
+                                name="password"
+                                type={showPassword ? 'text' : 'password'}
+                                value={formData.password}
+                                onChange={handleChange}
+                                required
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <LockIcon color="action" />
+                                        </InputAdornment>
+                                    ),
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                                {showPassword ? <VisibilityOff /> : <Visibility />}
+                                            </IconButton>
+                                        </InputAdornment>
+                                    ),
+                                }}
+                            />
 
-                {/* Default credentials hint */}
+                            <Button
+                                type="submit"
+                                variant="contained"
+                                size="large"
+                                disabled={loading}
+                                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : (isRegister ? <HowToRegIcon /> : <LoginIcon />)}
+                                sx={{
+                                    mt: 1,
+                                    py: 1.5,
+                                    bgcolor: 'primary.main',
+                                    '&:hover': { bgcolor: 'primary.dark' }
+                                }}
+                            >
+                                {loading ? 'جاري التحميل...' : (isRegister ? 'إنشاء الحساب' : 'دخول')}
+                            </Button>
+                        </Box>
+
+                        <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider', textAlign: 'center' }}>
+                            <Button
+                                onClick={() => {
+                                    setIsRegister(!isRegister);
+                                    setLocalError('');
+                                }}
+                                color="primary"
+                                sx={{ textTransform: 'none' }}
+                            >
+                                {isRegister ? 'لديك حساب؟ تسجيل الدخول' : 'ليس لديك حساب؟ إنشاء حساب جديد'}
+                            </Button>
+                        </Box>
+                    </CardContent>
+                </Card>
+
                 {!isRegister && (
-                    <div style={{
-                        textAlign: 'center',
-                        marginTop: '1rem',
-                        padding: '0.75rem',
-                        background: 'hsl(var(--color-secondary) / 0.3)',
-                        borderRadius: 'var(--radius)',
-                        fontSize: '0.8rem',
-                        color: 'hsl(var(--color-muted-foreground))'
-                    }}>
-                        بيانات الدخول الافتراضية: <code style={{ color: 'hsl(var(--color-accent))' }}>admin</code> / <code style={{ color: 'hsl(var(--color-accent))' }}>admin123</code>
-                    </div>
+                    <Box sx={{ mt: 3, textAlign: 'center', color: 'white', opacity: 0.9 }}>
+                        <Typography variant="body2" sx={{ bgcolor: 'rgba(255,255,255,0.1)', py: 1, px: 2, borderRadius: 2, display: 'inline-block' }}>
+                            بيانات الدخول الافتراضية: <strong>admin</strong> / <strong>admin123</strong>
+                        </Typography>
+                    </Box>
                 )}
-            </div>
-        </div>
+            </Box>
+        </Box>
     );
 };
 

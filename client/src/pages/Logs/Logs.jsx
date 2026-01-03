@@ -1,9 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Filter, RefreshCw, ArrowUpRight, ArrowDownLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+    Box,
+    Paper,
+    Typography,
+    Button,
+    Tabs,
+    Tab,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Chip,
+    FormControl,
+    Select,
+    MenuItem,
+    CircularProgress,
+    IconButton,
+    InputLabel
+} from '@mui/material';
+import {
+    Refresh as RefreshIcon,
+    CheckCircle as CheckCircleIcon,
+    Error as ErrorIcon,
+    Warning as WarningIcon,
+    CallReceived as IncomingIcon,
+    CallMade as OutgoingIcon,
+    Code as CodeIcon,
+    Message as MessageIcon
+} from '@mui/icons-material';
 import api from '../../api';
 
 const Logs = () => {
-    const [activeTab, setActiveTab] = useState('messages'); // messages, webhooks
+    const [activeTab, setActiveTab] = useState(0);
     const [messages, setMessages] = useState([]);
     const [webhookLogs, setWebhookLogs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -36,31 +66,35 @@ const Logs = () => {
     };
 
     useEffect(() => {
-        if (activeTab === 'messages') {
+        if (activeTab === 0) {
             fetchMessages();
         } else {
             fetchWebhookLogs();
         }
     }, [activeTab, filter]);
 
+    const handleTabChange = (event, newValue) => {
+        setActiveTab(newValue);
+    };
+
     const getStatusIcon = (status) => {
         switch (status) {
             case 'sent':
             case 'delivered':
             case 'read':
-                return <CheckCircle2 size={16} style={{ color: 'hsl(var(--color-success))' }} />;
+                return <CheckCircleIcon fontSize="small" color="success" />;
             case 'failed':
-                return <AlertCircle size={16} style={{ color: 'hsl(var(--color-destructive))' }} />;
+                return <ErrorIcon fontSize="small" color="error" />;
             default:
-                return <AlertCircle size={16} style={{ color: 'hsl(var(--color-warning))' }} />;
+                return <WarningIcon fontSize="small" color="warning" />;
         }
     };
 
     const getDirectionIcon = (direction) => {
         if (direction === 'incoming') {
-            return <ArrowDownLeft size={16} style={{ color: 'hsl(var(--color-accent))' }} />;
+            return <IncomingIcon fontSize="small" color="primary" />;
         }
-        return <ArrowUpRight size={16} style={{ color: 'hsl(var(--color-success))' }} />;
+        return <OutgoingIcon fontSize="small" color="success" />;
     };
 
     const formatDate = (dateStr) => {
@@ -75,150 +109,158 @@ const Logs = () => {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h1>سجلات التشغيل</h1>
-                    <p style={{ color: 'hsl(var(--color-muted-foreground))' }}>عرض جميع الرسائل وأحداث الـ Webhook.</p>
-                </div>
-                <button
-                    className="button button-secondary"
-                    onClick={() => activeTab === 'messages' ? fetchMessages() : fetchWebhookLogs()}
+        <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+                <Box>
+                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                        سجلات التشغيل
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        عرض جميع الرسائل وأحداث الـ Webhook.
+                    </Typography>
+                </Box>
+                <Button
+                    variant="outlined"
+                    startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                    onClick={() => activeTab === 0 ? fetchMessages() : fetchWebhookLogs()}
                     disabled={loading}
-                    style={{ gap: '0.5rem' }}
                 >
-                    <RefreshCw size={18} className={loading ? 'spinning' : ''} />
                     تحديث
-                </button>
-            </div>
+                </Button>
+            </Box>
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                    className={`button ${activeTab === 'messages' ? 'button-primary' : 'button-secondary'}`}
-                    onClick={() => setActiveTab('messages')}
-                    style={{ flex: 1 }}
-                >
-                    <FileText size={18} />
-                    الرسائل
-                </button>
-                <button
-                    className={`button ${activeTab === 'webhooks' ? 'button-primary' : 'button-secondary'}`}
-                    onClick={() => setActiveTab('webhooks')}
-                    style={{ flex: 1 }}
-                >
-                    <Filter size={18} />
-                    Webhook Events
-                </button>
-            </div>
+            <Paper sx={{ mb: 3 }}>
+                <Tabs value={activeTab} onChange={handleTabChange} variant="fullWidth">
+                    <Tab icon={<MessageIcon />} label="الرسائل" iconPosition="start" />
+                    <Tab icon={<CodeIcon />} label="Webhook Events" iconPosition="start" />
+                </Tabs>
+            </Paper>
 
             {/* Filters (for messages) */}
-            {activeTab === 'messages' && (
-                <div className="glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem' }}>
-                    <select
-                        value={filter.direction}
-                        onChange={(e) => setFilter({ ...filter, direction: e.target.value })}
-                        style={{ width: '200px' }}
-                    >
-                        <option value="">كل الاتجاهات</option>
-                        <option value="incoming">واردة</option>
-                        <option value="outgoing">صادرة</option>
-                    </select>
-                </div>
+            {activeTab === 0 && (
+                <Paper sx={{ p: 2, mb: 3, display: 'flex', gap: 2 }}>
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                        <InputLabel>الاتجاه</InputLabel>
+                        <Select
+                            value={filter.direction}
+                            label="الاتجاه"
+                            onChange={(e) => setFilter({ ...filter, direction: e.target.value })}
+                        >
+                            <MenuItem value="">كل الاتجاهات</MenuItem>
+                            <MenuItem value="incoming">واردة</MenuItem>
+                            <MenuItem value="outgoing">صادرة</MenuItem>
+                        </Select>
+                    </FormControl>
+                </Paper>
             )}
 
             {/* Content */}
-            <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+            <Paper sx={{ width: '100%', overflow: 'hidden' }}>
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: 'hsl(var(--color-muted-foreground))' }}>
-                        جاري التحميل...
-                    </div>
-                ) : activeTab === 'messages' ? (
+                    <Box sx={{ p: 4, textAlign: 'center' }}>
+                        <CircularProgress />
+                    </Box>
+                ) : activeTab === 0 ? (
                     messages.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '3rem', color: 'hsl(var(--color-muted-foreground))' }}>
+                        <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
                             لا توجد رسائل
-                        </div>
+                        </Box>
                     ) : (
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead style={{ background: 'hsl(var(--color-secondary) / 0.5)' }}>
-                                <tr style={{ textAlign: 'right' }}>
-                                    <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الاتجاه</th>
-                                    <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الرقم</th>
-                                    <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>النوع</th>
-                                    <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>المحتوى</th>
-                                    <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الحالة</th>
-                                    <th style={{ padding: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>الوقت</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {messages.map((msg) => (
-                                    <tr key={msg.id} style={{ borderBottom: '1px solid hsl(var(--color-secondary))' }}>
-                                        <td style={{ padding: '1rem' }}>
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                {getDirectionIcon(msg.direction)}
-                                                {msg.direction === 'incoming' ? 'واردة' : 'صادرة'}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '1rem', fontFamily: 'monospace' }}>
-                                            {msg.direction === 'incoming' ? msg.sender : msg.recipient}
-                                        </td>
-                                        <td style={{ padding: '1rem' }}>{msg.message_type}</td>
-                                        <td style={{ padding: '1rem', maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {msg.content}
-                                        </td>
-                                        <td style={{ padding: '1rem' }}>
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                {getStatusIcon(msg.status)}
-                                                {msg.status}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '1rem', fontSize: '0.85rem', color: 'hsl(var(--color-muted-foreground))' }}>
-                                            {formatDate(msg.created_at)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        <TableContainer sx={{ maxHeight: 600 }}>
+                            <Table stickyHeader>
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>الاتجاه</TableCell>
+                                        <TableCell>الرقم</TableCell>
+                                        <TableCell>النوع</TableCell>
+                                        <TableCell>المحتوى</TableCell>
+                                        <TableCell>الحالة</TableCell>
+                                        <TableCell>الوقت</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {messages.map((msg) => (
+                                        <TableRow key={msg.id} hover>
+                                            <TableCell>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    {getDirectionIcon(msg.direction)}
+                                                    {msg.direction === 'incoming' ? 'واردة' : 'صادرة'}
+                                                </Box>
+                                            </TableCell>
+                                            <TableCell sx={{ fontFamily: 'monospace' }}>
+                                                {msg.direction === 'incoming' ? msg.sender : msg.recipient}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip label={msg.message_type} size="small" variant="outlined" />
+                                            </TableCell>
+                                            <TableCell sx={{ maxWidth: 300 }}>
+                                                <Typography noWrap variant="body2">{msg.content}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    {getStatusIcon(msg.status)}
+                                                    {msg.status}
+                                                </Box>
+                                            </TableCell>
+                                            <TableCell sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                                {formatDate(msg.created_at)}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
                     )
                 ) : (
                     webhookLogs.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '3rem', color: 'hsl(var(--color-muted-foreground))' }}>
+                        <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
                             لا توجد أحداث Webhook
-                        </div>
+                        </Box>
                     ) : (
-                        <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {webhookLogs.map((log) => (
-                                <div
+                        <Box sx={{ maxHeight: 600, overflow: 'auto', p: 0 }}>
+                            {webhookLogs.map((log, index) => (
+                                <Box
                                     key={log.id}
-                                    style={{
-                                        background: 'hsl(var(--color-secondary) / 0.3)',
-                                        padding: '1rem',
-                                        borderRadius: 'var(--radius)',
-                                        fontFamily: 'monospace',
-                                        fontSize: '0.85rem'
+                                    sx={{
+                                        p: 2,
+                                        borderBottom: index < webhookLogs.length - 1 ? '1px solid divider' : 'none',
+                                        bgcolor: 'background.paper',
+                                        '&:hover': { bgcolor: 'action.hover' }
                                     }}
                                 >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                        <span style={{ color: 'hsl(var(--color-accent))' }}>{log.event_type}</span>
-                                        <span style={{ color: 'hsl(var(--color-muted-foreground))' }}>{formatDate(log.created_at)}</span>
-                                    </div>
-                                    <pre style={{
-                                        margin: 0,
-                                        whiteSpace: 'pre-wrap',
-                                        wordBreak: 'break-all',
-                                        maxHeight: '150px',
-                                        overflow: 'auto',
-                                        color: 'hsl(var(--color-foreground) / 0.8)'
-                                    }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                        <Chip
+                                            label={log.event_type}
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                        />
+                                        <Typography variant="caption" color="text.secondary">
+                                            {formatDate(log.created_at)}
+                                        </Typography>
+                                    </Box>
+                                    <Box
+                                        component="pre"
+                                        sx={{
+                                            m: 0,
+                                            p: 1.5,
+                                            bgcolor: 'action.selected',
+                                            borderRadius: 1,
+                                            fontFamily: 'monospace',
+                                            fontSize: '0.8125rem',
+                                            overflowX: 'auto',
+                                            color: 'text.primary'
+                                        }}
+                                    >
                                         {JSON.stringify(JSON.parse(log.payload || '{}'), null, 2)}
-                                    </pre>
-                                </div>
+                                    </Box>
+                                </Box>
                             ))}
-                        </div>
+                        </Box>
                     )
                 )}
-            </div>
-        </div>
+            </Paper>
+        </Box>
     );
 };
 
