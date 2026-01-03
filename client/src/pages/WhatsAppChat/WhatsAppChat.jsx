@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ApiService from '../../api';
+import api from '../../api';
 import { Box, useTheme, useMediaQuery, Typography } from '@mui/material';
 import {
     Phone as PhoneIcon,
@@ -11,7 +11,7 @@ import {
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
 
-const api = new ApiService();
+// api instance imported directly
 
 const WhatsAppChat = () => {
     // State
