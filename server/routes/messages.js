@@ -556,15 +556,14 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
         // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
         const form = new FormData();
-        const fileStats = fs.statSync(file.path);
+        const fileBuffer = fs.readFileSync(file.path);
 
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
 
-        form.append('file', fs.createReadStream(file.path), {
+        form.append('file', fileBuffer, {
             contentType: file.mimetype,
             filename: file.originalname,
-            knownLength: fileStats.size
         });
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
