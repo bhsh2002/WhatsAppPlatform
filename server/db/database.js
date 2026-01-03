@@ -40,8 +40,19 @@ db.exec(`
     status TEXT DEFAULT 'pending',
     wamid TEXT,
     error_message TEXT,
+    media_id TEXT,
+    media_url TEXT,
+    media_mime_type TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
+  );
+
+  -- Contacts table for profile information
+  CREATE TABLE IF NOT EXISTS contacts (
+    phone TEXT PRIMARY KEY,
+    profile_name TEXT,
+    profile_picture_url TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   -- Webhook logs table
@@ -84,10 +95,31 @@ db.exec(`
   -- Create indexes for better performance
   CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id);
   CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
+  CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
+  CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient);
   CREATE INDEX IF NOT EXISTS idx_webhook_logs_created ON webhook_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+  CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
 `);
+
+// Migration: Add new columns to existing messages table if they don't exist
+try {
+  const columns = db.prepare("PRAGMA table_info(messages)").all();
+  const columnNames = columns.map(c => c.name);
+
+  if (!columnNames.includes('media_id')) {
+    db.exec('ALTER TABLE messages ADD COLUMN media_id TEXT');
+  }
+  if (!columnNames.includes('media_url')) {
+    db.exec('ALTER TABLE messages ADD COLUMN media_url TEXT');
+  }
+  if (!columnNames.includes('media_mime_type')) {
+    db.exec('ALTER TABLE messages ADD COLUMN media_mime_type TEXT');
+  }
+} catch (e) {
+  // Columns already exist or table is new
+}
 
 // Insert sample data if tables are empty
 const tenantCount = db.prepare('SELECT COUNT(*) as count FROM tenants').get();

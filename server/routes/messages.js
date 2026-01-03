@@ -201,9 +201,12 @@ router.get('/conversations', (req, res) => {
     try {
         const query = `
             SELECT 
-                contact,
-                created_at as last_interaction,
-                content as last_message,
+                t.contact,
+                t.created_at as last_interaction,
+                t.content as last_message,
+                t.message_type as last_message_type,
+                c.profile_name,
+                c.profile_picture_url,
                 (
                     SELECT COUNT(*) 
                     FROM messages m2 
@@ -216,6 +219,7 @@ router.get('/conversations', (req, res) => {
                     id,
                     content,
                     created_at,
+                    message_type,
                     CASE 
                         WHEN direction = 'incoming' THEN sender 
                         ELSE recipient 
@@ -231,6 +235,7 @@ router.get('/conversations', (req, res) => {
                     ) as rn
                 FROM messages
             ) t
+            LEFT JOIN contacts c ON c.phone = t.contact
             WHERE rn = 1
             ORDER BY last_interaction DESC
         `;
@@ -257,6 +262,13 @@ router.get('/conversations/:number/messages', (req, res) => {
             LIMIT ? OFFSET ?
         `).all(contactNumber, contactNumber, limit, offset);
 
+        // Mark incoming messages as read
+        db.prepare(`
+            UPDATE messages 
+            SET status = 'read' 
+            WHERE sender = ? AND direction = 'incoming' AND status = 'received'
+        `).run(contactNumber);
+
         res.json(messages);
     } catch (error) {
         console.error('[Messages] Thread fetch error:', error);
@@ -264,4 +276,189 @@ router.get('/conversations/:number/messages', (req, res) => {
     }
 });
 
+// Get media URL from Meta API
+router.get('/media/:mediaId', async (req, res) => {
+    try {
+        const { mediaId } = req.params;
+        const { tenant_id } = req.query;
+
+        // Get credentials
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+
+        if (tenant_id) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+            if (tenant?.access_token) {
+                accessToken = tenant.access_token;
+            }
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'Missing API credentials' });
+        }
+
+        // Get media URL from Meta
+        const response = await fetch(`${META_API_BASE}/${mediaId}`, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+            },
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.url) {
+            res.json({ url: data.url, mime_type: data.mime_type });
+        } else {
+            res.status(response.status).json({ error: data.error?.message || 'Failed to get media URL' });
+        }
+    } catch (error) {
+        console.error('[Messages] Media fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch media' });
+    }
+});
+
+// Download media from Meta and proxy to client
+router.get('/media/:mediaId/download', async (req, res) => {
+    try {
+        const { mediaId } = req.params;
+        const { tenant_id } = req.query;
+
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+
+        if (tenant_id) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+            if (tenant?.access_token) {
+                accessToken = tenant.access_token;
+            }
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'Missing API credentials' });
+        }
+
+        // First get the media URL
+        const urlResponse = await fetch(`${META_API_BASE}/${mediaId}`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+
+        const urlData = await urlResponse.json();
+
+        if (!urlResponse.ok || !urlData.url) {
+            return res.status(urlResponse.status).json({ error: 'Failed to get media URL' });
+        }
+
+        // Download the actual media
+        const mediaResponse = await fetch(urlData.url, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+
+        if (!mediaResponse.ok) {
+            return res.status(mediaResponse.status).json({ error: 'Failed to download media' });
+        }
+
+        // Set content type and pipe the response
+        res.setHeader('Content-Type', urlData.mime_type || 'application/octet-stream');
+        const arrayBuffer = await mediaResponse.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+        console.error('[Messages] Media download error:', error);
+        res.status(500).json({ error: 'Failed to download media' });
+    }
+});
+
+// Send media message
+router.post('/send-media', async (req, res) => {
+    try {
+        const { tenant_id, recipient, type, mediaUrl, caption } = req.body;
+
+        if (!recipient || !type || !mediaUrl) {
+            return res.status(400).json({ error: 'Recipient, type, and mediaUrl are required' });
+        }
+
+        // Get credentials
+        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let tenant = null;
+
+        if (tenant_id) {
+            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+            if (tenant) {
+                phoneNumberId = tenant.phone_number_id || phoneNumberId;
+                accessToken = tenant.access_token || accessToken;
+            }
+        }
+
+        const reqPhoneId = req.body.phone_number_id || phoneNumberId;
+        const reqToken = req.body.access_token || accessToken;
+
+        if (!reqPhoneId || !reqToken) {
+            return res.status(400).json({ error: 'Missing API credentials' });
+        }
+
+        // Build media payload
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: recipient,
+            type: type,
+            [type]: {
+                link: mediaUrl,
+            }
+        };
+
+        if (caption && (type === 'image' || type === 'video' || type === 'document')) {
+            payload[type].caption = caption;
+        }
+
+        console.log('[Messages] Sending media to Meta:', JSON.stringify(payload, null, 2));
+
+        const response = await fetch(`${META_API_BASE}/${reqPhoneId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${reqToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        // Save to database
+        const messageRecord = {
+            tenant_id: tenant?.id || null,
+            direction: 'outgoing',
+            recipient: recipient,
+            message_type: type,
+            content: caption || `[${type}]`,
+            status: response.ok ? 'sent' : 'failed',
+            wamid: data.messages?.[0]?.id || null,
+            error_message: data.error?.message || null,
+            media_url: mediaUrl,
+        };
+
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message, media_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            messageRecord.tenant_id,
+            messageRecord.direction,
+            messageRecord.recipient,
+            messageRecord.message_type,
+            messageRecord.content,
+            messageRecord.status,
+            messageRecord.wamid,
+            messageRecord.error_message,
+            messageRecord.media_url
+        );
+
+        if (response.ok) {
+            res.json({ success: true, message_id: data.messages?.[0]?.id, data });
+        } else {
+            res.status(response.status).json({ success: false, error: data.error?.message, data });
+        }
+    } catch (error) {
+        console.error('[Messages] Send media error:', error);
+        res.status(500).json({ error: 'Failed to send media message' });
+    }
+});
+
 export default router;
+

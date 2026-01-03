@@ -52,9 +52,32 @@ router.post('/', (req, res) => {
                     // Find tenant by phone_number_id
                     const tenant = db.prepare('SELECT * FROM tenants WHERE phone_number_id = ?').get(phoneNumberId);
 
+                    // Handle contact profile updates
+                    if (value.contacts) {
+                        value.contacts.forEach(contact => {
+                            const profileName = contact.profile?.name || null;
+                            const phone = contact.wa_id;
+
+                            if (phone) {
+                                db.prepare(`
+                                    INSERT INTO contacts (phone, profile_name, updated_at)
+                                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                                    ON CONFLICT(phone) DO UPDATE SET
+                                        profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
+                                        updated_at = CURRENT_TIMESTAMP
+                                `).run(phone, profileName);
+
+                                console.log('[Webhook] Contact profile saved:', phone, profileName);
+                            }
+                        });
+                    }
+
                     // Handle incoming messages
                     if (value.messages) {
                         value.messages.forEach(message => {
+                            // Extract media info if present
+                            const mediaInfo = extractMediaInfo(message);
+
                             const messageData = {
                                 tenant_id: tenant?.id || null,
                                 direction: 'incoming',
@@ -64,11 +87,13 @@ router.post('/', (req, res) => {
                                 content: extractMessageContent(message),
                                 status: 'received',
                                 wamid: message.id,
+                                media_id: mediaInfo.id,
+                                media_mime_type: mediaInfo.mimeType,
                             };
 
                             db.prepare(`
-                INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).run(
                                 messageData.tenant_id,
                                 messageData.direction,
@@ -77,7 +102,9 @@ router.post('/', (req, res) => {
                                 messageData.message_type,
                                 messageData.content,
                                 messageData.status,
-                                messageData.wamid
+                                messageData.wamid,
+                                messageData.media_id,
+                                messageData.media_mime_type
                             );
 
                             // Log activity
@@ -176,6 +203,23 @@ function extractMessageContent(message) {
         default:
             return `[${message.type} message]`;
     }
+}
+
+// Helper to extract media info from message
+function extractMediaInfo(message) {
+    const mediaTypes = ['image', 'video', 'audio', 'document', 'sticker'];
+
+    for (const type of mediaTypes) {
+        if (message[type]) {
+            return {
+                id: message[type].id || null,
+                mimeType: message[type].mime_type || null,
+                filename: message[type].filename || null,
+            };
+        }
+    }
+
+    return { id: null, mimeType: null, filename: null };
 }
 
 export default router;

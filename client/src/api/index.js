@@ -132,6 +132,24 @@ class ApiService {
         return this.request(`/api/messages/conversations/${phoneNumber}/messages?limit=${limit}`);
     }
 
+    // Media
+    async getMediaUrl(mediaId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/messages/media/${mediaId}${query}`);
+    }
+
+    async getMediaDownloadUrl(mediaId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return `${this.baseUrl}/api/messages/media/${mediaId}/download${query}/`;
+    }
+
+    async sendMediaMessage(data) {
+        return this.request('/api/messages/send-media', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     // Health
     async checkHealth() {
         return this.request('/api/health');
@@ -140,3 +158,4 @@ class ApiService {
 
 const api = new ApiService();
 export default api;
+

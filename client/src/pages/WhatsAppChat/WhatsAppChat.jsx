@@ -1,20 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Send, MoreVertical, Phone, Video, Paperclip, Smile, Image as ImageIcon, Mic, Check, CheckCheck } from 'lucide-react';
+import { Search, Send, MoreVertical, Phone, Paperclip, Smile, Image as ImageIcon, Mic, Check, CheckCheck, X, File, Download, Play } from 'lucide-react';
 import api from '../../api';
+import { useTenants } from '../../context/TenantContext';
 
 const WhatsAppChat = () => {
+    const { tenants } = useTenants();
     const [conversations, setConversations] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showAttachMenu, setShowAttachMenu] = useState(false);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [filePreview, setFilePreview] = useState(null);
     const messagesEndRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     // Fetch conversations on load
     useEffect(() => {
         fetchConversations();
-        const interval = setInterval(fetchConversations, 10000); // Polling every 10s
+        const interval = setInterval(fetchConversations, 10000);
         return () => clearInterval(interval);
     }, []);
 
@@ -54,20 +61,31 @@ const WhatsAppChat = () => {
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
-        if (!newMessage.trim() || !selectedChat) return;
+        if ((!newMessage.trim() && !selectedFile) || !selectedChat) return;
 
         setSending(true);
         try {
-            await api.sendMessage({
-                recipient: selectedChat.contact,
-                type: 'text',
-                message: newMessage,
-                // Assuming we use default tenant/creds for now as per system
-                // logic in WhatsAppConsole.jsx if tenant_id is missing
-            });
+            if (selectedFile) {
+                // For now, we'll send a text message indicating file
+                // In production, you'd first upload the file to a server/CDN
+                // then send via api.sendMediaMessage
+                await api.sendMessage({
+                    recipient: selectedChat.contact,
+                    type: 'text',
+                    message: newMessage || `[ملف: ${selectedFile.name}]`,
+                });
+            } else {
+                await api.sendMessage({
+                    recipient: selectedChat.contact,
+                    type: 'text',
+                    message: newMessage,
+                });
+            }
 
             setNewMessage('');
-            fetchMessages(selectedChat.contact); // Refresh immediately
+            setSelectedFile(null);
+            setFilePreview(null);
+            fetchMessages(selectedChat.contact);
         } catch (error) {
             console.error('Failed to send message:', error);
         } finally {
@@ -75,15 +93,201 @@ const WhatsAppChat = () => {
         }
     };
 
-    const formatTime = (dateString, full = false) => {
+    const handleFileSelect = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setSelectedFile(file);
+            setShowAttachMenu(false);
+
+            // Create preview for images
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setFilePreview(reader.result);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                setFilePreview(null);
+            }
+        }
+    };
+
+    const clearSelectedFile = () => {
+        setSelectedFile(null);
+        setFilePreview(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const formatTime = (dateString) => {
         if (!dateString) return '';
         const date = new Date(dateString);
         if (isNaN(date.getTime())) {
-            // If dateString is just time or invalid, try to parse or return as is
             return dateString;
         }
         return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
     };
+
+    const formatDate = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        const now = new Date();
+        const diff = now - date;
+        const oneDay = 24 * 60 * 60 * 1000;
+
+        if (diff < oneDay && date.getDate() === now.getDate()) {
+            return formatTime(dateString);
+        } else if (diff < 2 * oneDay) {
+            return 'أمس';
+        } else {
+            return date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
+        }
+    };
+
+    const getStatusIcon = (status, direction) => {
+        if (direction !== 'outgoing') return null;
+
+        switch (status) {
+            case 'read':
+                return <CheckCheck size={14} color="#53bdeb" />;
+            case 'delivered':
+                return <CheckCheck size={14} />;
+            case 'sent':
+                return <Check size={14} />;
+            case 'pending':
+                return <Check size={14} style={{ opacity: 0.5 }} />;
+            case 'failed':
+                return <X size={14} color="hsl(var(--color-destructive))" />;
+            default:
+                return <Check size={14} />;
+        }
+    };
+
+    const getDisplayName = (conv) => {
+        if (conv.profile_name) {
+            return conv.profile_name;
+        }
+        return conv.contact;
+    };
+
+    const getProfileImage = (conv) => {
+        if (conv.profile_picture_url) {
+            return (
+                <img
+                    src={conv.profile_picture_url}
+                    alt={getDisplayName(conv)}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '50%',
+                        objectFit: 'cover'
+                    }}
+                    onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.nextSibling.style.display = 'flex';
+                    }}
+                />
+            );
+        }
+        return null;
+    };
+
+    const renderMessageContent = (msg) => {
+        const isMedia = ['image', 'video', 'audio', 'document', 'sticker'].includes(msg.message_type);
+
+        if (isMedia && msg.media_id) {
+            const mediaUrl = api.getMediaDownloadUrl(msg.media_id);
+
+            if (msg.message_type === 'image') {
+                return (
+                    <div>
+                        <img
+                            src={mediaUrl}
+                            alt="صورة"
+                            style={{
+                                maxWidth: '100%',
+                                maxHeight: '300px',
+                                borderRadius: '0.5rem',
+                                marginBottom: msg.content ? '0.5rem' : 0
+                            }}
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                            }}
+                        />
+                        {msg.content && !msg.content.startsWith('[') && <div>{msg.content}</div>}
+                    </div>
+                );
+            }
+
+            if (msg.message_type === 'video') {
+                return (
+                    <div style={{ position: 'relative' }}>
+                        <div style={{
+                            background: 'hsl(var(--color-background))',
+                            borderRadius: '0.5rem',
+                            padding: '2rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.5rem',
+                            cursor: 'pointer'
+                        }}
+                            onClick={() => window.open(mediaUrl, '_blank')}
+                        >
+                            <Play size={24} />
+                            <span>فيديو</span>
+                        </div>
+                        {msg.content && !msg.content.startsWith('[') && <div style={{ marginTop: '0.5rem' }}>{msg.content}</div>}
+                    </div>
+                );
+            }
+
+            if (msg.message_type === 'document') {
+                return (
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.5rem',
+                            background: 'hsl(var(--color-background))',
+                            borderRadius: '0.5rem',
+                            cursor: 'pointer'
+                        }}
+                        onClick={() => window.open(mediaUrl, '_blank')}
+                    >
+                        <File size={24} />
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.85rem' }}>{msg.content || 'مستند'}</div>
+                        </div>
+                        <Download size={18} />
+                    </div>
+                );
+            }
+
+            if (msg.message_type === 'audio') {
+                return (
+                    <audio controls style={{ maxWidth: '100%' }}>
+                        <source src={mediaUrl} type={msg.media_mime_type || 'audio/ogg'} />
+                        المتصفح لا يدعم تشغيل الصوت
+                    </audio>
+                );
+            }
+        }
+
+        // Text message or fallback
+        return <div>{msg.content}</div>;
+    };
+
+    const filteredConversations = conversations.filter(conv => {
+        const searchLower = searchTerm.toLowerCase();
+        return (
+            conv.contact?.toLowerCase().includes(searchLower) ||
+            conv.profile_name?.toLowerCase().includes(searchLower) ||
+            conv.last_message?.toLowerCase().includes(searchLower)
+        );
+    });
 
     return (
         <div style={{
@@ -132,12 +336,15 @@ const WhatsAppChat = () => {
                         <input
                             type="text"
                             placeholder="بحث في المحادثات..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             style={{
                                 border: 'none',
                                 background: 'transparent',
                                 padding: 0,
                                 fontSize: '0.9rem',
-                                outline: 'none'
+                                outline: 'none',
+                                flex: 1
                             }}
                         />
                     </div>
@@ -149,12 +356,12 @@ const WhatsAppChat = () => {
                         <div style={{ padding: '2rem', textAlign: 'center', color: 'hsl(var(--color-muted-foreground))' }}>
                             جاري التحميل...
                         </div>
-                    ) : conversations.length === 0 ? (
+                    ) : filteredConversations.length === 0 ? (
                         <div style={{ padding: '2rem', textAlign: 'center', color: 'hsl(var(--color-muted-foreground))' }}>
                             لا توجد محادثات
                         </div>
                     ) : (
-                        conversations.map((conv, idx) => (
+                        filteredConversations.map((conv, idx) => (
                             <div
                                 key={idx}
                                 onClick={() => setSelectedChat(conv)}
@@ -168,6 +375,7 @@ const WhatsAppChat = () => {
                                     borderBottom: '1px solid hsl(var(--color-secondary) / 0.5)'
                                 }}
                             >
+                                {/* Profile Picture */}
                                 <div style={{
                                     width: '45px',
                                     height: '45px',
@@ -177,19 +385,35 @@ const WhatsAppChat = () => {
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     marginLeft: '0.75rem',
-                                    flexShrink: 0
+                                    flexShrink: 0,
+                                    overflow: 'hidden',
+                                    position: 'relative'
                                 }}>
-                                    <span style={{ fontSize: '1.2rem' }}>👤</span>
+                                    {getProfileImage(conv)}
+                                    <span style={{
+                                        fontSize: '1.2rem',
+                                        display: conv.profile_picture_url ? 'none' : 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: '100%',
+                                        height: '100%'
+                                    }}>👤</span>
                                 </div>
                                 <div style={{ flex: 1, overflow: 'hidden' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                                         <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'hsl(var(--color-foreground))' }}>
-                                            {conv.contact}
+                                            {getDisplayName(conv)}
                                         </span>
                                         <span style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))' }}>
-                                            {formatTime(conv.last_interaction)}
+                                            {formatDate(conv.last_interaction)}
                                         </span>
                                     </div>
+                                    {/* Show phone number if profile name exists */}
+                                    {conv.profile_name && (
+                                        <div style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))', marginBottom: '0.15rem', direction: 'ltr', textAlign: 'right' }}>
+                                            {conv.contact}
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <span style={{
                                             fontSize: '0.85rem',
@@ -209,7 +433,9 @@ const WhatsAppChat = () => {
                                                 fontSize: '0.7rem',
                                                 fontWeight: 'bold',
                                                 padding: '0.1rem 0.4rem',
-                                                borderRadius: '10px'
+                                                borderRadius: '10px',
+                                                minWidth: '18px',
+                                                textAlign: 'center'
                                             }}>
                                                 {conv.unread_count}
                                             </span>
@@ -242,13 +468,26 @@ const WhatsAppChat = () => {
                                 background: 'hsl(var(--color-secondary))',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center'
+                                justifyContent: 'center',
+                                overflow: 'hidden'
                             }}>
-                                👤
+                                {getProfileImage(selectedChat)}
+                                <span style={{
+                                    display: selectedChat.profile_picture_url ? 'none' : 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>👤</span>
                             </div>
                             <div>
-                                <div style={{ fontWeight: 600 }}>{selectedChat.contact}</div>
-                                <div style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))' }}>متصل</div>
+                                <div style={{ fontWeight: 600 }}>{getDisplayName(selectedChat)}</div>
+                                {selectedChat.profile_name && (
+                                    <div style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))', direction: 'ltr' }}>
+                                        {selectedChat.contact}
+                                    </div>
+                                )}
+                                {!selectedChat.profile_name && (
+                                    <div style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))' }}>متصل</div>
+                                )}
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '1.5rem', color: 'hsl(var(--color-muted-foreground))' }}>
@@ -263,8 +502,7 @@ const WhatsAppChat = () => {
                         backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")',
                         backgroundRepeat: 'repeat',
                         backgroundSize: '400px',
-                        backgroundColor: '#0b0b0f',
-                        backgroundColor: 'hsl(var(--color-background))', // Fallback/Tint
+                        backgroundColor: 'hsl(var(--color-background))',
                         backgroundBlendMode: 'overlay',
                         padding: '1rem',
                         overflowY: 'auto',
@@ -288,12 +526,12 @@ const WhatsAppChat = () => {
                                     borderTopRightRadius: msg.direction === 'outgoing' ? 0 : '0.8rem',
                                     borderTopLeftRadius: msg.direction === 'outgoing' ? '0.8rem' : 0,
                                     background: msg.direction === 'outgoing' ? 'hsl(var(--color-success) / 0.3)' : 'hsl(var(--color-secondary))',
-                                    color: msg.direction === 'outgoing' ? 'hsl(var(--color-foreground))' : 'hsl(var(--color-foreground))',
+                                    color: 'hsl(var(--color-foreground))',
                                     border: `1px solid ${msg.direction === 'outgoing' ? 'hsl(var(--color-success) / 0.2)' : 'hsl(var(--color-secondary))'}`,
                                     fontSize: '0.93rem',
                                     lineHeight: 1.4
                                 }}>
-                                    {msg.content}
+                                    {renderMessageContent(msg)}
                                     <div style={{
                                         display: 'flex',
                                         justifyContent: 'flex-end',
@@ -305,17 +543,59 @@ const WhatsAppChat = () => {
                                         opacity: 0.8
                                     }}>
                                         {formatTime(msg.created_at)}
-                                        {msg.direction === 'outgoing' && (
-                                            msg.status === 'read' ? <CheckCheck size={14} color="#53bdeb" /> :
-                                                msg.status === 'delivered' ? <CheckCheck size={14} /> :
-                                                    <Check size={14} />
-                                        )}
+                                        {getStatusIcon(msg.status, msg.direction)}
                                     </div>
                                 </div>
                             </div>
                         ))}
                         <div ref={messagesEndRef} />
                     </div>
+
+                    {/* File Preview */}
+                    {selectedFile && (
+                        <div style={{
+                            padding: '0.5rem 1rem',
+                            background: 'hsl(var(--color-secondary) / 0.5)',
+                            borderTop: '1px solid hsl(var(--color-secondary))',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem'
+                        }}>
+                            {filePreview ? (
+                                <img src={filePreview} alt="معاينة" style={{ height: '60px', borderRadius: '0.5rem' }} />
+                            ) : (
+                                <div style={{
+                                    width: '60px',
+                                    height: '60px',
+                                    background: 'hsl(var(--color-background))',
+                                    borderRadius: '0.5rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <File size={24} />
+                                </div>
+                            )}
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{selectedFile.name}</div>
+                                <div style={{ fontSize: '0.75rem', color: 'hsl(var(--color-muted-foreground))' }}>
+                                    {(selectedFile.size / 1024).toFixed(1)} KB
+                                </div>
+                            </div>
+                            <button
+                                onClick={clearSelectedFile}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'hsl(var(--color-muted-foreground))',
+                                    cursor: 'pointer',
+                                    padding: '0.5rem'
+                                }}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                    )}
 
                     {/* Input */}
                     <div style={{
@@ -326,9 +606,70 @@ const WhatsAppChat = () => {
                         alignItems: 'center',
                         gap: '0.75rem'
                     }}>
-                        <div style={{ display: 'flex', gap: '1rem', color: 'hsl(var(--color-muted-foreground))' }}>
+                        <div style={{ display: 'flex', gap: '1rem', color: 'hsl(var(--color-muted-foreground))', position: 'relative' }}>
                             <Smile size={24} style={{ cursor: 'pointer' }} />
-                            <Paperclip size={22} style={{ cursor: 'pointer' }} />
+                            <div style={{ position: 'relative' }}>
+                                <Paperclip
+                                    size={22}
+                                    style={{ cursor: 'pointer', transform: 'rotate(45deg)' }}
+                                    onClick={() => setShowAttachMenu(!showAttachMenu)}
+                                />
+                                {showAttachMenu && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        bottom: '100%',
+                                        right: 0,
+                                        marginBottom: '0.5rem',
+                                        background: 'hsl(var(--color-card))',
+                                        border: '1px solid hsl(var(--color-secondary))',
+                                        borderRadius: 'var(--radius)',
+                                        padding: '0.5rem',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '0.25rem',
+                                        minWidth: '150px',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                        zIndex: 10
+                                    }}>
+                                        <label style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            padding: '0.5rem',
+                                            cursor: 'pointer',
+                                            borderRadius: '0.25rem',
+                                            transition: 'background 0.2s'
+                                        }}>
+                                            <ImageIcon size={18} color="hsl(var(--color-accent))" />
+                                            <span style={{ fontSize: '0.9rem' }}>صورة</span>
+                                            <input
+                                                ref={fileInputRef}
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleFileSelect}
+                                                style={{ display: 'none' }}
+                                            />
+                                        </label>
+                                        <label style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            padding: '0.5rem',
+                                            cursor: 'pointer',
+                                            borderRadius: '0.25rem',
+                                            transition: 'background 0.2s'
+                                        }}>
+                                            <File size={18} color="hsl(var(--color-success))" />
+                                            <span style={{ fontSize: '0.9rem' }}>ملف</span>
+                                            <input
+                                                type="file"
+                                                onChange={handleFileSelect}
+                                                style={{ display: 'none' }}
+                                            />
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <form onSubmit={handleSendMessage} style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
@@ -338,24 +679,29 @@ const WhatsAppChat = () => {
                                 onChange={(e) => setNewMessage(e.target.value)}
                                 placeholder="اكتب رسالة..."
                                 style={{
+                                    flex: 1,
                                     padding: '0.6rem 1rem',
                                     borderRadius: '0.5rem',
                                     background: 'hsl(var(--color-background))',
                                     border: '1px solid hsl(var(--color-secondary))'
                                 }}
                             />
-                            {newMessage.trim() ? (
+                            {(newMessage.trim() || selectedFile) ? (
                                 <button
                                     type="submit"
                                     className="button"
                                     disabled={sending}
                                     style={{
-                                        background: 'transparent',
-                                        color: 'hsl(var(--color-accent))',
-                                        padding: '0.5rem'
+                                        background: 'hsl(var(--color-accent))',
+                                        color: 'white',
+                                        padding: '0.5rem 1rem',
+                                        borderRadius: '0.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem'
                                     }}
                                 >
-                                    <Send size={24} />
+                                    {sending ? 'جاري الإرسال...' : <Send size={20} />}
                                 </button>
                             ) : (
                                 <button type="button" className="button" style={{ background: 'transparent', color: 'hsl(var(--color-muted-foreground))', padding: '0.5rem' }}>
