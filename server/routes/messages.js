@@ -5,6 +5,7 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -568,12 +569,16 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
 
-        console.log(`[Messages] Uploading media to ${uploadUrl}`);
+        const getLength = promisify(form.getLength.bind(form));
+        const length = await getLength();
+
+        console.log(`[Messages] Uploading media to ${uploadUrl} (Length: ${length})`);
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
+                'Content-Length': length,
                 ...form.getHeaders()
             },
             body: form
