@@ -4,17 +4,21 @@ import { FileOpen as FileIcon, Download as DownloadIcon } from '@mui/icons-mater
 
 const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMediaDownloadUrl }) => {
 
+    // Normalize message fields
+    const type = message.type || message.message_type || 'text';
+    const content = message.body || message.content || '';
+
     // Helper to render content based on type
     const renderContent = () => {
-        if (message.type === 'text') {
+        if (type === 'text') {
             return (
                 <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.95rem' }}>
-                    {message.body}
+                    {content}
                 </Typography>
             );
         }
 
-        if (message.type === 'image') {
+        if (type === 'image') {
             return (
                 <Box sx={{ mb: 0.5 }}>
                     {/* Try to load directly from Meta or Proxy */}
@@ -59,7 +63,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                     <FileIcon color="action" />
                     <Box sx={{ overflow: 'hidden' }}>
                         <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
-                            {message.caption || 'مرفق'} ({(message.type || 'file').toUpperCase()})
+                            {message.caption || 'مرفق'} ({(type || 'file').toUpperCase()})
                         </Typography>
                     </Box>
                     <DownloadIcon fontSize="small" color="action" />
