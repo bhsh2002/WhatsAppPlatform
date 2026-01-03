@@ -557,13 +557,14 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         const form = new FormData();
         const fileStats = fs.statSync(file.path);
 
+        form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
+
         form.append('file', fs.createReadStream(file.path), {
             contentType: file.mimetype,
             filename: file.originalname,
             knownLength: fileStats.size
         });
-        form.append('messaging_product', 'whatsapp');
-        form.append('type', file.mimetype);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
 
