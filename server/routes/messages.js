@@ -555,7 +555,10 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
         // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
         const form = new FormData();
-        form.append('file', fs.createReadStream(file.path));
+        form.append('file', fs.createReadStream(file.path), {
+            contentType: file.mimetype,
+            filename: file.originalname
+        });
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
 
@@ -583,6 +586,7 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         console.log(`[Messages] Media uploaded. ID: ${mediaId}`);
 
         // 2. Send message with media ID
+        // Note: 'link' is only for URL-based media. For ID-based, we use 'id'.
         let payload = {
             messaging_product: 'whatsapp',
             recipient_type: 'individual',

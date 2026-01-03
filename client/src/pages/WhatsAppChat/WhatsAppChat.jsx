@@ -262,7 +262,7 @@ const WhatsAppChat = () => {
         const isMedia = ['image', 'video', 'audio', 'document', 'sticker'].includes(msg.message_type);
 
         if (isMedia && msg.media_id) {
-            const mediaUrl = api.getMediaDownloadUrl(msg.media_id);
+            const mediaUrl = api.getMediaDownloadUrl(msg.media_id, msg.tenant_id || selectedChat?.tenant_id);
 
             if (msg.message_type === 'image') {
                 return (
