@@ -132,7 +132,7 @@ const Dashboard = () => {
 
             {/* Stats Grid */}
             <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
                         title="إجمالي العملاء"
                         value={stats.total}
@@ -141,7 +141,7 @@ const Dashboard = () => {
                         description="جميع الشركات المسجلة"
                     />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
                         title="عملاء نشطين"
                         value={stats.active}
@@ -150,7 +150,7 @@ const Dashboard = () => {
                         description="حالة الربط والتشغيل سليمة"
                     />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
                         title="تحتاج انتباه"
                         value={stats.warning}
@@ -159,7 +159,7 @@ const Dashboard = () => {
                         description="جودة متوسطة أو اقتراب من الحدود"
                     />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
                         title="مشاكل حرجة"
                         value={stats.critical}

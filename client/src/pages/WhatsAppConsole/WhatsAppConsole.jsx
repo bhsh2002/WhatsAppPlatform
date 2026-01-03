@@ -214,7 +214,7 @@ const WhatsAppConsole = () => {
             </Box>
 
             <Grid container spacing={3}>
-                <Grid item xs={12} md={8}>
+                <Grid size={{ xs: 12, md: 8 }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {/* Configuration */}
                         <Card elevation={2}>
@@ -225,7 +225,7 @@ const WhatsAppConsole = () => {
                                 </Typography>
 
                                 <Grid container spacing={2} sx={{ mb: 2 }}>
-                                    <Grid item xs={12} sm={6}>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
                                         <TextField
                                             fullWidth
                                             label="Phone Number ID"
@@ -235,7 +235,7 @@ const WhatsAppConsole = () => {
                                             size="small"
                                         />
                                     </Grid>
-                                    <Grid item xs={12} sm={6}>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
                                         <TextField
                                             fullWidth
                                             type="password"
@@ -287,7 +287,7 @@ const WhatsAppConsole = () => {
 
                                 <form onSubmit={handleSend}>
                                     <Grid container spacing={2}>
-                                        <Grid item xs={12}>
+                                        <Grid size={{ xs: 12 }}>
                                             <TextField
                                                 fullWidth
                                                 label="رقم المستلم"
@@ -298,7 +298,7 @@ const WhatsAppConsole = () => {
                                             />
                                         </Grid>
 
-                                        <Grid item xs={12}>
+                                        <Grid size={{ xs: 12 }}>
                                             <FormControl>
                                                 <RadioGroup
                                                     row
@@ -312,7 +312,7 @@ const WhatsAppConsole = () => {
                                         </Grid>
 
                                         {messageForm.type === 'text' ? (
-                                            <Grid item xs={12}>
+                                            <Grid size={{ xs: 12 }}>
                                                 <TextField
                                                     fullWidth
                                                     multiline
@@ -325,7 +325,7 @@ const WhatsAppConsole = () => {
                                             </Grid>
                                         ) : (
                                             <>
-                                                <Grid item xs={12} sm={6}>
+                                                <Grid size={{ xs: 12, sm: 6 }}>
                                                     <TextField
                                                         fullWidth
                                                         label="اسم القالب"
@@ -334,7 +334,7 @@ const WhatsAppConsole = () => {
                                                         required
                                                     />
                                                 </Grid>
-                                                <Grid item xs={12} sm={6}>
+                                                <Grid size={{ xs: 12, sm: 6 }}>
                                                     <TextField
                                                         fullWidth
                                                         label="كود اللغة"
@@ -344,7 +344,7 @@ const WhatsAppConsole = () => {
                                                     />
                                                 </Grid>
 
-                                                <Grid item xs={12}>
+                                                <Grid size={{ xs: 12 }}>
                                                     <Box sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                                                             <Typography variant="subtitle2">المتغيرات (Body Parameters)</Typography>
@@ -374,7 +374,7 @@ const WhatsAppConsole = () => {
                                             </>
                                         )}
 
-                                        <Grid item xs={12}>
+                                        <Grid size={{ xs: 12 }}>
                                             <Button
                                                 type="submit"
                                                 variant="contained"
@@ -393,7 +393,7 @@ const WhatsAppConsole = () => {
                     </Box>
                 </Grid>
 
-                <Grid item xs={12} md={4}>
+                <Grid size={{ xs: 12 }} md={4}>
                     <Card elevation={2} sx={{ height: '100%', maxHeight: 600, display: 'flex', flexDirection: 'column' }}>
                         <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 2 }}>
                             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

@@ -97,7 +97,7 @@ const Settings = () => {
 
             <Grid container spacing={3}>
                 {/* Server Status Card */}
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                     <Card elevation={2}>
                         <CardContent>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -129,7 +129,7 @@ const Settings = () => {
                 </Grid>
 
                 {/* Webhook Configuration */}
-                <Grid item xs={12} md={6}>
+                <Grid size={{ xs: 12, md: 6 }}>
                     <Card elevation={2} sx={{ height: '100%' }}>
                         <CardContent>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
@@ -181,7 +181,7 @@ const Settings = () => {
                 </Grid>
 
                 {/* API Credentials */}
-                <Grid item xs={12} md={6}>
+                <Grid size={{ xs: 12, md: 6 }}>
                     <Card elevation={2} sx={{ height: '100%' }}>
                         <CardContent>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>

@@ -288,7 +288,7 @@ const TenantList = () => {
                     </DialogTitle>
                     <DialogContent dividers>
                         <Grid container spacing={2}>
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <TextField
                                     fullWidth
                                     label="اسم العميل"
@@ -297,7 +297,7 @@ const TenantList = () => {
                                     required
                                 />
                             </Grid>
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <TextField
                                     fullWidth
                                     label="رقم الهاتف"
@@ -306,7 +306,7 @@ const TenantList = () => {
                                     placeholder="+966500000000"
                                 />
                             </Grid>
-                            <Grid item xs={6}>
+                            <Grid size={{ xs: 6 }}>
                                 <FormControl fullWidth>
                                     <InputLabel>المستوى</InputLabel>
                                     <Select
@@ -321,7 +321,7 @@ const TenantList = () => {
                                     </Select>
                                 </FormControl>
                             </Grid>
-                            <Grid item xs={6}>
+                            <Grid size={{ xs: 6 }}>
                                 <TextField
                                     fullWidth
                                     type="number"
@@ -330,7 +330,7 @@ const TenantList = () => {
                                     onChange={(e) => setFormData({ ...formData, credits: parseInt(e.target.value) || 0 })}
                                 />
                             </Grid>
-                            <Grid item xs={6}>
+                            <Grid size={{ xs: 6 }}>
                                 <FormControl fullWidth>
                                     <InputLabel>الحالة</InputLabel>
                                     <Select
@@ -344,7 +344,7 @@ const TenantList = () => {
                                     </Select>
                                 </FormControl>
                             </Grid>
-                            <Grid item xs={6}>
+                            <Grid size={{ xs: 6 }}>
                                 <FormControl fullWidth>
                                     <InputLabel>الجودة</InputLabel>
                                     <Select
@@ -359,7 +359,7 @@ const TenantList = () => {
                                 </FormControl>
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                                     <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <WhatsAppIcon fontSize="small" /> بيانات WhatsApp API (اختياري)
@@ -367,7 +367,7 @@ const TenantList = () => {
                                 </Box>
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <TextField
                                     fullWidth
                                     label="Phone Number ID"
@@ -377,7 +377,7 @@ const TenantList = () => {
                                 />
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <TextField
                                     fullWidth
                                     type="password"
