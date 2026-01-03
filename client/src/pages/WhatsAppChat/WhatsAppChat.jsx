@@ -35,8 +35,8 @@ const WhatsAppChat = () => {
     // Fetch messages when chat is selected
     useEffect(() => {
         if (selectedChat) {
-            fetchMessages(selectedChat.contact);
-            const interval = setInterval(() => fetchMessages(selectedChat.contact), 5000);
+            fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            const interval = setInterval(() => fetchMessages(selectedChat.contact, selectedChat.tenant_id), 5000);
             return () => clearInterval(interval);
         }
     }, [selectedChat]);
@@ -57,9 +57,9 @@ const WhatsAppChat = () => {
         }
     };
 
-    const fetchMessages = async (contact) => {
+    const fetchMessages = async (contact, tenantId = null) => {
         try {
-            const data = await api.getThreadMessages(contact);
+            const data = await api.getThreadMessages(contact, 50, tenantId);
             setMessages(data);
         } catch (error) {
             console.error('Failed to fetch messages:', error);
@@ -72,8 +72,8 @@ const WhatsAppChat = () => {
 
         const credentials = getCredentials();
 
-        // Check if credentials exist
-        if (!credentials.token || !credentials.phoneId) {
+        // Check if credentials exist (only if no tenant selected)
+        if (!selectedChat.tenant_id && (!credentials.token || !credentials.phoneId)) {
             setSendError('لم يتم تكوين بيانات الربط. يرجى الذهاب إلى صفحة الإعدادات وإدخال Phone Number ID و Access Token.');
             return;
         }
@@ -82,15 +82,42 @@ const WhatsAppChat = () => {
         setSendError(null);
 
         try {
-            const payload = {
-                recipient: selectedChat.contact,
-                type: 'text',
-                message: selectedFile ? (newMessage || `[ملف: ${selectedFile.name}]`) : newMessage,
-                phone_number_id: credentials.phoneId,
-                access_token: credentials.token,
-            };
+            if (selectedFile) {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                formData.append('recipient', selectedChat.contact);
+                formData.append('caption', newMessage);
 
-            await api.sendMessage(payload);
+                if (selectedChat.tenant_id) {
+                    formData.append('tenant_id', selectedChat.tenant_id);
+                } else {
+                    formData.append('phone_number_id', credentials.phoneId);
+                    formData.append('access_token', credentials.token);
+                }
+
+                if (selectedFile.type.startsWith('image/')) {
+                    formData.append('type', 'image');
+                } else if (selectedFile.type.startsWith('video/')) {
+                    formData.append('type', 'video');
+                } else if (selectedFile.type.startsWith('audio/')) {
+                    formData.append('type', 'audio');
+                } else {
+                    formData.append('type', 'document');
+                }
+
+                await api.sendMediaFile(formData);
+            } else {
+                const payload = {
+                    recipient: selectedChat.contact,
+                    type: 'text',
+                    message: newMessage,
+                    tenant_id: selectedChat.tenant_id || null,
+                    phone_number_id: selectedChat.tenant_id ? null : credentials.phoneId,
+                    access_token: selectedChat.tenant_id ? null : credentials.token,
+                };
+
+                await api.sendMessage(payload);
+            }
 
             setNewMessage('');
             setSelectedFile(null);
@@ -408,7 +435,7 @@ const WhatsAppChat = () => {
                                     alignItems: 'center',
                                     padding: '0.75rem 1rem',
                                     cursor: 'pointer',
-                                    background: selectedChat?.contact === conv.contact ? 'hsl(var(--color-secondary) / 0.5)' : 'transparent',
+                                    background: (selectedChat?.contact === conv.contact && selectedChat?.tenant_id === conv.tenant_id) ? 'hsl(var(--color-secondary) / 0.5)' : 'transparent',
                                     transition: 'background 0.2s',
                                     borderBottom: '1px solid hsl(var(--color-secondary) / 0.5)'
                                 }}
@@ -459,25 +486,40 @@ const WhatsAppChat = () => {
                                             whiteSpace: 'nowrap',
                                             overflow: 'hidden',
                                             textOverflow: 'ellipsis',
-                                            maxWidth: '200px',
+                                            maxWidth: '180px',
                                             display: 'block'
                                         }}>
                                             {conv.last_message || 'صورة/ملف'}
                                         </span>
-                                        {conv.unread_count > 0 && (
-                                            <span style={{
-                                                background: 'hsl(var(--color-success))',
-                                                color: 'white',
-                                                fontSize: '0.7rem',
-                                                fontWeight: 'bold',
-                                                padding: '0.1rem 0.4rem',
-                                                borderRadius: '10px',
-                                                minWidth: '18px',
-                                                textAlign: 'center'
-                                            }}>
-                                                {conv.unread_count}
-                                            </span>
-                                        )}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            {conv.tenant_name && (
+                                                <span style={{
+                                                    fontSize: '0.65rem',
+                                                    background: 'hsl(var(--color-primary) / 0.1)',
+                                                    color: 'hsl(var(--color-primary))',
+                                                    padding: '2px 4px',
+                                                    borderRadius: '3px',
+                                                    whiteSpace: 'nowrap',
+                                                    border: '1px solid hsl(var(--color-primary) / 0.2)'
+                                                }}>
+                                                    {conv.tenant_name}
+                                                </span>
+                                            )}
+                                            {conv.unread_count > 0 && (
+                                                <span style={{
+                                                    background: 'hsl(var(--color-success))',
+                                                    color: 'white',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 'bold',
+                                                    padding: '0.1rem 0.4rem',
+                                                    borderRadius: '10px',
+                                                    minWidth: '18px',
+                                                    textAlign: 'center'
+                                                }}>
+                                                    {conv.unread_count}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

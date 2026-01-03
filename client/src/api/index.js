@@ -128,8 +128,9 @@ class ApiService {
         return this.request('/api/messages/conversations');
     }
 
-    async getThreadMessages(phoneNumber, limit = 50) {
-        return this.request(`/api/messages/conversations/${phoneNumber}/messages?limit=${limit}`);
+    async getThreadMessages(phoneNumber, limit = 50, tenantId = null) {
+        const query = tenantId ? `&tenant_id=${tenantId}` : '';
+        return this.request(`/api/messages/conversations/${phoneNumber}/messages?limit=${limit}${query}`);
     }
 
     // Media
@@ -140,7 +141,8 @@ class ApiService {
 
     async getMediaDownloadUrl(mediaId, tenantId = null) {
         const query = tenantId ? `?tenant_id=${tenantId}` : '';
-        return `${this.baseUrl}/api/messages/media/${mediaId}/download${query}/`;
+        // No trailing slash - the request method adds it
+        return `${this.baseUrl}/api/messages/media/${mediaId}/download${query}`;
     }
 
     async sendMediaMessage(data) {
@@ -148,6 +150,20 @@ class ApiService {
             method: 'POST',
             body: JSON.stringify(data),
         });
+    }
+
+    async sendMediaFile(formData) {
+        // Use fetch directly for FormData to avoid Content-Type header issues with automatic JSON stringification in request() wrapper
+        const response = await fetch(`${this.baseUrl}/api/messages/send-media-file`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to send media file');
+        }
+        return data;
     }
 
     // Health

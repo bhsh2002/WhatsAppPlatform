@@ -100,8 +100,9 @@ const WhatsAppConsole = () => {
                     templateLanguage: messageForm.templateLanguage,
                     templateParams: messageForm.templateParams,
                     tenant_id: messageForm.tenantId || null,
-                    phone_number_id: config.phoneId,
-                    access_token: config.token,
+                    // Only send manual credentials if no tenant is selected
+                    phone_number_id: messageForm.tenantId ? null : config.phoneId,
+                    access_token: messageForm.tenantId ? null : config.token,
                 };
 
                 const result = await api.sendMessage(payload);
