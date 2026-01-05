@@ -439,6 +439,165 @@ router.delete('/templates/:id', (req, res) => {
     }
 });
 
+// Sync templates from Meta WhatsApp API
+router.post('/templates/sync', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+
+        // Get tenant credentials
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        if (!tenant.access_token) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة. تواصل مع المدير لإضافة Access Token.' });
+        }
+
+        // Get WABA ID
+        let wabaId;
+        if (tenant.phone_number_id) {
+            try {
+                const accountResponse = await fetch(
+                    `${META_API_BASE}/${tenant.phone_number_id}?fields=owner`,
+                    {
+                        headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                    }
+                );
+                const accountData = await accountResponse.json();
+
+                if (accountData.error) {
+                    console.error('Phone API error:', accountData.error);
+                    return res.status(400).json({
+                        error: 'فشل الاتصال بـ WhatsApp API',
+                        details: accountData.error.message
+                    });
+                }
+
+                wabaId = accountData.owner?.id || accountData.owner;
+            } catch (err) {
+                console.error('Error getting phone info:', err);
+            }
+        }
+
+        if (!wabaId && tenant.waba_id) {
+            wabaId = tenant.waba_id;
+        }
+
+        if (!wabaId) {
+            return res.status(400).json({
+                error: 'لم يتم العثور على معرف حساب WhatsApp Business. تواصل مع المدير.',
+            });
+        }
+
+        // Fetch templates from Meta API
+        const templatesResponse = await fetch(
+            `${META_API_BASE}/${wabaId}/message_templates?limit=100`,
+            {
+                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+            }
+        );
+
+        const templatesData = await templatesResponse.json();
+
+        if (templatesData.error) {
+            console.error('Templates API error:', templatesData.error);
+            return res.status(400).json({
+                error: 'فشل جلب القوالب من WhatsApp',
+                details: templatesData.error.message
+            });
+        }
+
+        const templates = (templatesData.data || []).map(t => ({
+            id: t.id,
+            name: t.name,
+            language: t.language,
+            category: t.category,
+            status: t.status,
+            components: t.components
+        }));
+
+        res.json({
+            success: true,
+            templates,
+            count: templates.length
+        });
+    } catch (error) {
+        console.error('[TenantPortal] Sync templates error:', error);
+        res.status(500).json({ error: 'فشل مزامنة القوالب' });
+    }
+});
+
+// Import template from Meta API
+router.post('/templates/import', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { name, language, category, status, components } = req.body;
+
+        if (!name) {
+            return res.status(400).json({ error: 'اسم القالب مطلوب' });
+        }
+
+        // Check if template already exists
+        const existing = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?')
+            .get(tenantId, name);
+
+        if (existing) {
+            return res.status(409).json({ error: 'القالب موجود مسبقاً' });
+        }
+
+        // Parse components to extract body, header, footer
+        let headerType = 'none';
+        let headerContent = '';
+        let body = '';
+        let footer = '';
+        let buttons = null;
+
+        if (components) {
+            for (const component of components) {
+                if (component.type === 'HEADER') {
+                    headerType = component.format?.toLowerCase() || 'text';
+                    if (component.format === 'TEXT') {
+                        headerContent = component.text || '';
+                    } else if (component.example?.header_handle) {
+                        headerContent = component.example.header_handle[0] || '';
+                    }
+                } else if (component.type === 'BODY') {
+                    body = component.text || '';
+                } else if (component.type === 'FOOTER') {
+                    footer = component.text || '';
+                } else if (component.type === 'BUTTONS') {
+                    buttons = component.buttons;
+                }
+            }
+        }
+
+        const stmt = db.prepare(`
+            INSERT INTO templates (tenant_id, name, language, category, header_type, header_content, body, footer, buttons, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const result = stmt.run(
+            tenantId,
+            name,
+            language || 'ar',
+            category || 'UTILITY',
+            headerType,
+            headerContent || null,
+            body,
+            footer || null,
+            buttons ? JSON.stringify(buttons) : null,
+            status || 'approved'
+        );
+
+        const newTemplate = db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid);
+        res.status(201).json(newTemplate);
+    } catch (error) {
+        console.error('[TenantPortal] Import template error:', error);
+        res.status(500).json({ error: 'فشل استيراد القالب' });
+    }
+});
+
 // ============================================
 // API Settings
 // ============================================

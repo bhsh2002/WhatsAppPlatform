@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
     Box,
     Card,
-    CardContent,
     Typography,
     Button,
     Table,
@@ -24,25 +23,36 @@ import {
     MenuItem,
     CircularProgress,
     Alert,
-    Tooltip
+    Tooltip,
+    Tab,
+    Tabs,
+    Paper
 } from '@mui/material';
 import {
     Add as AddIcon,
     Edit as EditIcon,
     Delete as DeleteIcon,
     Refresh as RefreshIcon,
-    ContentCopy as CopyIcon
+    ContentCopy as CopyIcon,
+    Sync as SyncIcon,
+    Check as CheckIcon,
+    Close as CloseIcon,
+    Schedule as ScheduleIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
 const TenantTemplates = () => {
     const [templates, setTemplates] = useState([]);
+    const [metaTemplates, setMetaTemplates] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
+    const [success, setSuccess] = useState(null);
+    const [tabValue, setTabValue] = useState(0);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -69,6 +79,32 @@ const TenantTemplates = () => {
             setError(err.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const syncFromMeta = async () => {
+        try {
+            setSyncing(true);
+            setError(null);
+            const result = await api.syncPortalTemplates();
+            setMetaTemplates(result.templates || []);
+            setSuccess(`تم جلب ${result.templates?.length || 0} قوالب من WhatsApp`);
+            setTabValue(1); // Switch to Meta templates tab
+        } catch (err) {
+            console.error('Failed to sync from Meta:', err);
+            setError(err.message);
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const importTemplate = async (metaTemplate) => {
+        try {
+            await api.importPortalTemplate(metaTemplate);
+            setSuccess(`تم استيراد القالب "${metaTemplate.name}" بنجاح`);
+            fetchTemplates();
+        } catch (err) {
+            setError(err.message);
         }
     };
 
@@ -122,6 +158,7 @@ const TenantTemplates = () => {
 
             handleCloseDialog();
             fetchTemplates();
+            setSuccess(selectedTemplate ? 'تم تحديث القالب بنجاح' : 'تم إنشاء القالب بنجاح');
         } catch (err) {
             console.error('Failed to save template:', err);
             setError(err.message);
@@ -139,6 +176,7 @@ const TenantTemplates = () => {
             setDeleteDialogOpen(false);
             setSelectedTemplate(null);
             fetchTemplates();
+            setSuccess('تم حذف القالب بنجاح');
         } catch (err) {
             console.error('Failed to delete template:', err);
             setError(err.message);
@@ -158,13 +196,16 @@ const TenantTemplates = () => {
 
     const getStatusChip = (status) => {
         const statusConfig = {
-            draft: { label: 'مسودة', color: 'default' },
-            pending: { label: 'قيد المراجعة', color: 'warning' },
-            approved: { label: 'معتمد', color: 'success' },
-            rejected: { label: 'مرفوض', color: 'error' },
+            draft: { label: 'مسودة', color: 'default', icon: <EditIcon fontSize="small" /> },
+            pending: { label: 'قيد المراجعة', color: 'warning', icon: <ScheduleIcon fontSize="small" /> },
+            approved: { label: 'معتمد', color: 'success', icon: <CheckIcon fontSize="small" /> },
+            rejected: { label: 'مرفوض', color: 'error', icon: <CloseIcon fontSize="small" /> },
+            APPROVED: { label: 'معتمد', color: 'success', icon: <CheckIcon fontSize="small" /> },
+            PENDING: { label: 'قيد المراجعة', color: 'warning', icon: <ScheduleIcon fontSize="small" /> },
+            REJECTED: { label: 'مرفوض', color: 'error', icon: <CloseIcon fontSize="small" /> },
         };
         const config = statusConfig[status] || statusConfig.draft;
-        return <Chip label={config.label} color={config.color} size="small" />;
+        return <Chip label={config.label} color={config.color} size="small" icon={config.icon} />;
     };
 
     const getCategoryLabel = (category) => {
@@ -191,6 +232,14 @@ const TenantTemplates = () => {
                 <Box sx={{ display: 'flex', gap: 2 }}>
                     <Button
                         variant="outlined"
+                        startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
+                        onClick={syncFromMeta}
+                        disabled={syncing}
+                    >
+                        مزامنة من WhatsApp
+                    </Button>
+                    <Button
+                        variant="outlined"
                         startIcon={<RefreshIcon />}
                         onClick={fetchTemplates}
                         disabled={loading}
@@ -213,95 +262,178 @@ const TenantTemplates = () => {
                 </Alert>
             )}
 
-            {/* Templates Table */}
-            <Card elevation={2}>
-                {loading ? (
-                    <Box sx={{ p: 4, textAlign: 'center' }}>
-                        <CircularProgress />
-                    </Box>
-                ) : templates.length === 0 ? (
-                    <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                        <Typography variant="h6" gutterBottom>لا توجد قوالب</Typography>
-                        <Typography variant="body2">
-                            ابدأ بإنشاء قالب جديد لتسهيل إرسال الرسائل
-                        </Typography>
-                        <Button
-                            variant="contained"
-                            startIcon={<AddIcon />}
-                            onClick={() => handleOpenDialog()}
-                            sx={{ mt: 2 }}
-                        >
-                            إنشاء قالب
-                        </Button>
-                    </Box>
-                ) : (
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>الاسم</TableCell>
-                                    <TableCell>الفئة</TableCell>
-                                    <TableCell>اللغة</TableCell>
-                                    <TableCell>الحالة</TableCell>
-                                    <TableCell>تاريخ الإنشاء</TableCell>
-                                    <TableCell align="center">الإجراءات</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {templates.map((template) => (
-                                    <TableRow key={template.id} hover>
-                                        <TableCell>
-                                            <Typography fontWeight={500}>{template.name}</Typography>
-                                            <Typography variant="caption" color="text.secondary" sx={{
-                                                display: 'block',
-                                                maxWidth: 300,
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap'
-                                            }}>
-                                                {template.body}
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell>{getCategoryLabel(template.category)}</TableCell>
-                                        <TableCell>{template.language?.toUpperCase()}</TableCell>
-                                        <TableCell>{getStatusChip(template.status)}</TableCell>
-                                        <TableCell>
-                                            {new Date(template.created_at).toLocaleDateString('ar-LY')}
-                                        </TableCell>
-                                        <TableCell align="center">
-                                            <Tooltip title="نسخ المحتوى">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => copyToClipboard(template.body)}
-                                                >
-                                                    <CopyIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="تعديل">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => handleOpenDialog(template)}
-                                                >
-                                                    <EditIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="حذف">
-                                                <IconButton
-                                                    size="small"
-                                                    color="error"
-                                                    onClick={() => openDeleteDialog(template)}
-                                                >
-                                                    <DeleteIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
-                                        </TableCell>
+            {success && (
+                <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess(null)}>
+                    {success}
+                </Alert>
+            )}
+
+            {/* Tabs */}
+            <Paper sx={{ mb: 3 }}>
+                <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
+                    <Tab label={`القوالب المحلية (${templates.length})`} />
+                    <Tab label={`قوالب WhatsApp (${metaTemplates.length})`} />
+                </Tabs>
+            </Paper>
+
+            {/* Local Templates */}
+            {tabValue === 0 && (
+                <Card elevation={2}>
+                    {loading ? (
+                        <Box sx={{ p: 4, textAlign: 'center' }}>
+                            <CircularProgress />
+                        </Box>
+                    ) : templates.length === 0 ? (
+                        <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
+                            <Typography variant="h6" gutterBottom>لا توجد قوالب</Typography>
+                            <Typography variant="body2">
+                                ابدأ بإنشاء قالب جديد أو مزامنة من WhatsApp
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 2 }}>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<SyncIcon />}
+                                    onClick={syncFromMeta}
+                                    disabled={syncing}
+                                >
+                                    مزامنة من WhatsApp
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    startIcon={<AddIcon />}
+                                    onClick={() => handleOpenDialog()}
+                                >
+                                    إنشاء قالب
+                                </Button>
+                            </Box>
+                        </Box>
+                    ) : (
+                        <TableContainer>
+                            <Table>
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>الاسم</TableCell>
+                                        <TableCell>الفئة</TableCell>
+                                        <TableCell>اللغة</TableCell>
+                                        <TableCell>الحالة</TableCell>
+                                        <TableCell>تاريخ الإنشاء</TableCell>
+                                        <TableCell align="center">الإجراءات</TableCell>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                )}
-            </Card>
+                                </TableHead>
+                                <TableBody>
+                                    {templates.map((template) => (
+                                        <TableRow key={template.id} hover>
+                                            <TableCell>
+                                                <Typography fontWeight={500}>{template.name}</Typography>
+                                                <Typography variant="caption" color="text.secondary" sx={{
+                                                    display: 'block',
+                                                    maxWidth: 300,
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap'
+                                                }}>
+                                                    {template.body}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>{getCategoryLabel(template.category)}</TableCell>
+                                            <TableCell>{template.language?.toUpperCase()}</TableCell>
+                                            <TableCell>{getStatusChip(template.status)}</TableCell>
+                                            <TableCell>
+                                                {new Date(template.created_at).toLocaleDateString('ar-LY')}
+                                            </TableCell>
+                                            <TableCell align="center">
+                                                <Tooltip title="نسخ المحتوى">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => copyToClipboard(template.body)}
+                                                    >
+                                                        <CopyIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="تعديل">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleOpenDialog(template)}
+                                                    >
+                                                        <EditIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="حذف">
+                                                    <IconButton
+                                                        size="small"
+                                                        color="error"
+                                                        onClick={() => openDeleteDialog(template)}
+                                                    >
+                                                        <DeleteIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    )}
+                </Card>
+            )}
+
+            {/* Meta Templates */}
+            {tabValue === 1 && (
+                <Card elevation={2}>
+                    {metaTemplates.length === 0 ? (
+                        <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
+                            <Typography variant="h6" gutterBottom>لا توجد قوالب من WhatsApp</Typography>
+                            <Typography variant="body2">
+                                اضغط على "مزامنة من WhatsApp" لجلب القوالب المعتمدة
+                            </Typography>
+                            <Button
+                                variant="outlined"
+                                startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
+                                onClick={syncFromMeta}
+                                disabled={syncing}
+                                sx={{ mt: 2 }}
+                            >
+                                مزامنة من WhatsApp
+                            </Button>
+                        </Box>
+                    ) : (
+                        <TableContainer>
+                            <Table>
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>الاسم</TableCell>
+                                        <TableCell>الفئة</TableCell>
+                                        <TableCell>اللغة</TableCell>
+                                        <TableCell>الحالة</TableCell>
+                                        <TableCell align="center">الإجراءات</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {metaTemplates.map((template, idx) => (
+                                        <TableRow key={template.id || idx} hover>
+                                            <TableCell>
+                                                <Typography fontWeight={500}>{template.name}</Typography>
+                                            </TableCell>
+                                            <TableCell>{getCategoryLabel(template.category)}</TableCell>
+                                            <TableCell>{template.language?.toUpperCase()}</TableCell>
+                                            <TableCell>{getStatusChip(template.status)}</TableCell>
+                                            <TableCell align="center">
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={() => importTemplate(template)}
+                                                >
+                                                    استيراد
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    )}
+                </Card>
+            )}
 
             {/* Create/Edit Dialog */}
             <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>

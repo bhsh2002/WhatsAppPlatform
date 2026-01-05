@@ -266,6 +266,19 @@ class ApiService {
         });
     }
 
+    async syncPortalTemplates() {
+        return this.request('/api/portal/templates/sync', {
+            method: 'POST',
+        });
+    }
+
+    async importPortalTemplate(templateData) {
+        return this.request('/api/portal/templates/import', {
+            method: 'POST',
+            body: JSON.stringify(templateData),
+        });
+    }
+
     async getPortalApiSettings() {
         return this.request('/api/portal/settings/api');
     }
