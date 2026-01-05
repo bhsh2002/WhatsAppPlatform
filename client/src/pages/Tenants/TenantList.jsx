@@ -135,10 +135,14 @@ const TenantList = () => {
     };
 
     const openAccountModal = async () => {
-        const tenant = tenants.find(t => t.id === selectedTenantId);
+        const tenantId = selectedTenantId;
+        const tenant = tenants.find(t => t.id === tenantId);
         if (!tenant) return;
 
-        handleMenuClose();
+        // Close menu first, but save the tenant ID
+        setAnchorEl(null);
+        // Don't clear selectedTenantId here - we still need it
+
         setAccountError(null);
         setAccountInfo(null);
         setAccountFormData({
@@ -150,7 +154,7 @@ const TenantList = () => {
         // Check if tenant already has an account
         try {
             setAccountLoading(true);
-            const data = await api.getTenantAccount(selectedTenantId);
+            const data = await api.getTenantAccount(tenantId);
             setAccountInfo(data);
         } catch (err) {
             console.error('Failed to fetch account info:', err);
@@ -179,7 +183,7 @@ const TenantList = () => {
             // Refresh account info
             const data = await api.getTenantAccount(selectedTenantId);
             setAccountInfo(data);
-            setAccountFormData({ username: '', password: '', email: '' });
+            setAccountFormData({ ...accountFormData, password: '' });
         } catch (err) {
             setAccountError(err.message);
         } finally {
