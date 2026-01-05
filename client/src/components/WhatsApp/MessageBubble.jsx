@@ -44,6 +44,70 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             );
         }
 
+        if (type === 'template') {
+            let templateData = null;
+            try {
+                // Try to parse if content is JSON
+                if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+                    templateData = JSON.parse(content);
+                }
+            } catch (e) {
+                // Content is plain text
+            }
+
+            if (templateData && typeof templateData === 'object') {
+                return (
+                    <Box sx={{ minWidth: 200 }}>
+                        {templateData.header && (
+                            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                                {templateData.header.type === 'IMAGE' ? '[صورة]' :
+                                    templateData.header.type === 'VIDEO' ? '[فيديو]' :
+                                        templateData.header.type === 'DOCUMENT' ? '[مستند]' :
+                                            templateData.header.text || ''}
+                            </Typography>
+                        )}
+                        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', mb: 1 }}>
+                            {templateData.body?.text || templateData.body || content}
+                        </Typography>
+                        {templateData.footer && (
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                                {templateData.footer.text || templateData.footer}
+                            </Typography>
+                        )}
+                        {templateData.buttons && Array.isArray(templateData.buttons) && (
+                            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                {templateData.buttons.map((btn, i) => (
+                                    <Box key={i} sx={{
+                                        bgcolor: 'rgba(0,0,0,0.05)',
+                                        p: 1,
+                                        borderRadius: 1,
+                                        textAlign: 'center',
+                                        fontSize: '0.875rem',
+                                        color: 'primary.main',
+                                        fontWeight: 500
+                                    }}>
+                                        {btn.text}
+                                    </Box>
+                                ))}
+                            </Box>
+                        )}
+                    </Box>
+                );
+            }
+
+            // Fallback for simple template text (e.g., "payment_reminder")
+            return (
+                <Box>
+                    <Typography variant="caption" sx={{ color: 'primary.main', display: 'block', mb: 0.5 }}>
+                        رسالة قالب
+                    </Typography>
+                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {content}
+                    </Typography>
+                </Box>
+            );
+        }
+
         // Default or Document
         return (
             <Box>

@@ -216,6 +216,10 @@ class ApiService {
         });
     }
 
+    async getTenantTemplates(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/templates`);
+    }
+
     // ============================================
     // Tenant Portal APIs
     // ============================================

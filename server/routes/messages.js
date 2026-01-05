@@ -99,12 +99,56 @@ router.post('/send', async (req, res) => {
         const data = await response.json();
 
         // Save message to database
+        // Helper to perform variable substitution (simple version)
+        const substituteVariables = (text, params) => {
+            if (!text || !params) return text;
+            let result = text;
+            params.forEach((param, index) => {
+                if (typeof param === 'string' || typeof param === 'number') {
+                    result = result.replace(`{{${index + 1}}}`, param);
+                } else if (param.type === 'text') {
+                    result = result.replace(`{{${index + 1}}}`, param.text);
+                }
+            });
+            return result;
+        };
+
+        let storedContent = message;
+        if (type === 'template') {
+            storedContent = `[Template: ${templateName}]`; // Default fallback
+
+            if (tenant_id) {
+                try {
+                    const template = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenant_id, templateName);
+
+                    if (template) {
+                        // Extract params for body
+                        const bodyParamsComponent = templateParams?.find(c => c.type === 'body' || c.type === 'BODY');
+                        const bodyParams = bodyParamsComponent?.parameters || [];
+
+                        const richContent = {
+                            header: template.header_content ? {
+                                type: template.header_type,
+                                text: template.header_content // Image/Video headers handling might need more logic
+                            } : null,
+                            body: substituteVariables(template.body, bodyParams),
+                            footer: template.footer,
+                            buttons: template.buttons ? JSON.parse(template.buttons) : null
+                        };
+                        storedContent = JSON.stringify(richContent);
+                    }
+                } catch (e) {
+                    console.error('Failed to construct rich template content:', e);
+                }
+            }
+        }
+
         const messageRecord = {
             tenant_id: tenant?.id || null,
             direction: 'outgoing',
             recipient: recipient,
             message_type: type || 'text',
-            content: type === 'template' ? `[Template: ${templateName}]` : message,
+            content: storedContent,
             status: response.ok ? 'sent' : 'failed',
             wamid: data.messages?.[0]?.id || null,
             error_message: data.error?.message || null,

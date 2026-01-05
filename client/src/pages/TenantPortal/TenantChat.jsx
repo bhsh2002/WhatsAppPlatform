@@ -33,6 +33,9 @@ import {
 } from '@mui/icons-material';
 import api from '../../api';
 
+import TemplatePicker from '../../components/WhatsApp/TemplatePicker';
+import MessageBubble from '../../components/WhatsApp/MessageBubble'; // Use shared component
+
 const TenantChat = () => {
     const [conversations, setConversations] = useState([]);
     const [messages, setMessages] = useState([]);
@@ -44,11 +47,17 @@ const TenantChat = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [showMobileChat, setShowMobileChat] = useState(false);
 
+    // Template State
+    const [templates, setTemplates] = useState([]);
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     useEffect(() => {
         fetchConversations();
+        fetchTemplates();
     }, []);
 
     useEffect(() => {
@@ -70,6 +79,15 @@ const TenantChat = () => {
             console.error('Failed to fetch conversations:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchTemplates = async () => {
+        try {
+            const data = await api.getPortalTemplates();
+            setTemplates(data || []);
+        } catch (err) {
+            console.error('Failed to fetch templates:', err);
         }
     };
 
@@ -100,6 +118,26 @@ const TenantChat = () => {
             fetchMessages(selectedChat.contact);
         } catch (err) {
             console.error('Failed to send message:', err);
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const handleSendTemplate = async (templateData) => {
+        if (!selectedChat || sending) return;
+
+        try {
+            setSending(true);
+            await api.sendPortalMessage({
+                recipient: selectedChat.contact,
+                type: 'template',
+                templateId: templateData.id,
+                components: templateData.components // Pass user params
+            });
+            fetchMessages(selectedChat.contact);
+        } catch (err) {
+            console.error('Failed to send template:', err);
+            alert('فشل إرسال القالب');
         } finally {
             setSending(false);
         }
@@ -155,86 +193,19 @@ const TenantChat = () => {
         }
     };
 
+    // Helper to get media URL (reusing admin API for now passed via props or context usually, but here accessing directly)
+    // Note: Tenant needs their own media download endpoint if sensitive, but for now assuming shared or public-ish handling
+    const getMediaDownloadUrl = (mediaId) => {
+        // Implementation might need adjustment for tenant portal auth
+        return `/api/media/${mediaId}`; // Placeholder
+    };
+
     const filteredConversations = conversations.filter(conv =>
         (conv.profile_name || conv.contact || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    // Message Bubble Component
-    const MessageBubble = ({ message }) => {
-        const isOutgoing = message.direction === 'outgoing';
-        const type = message.message_type || 'text';
-        const content = message.content || '';
-
-        const renderContent = () => {
-            // Template message
-            if (type === 'template' || content.startsWith('[قالب]') || content.startsWith('[Template')) {
-                const templateName = content.replace('[قالب]', '').replace('[Template:', '').replace(']', '').trim();
-                return (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <TemplateIcon sx={{ fontSize: 18, color: isOutgoing ? 'success.dark' : 'primary.main' }} />
-                        <Box>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                                رسالة قالب
-                            </Typography>
-                            <Typography variant="body2" fontWeight={500}>
-                                {templateName || 'قالب'}
-                            </Typography>
-                        </Box>
-                    </Box>
-                );
-            }
-
-            // Regular text
-            return (
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.95rem' }}>
-                    {content}
-                </Typography>
-            );
-        };
-
-        return (
-            <Box sx={{
-                display: 'flex',
-                justifyContent: isOutgoing ? 'flex-end' : 'flex-start',
-                mb: 0.5,
-                px: { xs: 1, md: 4 }
-            }}>
-                <Paper elevation={1} sx={{
-                    p: '6px 10px',
-                    maxWidth: { xs: '85%', md: '65%' },
-                    bgcolor: isOutgoing ? '#d9fdd3' : '#ffffff',
-                    borderRadius: 2,
-                    borderTopRightRadius: isOutgoing ? 0 : 2,
-                    borderTopLeftRadius: !isOutgoing ? 0 : 2,
-                    position: 'relative',
-                    minWidth: '80px'
-                }}>
-                    {renderContent()}
-
-                    <Box sx={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        mt: 0.5,
-                        opacity: 0.7
-                    }}>
-                        <Typography variant="caption" sx={{ fontSize: '0.65rem' }}>
-                            {formatTime(message.created_at)}
-                        </Typography>
-                        {isOutgoing && (
-                            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                                {getStatusIcon(message.status, message.direction)}
-                            </Box>
-                        )}
-                    </Box>
-                </Paper>
-            </Box>
-        );
-    };
-
     return (
-        <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', bgcolor: 'background.default' }}>
+        <Box sx={{ height: '100%', display: 'flex', bgcolor: 'background.default' }}>
             {/* Conversations List */}
             <Box sx={{
                 width: { xs: showMobileChat ? 0 : '100%', md: 350 },
@@ -405,7 +376,13 @@ const TenantChat = () => {
                                                     </Typography>
                                                 </Box>
                                             )}
-                                            <MessageBubble message={msg} />
+                                            <MessageBubble
+                                                message={msg}
+                                                isOutgoing={msg.direction === 'outgoing'}
+                                                formatTime={formatTime}
+                                                getStatusIcon={getStatusIcon}
+                                                getMediaDownloadUrl={getMediaDownloadUrl}
+                                            />
                                         </React.Fragment>
                                     );
                                 })
@@ -423,6 +400,9 @@ const TenantChat = () => {
                             gap: 1
                         }}>
                             <IconButton><EmojiIcon /></IconButton>
+                            <IconButton onClick={() => setShowTemplatePicker(true)}>
+                                <TemplateIcon />
+                            </IconButton>
                             <IconButton><AttachFileIcon sx={{ transform: 'rotate(45deg)' }} /></IconButton>
 
                             <Box component="form" onSubmit={handleSendMessage} sx={{ flex: 1, display: 'flex', gap: 1 }}>
@@ -458,6 +438,14 @@ const TenantChat = () => {
                                 )}
                             </Box>
                         </Paper>
+
+                        {/* Template Picker */}
+                        <TemplatePicker
+                            open={showTemplatePicker}
+                            onClose={() => setShowTemplatePicker(false)}
+                            onSelect={handleSendTemplate}
+                            templates={templates}
+                        />
                     </>
                 )}
             </Box>

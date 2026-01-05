@@ -20,7 +20,8 @@ import {
     InsertEmoticon as EmojiIcon,
     Close as CloseIcon
 } from '@mui/icons-material';
-import MessageBubble from './MessageBubble';
+import TemplatePicker from './TemplatePicker';
+import { Description as TemplateIcon } from '@mui/icons-material';
 
 const ChatWindow = ({
     selectedChat,
@@ -46,8 +47,12 @@ const ChatWindow = ({
     clearSelectedFile,
     handleFileSelect,
     getDateKey,
-    fileInputRef
+    fileInputRef,
+    // Templates
+    templates = [],
+    onSendTemplate
 }) => {
+    const [showTemplatePicker, setShowTemplatePicker] = React.useState(false);
 
     // Handle form submit
     const handleSubmit = (e) => {
@@ -162,6 +167,9 @@ const ChatWindow = ({
                 gap: 1
             }}>
                 <IconButton><EmojiIcon /></IconButton>
+                <IconButton onClick={() => setShowTemplatePicker(true)}>
+                    <TemplateIcon />
+                </IconButton>
                 <IconButton onClick={() => fileInputRef.current?.click()}>
                     <AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />
                 </IconButton>
@@ -196,6 +204,13 @@ const ChatWindow = ({
                     )}
                 </Box>
             </Paper>
+
+            <TemplatePicker
+                open={showTemplatePicker}
+                onClose={() => setShowTemplatePicker(false)}
+                onSelect={onSendTemplate}
+                templates={templates}
+            />
         </Box>
     );
 };

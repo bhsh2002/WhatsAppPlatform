@@ -184,7 +184,7 @@ router.get('/conversations/:phone/messages', (req, res) => {
 router.post('/messages/send', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const { recipient, type, message, templateId } = req.body;
+        const { recipient, type, message, templateId, components } = req.body;
 
         if (!recipient) {
             return res.status(400).json({ error: 'رقم المستلم مطلوب' });
@@ -221,8 +221,11 @@ router.post('/messages/send', async (req, res) => {
                 language: { code: template.language || 'ar' },
             };
 
-            // Parse and add components if variables exist
-            if (template.variables) {
+            // Add components if provided (from user input)
+            if (components && Array.isArray(components) && components.length > 0) {
+                payload.template.components = components;
+            } else if (template.variables) {
+                // Fallback to stored variables if no input provided (legacy/auto messages)
                 try {
                     const variables = JSON.parse(template.variables);
                     if (variables.body && variables.body.length > 0) {
@@ -231,9 +234,7 @@ router.post('/messages/send', async (req, res) => {
                             parameters: variables.body.map(v => ({ type: 'text', text: v }))
                         }];
                     }
-                } catch (e) {
-                    console.warn('[TenantPortal] Failed to parse template variables:', e);
-                }
+                } catch (e) { }
             }
         } else {
             payload.type = 'text';
@@ -253,13 +254,68 @@ router.post('/messages/send', async (req, res) => {
 
         const data = await response.json();
 
+        // Helper to perform variable substitution (simple version)
+        const substituteVariables = (text, params) => {
+            if (!text || !params) return text;
+            let result = text;
+            params.forEach((param, index) => {
+                const val = typeof param === 'string' ? param : param.text;
+                result = result.replace(`{{${index + 1}}}`, val || '');
+            });
+            return result;
+        };
+
+        let storedContent = message;
+        if (type === 'template' && templateId) {
+            try {
+                // Get template from database again if needed, or use already fetched 'template'
+                // We already fetched 'template' above at line 213
+
+                const template = db.prepare('SELECT * FROM templates WHERE id = ? AND tenant_id = ?').get(templateId, tenantId);
+
+                if (template) {
+                    let bodyParams = [];
+
+                    // Try to get params from input components first
+                    if (components && Array.isArray(components)) {
+                        const bodyComp = components.find(c => c.type === 'body' || c.type === 'BODY');
+                        if (bodyComp && bodyComp.parameters) {
+                            bodyParams = bodyComp.parameters;
+                        }
+                    }
+
+                    // Fallback to stored variables only if no input params found
+                    if (bodyParams.length === 0 && template.variables) {
+                        try {
+                            const variables = JSON.parse(template.variables);
+                            if (variables.body) bodyParams = variables.body;
+                        } catch (e) { }
+                    }
+
+                    const richContent = {
+                        header: template.header_content ? {
+                            type: template.header_type,
+                            text: template.header_content
+                        } : null,
+                        body: substituteVariables(template.body, bodyParams),
+                        footer: template.footer,
+                        buttons: template.buttons ? JSON.parse(template.buttons) : null
+                    };
+                    storedContent = JSON.stringify(richContent);
+                }
+            } catch (e) {
+                console.error('Failed to construct rich template content:', e);
+                storedContent = `[قالب: ${templateId}]`;
+            }
+        }
+
         // Save message to database
         const messageRecord = {
             tenant_id: tenantId,
             direction: 'outgoing',
             recipient: recipient,
             message_type: type || 'text',
-            content: type === 'template' ? `[قالب]` : message,
+            content: storedContent,
             status: response.ok ? 'sent' : 'failed',
             wamid: data.messages?.[0]?.id || null,
             error_message: data.error?.message || null,

@@ -18,6 +18,7 @@ const WhatsAppChat = () => {
     const [conversations, setConversations] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
+    const [templates, setTemplates] = useState([]); // Template state
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -107,6 +108,20 @@ const WhatsAppChat = () => {
         }
     };
 
+    const fetchTemplates = async (tenantId) => {
+        if (!tenantId) {
+            setTemplates([]);
+            return;
+        }
+        try {
+            const data = await api.getTenantTemplates(tenantId);
+            setTemplates(data || []);
+        } catch (err) {
+            console.error('Failed to fetch templates:', err);
+            setTemplates([]);
+        }
+    };
+
     useEffect(() => {
         fetchConversations();
         const interval = setInterval(fetchConversations, 10000);
@@ -117,6 +132,7 @@ const WhatsAppChat = () => {
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchTemplates(selectedChat.tenant_id);
             const interval = setInterval(() => fetchMessages(selectedChat.contact, selectedChat.tenant_id), 5000);
             return () => clearInterval(interval);
         }
@@ -195,6 +211,25 @@ const WhatsAppChat = () => {
             setSendError('Failed to send message');
         } finally {
             setSending(false);
+        }
+    };
+
+    const handleSendTemplate = async (templateData) => {
+        if (!selectedChat) return;
+
+        try {
+            await api.sendMessage({
+                recipient: selectedChat.contact,
+                type: 'template',
+                templateName: templateData.name,
+                templateLanguage: templateData.language,
+                templateParams: templateData.components,
+                tenant_id: selectedChat.tenant_id
+            });
+            fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+        } catch (err) {
+            console.error('Failed to send template:', err);
+            alert('فشل إرسال القالب');
         }
     };
 
@@ -283,6 +318,9 @@ const WhatsAppChat = () => {
                             handleFileSelect={handleFileSelect}
                             getDateKey={getDateKey}
                             fileInputRef={fileInputRef}
+                            // Templates
+                            templates={templates}
+                            onSendTemplate={handleSendTemplate}
                         />
                     ) : (
                         // Empty State for Desktop
