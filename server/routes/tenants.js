@@ -573,7 +573,7 @@ router.post('/:id/templates/import', (req, res) => {
             body,
             footer || null,
             buttons ? JSON.stringify(buttons) : null,
-            status || 'approved'
+            (status || 'approved').toLowerCase()
         );
 
         const newTemplate = db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid);
