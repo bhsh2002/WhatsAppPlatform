@@ -188,8 +188,107 @@ class ApiService {
     async checkHealth() {
         return this.request('/api/health');
     }
+
+    // ============================================
+    // Admin - Tenant Account Management
+    // ============================================
+    async getTenantAccount(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/account`);
+    }
+
+    async createTenantAccount(tenantId, data) {
+        return this.request(`/api/tenants/${tenantId}/create-account`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateTenantPassword(tenantId, password) {
+        return this.request(`/api/tenants/${tenantId}/account/password`, {
+            method: 'PUT',
+            body: JSON.stringify({ password }),
+        });
+    }
+
+    async toggleTenantAccount(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/account/toggle`, {
+            method: 'PUT',
+        });
+    }
+
+    // ============================================
+    // Tenant Portal APIs
+    // ============================================
+    async getPortalDashboard() {
+        return this.request('/api/portal/dashboard');
+    }
+
+    async getPortalConversations() {
+        return this.request('/api/portal/conversations');
+    }
+
+    async getPortalMessages(phone) {
+        return this.request(`/api/portal/conversations/${phone}/messages`);
+    }
+
+    async sendPortalMessage(data) {
+        return this.request('/api/portal/messages/send', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getPortalTemplates() {
+        return this.request('/api/portal/templates');
+    }
+
+    async getPortalTemplate(id) {
+        return this.request(`/api/portal/templates/${id}`);
+    }
+
+    async createPortalTemplate(data) {
+        return this.request('/api/portal/templates', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updatePortalTemplate(id, data) {
+        return this.request(`/api/portal/templates/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deletePortalTemplate(id) {
+        return this.request(`/api/portal/templates/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async getPortalApiSettings() {
+        return this.request('/api/portal/settings/api');
+    }
+
+    async updatePortalApiSettings(data) {
+        return this.request('/api/portal/settings/api', {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async regeneratePortalApiKey() {
+        return this.request('/api/portal/settings/api/regenerate-key', {
+            method: 'POST',
+        });
+    }
+
+    async getPortalProfile() {
+        return this.request('/api/portal/profile');
+    }
 }
 
 const api = new ApiService();
 export default api;
+
 

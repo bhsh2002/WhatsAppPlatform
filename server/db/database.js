@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,7 +11,45 @@ const db = new Database(join(__dirname, 'platform.db'));
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
-// Create tables
+// Run migrations first (before CREATE TABLE IF NOT EXISTS statements)
+// This handles adding columns to existing tables
+try {
+  // Check if users table exists
+  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+
+  if (tableExists) {
+    // Users table migrations
+    const userColumns = db.prepare("PRAGMA table_info(users)").all();
+    const userColumnNames = userColumns.map(c => c.name);
+
+    if (!userColumnNames.includes('tenant_id')) {
+      db.exec('ALTER TABLE users ADD COLUMN tenant_id INTEGER REFERENCES tenants(id)');
+      console.log('[DB] Added tenant_id column to users table');
+    }
+  }
+
+  // Check if messages table exists
+  const messagesTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
+
+  if (messagesTableExists) {
+    const messageColumns = db.prepare("PRAGMA table_info(messages)").all();
+    const messageColumnNames = messageColumns.map(c => c.name);
+
+    if (!messageColumnNames.includes('media_id')) {
+      db.exec('ALTER TABLE messages ADD COLUMN media_id TEXT');
+    }
+    if (!messageColumnNames.includes('media_url')) {
+      db.exec('ALTER TABLE messages ADD COLUMN media_url TEXT');
+    }
+    if (!messageColumnNames.includes('media_mime_type')) {
+      db.exec('ALTER TABLE messages ADD COLUMN media_mime_type TEXT');
+    }
+  }
+} catch (e) {
+  console.log('[DB] Migration note:', e.message);
+}
+
+// Create tables (IF NOT EXISTS means they won't modify existing tables)
 db.exec(`
   -- Tenants table
   CREATE TABLE IF NOT EXISTS tenants (
@@ -78,18 +117,54 @@ db.exec(`
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
   );
 
-  -- Users table for authentication
+  -- Users table for authentication (note: CHECK constraint won't be updated on existing table)
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE,
     password_hash TEXT NOT NULL,
     name TEXT,
-    role TEXT DEFAULT 'user' CHECK(role IN ('admin', 'user', 'viewer')),
+    role TEXT DEFAULT 'user',
+    tenant_id INTEGER,
     is_active INTEGER DEFAULT 1,
     last_login DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
+  );
+
+  -- Templates table for message templates
+  CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    language TEXT DEFAULT 'ar',
+    category TEXT DEFAULT 'UTILITY',
+    header_type TEXT DEFAULT 'none' CHECK(header_type IN ('none', 'text', 'image', 'video', 'document')),
+    header_content TEXT,
+    body TEXT NOT NULL,
+    footer TEXT,
+    buttons TEXT,
+    variables TEXT,
+    status TEXT DEFAULT 'draft' CHECK(status IN ('draft', 'pending', 'approved', 'rejected')),
+    meta_template_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+  );
+
+  -- Tenant API settings table
+  CREATE TABLE IF NOT EXISTS tenant_api_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER UNIQUE NOT NULL,
+    webhook_url TEXT,
+    webhook_secret TEXT,
+    api_key TEXT UNIQUE,
+    callback_url TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
   );
 
   -- Create indexes for better performance
@@ -100,29 +175,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_webhook_logs_created ON webhook_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+  CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
   CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
+  CREATE INDEX IF NOT EXISTS idx_templates_tenant ON templates(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_tenant_api_settings_key ON tenant_api_settings(api_key);
 `);
 
-// Migration: Add new columns to existing messages table if they don't exist
-try {
-  const columns = db.prepare("PRAGMA table_info(messages)").all();
-  const columnNames = columns.map(c => c.name);
-
-  if (!columnNames.includes('media_id')) {
-    db.exec('ALTER TABLE messages ADD COLUMN media_id TEXT');
-  }
-  if (!columnNames.includes('media_url')) {
-    db.exec('ALTER TABLE messages ADD COLUMN media_url TEXT');
-  }
-  if (!columnNames.includes('media_mime_type')) {
-    db.exec('ALTER TABLE messages ADD COLUMN media_mime_type TEXT');
-  }
-} catch (e) {
-  // Columns already exist or table is new
-}
+// Helper function to generate API key
+export const generateApiKey = () => {
+  return 'wp_' + crypto.randomBytes(32).toString('hex');
+};
 
 // Sample data insertion disabled by default
 // const tenantCount = db.prepare('SELECT COUNT(*) as count FROM tenants').get();
 // if (tenantCount.count === 0) { ... }
 
 export default db;
+
+

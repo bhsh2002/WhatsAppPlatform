@@ -10,7 +10,8 @@ import {
     Typography,
     Avatar,
     Divider,
-    Button
+    Button,
+    Chip
 } from '@mui/material';
 import {
     Dashboard as DashboardIcon,
@@ -20,12 +21,14 @@ import {
     Assessment as AssessmentIcon,
     Settings as SettingsIcon,
     Logout as LogoutIcon,
-    Person as PersonIcon
+    Person as PersonIcon,
+    Description as TemplateIcon,
+    Api as ApiIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
 const Sidebar = () => {
-    const { user, logout } = useAuth();
+    const { user, tenant, logout, isTenant, isAdmin } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -34,7 +37,8 @@ const Sidebar = () => {
         navigate('/login');
     };
 
-    const navItems = [
+    // Admin navigation items
+    const adminNavItems = [
         { label: 'لوحة القيادة', path: '/', icon: <DashboardIcon /> },
         { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
         { label: 'المحادثات', path: '/chat', icon: <ChatIcon /> },
@@ -42,6 +46,16 @@ const Sidebar = () => {
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
         { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
     ];
+
+    // Tenant navigation items
+    const tenantNavItems = [
+        { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
+        { label: 'المحادثات', path: '/portal/chat', icon: <ChatIcon /> },
+        { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
+        { label: 'إعدادات API', path: '/portal/api-settings', icon: <ApiIcon /> },
+    ];
+
+    const navItems = isTenant ? tenantNavItems : adminNavItems;
 
     return (
         <Box sx={{
@@ -61,7 +75,7 @@ const Sidebar = () => {
                 <Box sx={{
                     width: 40,
                     height: 40,
-                    bgcolor: 'primary.main',
+                    bgcolor: isTenant ? 'secondary.main' : 'primary.main',
                     borderRadius: 2,
                     display: 'flex',
                     alignItems: 'center',
@@ -70,14 +84,14 @@ const Sidebar = () => {
                     fontSize: '1.5rem',
                     boxShadow: 2
                 }}>
-                    ⚡
+                    {isTenant ? '🏢' : '⚡'}
                 </Box>
                 <Box>
                     <Typography variant="h6" fontWeight={700} lineHeight={1.2}>
-                        مراقب واتساب
+                        {isTenant ? (tenant?.name || 'بوابة العميل') : 'مراقب واتساب'}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                        لوحة الإدارة المركزية
+                        {isTenant ? 'بوابة العميل' : 'لوحة الإدارة المركزية'}
                     </Typography>
                 </Box>
             </Box>
@@ -96,9 +110,9 @@ const Sidebar = () => {
                                 sx={{
                                     borderRadius: 2,
                                     '&.Mui-selected': {
-                                        bgcolor: 'primary.light',
-                                        color: 'primary.contrastText',
-                                        '&:hover': { bgcolor: 'primary.dark' },
+                                        bgcolor: isTenant ? 'secondary.light' : 'primary.light',
+                                        color: isTenant ? 'secondary.contrastText' : 'primary.contrastText',
+                                        '&:hover': { bgcolor: isTenant ? 'secondary.dark' : 'primary.dark' },
                                         '& .MuiListItemIcon-root': { color: 'inherit' }
                                     }
                                 }}
@@ -130,16 +144,21 @@ const Sidebar = () => {
                         bgcolor: 'action.hover',
                         borderRadius: 2
                     }}>
-                        <Avatar sx={{ bgcolor: 'secondary.main', width: 36, height: 36 }}>
+                        <Avatar sx={{ bgcolor: isTenant ? 'secondary.main' : 'primary.main', width: 36, height: 36 }}>
                             <PersonIcon />
                         </Avatar>
-                        <Box sx={{ overflow: 'hidden' }}>
+                        <Box sx={{ overflow: 'hidden', flex: 1 }}>
                             <Typography variant="subtitle2" noWrap>
                                 {user.name || user.username}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                                {user.role === 'admin' ? 'مدير' : 'مستخدم'}
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Chip
+                                    label={isTenant ? 'عميل' : (isAdmin ? 'مدير' : 'مستخدم')}
+                                    size="small"
+                                    color={isTenant ? 'secondary' : 'primary'}
+                                    sx={{ height: 20, fontSize: '0.7rem' }}
+                                />
+                            </Box>
                         </Box>
                     </Box>
                 )}
@@ -159,3 +178,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+

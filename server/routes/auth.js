@@ -90,19 +90,33 @@ router.post('/login', async (req, res) => {
         // Update last login
         db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
 
-        // Generate token
-        const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role },
-            JWT_SECRET,
-            { expiresIn: JWT_EXPIRES_IN }
-        );
+        // Generate token with tenant_id if applicable
+        const tokenPayload = {
+            id: user.id,
+            username: user.username,
+            role: user.role
+        };
+
+        if (user.tenant_id) {
+            tokenPayload.tenant_id = user.tenant_id;
+        }
+
+        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
         // Return user without password
         const { password_hash, ...userWithoutPassword } = user;
 
+        // Include tenant info if user is a tenant
+        let tenant = null;
+        if (user.role === 'tenant' && user.tenant_id) {
+            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality FROM tenants WHERE id = ?')
+                .get(user.tenant_id);
+        }
+
         res.json({
             message: 'تم تسجيل الدخول بنجاح',
             user: userWithoutPassword,
+            tenant,
             token
         });
     } catch (error) {
@@ -124,14 +138,21 @@ router.get('/me', (req, res) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
 
-        const user = db.prepare('SELECT id, username, email, name, role, created_at, last_login FROM users WHERE id = ?')
+        const user = db.prepare('SELECT id, username, email, name, role, tenant_id, created_at, last_login FROM users WHERE id = ?')
             .get(decoded.id);
 
         if (!user) {
             return res.status(401).json({ error: 'المستخدم غير موجود' });
         }
 
-        res.json({ user });
+        // If user is a tenant, include tenant info
+        let tenant = null;
+        if (user.role === 'tenant' && user.tenant_id) {
+            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality FROM tenants WHERE id = ?')
+                .get(user.tenant_id);
+        }
+
+        res.json({ user, tenant });
     } catch (error) {
         return res.status(401).json({ error: 'رمز غير صالح' });
     }

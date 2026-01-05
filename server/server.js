@@ -9,6 +9,7 @@ import statsRouter from './routes/stats.js';
 import messagesRouter from './routes/messages.js';
 import webhooksRouter from './routes/webhooks.js';
 import authRouter from './routes/auth.js';
+import tenantPortalRouter from './routes/tenantPortal.js';
 
 // Import middleware
 import { authMiddleware } from './middleware/auth.js';
@@ -58,10 +59,13 @@ app.get('/health', (req, res) => {
 // Auth routes (public)
 app.use('/auth', authRouter);
 
-// Protected API Routes
+// Protected API Routes - Admin
 app.use('/tenants', authMiddleware, tenantsRouter);
 app.use('/stats', authMiddleware, statsRouter);
 app.use('/messages', authMiddleware, messagesRouter);
+
+// Protected API Routes - Tenant Portal
+app.use('/portal', authMiddleware, tenantPortalRouter);
 
 // Webhook route (public - for Meta)
 app.use('/webhook', webhooksRouter);
@@ -95,13 +99,21 @@ app.listen(PORT, () => {
 ║  • GET  /webhook             - Meta verification             ║
 ║  • POST /webhook             - Meta events                   ║
 ║                                                              ║
-║  Protected Endpoints (require Bearer token):                 ║
-║  • GET  /tenants           - List tenants                    ║
-║  • POST /tenants           - Create tenant                   ║
-║  • GET  /stats/dashboard   - Dashboard stats                 ║
-║  • POST /messages/send     - Send WhatsApp message           ║
+║  Admin Endpoints (require Bearer token):                     ║
+║  • GET  /tenants             - List tenants                  ║
+║  • POST /tenants             - Create tenant                 ║
+║  • POST /tenants/:id/create-account - Create tenant login    ║
+║  • GET  /stats/dashboard     - Dashboard stats               ║
+║  • POST /messages/send       - Send WhatsApp message         ║
+║                                                              ║
+║  Tenant Portal (require tenant token):                       ║
+║  • GET  /portal/dashboard    - Tenant dashboard              ║
+║  • GET  /portal/conversations - Tenant conversations         ║
+║  • GET  /portal/templates    - Tenant templates              ║
+║  • GET  /portal/settings/api - API settings                  ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 });
 
 export default app;
+

@@ -5,7 +5,7 @@ import MainLayout from './components/Layout/MainLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider } from './context/TenantContext';
 
-// Pages
+// Admin Pages
 import Login from './pages/Login/Login';
 import Dashboard from './pages/Dashboard/Dashboard';
 import TenantList from './pages/Tenants/TenantList';
@@ -14,9 +14,15 @@ import WhatsAppChat from './pages/WhatsAppChat/WhatsAppChat';
 import Logs from './pages/Logs/Logs';
 import Settings from './pages/Settings/Settings';
 
+// Tenant Portal Pages
+import TenantDashboard from './pages/TenantPortal/TenantDashboard';
+import TenantChat from './pages/TenantPortal/TenantChat';
+import TenantTemplates from './pages/TenantPortal/TenantTemplates';
+import TenantApiSettings from './pages/TenantPortal/TenantApiSettings';
+
 // Protected Route wrapper
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
+  const { isAuthenticated, loading, isTenant, isAdmin } = useAuth();
 
   if (loading) {
     return (
@@ -39,25 +45,42 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
+  // Role-based access control
+  if (requireAdmin && !isAdmin) {
+    return <Navigate to="/portal" replace />;
+  }
+
+  if (requireTenant && !isTenant) {
+    return <Navigate to="/" replace />;
+  }
+
   return children;
 };
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isTenant } = useAuth();
+
+  // Determine where to redirect after login based on role
+  const getHomeRoute = () => {
+    if (!isAuthenticated) return '/login';
+    return isTenant ? '/portal' : '/';
+  };
 
   return (
     <Routes>
       {/* Public route */}
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
+        element={isAuthenticated ? <Navigate to={isTenant ? '/portal' : '/'} replace /> : <Login />}
       />
 
-      {/* Protected routes */}
+      {/* ============================================ */}
+      {/* Admin Routes */}
+      {/* ============================================ */}
       <Route
         path="/"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <MainLayout><Dashboard /></MainLayout>
           </ProtectedRoute>
         }
@@ -65,7 +88,7 @@ function AppRoutes() {
       <Route
         path="/tenants"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <MainLayout><TenantList /></MainLayout>
           </ProtectedRoute>
         }
@@ -73,7 +96,7 @@ function AppRoutes() {
       <Route
         path="/whatsapp"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <MainLayout><WhatsAppConsole /></MainLayout>
           </ProtectedRoute>
         }
@@ -81,7 +104,7 @@ function AppRoutes() {
       <Route
         path="/chat"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <MainLayout><WhatsAppChat /></MainLayout>
           </ProtectedRoute>
         }
@@ -89,7 +112,7 @@ function AppRoutes() {
       <Route
         path="/logs"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <MainLayout><Logs /></MainLayout>
           </ProtectedRoute>
         }
@@ -97,8 +120,44 @@ function AppRoutes() {
       <Route
         path="/settings"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requireAdmin>
             <MainLayout><Settings /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ============================================ */}
+      {/* Tenant Portal Routes */}
+      {/* ============================================ */}
+      <Route
+        path="/portal"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantDashboard /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/chat"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantChat /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/templates"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantTemplates /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/api-settings"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantApiSettings /></MainLayout>
           </ProtectedRoute>
         }
       />
@@ -133,3 +192,4 @@ function App() {
 }
 
 export default App;
+

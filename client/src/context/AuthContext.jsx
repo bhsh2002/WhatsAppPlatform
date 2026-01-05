@@ -7,6 +7,7 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
+    const [tenant, setTenant] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -25,11 +26,13 @@ export const AuthProvider = ({ children }) => {
             setLoading(true);
             const data = await api.getCurrentUser(token);
             setUser(data.user);
+            setTenant(data.tenant || null);
             api.setAuthToken(token);
         } catch (err) {
             console.error('Token verification failed:', err);
             localStorage.removeItem('auth_token');
             setUser(null);
+            setTenant(null);
         } finally {
             setLoading(false);
         }
@@ -44,6 +47,7 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('auth_token', data.token);
             api.setAuthToken(data.token);
             setUser(data.user);
+            setTenant(data.tenant || null);
 
             return { success: true };
         } catch (err) {
@@ -63,6 +67,7 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('auth_token', data.token);
             api.setAuthToken(data.token);
             setUser(data.user);
+            setTenant(data.tenant || null);
 
             return { success: true };
         } catch (err) {
@@ -77,6 +82,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('auth_token');
         api.setAuthToken(null);
         setUser(null);
+        setTenant(null);
     }, []);
 
     const changePassword = useCallback(async (currentPassword, newPassword) => {
@@ -88,12 +94,20 @@ export const AuthProvider = ({ children }) => {
         }
     }, []);
 
+    // Computed values
+    const isAuthenticated = !!user;
+    const isTenant = user?.role === 'tenant';
+    const isAdmin = user?.role === 'admin';
+
     return (
         <AuthContext.Provider value={{
             user,
+            tenant,
             loading,
             error,
-            isAuthenticated: !!user,
+            isAuthenticated,
+            isTenant,
+            isAdmin,
             login,
             register,
             logout,
@@ -103,3 +117,4 @@ export const AuthProvider = ({ children }) => {
         </AuthContext.Provider>
     );
 };
+
