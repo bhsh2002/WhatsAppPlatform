@@ -7,9 +7,9 @@ const router = express.Router();
 const META_API_VERSION = 'v22.0';
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
-// Middleware to ensure user is a tenant
+// Middleware to ensure user is a tenant (has tenant_id)
 const ensureTenant = (req, res, next) => {
-    if (!req.user || req.user.role !== 'tenant' || !req.user.tenant_id) {
+    if (!req.user || !req.user.tenant_id) {
         return res.status(403).json({ error: 'صلاحية الوصول مقتصرة على العملاء فقط' });
     }
     next();
