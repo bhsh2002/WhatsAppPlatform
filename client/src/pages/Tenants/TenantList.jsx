@@ -57,7 +57,8 @@ const TenantList = () => {
         status: 'Active',
         quality: 'High',
         phone_number_id: '',
-        access_token: ''
+        access_token: '',
+        waba_id: ''
     });
     const [anchorEl, setAnchorEl] = useState(null);
     const [selectedTenantId, setSelectedTenantId] = useState(null);
@@ -127,6 +128,7 @@ const TenantList = () => {
                 status: tenant.status,
                 quality: tenant.quality,
                 phone_number_id: tenant.phone_number_id || '',
+                waba_id: tenant.waba_id || '',
                 access_token: tenant.access_token || ''
             });
             setShowModal(true);
@@ -142,6 +144,15 @@ const TenantList = () => {
         // Close menu first, but save the tenant ID
         setAnchorEl(null);
         // Don't clear selectedTenantId here - we still need it
+
+
+        setAccountError(null);
+        setAccountInfo(null);
+        setAccountFormData({
+            username: tenant.name.toLowerCase().replace(/\s+/g, '_'),
+            password: '',
+            email: ''
+        });
 
         setAccountError(null);
         setAccountInfo(null);
@@ -489,6 +500,17 @@ const TenantList = () => {
                                     value={formData.phone_number_id}
                                     onChange={(e) => setFormData({ ...formData, phone_number_id: e.target.value })}
                                     placeholder="105956789012345"
+                                />
+                            </Grid>
+
+                            <Grid size={{ xs: 12 }}>
+                                <TextField
+                                    fullWidth
+                                    label="WABA ID (معرف حساب واتساب للأعمال)"
+                                    value={formData.waba_id}
+                                    onChange={(e) => setFormData({ ...formData, waba_id: e.target.value })}
+                                    placeholder="100595678901234"
+                                    helperText="مطلوب لمزامنة القوالب"
                                 />
                             </Grid>
 

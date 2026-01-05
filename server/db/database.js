@@ -28,6 +28,19 @@ try {
     }
   }
 
+  // Check if tenants table exists and add waba_id column
+  const tenantsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'").get();
+
+  if (tenantsTableExists) {
+    const tenantColumns = db.prepare("PRAGMA table_info(tenants)").all();
+    const tenantColumnNames = tenantColumns.map(c => c.name);
+
+    if (!tenantColumnNames.includes('waba_id')) {
+      db.exec('ALTER TABLE tenants ADD COLUMN waba_id TEXT');
+      console.log('[DB] Added waba_id column to tenants table');
+    }
+  }
+
   // Check if messages table exists
   const messagesTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
 

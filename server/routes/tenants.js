@@ -31,15 +31,15 @@ router.get('/:id', (req, res) => {
 // Create tenant
 router.post('/', (req, res) => {
     try {
-        const { name, phone, status, tier, credits, quality, phone_number_id, access_token } = req.body;
+        const { name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id } = req.body;
 
         if (!name) {
             return res.status(400).json({ error: 'Name is required' });
         }
 
         const stmt = db.prepare(`
-      INSERT INTO tenants (name, phone, status, tier, credits, quality, phone_number_id, access_token)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tenants (name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
         const result = stmt.run(
@@ -50,7 +50,8 @@ router.post('/', (req, res) => {
             credits || 0,
             quality || 'High',
             phone_number_id || null,
-            access_token || null
+            access_token || null,
+            waba_id || null
         );
 
         const newTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(result.lastInsertRowid);
@@ -74,7 +75,7 @@ router.post('/', (req, res) => {
 // Update tenant
 router.put('/:id', (req, res) => {
     try {
-        const { name, phone, status, tier, credits, quality, phone_number_id, access_token } = req.body;
+        const { name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id } = req.body;
 
         const existing = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
         if (!existing) {
@@ -91,11 +92,12 @@ router.put('/:id', (req, res) => {
         quality = COALESCE(?, quality),
         phone_number_id = COALESCE(?, phone_number_id),
         access_token = COALESCE(?, access_token),
+        waba_id = COALESCE(?, waba_id),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
 
-        stmt.run(name, phone, status, tier, credits, quality, phone_number_id, access_token, req.params.id);
+        stmt.run(name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id, req.params.id);
 
         const updatedTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
 
