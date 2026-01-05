@@ -106,9 +106,9 @@ router.post('/login', async (req, res) => {
         // Return user without password
         const { password_hash, ...userWithoutPassword } = user;
 
-        // Include tenant info if user is a tenant
+        // Include tenant info if user has a tenant_id (they are a tenant user)
         let tenant = null;
-        if (user.role === 'tenant' && user.tenant_id) {
+        if (user.tenant_id) {
             tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality FROM tenants WHERE id = ?')
                 .get(user.tenant_id);
         }
@@ -145,9 +145,9 @@ router.get('/me', (req, res) => {
             return res.status(401).json({ error: 'المستخدم غير موجود' });
         }
 
-        // If user is a tenant, include tenant info
+        // If user has tenant_id, include tenant info
         let tenant = null;
-        if (user.role === 'tenant' && user.tenant_id) {
+        if (user.tenant_id) {
             tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality FROM tenants WHERE id = ?')
                 .get(user.tenant_id);
         }

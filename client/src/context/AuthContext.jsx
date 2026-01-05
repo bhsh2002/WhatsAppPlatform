@@ -96,8 +96,8 @@ export const AuthProvider = ({ children }) => {
 
     // Computed values
     const isAuthenticated = !!user;
-    const isTenant = user?.role === 'tenant';
-    const isAdmin = user?.role === 'admin';
+    const isTenant = !!user?.tenant_id || !!tenant;
+    const isAdmin = user?.role === 'admin' && !user?.tenant_id;
 
     return (
         <AuthContext.Provider value={{

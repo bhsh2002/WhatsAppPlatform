@@ -145,8 +145,8 @@ router.get('/:id/account', (req, res) => {
             return res.status(404).json({ error: 'Tenant not found' });
         }
 
-        const account = db.prepare('SELECT id, username, email, name, is_active, created_at, last_login FROM users WHERE tenant_id = ? AND role = ?')
-            .get(tenantId, 'tenant');
+        const account = db.prepare('SELECT id, username, email, name, is_active, created_at, last_login FROM users WHERE tenant_id = ?')
+            .get(tenantId);
 
         res.json({
             hasAccount: !!account,
@@ -160,7 +160,8 @@ router.get('/:id/account', (req, res) => {
 
 // Create login account for tenant
 router.post('/:id/create-account', async (req, res) => {
-    const bcrypt = await import('bcryptjs');
+    const bcryptModule = await import('bcryptjs');
+    const bcrypt = bcryptModule.default;
 
     try {
         const tenantId = req.params.id;
@@ -181,7 +182,7 @@ router.post('/:id/create-account', async (req, res) => {
         }
 
         // Check if tenant already has an account
-        const existingAccount = db.prepare('SELECT * FROM users WHERE tenant_id = ? AND role = ?').get(tenantId, 'tenant');
+        const existingAccount = db.prepare('SELECT * FROM users WHERE tenant_id = ?').get(tenantId);
         if (existingAccount) {
             return res.status(400).json({ error: 'هذا العميل لديه حساب بالفعل' });
         }
@@ -196,10 +197,10 @@ router.post('/:id/create-account', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(password, salt);
 
-        // Create user account
+        // Create user account (use 'user' role with tenant_id to identify as tenant)
         const stmt = db.prepare(`
             INSERT INTO users (username, email, password_hash, name, role, tenant_id)
-            VALUES (?, ?, ?, ?, 'tenant', ?)
+            VALUES (?, ?, ?, ?, 'user', ?)
         `);
 
         const result = stmt.run(username, email || null, password_hash, tenant.name, tenantId);
@@ -225,7 +226,8 @@ router.post('/:id/create-account', async (req, res) => {
 
 // Update tenant account password
 router.put('/:id/account/password', async (req, res) => {
-    const bcrypt = await import('bcryptjs');
+    const bcryptModule = await import('bcryptjs');
+    const bcrypt = bcryptModule.default;
 
     try {
         const tenantId = req.params.id;
@@ -235,7 +237,7 @@ router.put('/:id/account/password', async (req, res) => {
             return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
         }
 
-        const account = db.prepare('SELECT * FROM users WHERE tenant_id = ? AND role = ?').get(tenantId, 'tenant');
+        const account = db.prepare('SELECT * FROM users WHERE tenant_id = ?').get(tenantId);
         if (!account) {
             return res.status(404).json({ error: 'حساب العميل غير موجود' });
         }
@@ -258,7 +260,7 @@ router.put('/:id/account/toggle', (req, res) => {
     try {
         const tenantId = req.params.id;
 
-        const account = db.prepare('SELECT * FROM users WHERE tenant_id = ? AND role = ?').get(tenantId, 'tenant');
+        const account = db.prepare('SELECT * FROM users WHERE tenant_id = ?').get(tenantId);
         if (!account) {
             return res.status(404).json({ error: 'حساب العميل غير موجود' });
         }
