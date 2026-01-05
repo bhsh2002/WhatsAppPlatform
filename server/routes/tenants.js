@@ -279,5 +279,306 @@ router.put('/:id/account/toggle', (req, res) => {
     }
 });
 
+// ============================================
+// Admin Template Management
+// ============================================
+
+const META_API_VERSION = 'v22.0';
+const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
+
+// Get templates for a tenant
+router.get('/:id/templates', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const templates = db.prepare(`
+            SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC
+        `).all(tenantId);
+        res.json(templates);
+    } catch (error) {
+        console.error('Error fetching templates:', error);
+        res.status(500).json({ error: 'Failed to fetch templates' });
+    }
+});
+
+// Create template for a tenant
+router.post('/:id/templates', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const { name, language, category, header_type, header_content, body, footer, buttons, variables } = req.body;
+
+        if (!name || !body) {
+            return res.status(400).json({ error: 'اسم القالب والمحتوى مطلوبان' });
+        }
+
+        const stmt = db.prepare(`
+            INSERT INTO templates (tenant_id, name, language, category, header_type, header_content, body, footer, buttons, variables, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+        `);
+
+        const result = stmt.run(
+            tenantId,
+            name,
+            language || 'ar',
+            category || 'UTILITY',
+            header_type || 'none',
+            header_content || null,
+            body,
+            footer || null,
+            buttons ? JSON.stringify(buttons) : null,
+            variables ? JSON.stringify(variables) : null
+        );
+
+        const newTemplate = db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid);
+        res.status(201).json(newTemplate);
+    } catch (error) {
+        console.error('Error creating template:', error);
+        res.status(500).json({ error: 'Failed to create template' });
+    }
+});
+
+// Update template
+router.put('/:id/templates/:templateId', (req, res) => {
+    try {
+        const { id: tenantId, templateId } = req.params;
+        const { name, language, category, header_type, header_content, body, footer, buttons, variables } = req.body;
+
+        // Check ownership
+        const existing = db.prepare('SELECT * FROM templates WHERE id = ? AND tenant_id = ?')
+            .get(templateId, tenantId);
+
+        if (!existing) {
+            return res.status(404).json({ error: 'القالب غير موجود' });
+        }
+
+        db.prepare(`
+            UPDATE templates SET
+                name = COALESCE(?, name),
+                language = COALESCE(?, language),
+                category = COALESCE(?, category),
+                header_type = COALESCE(?, header_type),
+                header_content = ?,
+                body = COALESCE(?, body),
+                footer = ?,
+                buttons = ?,
+                variables = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND tenant_id = ?
+        `).run(
+            name,
+            language,
+            category,
+            header_type,
+            header_content,
+            body,
+            footer,
+            buttons ? JSON.stringify(buttons) : null,
+            variables ? JSON.stringify(variables) : null,
+            templateId,
+            tenantId
+        );
+
+        const updatedTemplate = db.prepare('SELECT * FROM templates WHERE id = ?').get(templateId);
+        res.json(updatedTemplate);
+    } catch (error) {
+        console.error('Error updating template:', error);
+        res.status(500).json({ error: 'Failed to update template' });
+    }
+});
+
+// Delete template
+router.delete('/:id/templates/:templateId', (req, res) => {
+    try {
+        const { id: tenantId, templateId } = req.params;
+
+        const existing = db.prepare('SELECT * FROM templates WHERE id = ? AND tenant_id = ?')
+            .get(templateId, tenantId);
+
+        if (!existing) {
+            return res.status(404).json({ error: 'القالب غير موجود' });
+        }
+
+        db.prepare('DELETE FROM templates WHERE id = ? AND tenant_id = ?').run(templateId, tenantId);
+        res.json({ message: 'تم حذف القالب بنجاح' });
+    } catch (error) {
+        console.error('Error deleting template:', error);
+        res.status(500).json({ error: 'Failed to delete template' });
+    }
+});
+
+// Sync templates from Meta WhatsApp API
+router.post('/:id/templates/sync', async (req, res) => {
+    try {
+        const tenantId = req.params.id;
+
+        // Get tenant credentials
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        if (!tenant.access_token) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة. يجب إضافة Access Token للعميل.' });
+        }
+
+        // We need WABA ID to fetch templates - try to get it from phone_number_id first
+        // Usually the WABA ID can be derived or needs to be stored in tenant record
+        // For now, we'll try to use the account info endpoint
+
+        // First, get the WABA ID using the phone number
+        let wabaId;
+        if (tenant.phone_number_id) {
+            try {
+                const phoneResponse = await fetch(
+                    `${META_API_BASE}/${tenant.phone_number_id}?fields=verified_name,display_phone_number,id`,
+                    {
+                        headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                    }
+                );
+                const phoneData = await phoneResponse.json();
+
+                if (phoneData.error) {
+                    console.error('Phone API error:', phoneData.error);
+                    return res.status(400).json({
+                        error: 'فشل الاتصال بـ WhatsApp API',
+                        details: phoneData.error.message
+                    });
+                }
+
+                // Try to get templates using the /whatsapp_business_account endpoint
+                const accountResponse = await fetch(
+                    `${META_API_BASE}/${tenant.phone_number_id}?fields=owner`,
+                    {
+                        headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                    }
+                );
+                const accountData = await accountResponse.json();
+                wabaId = accountData.owner?.id || accountData.owner;
+            } catch (err) {
+                console.error('Error getting phone info:', err);
+            }
+        }
+
+        // If we still don't have WABA ID, try business account endpoint
+        if (!wabaId && tenant.waba_id) {
+            wabaId = tenant.waba_id;
+        }
+
+        if (!wabaId) {
+            // Try alternative method - get from debug token
+            return res.status(400).json({
+                error: 'لم يتم العثور على معرف حساب WhatsApp Business. يجب إضافة WABA ID للعميل.',
+                hint: 'يمكنك الحصول على WABA ID من إعدادات Meta Business'
+            });
+        }
+
+        // Fetch templates from Meta API
+        const templatesResponse = await fetch(
+            `${META_API_BASE}/${wabaId}/message_templates?limit=100`,
+            {
+                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+            }
+        );
+
+        const templatesData = await templatesResponse.json();
+
+        if (templatesData.error) {
+            console.error('Templates API error:', templatesData.error);
+            return res.status(400).json({
+                error: 'فشل جلب القوالب من WhatsApp',
+                details: templatesData.error.message
+            });
+        }
+
+        const templates = (templatesData.data || []).map(t => ({
+            id: t.id,
+            name: t.name,
+            language: t.language,
+            category: t.category,
+            status: t.status,
+            components: t.components
+        }));
+
+        res.json({
+            success: true,
+            templates,
+            count: templates.length
+        });
+    } catch (error) {
+        console.error('Error syncing templates:', error);
+        res.status(500).json({ error: 'فشل مزامنة القوالب' });
+    }
+});
+
+// Import template from Meta API
+router.post('/:id/templates/import', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const { name, language, category, status, components } = req.body;
+
+        if (!name) {
+            return res.status(400).json({ error: 'اسم القالب مطلوب' });
+        }
+
+        // Check if template already exists
+        const existing = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?')
+            .get(tenantId, name);
+
+        if (existing) {
+            return res.status(409).json({ error: 'القالب موجود مسبقاً' });
+        }
+
+        // Parse components to extract body, header, footer
+        let headerType = 'none';
+        let headerContent = '';
+        let body = '';
+        let footer = '';
+        let buttons = null;
+
+        if (components) {
+            for (const component of components) {
+                if (component.type === 'HEADER') {
+                    headerType = component.format?.toLowerCase() || 'text';
+                    if (component.format === 'TEXT') {
+                        headerContent = component.text || '';
+                    } else if (component.example?.header_handle) {
+                        headerContent = component.example.header_handle[0] || '';
+                    }
+                } else if (component.type === 'BODY') {
+                    body = component.text || '';
+                } else if (component.type === 'FOOTER') {
+                    footer = component.text || '';
+                } else if (component.type === 'BUTTONS') {
+                    buttons = component.buttons;
+                }
+            }
+        }
+
+        const stmt = db.prepare(`
+            INSERT INTO templates (tenant_id, name, language, category, header_type, header_content, body, footer, buttons, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const result = stmt.run(
+            tenantId,
+            name,
+            language || 'ar',
+            category || 'UTILITY',
+            headerType,
+            headerContent || null,
+            body,
+            footer || null,
+            buttons ? JSON.stringify(buttons) : null,
+            status || 'approved'
+        );
+
+        const newTemplate = db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid);
+        res.status(201).json(newTemplate);
+    } catch (error) {
+        console.error('Error importing template:', error);
+        res.status(500).json({ error: 'فشل استيراد القالب' });
+    }
+});
+
 export default router;
+
 

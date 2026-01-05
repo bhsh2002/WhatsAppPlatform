@@ -42,6 +42,7 @@ const Sidebar = () => {
         { label: 'لوحة القيادة', path: '/', icon: <DashboardIcon /> },
         { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
         { label: 'المحادثات', path: '/chat', icon: <ChatIcon /> },
+        { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
         { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
         { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },

@@ -13,6 +13,7 @@ import WhatsAppConsole from './pages/WhatsAppConsole/WhatsAppConsole';
 import WhatsAppChat from './pages/WhatsAppChat/WhatsAppChat';
 import Logs from './pages/Logs/Logs';
 import Settings from './pages/Settings/Settings';
+import AdminTemplates from './pages/Templates/AdminTemplates';
 
 // Tenant Portal Pages
 import TenantDashboard from './pages/TenantPortal/TenantDashboard';
@@ -122,6 +123,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><Settings /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/templates"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><AdminTemplates /></MainLayout>
           </ProtectedRoute>
         }
       />

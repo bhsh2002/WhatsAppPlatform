@@ -286,9 +286,51 @@ class ApiService {
     async getPortalProfile() {
         return this.request('/api/portal/profile');
     }
+
+    // ============================================
+    // Admin Template Management
+    // ============================================
+
+    async getAdminTemplates(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/templates`);
+    }
+
+    async createAdminTemplate(tenantId, data) {
+        return this.request(`/api/tenants/${tenantId}/templates`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateAdminTemplate(tenantId, templateId, data) {
+        return this.request(`/api/tenants/${tenantId}/templates/${templateId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deleteAdminTemplate(tenantId, templateId) {
+        return this.request(`/api/tenants/${tenantId}/templates/${templateId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async syncTemplatesFromMeta(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/templates/sync`, {
+            method: 'POST',
+        });
+    }
+
+    async importTemplateFromMeta(tenantId, templateData) {
+        return this.request(`/api/tenants/${tenantId}/templates/import`, {
+            method: 'POST',
+            body: JSON.stringify(templateData),
+        });
+    }
 }
 
 const api = new ApiService();
 export default api;
+
 
 
