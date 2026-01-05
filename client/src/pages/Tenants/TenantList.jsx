@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useTenants } from '../../context/TenantContext';
+import api from '../../api';
 import {
     Box,
     Paper,
@@ -27,7 +28,8 @@ import {
     Select,
     CircularProgress,
     Alert,
-    ListItemIcon
+    ListItemIcon,
+    Divider
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -35,7 +37,10 @@ import {
     MoreVert as MoreVertIcon,
     Edit as EditIcon,
     Delete as DeleteIcon,
-    WhatsApp as WhatsAppIcon
+    WhatsApp as WhatsAppIcon,
+    PersonAdd as PersonAddIcon,
+    Key as KeyIcon,
+    CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 
 const TenantList = () => {
@@ -57,6 +62,17 @@ const TenantList = () => {
     const [anchorEl, setAnchorEl] = useState(null);
     const [selectedTenantId, setSelectedTenantId] = useState(null);
     const [saving, setSaving] = useState(false);
+
+    // Account creation state
+    const [showAccountModal, setShowAccountModal] = useState(false);
+    const [accountFormData, setAccountFormData] = useState({
+        username: '',
+        password: '',
+        email: ''
+    });
+    const [accountInfo, setAccountInfo] = useState(null);
+    const [accountLoading, setAccountLoading] = useState(false);
+    const [accountError, setAccountError] = useState(null);
 
     const filteredTenants = tenants.filter(tenant => {
         const matchesSearch = tenant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -116,6 +132,94 @@ const TenantList = () => {
             setShowModal(true);
         }
         handleMenuClose();
+    };
+
+    const openAccountModal = async () => {
+        const tenant = tenants.find(t => t.id === selectedTenantId);
+        if (!tenant) return;
+
+        handleMenuClose();
+        setAccountError(null);
+        setAccountInfo(null);
+        setAccountFormData({
+            username: tenant.name.toLowerCase().replace(/\s+/g, '_'),
+            password: '',
+            email: ''
+        });
+
+        // Check if tenant already has an account
+        try {
+            setAccountLoading(true);
+            const data = await api.getTenantAccount(selectedTenantId);
+            setAccountInfo(data);
+        } catch (err) {
+            console.error('Failed to fetch account info:', err);
+        } finally {
+            setAccountLoading(false);
+        }
+
+        setShowAccountModal(true);
+    };
+
+    const handleCreateAccount = async () => {
+        if (!selectedTenantId || !accountFormData.username || !accountFormData.password) {
+            setAccountError('اسم المستخدم وكلمة المرور مطلوبان');
+            return;
+        }
+
+        if (accountFormData.password.length < 6) {
+            setAccountError('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+            return;
+        }
+
+        try {
+            setAccountLoading(true);
+            setAccountError(null);
+            await api.createTenantAccount(selectedTenantId, accountFormData);
+            // Refresh account info
+            const data = await api.getTenantAccount(selectedTenantId);
+            setAccountInfo(data);
+            setAccountFormData({ username: '', password: '', email: '' });
+        } catch (err) {
+            setAccountError(err.message);
+        } finally {
+            setAccountLoading(false);
+        }
+    };
+
+    const handleResetPassword = async () => {
+        const newPassword = prompt('أدخل كلمة المرور الجديدة (6 أحرف على الأقل):');
+        if (!newPassword) return;
+
+        if (newPassword.length < 6) {
+            alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+            return;
+        }
+
+        try {
+            setAccountLoading(true);
+            await api.updateTenantPassword(selectedTenantId, newPassword);
+            alert('تم تحديث كلمة المرور بنجاح');
+        } catch (err) {
+            alert('فشل تحديث كلمة المرور: ' + err.message);
+        } finally {
+            setAccountLoading(false);
+        }
+    };
+
+    const handleToggleAccount = async () => {
+        try {
+            setAccountLoading(true);
+            const result = await api.toggleTenantAccount(selectedTenantId);
+            // Refresh account info
+            const data = await api.getTenantAccount(selectedTenantId);
+            setAccountInfo(data);
+            alert(result.message);
+        } catch (err) {
+            alert('فشل تغيير حالة الحساب: ' + err.message);
+        } finally {
+            setAccountLoading(false);
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -272,6 +376,13 @@ const TenantList = () => {
                     </ListItemIcon>
                     تعديل
                 </MenuItem>
+                <MenuItem onClick={openAccountModal}>
+                    <ListItemIcon>
+                        <PersonAddIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    حساب الدخول
+                </MenuItem>
+                <Divider />
                 <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
                     <ListItemIcon>
                         <DeleteIcon fontSize="small" color="error" />
@@ -404,8 +515,138 @@ const TenantList = () => {
                     </DialogActions>
                 </form>
             </Dialog>
+
+            {/* Account Management Dialog */}
+            <Dialog open={showAccountModal} onClose={() => setShowAccountModal(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PersonAddIcon color="primary" />
+                    إدارة حساب الدخول
+                </DialogTitle>
+                <DialogContent dividers>
+                    {accountLoading && (
+                        <Box sx={{ textAlign: 'center', py: 3 }}>
+                            <CircularProgress />
+                        </Box>
+                    )}
+
+                    {!accountLoading && accountInfo?.hasAccount ? (
+                        // Account exists - show management options
+                        <Box>
+                            <Alert severity="info" icon={<CheckCircleIcon />} sx={{ mb: 3 }}>
+                                هذا العميل لديه حساب دخول بالفعل
+                            </Alert>
+
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                                    <Typography variant="body2" color="text.secondary">اسم المستخدم</Typography>
+                                    <Typography variant="h6" fontFamily="monospace">
+                                        {accountInfo.account.username}
+                                    </Typography>
+                                </Box>
+
+                                <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                                    <Typography variant="body2" color="text.secondary">حالة الحساب</Typography>
+                                    <Chip
+                                        label={accountInfo.account.is_active ? 'نشط' : 'معطل'}
+                                        color={accountInfo.account.is_active ? 'success' : 'error'}
+                                        size="small"
+                                        sx={{ mt: 0.5 }}
+                                    />
+                                </Box>
+
+                                <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                                    <Typography variant="body2" color="text.secondary">آخر دخول</Typography>
+                                    <Typography>
+                                        {accountInfo.account.last_login
+                                            ? new Date(accountInfo.account.last_login).toLocaleString('ar-LY')
+                                            : 'لم يسجل دخول بعد'}
+                                    </Typography>
+                                </Box>
+
+                                <Divider sx={{ my: 2 }} />
+
+                                <Box sx={{ display: 'flex', gap: 2 }}>
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<KeyIcon />}
+                                        onClick={handleResetPassword}
+                                        disabled={accountLoading}
+                                    >
+                                        إعادة تعيين كلمة المرور
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        color={accountInfo.account.is_active ? 'error' : 'success'}
+                                        onClick={handleToggleAccount}
+                                        disabled={accountLoading}
+                                    >
+                                        {accountInfo.account.is_active ? 'تعطيل الحساب' : 'تفعيل الحساب'}
+                                    </Button>
+                                </Box>
+                            </Box>
+                        </Box>
+                    ) : !accountLoading ? (
+                        // No account - show creation form
+                        <Box>
+                            <Alert severity="warning" sx={{ mb: 3 }}>
+                                هذا العميل ليس لديه حساب دخول. أنشئ حساباً للسماح له بالدخول للبوابة.
+                            </Alert>
+
+                            {accountError && (
+                                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setAccountError(null)}>
+                                    {accountError}
+                                </Alert>
+                            )}
+
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <TextField
+                                    fullWidth
+                                    label="اسم المستخدم"
+                                    value={accountFormData.username}
+                                    onChange={(e) => setAccountFormData({ ...accountFormData, username: e.target.value })}
+                                    required
+                                    helperText="سيستخدم العميل هذا الاسم لتسجيل الدخول"
+                                />
+                                <TextField
+                                    fullWidth
+                                    type="password"
+                                    label="كلمة المرور"
+                                    value={accountFormData.password}
+                                    onChange={(e) => setAccountFormData({ ...accountFormData, password: e.target.value })}
+                                    required
+                                    helperText="6 أحرف على الأقل"
+                                />
+                                <TextField
+                                    fullWidth
+                                    type="email"
+                                    label="البريد الإلكتروني (اختياري)"
+                                    value={accountFormData.email}
+                                    onChange={(e) => setAccountFormData({ ...accountFormData, email: e.target.value })}
+                                />
+
+                                <Button
+                                    variant="contained"
+                                    startIcon={accountLoading ? <CircularProgress size={20} /> : <PersonAddIcon />}
+                                    onClick={handleCreateAccount}
+                                    disabled={accountLoading || !accountFormData.username || !accountFormData.password}
+                                    fullWidth
+                                    sx={{ mt: 2 }}
+                                >
+                                    إنشاء الحساب
+                                </Button>
+                            </Box>
+                        </Box>
+                    ) : null}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowAccountModal(false)}>
+                        إغلاق
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };
 
 export default TenantList;
+
