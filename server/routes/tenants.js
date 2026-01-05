@@ -420,54 +420,57 @@ router.post('/:id/templates/sync', async (req, res) => {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة. يجب إضافة Access Token للعميل.' });
         }
 
-        // We need WABA ID to fetch templates - try to get it from phone_number_id first
-        // Usually the WABA ID can be derived or needs to be stored in tenant record
-        // For now, we'll try to use the account info endpoint
+        // Get WABA ID - try multiple methods
+        let wabaId = tenant.waba_id;
 
-        // First, get the WABA ID using the phone number
-        let wabaId;
-        if (tenant.phone_number_id) {
+        if (!wabaId && tenant.phone_number_id) {
             try {
-                const phoneResponse = await fetch(
-                    `${META_API_BASE}/${tenant.phone_number_id}?fields=verified_name,display_phone_number,id`,
+                // Method 1: Try to get WABA ID from phone number's whatsapp_business_account edge
+                const wabaResponse = await fetch(
+                    `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_account`,
                     {
                         headers: { 'Authorization': `Bearer ${tenant.access_token}` }
                     }
                 );
-                const phoneData = await phoneResponse.json();
+                const wabaData = await wabaResponse.json();
 
-                if (phoneData.error) {
-                    console.error('Phone API error:', phoneData.error);
-                    return res.status(400).json({
-                        error: 'فشل الاتصال بـ WhatsApp API',
-                        details: phoneData.error.message
-                    });
+                if (!wabaData.error && wabaData.id) {
+                    wabaId = wabaData.id;
+                    // Save WABA ID for future use
+                    db.prepare('UPDATE tenants SET waba_id = ? WHERE id = ?').run(wabaId, tenantId);
+                } else if (wabaData.error) {
+                    console.error('WABA lookup error:', wabaData.error);
+
+                    // Method 2: Try debug_token to get app info
+                    const debugResponse = await fetch(
+                        `${META_API_BASE}/debug_token?input_token=${tenant.access_token}`,
+                        {
+                            headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                        }
+                    );
+                    const debugData = await debugResponse.json();
+
+                    if (debugData.data?.granular_scopes) {
+                        // Try to find WABA ID from scopes
+                        const wabaScope = debugData.data.granular_scopes.find(s =>
+                            s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging'
+                        );
+                        if (wabaScope?.target_ids?.length > 0) {
+                            wabaId = wabaScope.target_ids[0];
+                            // Save for future use
+                            db.prepare('UPDATE tenants SET waba_id = ? WHERE id = ?').run(wabaId, tenantId);
+                        }
+                    }
                 }
-
-                // Try to get templates using the /whatsapp_business_account endpoint
-                const accountResponse = await fetch(
-                    `${META_API_BASE}/${tenant.phone_number_id}?fields=owner`,
-                    {
-                        headers: { 'Authorization': `Bearer ${tenant.access_token}` }
-                    }
-                );
-                const accountData = await accountResponse.json();
-                wabaId = accountData.owner?.id || accountData.owner;
             } catch (err) {
-                console.error('Error getting phone info:', err);
+                console.error('Error getting WABA ID:', err);
             }
         }
 
-        // If we still don't have WABA ID, try business account endpoint
-        if (!wabaId && tenant.waba_id) {
-            wabaId = tenant.waba_id;
-        }
-
         if (!wabaId) {
-            // Try alternative method - get from debug token
             return res.status(400).json({
-                error: 'لم يتم العثور على معرف حساب WhatsApp Business. يجب إضافة WABA ID للعميل.',
-                hint: 'يمكنك الحصول على WABA ID من إعدادات Meta Business'
+                error: 'لم يتم العثور على معرف حساب WhatsApp Business.',
+                hint: 'يجب إضافة WABA ID للعميل من إعدادات Meta Business'
             });
         }
 

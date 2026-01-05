@@ -454,39 +454,55 @@ router.post('/templates/sync', async (req, res) => {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة. تواصل مع المدير لإضافة Access Token.' });
         }
 
-        // Get WABA ID
-        let wabaId;
-        if (tenant.phone_number_id) {
+        // Get WABA ID - try multiple methods
+        let wabaId = tenant.waba_id;
+
+        if (!wabaId && tenant.phone_number_id) {
             try {
-                const accountResponse = await fetch(
-                    `${META_API_BASE}/${tenant.phone_number_id}?fields=owner`,
+                // Method 1: Try to get WABA ID from phone number's whatsapp_business_account edge
+                const wabaResponse = await fetch(
+                    `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_account`,
                     {
                         headers: { 'Authorization': `Bearer ${tenant.access_token}` }
                     }
                 );
-                const accountData = await accountResponse.json();
+                const wabaData = await wabaResponse.json();
 
-                if (accountData.error) {
-                    console.error('Phone API error:', accountData.error);
-                    return res.status(400).json({
-                        error: 'فشل الاتصال بـ WhatsApp API',
-                        details: accountData.error.message
-                    });
+                if (!wabaData.error && wabaData.id) {
+                    wabaId = wabaData.id;
+                    // Save WABA ID for future use
+                    db.prepare('UPDATE tenants SET waba_id = ? WHERE id = ?').run(wabaId, tenantId);
+                } else if (wabaData.error) {
+                    console.error('WABA lookup error:', wabaData.error);
+
+                    // Method 2: Try debug_token to get app info
+                    const debugResponse = await fetch(
+                        `${META_API_BASE}/debug_token?input_token=${tenant.access_token}`,
+                        {
+                            headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                        }
+                    );
+                    const debugData = await debugResponse.json();
+
+                    if (debugData.data?.granular_scopes) {
+                        // Try to find WABA ID from scopes
+                        const wabaScope = debugData.data.granular_scopes.find(s =>
+                            s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging'
+                        );
+                        if (wabaScope?.target_ids?.length > 0) {
+                            wabaId = wabaScope.target_ids[0];
+                        }
+                    }
                 }
-
-                wabaId = accountData.owner?.id || accountData.owner;
             } catch (err) {
-                console.error('Error getting phone info:', err);
+                console.error('Error getting WABA ID:', err);
             }
-        }
-
-        if (!wabaId && tenant.waba_id) {
-            wabaId = tenant.waba_id;
         }
 
         if (!wabaId) {
             return res.status(400).json({
-                error: 'لم يتم العثور على معرف حساب WhatsApp Business. تواصل مع المدير.',
+                error: 'لم يتم العثور على معرف حساب WhatsApp Business.',
+                hint: 'تواصل مع المدير لإضافة WABA ID في إعدادات العميل.',
             });
         }
 
