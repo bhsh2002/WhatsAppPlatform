@@ -228,14 +228,6 @@ const Login = () => {
                         </Box>
                     </CardContent>
                 </Card>
-
-                {!isRegister && (
-                    <Box sx={{ mt: 3, textAlign: 'center', color: 'white', opacity: 0.9 }}>
-                        <Typography variant="body2" sx={{ bgcolor: 'rgba(255,255,255,0.1)', py: 1, px: 2, borderRadius: 2, display: 'inline-block' }}>
-                            بيانات الدخول الافتراضية: <strong>admin</strong> / <strong>admin123</strong>
-                        </Typography>
-                    </Box>
-                )}
             </Box>
         </Box>
     );

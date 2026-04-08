@@ -17,6 +17,7 @@ import AdminTemplates from './pages/Templates/AdminTemplates';
 
 // Public Pages
 import PrivacyPolicy from './pages/PrivacyPolicy/PrivacyPolicy';
+import LandingPage from './pages/Landing/LandingPage';
 
 // Tenant Portal Pages
 import TenantDashboard from './pages/TenantPortal/TenantDashboard';
@@ -55,27 +56,29 @@ const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false 
   }
 
   if (requireTenant && !isTenant) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
 };
 
 function AppRoutes() {
-  const { isAuthenticated, isTenant } = useAuth();
-
-  // Determine where to redirect after login based on role
-  const getHomeRoute = () => {
-    if (!isAuthenticated) return '/login';
-    return isTenant ? '/portal' : '/';
-  };
+  const { isAuthenticated, isTenant, isAdmin } = useAuth();
 
   return (
     <Routes>
       {/* Public routes */}
       <Route
+        path="/"
+        element={
+          isAuthenticated
+            ? <Navigate to={isTenant ? '/portal' : '/dashboard'} replace />
+            : <LandingPage />
+        }
+      />
+      <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to={isTenant ? '/portal' : '/'} replace /> : <Login />}
+        element={isAuthenticated ? <Navigate to={isTenant ? '/portal' : '/dashboard'} replace /> : <Login />}
       />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
@@ -83,7 +86,7 @@ function AppRoutes() {
       {/* Admin Routes */}
       {/* ============================================ */}
       <Route
-        path="/"
+        path="/dashboard"
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><Dashboard /></MainLayout>

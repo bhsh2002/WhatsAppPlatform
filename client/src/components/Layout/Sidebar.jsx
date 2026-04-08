@@ -40,7 +40,7 @@ const Sidebar = () => {
 
     // Admin navigation items
     const adminNavItems = [
-        { label: 'لوحة القيادة', path: '/', icon: <DashboardIcon /> },
+        { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
         { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
         { label: 'المحادثات', path: '/chat', icon: <ChatIcon /> },
         { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },

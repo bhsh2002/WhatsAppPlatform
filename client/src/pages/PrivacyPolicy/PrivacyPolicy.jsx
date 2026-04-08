@@ -319,7 +319,7 @@ const PrivacyPolicy = () => {
                         <Box sx={{ p: { xs: 2.5, md: 3.5 }, bgcolor: 'white' }}>
                             <Grid container spacing={3}>
                                 {section.content.map((block, bIdx) => (
-                                    <Grid item xs={12} key={bIdx}>
+                                    <Grid size={{ xs: 12 }} key={bIdx}>
                                         <Typography
                                             variant="subtitle1"
                                             fontWeight={600}

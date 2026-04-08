@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTenants } from '../../context/TenantContext';
 import {
     Box,
@@ -29,6 +30,7 @@ import {
 import api from '../../api';
 
 const Dashboard = () => {
+    const navigate = useNavigate();
     const { stats, fetchStats, loading: statsLoading } = useTenants();
     const [activity, setActivity] = useState([]);
     const [activityLoading, setActivityLoading] = useState(true);
@@ -179,7 +181,7 @@ const Dashboard = () => {
                     <Button
                         color="primary"
                         endIcon={<HistoryIcon />}
-                        href="/logs"
+                        onClick={() => navigate('/logs')}
                     >
                         عرض السجل الكامل
                     </Button>
