@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
     Box,
     List,
@@ -23,7 +23,8 @@ import {
     Logout as LogoutIcon,
     Person as PersonIcon,
     Description as TemplateIcon,
-    Api as ApiIcon
+    Api as ApiIcon,
+    PrivacyTip as PrivacyTipIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -173,6 +174,24 @@ const Sidebar = () => {
                 >
                     تسجيل الخروج
                 </Button>
+
+                {/* Privacy Policy Link */}
+                <Box sx={{ textAlign: 'center', mt: 1.5 }}>
+                    <Button
+                        component={RouterLink}
+                        to="/privacy-policy"
+                        size="small"
+                        startIcon={<PrivacyTipIcon fontSize="small" />}
+                        sx={{
+                            textTransform: 'none',
+                            color: 'text.disabled',
+                            fontSize: '0.75rem',
+                            '&:hover': { color: 'text.secondary', bgcolor: 'transparent' },
+                        }}
+                    >
+                        سياسة الخصوصية
+                    </Button>
+                </Box>
             </Box>
         </Box>
     );

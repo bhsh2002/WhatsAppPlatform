@@ -15,6 +15,9 @@ import Logs from './pages/Logs/Logs';
 import Settings from './pages/Settings/Settings';
 import AdminTemplates from './pages/Templates/AdminTemplates';
 
+// Public Pages
+import PrivacyPolicy from './pages/PrivacyPolicy/PrivacyPolicy';
+
 // Tenant Portal Pages
 import TenantDashboard from './pages/TenantPortal/TenantDashboard';
 import TenantChat from './pages/TenantPortal/TenantChat';
@@ -69,11 +72,12 @@ function AppRoutes() {
 
   return (
     <Routes>
-      {/* Public route */}
+      {/* Public routes */}
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to={isTenant ? '/portal' : '/'} replace /> : <Login />}
       />
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
       {/* ============================================ */}
       {/* Admin Routes */}

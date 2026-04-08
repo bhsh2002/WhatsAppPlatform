@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { Link as RouterLink } from 'react-router-dom';
 import {
     Box,
     Card,
@@ -210,6 +211,20 @@ const Login = () => {
                             >
                                 {isRegister ? 'لديك حساب؟ تسجيل الدخول' : 'ليس لديك حساب؟ إنشاء حساب جديد'}
                             </Button>
+                        </Box>
+
+                        {/* Privacy Policy Link */}
+                        <Box sx={{ textAlign: 'center', mt: 1 }}>
+                            <Link
+                                component={RouterLink}
+                                to="/privacy-policy"
+                                variant="caption"
+                                color="text.secondary"
+                                underline="hover"
+                                sx={{ '&:hover': { color: 'primary.main' } }}
+                            >
+                                سياسة الخصوصية وحماية البيانات
+                            </Link>
                         </Box>
                     </CardContent>
                 </Card>
