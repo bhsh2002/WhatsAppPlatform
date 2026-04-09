@@ -435,36 +435,15 @@ if (!phoneNumberId || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
-        // Verify file exists and has content
-        const fileStats = fs.statSync(file.path);
-        console.log(`[TenantPortal] File stats:`, {
-            path: file.path,
-            size: fileStats.size,
-            exists: fs.existsSync(file.path)
-        });
-
-        if (fileStats.size === 0) {
-            fs.unlinkSync(file.path);
-            return res.status(400).json({ error: 'الملف فارغ' });
-        }
-
         // Format recipient (remove + prefix if present)
         const formattedRecipient = recipient.replace(/\+/g, '').trim();
 
         // 1. Upload document to Meta
+        // Note: When using FormData with node-fetch, let it handle Content-Type automatically
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        
-        // For Arabic filenames, use a safe ASCII filename
-        const safeFilename = file.originalname.replace(/[^\x00-\x7F]/g, '') || `document_${Date.now()}.pdf`;
-        
-        // Create read stream and append to form
-        const fileStream = fs.createReadStream(file.path);
-        form.append('file', fileStream, safeFilename);
-
-        console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`);
-        console.log(`[TenantPortal] File: ${safeFilename}, MIME: ${file.mimetype}, Size: ${fileStats.size}`);
+        form.append('file', fs.createReadStream(file.path), file.originalname);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
         console.log(`[TenantPortal] Uploading to: ${uploadUrl}`);
@@ -472,8 +451,8 @@ if (!phoneNumberId || !accessToken) {
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                ...form.getHeaders()
+                'Authorization': `Bearer ${accessToken}`
+                // Don't set Content-Type - let FormData handle it
             },
             body: form
         });
