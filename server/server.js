@@ -74,7 +74,7 @@ app.use('/messages', authMiddleware, messagesRouter);
 app.use('/portal', authMiddleware, tenantPortalRouter);
 
 // External API Routes - v1 (requires API key)
-app.use('/api/v1', apiKeyAuth, apiV1Router);
+app.use('/v1', apiKeyAuth, apiV1Router);
 
 // Webhook route (public - for Meta)
 app.use('/webhook', webhooksRouter);
