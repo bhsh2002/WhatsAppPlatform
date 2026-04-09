@@ -10,9 +10,11 @@ import messagesRouter from './routes/messages.js';
 import webhooksRouter from './routes/webhooks.js';
 import authRouter from './routes/auth.js';
 import tenantPortalRouter from './routes/tenantPortal.js';
+import apiV1Router from './routes/api/v1.js';
 
 // Import middleware
 import { authMiddleware } from './middleware/auth.js';
+import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 
 // Import database for seeding
 import db from './db/database.js';
@@ -71,6 +73,9 @@ app.use('/messages', authMiddleware, messagesRouter);
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);
 
+// External API Routes - v1 (requires API key)
+app.use('/api/v1', apiKeyAuth, apiV1Router);
+
 // Webhook route (public - for Meta)
 app.use('/webhook', webhooksRouter);
 
@@ -90,7 +95,7 @@ app.listen(PORT, () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║      WhatsApp Management Platform Server                     ║
-║══════════════════════════════════════════════════════════════║
+╠══════════════════════════════════════════════════════════════╣
 ║  🚀 Server running on http://localhost:${PORT}                  ║
 ║  📡 Webhook URL: http://localhost:${PORT}/webhook               ║
 ║  🔐 Auth enabled - Default: admin / admin123                 ║
@@ -115,6 +120,15 @@ app.listen(PORT, () => {
 ║  • GET  /portal/conversations - Tenant conversations         ║
 ║  • GET  /portal/templates    - Tenant templates              ║
 ║  • GET  /portal/settings/api - API settings                  ║
+║                                                              ║
+║  External API v1 (require X-API-Key header):                 ║
+║  • POST /api/v1/messages/send    - Send message              ║
+║  • POST /api/v1/messages/send-media - Send media via URL     ║
+║  • POST /api/v1/messages/send-document - Upload & send file  ║
+║  • GET  /api/v1/conversations     - List conversations       ║
+║  • GET  /api/v1/conversations/:phone/messages - Get messages║
+║  • GET  /api/v1/templates         - List templates           ║
+║  • GET  /api/v1/health            - API health check          ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 });

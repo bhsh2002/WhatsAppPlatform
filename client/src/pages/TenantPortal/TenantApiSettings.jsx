@@ -276,7 +276,7 @@ const TenantApiSettings = () => {
                         توثيق API
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                        كيفية استخدام API لإرسال واستقبال الرسائل
+                        استخدم API Key في ترويسة <code>X-API-Key</code> للمصادقة
                     </Typography>
 
                     <Accordion>
@@ -284,16 +284,27 @@ const TenantApiSettings = () => {
                             <Typography fontWeight={500}>إرسال رسالة نصية</Typography>
                         </AccordionSummary>
                         <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>POST</strong> {apiBaseUrl}/api/v1/messages/send
+                            </Typography>
                             <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
                                 <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                                    {`POST ${apiBaseUrl}/api/v1/messages/send
-Authorization: Bearer YOUR_API_KEY
-Content-Type: application/json
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+  Content-Type: application/json
 
+Body:
 {
   "recipient": "218912345678",
   "type": "text",
   "message": "مرحباً، هذه رسالة تجريبية"
+}
+
+Response:
+{
+  "success": true,
+  "message_id": "wamid.xxx",
+  "recipient": "218912345678"
 }`}
                                 </pre>
                             </Paper>
@@ -305,18 +316,73 @@ Content-Type: application/json
                             <Typography fontWeight={500}>إرسال قالب</Typography>
                         </AccordionSummary>
                         <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>POST</strong> {apiBaseUrl}/api/v1/messages/send
+                            </Typography>
                             <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
                                 <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                                    {`POST ${apiBaseUrl}/api/v1/messages/send
-Authorization: Bearer YOUR_API_KEY
-Content-Type: application/json
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+  Content-Type: application/json
 
+Body:
 {
   "recipient": "218912345678",
   "type": "template",
-  "template_name": "welcome_message",
-  "template_params": ["اسم العميل", "قيمة أخرى"]
+  "template_name": "otp",
+  "template_language": "ar",
+  "template_params": ["123456"]
 }`}
+                                </pre>
+                            </Paper>
+                        </AccordionDetails>
+                    </Accordion>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>إرسال وسيط (صورة/فيديو/مستند)</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>POST</strong> {apiBaseUrl}/api/v1/messages/send-media
+                            </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+  Content-Type: application/json
+
+Body:
+{
+  "recipient": "218912345678",
+  "type": "image",  // image, video, audio, document
+  "media_url": "https://example.com/image.jpg",
+  "caption": "وصف الصورة (اختياري)"
+}`}
+                                </pre>
+                            </Paper>
+                        </AccordionDetails>
+                    </Accordion>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>رفع وإرسال مستند</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>POST</strong> {apiBaseUrl}/api/v1/messages/send-document
+                            </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+  Content-Type: multipart/form-data
+
+Body (form-data):
+  file: [PDF/DOC/XLS file]
+  recipient: 218912345678
+  caption: وصف الملف (اختياري)
+  filename: اسم_الملف.pdf (اختياري)`}
                                 </pre>
                             </Paper>
                         </AccordionDetails>
@@ -328,27 +394,163 @@ Content-Type: application/json
                         </AccordionSummary>
                         <AccordionDetails>
                             <Typography variant="body2" sx={{ mb: 2 }}>
-                                عند استقبال رسالة، سيتم إرسال POST request إلى Webhook URL الخاص بك:
+                                عند استقبال رسالة، سيتم إرسال POST request إلى Webhook URL الذي أدخلته:
                             </Typography>
                             <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
                                 <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                                    {`{
+{`Headers:
+  Content-Type: application/json
+  X-Signature: sha256=abc123...
+  X-Tenant-Id: 6
+
+Body:
+{
   "event": "message_received",
   "timestamp": "2024-01-05T10:30:00Z",
+  "tenant_id": 6,
   "data": {
     "from": "218912345678",
     "message_id": "wamid.xxx",
     "type": "text",
     "content": "محتوى الرسالة",
     "profile_name": "اسم المرسل"
-  },
-  "signature": "HMAC-SHA256 signature using webhook_secret"
+  }
+}
+
+// للتحقق من التوقيع:
+const expectedSignature = 'sha256=' + 
+  hmacSha256(webhookSecret, JSON.stringify(payload));`}
+                                </pre>
+                            </Paper>
+                        </AccordionDetails>
+                    </Accordion>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>تحديثات حالة الرسائل (Callback)</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                عند تغير حالة الرسالة (تم الإرسال، تم التسليم، تمت القراءة، فشل)، سيتم إرسال تحديث إلى Callback URL:
+                            </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Headers:
+  Content-Type: application/json
+  X-Signature: sha256=abc123...
+  X-Tenant-Id: 6
+
+Body:
+{
+  "event": "message_status",
+  "timestamp": "2024-01-05T10:35:00Z",
+  "tenant_id": 6,
+  "data": {
+    "message_id": "wamid.xxx",
+    "status": "delivered",  // sent, delivered, read, failed
+    "recipient": "218912345678",
+    "timestamp": "2024-01-05T10:35:00Z"
+  }
 }`}
                                 </pre>
                             </Paper>
-                            <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-                                تحقق من التوقيع باستخدام Webhook Secret للتأكد من صحة الطلب
+                        </AccordionDetails>
+                    </Accordion>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>الحصول على المحادثات</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>GET</strong> {apiBaseUrl}/api/v1/conversations
                             </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+
+Response:
+[
+  {
+    "contact": "218912345678",
+    "profile_name": "John Doe",
+    "last_message": "مرحبا",
+    "last_interaction": "2024-01-05T10:30:00Z",
+    "unread_count": 2
+  },
+  ...
+]`}
+                                </pre>
+                            </Paper>
+                        </AccordionDetails>
+                    </Accordion>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>الحصول على رسائل محادثة</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>GET</strong> {apiBaseUrl}/api/v1/conversations/:phone/messages
+                            </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+
+Query Parameters:
+  limit: 100 (optional)
+  offset: 0 (optional)
+
+Response:
+[
+  {
+    "id": 1,
+    "direction": "incoming",
+    "sender": "218912345678",
+    "message_type": "text",
+    "content": "مرحبا",
+    "status": "read",
+    "created_at": "2024-01-05T10:30:00Z"
+  },
+  ...
+]`}
+                                </pre>
+                            </Paper>
+                        </AccordionDetails>
+                    </Accordion>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>الحصول على القوالب</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>GET</strong> {apiBaseUrl}/api/v1/templates
+                            </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Headers:
+  X-API-Key: YOUR_API_KEY
+
+Query Parameters:
+  status: approved (optional, default: approved)
+
+Response:
+[
+  {
+    "id": 1,
+    "name": "welcome_message",
+    "language": "ar",
+    "category": "UTILITY",
+    "status": "approved",
+    "body": "مرحباً {{1}}،..."
+  },
+  ...
+]`}
+                                </pre>
+                            </Paper>
                         </AccordionDetails>
                     </Accordion>
                 </CardContent>

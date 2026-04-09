@@ -10,6 +10,88 @@ const APP_SECRET = process.env.META_APP_SECRET;
 if (!VERIFY_TOKEN) console.warn('⚠️ WARNING: WEBHOOK_VERIFY_TOKEN is missing. Webhook verification will fail.');
 if (!APP_SECRET) console.warn('⚠️ WARNING: META_APP_SECRET is missing. Incoming webhooks cannot be securely verified.');
 
+// ============================================
+// Helper: Forward webhook to tenant's URL
+// ============================================
+const forwardToTenantWebhook = async (tenantId, event, data) => {
+    try {
+        const settings = db.prepare(`
+            SELECT * FROM tenant_api_settings 
+            WHERE tenant_id = ? AND is_active = 1 AND webhook_url IS NOT NULL
+        `).get(tenantId);
+
+        if (!settings || !settings.webhook_url) return;
+
+        const payload = {
+            event,
+            timestamp: new Date().toISOString(),
+            tenant_id: tenantId,
+            data
+        };
+
+        // Sign payload with webhook secret
+        const signature = crypto.createHmac('sha256', settings.webhook_secret)
+            .update(JSON.stringify(payload))
+            .digest('hex');
+
+        // Fire and forget - don't wait for response
+        fetch(settings.webhook_url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Signature': `sha256=${signature}`,
+                'X-Tenant-Id': String(tenantId)
+            },
+            body: JSON.stringify(payload)
+        }).catch(err => {
+            console.error('[Webhook] Forward to tenant failed:', err.message);
+        });
+
+        console.log('[Webhook] Forwarding to tenant webhook:', settings.webhook_url);
+    } catch (error) {
+        console.error('[Webhook] Forward error:', error);
+    }
+};
+
+// ============================================
+// Helper: Send status callback to tenant
+// ============================================
+const sendStatusCallback = async (tenantId, data) => {
+    try {
+        const settings = db.prepare(`
+            SELECT * FROM tenant_api_settings 
+            WHERE tenant_id = ? AND callback_url IS NOT NULL
+        `).get(tenantId);
+
+        if (!settings || !settings.callback_url) return;
+
+        const payload = {
+            event: 'message_status',
+            timestamp: new Date().toISOString(),
+            tenant_id: tenantId,
+            data
+        };
+
+        const signature = crypto.createHmac('sha256', settings.webhook_secret)
+            .update(JSON.stringify(payload))
+            .digest('hex');
+
+        fetch(settings.callback_url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Signature': `sha256=${signature}`,
+                'X-Tenant-Id': String(tenantId)
+            },
+            body: JSON.stringify(payload)
+        }).catch(err => {
+            console.error('[Callback] Status callback failed:', err.message);
+        });
+    } catch (error) {
+        console.error('[Callback] Error:', error);
+    }
+};
+
 // Webhook verification (GET request from Meta)
 router.get('/', (req, res) => {
     const mode = req.query['hub.mode'];
@@ -149,19 +231,31 @@ router.post('/', (req, res) => {
                                 messageData.media_mime_type
                             );
 
-                            // Log activity
+// Log activity
                             if (tenant) {
                                 db.prepare(`
-                  INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                  VALUES (?, ?, 'message_received', ?, 'success')
-                `).run(tenant.id, tenant.name, `رسالة واردة من ${message.from}`);
+                   INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                   VALUES (?, ?, 'message_received', ?, 'success')
+                 `).run(tenant.id, tenant.name, `رسالة واردة من ${message.from}`);
+                            }
+
+                            // Forward to tenant's webhook URL
+                            if (tenant?.id) {
+                                forwardToTenantWebhook(tenant.id, 'message_received', {
+                                    from: message.from,
+                                    message_id: message.id,
+                                    type: message.type,
+                                    content: extractMessageContent(message),
+                                    profile_name: value.contacts?.[0]?.profile?.name || null,
+                                    timestamp: new Date().toISOString()
+                                });
                             }
 
                             console.log('[Webhook] Incoming message saved:', message.id);
                         });
                     }
 
-                    // Handle message status updates
+// Handle message status updates
                     if (value.statuses) {
                         value.statuses.forEach(status => {
                             db.prepare(`
@@ -170,13 +264,23 @@ router.post('/', (req, res) => {
 
                             console.log('[Webhook] Status update:', status.id, '->', status.status);
 
+                            // Send callback for status update
+                            if (tenant?.id) {
+                                sendStatusCallback(tenant.id, {
+                                    message_id: status.id,
+                                    status: status.status,
+                                    recipient: status.recipient,
+                                    timestamp: status.timestamp || new Date().toISOString()
+                                });
+                            }
+
                             // Log failed messages
                             if (status.status === 'failed' && tenant) {
                                 const errors = status.errors?.map(e => e.message).join(', ') || 'Unknown error';
                                 db.prepare(`
-                  INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                  VALUES (?, ?, 'message_failed', ?, 'error')
-                `).run(tenant.id, tenant.name, `فشل إرسال الرسالة: ${errors}`);
+                   INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                   VALUES (?, ?, 'message_failed', ?, 'error')
+                 `).run(tenant.id, tenant.name, `فشل إرسال الرسالة: ${errors}`);
                             }
                         });
                     }
