@@ -142,7 +142,11 @@ const TenantChat = () => {
                 message: newMessage.trim()
             });
             setNewMessage('');
-            fetchMessages(selectedChat.contact);
+            await fetchMessages(selectedChat.contact);
+            // Instant scroll to bottom after sending
+            setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            }, 50);
         } catch (err) {
             console.error('Failed to send message:', err);
         } finally {
@@ -169,7 +173,11 @@ const TenantChat = () => {
                 components: templateData.components
             });
             setShowTemplatePicker(false);
-            fetchMessages(selectedChat.contact);
+            await fetchMessages(selectedChat.contact);
+            // Instant scroll to bottom after sending
+            setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            }, 50);
         } catch (err) {
             console.error('Failed to send template:', err);
             alert('فشل إرسال القالب');
@@ -232,7 +240,11 @@ const TenantChat = () => {
             setShowDocumentDialog(false);
             setSelectedFile(null);
             setDocumentCaption('');
-            fetchMessages(selectedChat.contact);
+            await fetchMessages(selectedChat.contact);
+            // Instant scroll to bottom after sending
+            setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            }, 50);
         } catch (err) {
             console.error('Failed to send document:', err);
             alert('فشل إرسال الملف: ' + (err.message || 'خطأ غير متوقع'));
@@ -309,11 +321,13 @@ const TenantChat = () => {
     );
 
     return (
-        <Box sx={{ height: '100%', display: 'flex', bgcolor: 'background.default' }}>
+        <Box sx={{ height: '100vh', display: 'flex', bgcolor: 'background.default', overflow: 'hidden' }}>
             {/* Conversations List */}
             <Box sx={{
                 width: { xs: showMobileChat ? 0 : '100%', md: 350 },
+                height: '100%',
                 display: { xs: showMobileChat ? 'none' : 'flex', md: 'flex' },
+                flexShrink: 0,
                 flexDirection: 'column',
                 borderRight: '1px solid rgba(0,0,0,0.1)',
                 bgcolor: 'background.paper'
@@ -399,8 +413,10 @@ const TenantChat = () => {
             {/* Chat Window */}
             <Box sx={{
                 flex: 1,
+                height: '100%',
                 display: { xs: showMobileChat ? 'flex' : 'none', md: 'flex' },
                 flexDirection: 'column',
+                overflow: 'hidden',
                 bgcolor: '#efeae2'
             }}>
                 {!selectedChat ? (
@@ -496,12 +512,15 @@ const TenantChat = () => {
 
                         {/* Input Area */}
                         <Paper elevation={0} sx={{
-                            p: 1,
-                            bgcolor: 'background.default',
-                            borderTop: '1px solid rgba(0,0,0,0.1)',
+                            p: 1.5,
+                            mx: 1,
+                            mb: 1,
+                            bgcolor: 'background.paper',
+                            borderRadius: 3,
                             display: 'flex',
                             alignItems: 'flex-end',
-                            gap: 1
+                            gap: 1,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
                         }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <IconButton size="small"><EmojiIcon /></IconButton>
@@ -530,8 +549,10 @@ const TenantChat = () => {
                                 multiline
                                 maxRows={4}
                                 sx={{
-                                    bgcolor: 'background.paper',
-                                    '& .MuiOutlinedInput-root': { borderRadius: 2 }
+                                    '& .MuiOutlinedInput-root': {
+                                        borderRadius: 4,
+                                        bgcolor: 'grey.50'
+                                    }
                                 }}
                             />
 
