@@ -115,6 +115,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         }
 
         onSelect({
+            id: selectedTemplate.id,
             name: selectedTemplate.name,
             language: { code: selectedTemplate.language || 'ar' },
             components: parameters,

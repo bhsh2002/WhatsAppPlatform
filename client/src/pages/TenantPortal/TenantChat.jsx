@@ -14,16 +14,13 @@ import {
     ListItemText,
     Badge,
     InputAdornment,
-    CircularProgress,
-    Chip
+    CircularProgress
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
     MoreVert as MoreVertIcon,
     Search as SearchIcon,
-    AttachFile as AttachFileIcon,
     Send as SendIcon,
-    Mic as MicIcon,
     InsertEmoticon as EmojiIcon,
     DoneAll as DoneAllIcon,
     Done as DoneIcon,
@@ -34,7 +31,7 @@ import {
 import api from '../../api';
 
 import TemplatePicker from '../../components/WhatsApp/TemplatePicker';
-import MessageBubble from '../../components/WhatsApp/MessageBubble'; // Use shared component
+import MessageBubble from '../../components/WhatsApp/MessageBubble';
 
 const TenantChat = () => {
     const [conversations, setConversations] = useState([]);
@@ -53,6 +50,7 @@ const TenantChat = () => {
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
+    const isFirstLoad = useRef(true);
 
     useEffect(() => {
         fetchConversations();
@@ -61,12 +59,26 @@ const TenantChat = () => {
 
     useEffect(() => {
         if (selectedChat) {
+            isFirstLoad.current = true;
             fetchMessages(selectedChat.contact);
         }
     }, [selectedChat]);
 
     useEffect(() => {
-        scrollToBottom();
+        if (messages.length === 0) return;
+
+        if (isFirstLoad.current) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            isFirstLoad.current = false;
+            return;
+        }
+
+        const container = messagesContainerRef.current;
+        if (!container) return;
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom < 300) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
     }, [messages]);
 
     const fetchConversations = async () => {
@@ -102,8 +114,7 @@ const TenantChat = () => {
         }
     };
 
-    const handleSendMessage = async (e) => {
-        e?.preventDefault();
+    const handleSendMessage = async () => {
         if (!newMessage.trim() || !selectedChat || sending) return;
 
         try {
@@ -122,6 +133,13 @@ const TenantChat = () => {
         }
     };
 
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+        }
+    };
+
     const handleSendTemplate = async (templateData) => {
         if (!selectedChat || sending) return;
 
@@ -131,8 +149,9 @@ const TenantChat = () => {
                 recipient: selectedChat.contact,
                 type: 'template',
                 templateId: templateData.id,
-                components: templateData.components // Pass user params
+                components: templateData.components
             });
+            setShowTemplatePicker(false);
             fetchMessages(selectedChat.contact);
         } catch (err) {
             console.error('Failed to send template:', err);
@@ -140,10 +159,6 @@ const TenantChat = () => {
         } finally {
             setSending(false);
         }
-    };
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
     const formatTime = (dateStr) => {
@@ -195,8 +210,7 @@ const TenantChat = () => {
     // Helper to get media URL (reusing admin API for now passed via props or context usually, but here accessing directly)
     // Note: Tenant needs their own media download endpoint if sensitive, but for now assuming shared or public-ish handling
     const getMediaDownloadUrl = (mediaId) => {
-        // Implementation might need adjustment for tenant portal auth
-        return `/api/media/${mediaId}`; // Placeholder
+        return api.getMediaDownloadUrl(mediaId, null);
     };
 
     const filteredConversations = conversations.filter(conv =>
@@ -395,47 +409,43 @@ const TenantChat = () => {
                             bgcolor: 'background.default',
                             borderTop: '1px solid rgba(0,0,0,0.1)',
                             display: 'flex',
-                            alignItems: 'center',
+                            alignItems: 'flex-end',
                             gap: 1
                         }}>
-                            <IconButton><EmojiIcon /></IconButton>
-                            <IconButton onClick={() => setShowTemplatePicker(true)}>
-                                <TemplateIcon />
-                            </IconButton>
-                            <IconButton><AttachFileIcon sx={{ transform: 'rotate(45deg)' }} /></IconButton>
-
-                            <Box component="form" onSubmit={handleSendMessage} sx={{ flex: 1, display: 'flex', gap: 1 }}>
-                                <TextField
-                                    fullWidth
-                                    size="small"
-                                    placeholder="اكتب رسالة..."
-                                    value={newMessage}
-                                    onChange={(e) => setNewMessage(e.target.value)}
-                                    multiline
-                                    maxRows={4}
-                                    sx={{
-                                        bgcolor: 'background.paper',
-                                        '& .MuiOutlinedInput-root': { borderRadius: 2 }
-                                    }}
-                                />
-
-                                {newMessage.trim() ? (
-                                    <IconButton
-                                        type="submit"
-                                        disabled={sending}
-                                        sx={{
-                                            bgcolor: 'primary.main',
-                                            color: 'white',
-                                            '&:hover': { bgcolor: 'primary.dark' },
-                                            '&:disabled': { bgcolor: 'action.disabled' }
-                                        }}
-                                    >
-                                        {sending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
-                                    </IconButton>
-                                ) : (
-                                    <IconButton><MicIcon /></IconButton>
-                                )}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <IconButton size="small"><EmojiIcon /></IconButton>
+                                <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title="قوالب الرسائل">
+                                    <TemplateIcon />
+                                </IconButton>
                             </Box>
+
+                            <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="اكتب رسالة..."
+                                value={newMessage}
+                                onChange={(e) => setNewMessage(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                multiline
+                                maxRows={4}
+                                sx={{
+                                    bgcolor: 'background.paper',
+                                    '& .MuiOutlinedInput-root': { borderRadius: 2 }
+                                }}
+                            />
+
+                            <IconButton
+                                onClick={handleSendMessage}
+                                disabled={sending || !newMessage.trim()}
+                                sx={{
+                                    bgcolor: 'primary.main',
+                                    color: 'white',
+                                    '&:hover': { bgcolor: 'primary.dark' },
+                                    '&:disabled': { bgcolor: 'action.disabled', color: 'white' }
+                                }}
+                            >
+                                {sending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+                            </IconButton>
                         </Paper>
 
                         {/* Template Picker */}
