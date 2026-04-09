@@ -6,6 +6,7 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fetch from 'node-fetch'; // Use node-fetch for form-data compatibility
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -430,7 +431,7 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         const phoneNumberId = tenant.phone_number_id;
         const accessToken = tenant.access_token;
 
-if (!phoneNumberId || !accessToken) {
+        if (!phoneNumberId || !accessToken) {
             if (file) fs.unlinkSync(file.path);
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
@@ -439,29 +440,43 @@ if (!phoneNumberId || !accessToken) {
         const formattedRecipient = recipient.replace(/\+/g, '').trim();
 
         // 1. Upload document to Meta
-        // Note: When using FormData with node-fetch, let it handle Content-Type automatically
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
         form.append('file', fs.createReadStream(file.path), file.originalname);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
-        console.log(`[TenantPortal] Uploading to: ${uploadUrl}`);
+        console.log(`[TenantPortal] Uploading document: ${file.originalname}`);
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${accessToken}`
-                // Don't set Content-Type - let FormData handle it
+                'Authorization': `Bearer ${accessToken}`,
+                ...form.getHeaders()
             },
             body: form
         });
 
         const uploadData = await uploadResponse.json();
-        
-        if (!uploadResponse.ok) {
-            console.error('[TenantPortal] Meta upload error:', JSON.stringify(uploadData, null, 2));
+
+        if (!uploadResponse.ok || !uploadData.id) {
+            console.error('[TenantPortal] Upload failed:', uploadResponse.status, uploadData);
+
+            // Cleanup uploaded file
+            try {
+                fs.unlinkSync(file.path);
+            } catch (e) {
+                console.warn('[TenantPortal] Failed to cleanup temp file:', e);
+            }
+
+            return res.status(400).json({
+                error: 'فشل رفع الملف إلى WhatsApp',
+                details: uploadData.error?.message || uploadData
+            });
         }
+
+        const mediaId = uploadData.id;
+        console.log(`[TenantPortal] Document uploaded. Media ID: ${mediaId}`);
 
         // Cleanup uploaded file
         try {
@@ -469,17 +484,6 @@ if (!phoneNumberId || !accessToken) {
         } catch (e) {
             console.warn('[TenantPortal] Failed to cleanup temp file:', e);
         }
-
-        if (!uploadResponse.ok || !uploadData.id) {
-            console.error('[TenantPortal] Meta upload error:', uploadData);
-            return res.status(400).json({ 
-                error: 'فشل رفع الملف إلى WhatsApp', 
-                details: uploadData.error?.message || uploadData 
-            });
-        }
-
-        const mediaId = uploadData.id;
-        console.log(`[TenantPortal] Document uploaded. Media ID: ${mediaId}`);
 
         // 2. Send message with Media ID
         const payload = {
@@ -508,9 +512,9 @@ if (!phoneNumberId || !accessToken) {
 
         if (!response.ok) {
             console.error('[TenantPortal] Send document error:', data);
-            return res.status(response.status).json({ 
-                error: data.error?.message || 'فشل إرسال الملف', 
-                data 
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل إرسال الملف',
+                data
             });
         }
 
@@ -532,10 +536,10 @@ if (!phoneNumberId || !accessToken) {
             VALUES (?, ?, 'document_sent', 'إرسال مستند', 'success')
         `).run(tenantId, tenant.name);
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             message_id: data.messages?.[0]?.id,
-            media_id: mediaId 
+            media_id: mediaId
         });
 
     } catch (error) {
@@ -544,7 +548,7 @@ if (!phoneNumberId || !accessToken) {
         if (req.file) {
             try {
                 fs.unlinkSync(req.file.path);
-            } catch (e) {}
+            } catch (e) { }
         }
         res.status(500).json({ error: 'فشل إرسال الملف' });
     }
