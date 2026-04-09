@@ -14,7 +14,13 @@ import {
     ListItemText,
     Badge,
     InputAdornment,
-    CircularProgress
+    CircularProgress,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button,
+    Chip
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -26,7 +32,11 @@ import {
     Done as DoneIcon,
     Schedule as ScheduleIcon,
     Error as ErrorIcon,
-    Description as TemplateIcon
+    Description as TemplateIcon,
+    AttachFile as AttachFileIcon,
+    Close as CloseIcon,
+    PictureAsPdf as PdfIcon,
+    InsertDriveFile as FileIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -47,6 +57,13 @@ const TenantChat = () => {
     // Template State
     const [templates, setTemplates] = useState([]);
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+
+    // Document State
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [documentCaption, setDocumentCaption] = useState('');
+    const [showDocumentDialog, setShowDocumentDialog] = useState(false);
+    const [sendingDoc, setSendingDoc] = useState(false);
+    const fileInputRef = useRef(null);
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -159,6 +176,80 @@ const TenantChat = () => {
         } finally {
             setSending(false);
         }
+    };
+
+    // Document handlers
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Validate file type
+        const allowedTypes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain'
+        ];
+
+        if (!allowedTypes.includes(file.type)) {
+            alert('نوع الملف غير مدعوم. يُسمح فقط: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT');
+            e.target.value = '';
+            return;
+        }
+
+        // Validate file size (10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            alert('حجم الملف كبير جداً. الحد الأقصى 10 ميجابايت');
+            e.target.value = '';
+            return;
+        }
+
+        setSelectedFile(file);
+        setDocumentCaption('');
+        setShowDocumentDialog(true);
+        e.target.value = ''; // Reset input
+    };
+
+    const handleSendDocument = async () => {
+        if (!selectedFile || !selectedChat || sendingDoc) return;
+
+        try {
+            setSendingDoc(true);
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('recipient', selectedChat.contact);
+            formData.append('filename', selectedFile.name);
+            if (documentCaption.trim()) {
+                formData.append('caption', documentCaption.trim());
+            }
+
+            await api.sendPortalDocument(formData);
+            
+            setShowDocumentDialog(false);
+            setSelectedFile(null);
+            setDocumentCaption('');
+            fetchMessages(selectedChat.contact);
+        } catch (err) {
+            console.error('Failed to send document:', err);
+            alert('فشل إرسال الملف: ' + (err.message || 'خطأ غير متوقع'));
+        } finally {
+            setSendingDoc(false);
+        }
+    };
+
+    const getFileIcon = (type) => {
+        if (type === 'application/pdf') return <PdfIcon sx={{ fontSize: 40, color: 'error.main' }} />;
+        return <FileIcon sx={{ fontSize: 40, color: 'primary.main' }} />;
+    };
+
+    const formatFileSize = (bytes) => {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     };
 
     const formatTime = (dateStr) => {
@@ -417,6 +508,16 @@ const TenantChat = () => {
                                 <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title="قوالب الرسائل">
                                     <TemplateIcon />
                                 </IconButton>
+                                <IconButton size="small" onClick={() => fileInputRef.current?.click()} title="إرسال ملف">
+                                    <AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />
+                                </IconButton>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    style={{ display: 'none' }}
+                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                                    onChange={handleFileSelect}
+                                />
                             </Box>
 
                             <TextField
@@ -447,6 +548,58 @@ const TenantChat = () => {
                                 {sending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
                             </IconButton>
                         </Paper>
+
+                        {/* Document Preview Dialog */}
+                        <Dialog open={showDocumentDialog} onClose={() => !sendingDoc && setShowDocumentDialog(false)} maxWidth="sm" fullWidth>
+                            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                إرسال مستند
+                                <IconButton onClick={() => setShowDocumentDialog(false)} disabled={sendingDoc}>
+                                    <CloseIcon />
+                                </IconButton>
+                            </DialogTitle>
+                            <DialogContent>
+                                {selectedFile && (
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        {/* File Info */}
+                                        <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                            {getFileIcon(selectedFile.type)}
+                                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                <Typography variant="subtitle2" noWrap>
+                                                    {selectedFile.name}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {formatFileSize(selectedFile.size)}
+                                                </Typography>
+                                            </Box>
+                                        </Paper>
+
+                                        {/* Caption */}
+                                        <TextField
+                                            label="وصف الملف (اختياري)"
+                                            placeholder="أضف وصفاً للملف..."
+                                            value={documentCaption}
+                                            onChange={(e) => setDocumentCaption(e.target.value)}
+                                            multiline
+                                            rows={2}
+                                            fullWidth
+                                        />
+                                    </Box>
+                                )}
+                            </DialogContent>
+                            <DialogActions>
+                                <Button onClick={() => setShowDocumentDialog(false)} disabled={sendingDoc}>
+                                    إلغاء
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    onClick={handleSendDocument}
+                                    disabled={sendingDoc || !selectedFile}
+                                    startIcon={sendingDoc ? <CircularProgress size={16} /> : <SendIcon />}
+                                >
+                                    {sendingDoc ? 'جاري الإرسال...' : 'إرسال'}
+                                </Button>
+                            </DialogActions>
+                        </Dialog>
 
                         {/* Template Picker */}
                         <TemplatePicker

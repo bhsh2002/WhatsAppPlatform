@@ -242,6 +242,25 @@ class ApiService {
         });
     }
 
+    async sendPortalDocument(formData) {
+        const headers = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        const response = await fetch(`${this.baseUrl}/api/portal/messages/send-document`, {
+            method: 'POST',
+            headers,
+            body: formData
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to send document');
+        }
+        return data;
+    }
+
     async getPortalTemplates() {
         return this.request('/api/portal/templates');
     }

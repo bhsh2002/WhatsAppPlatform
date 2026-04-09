@@ -1,8 +1,52 @@
 import express from 'express';
 import db, { generateApiKey } from '../db/database.js';
 import crypto from 'crypto';
+import multer from 'multer';
+import FormData from 'form-data';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+// Configure multer for document uploads
+const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + Buffer.from(file.originalname, 'latin1').toString('utf8'));
+    }
+});
+
+const documentUpload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+        const allowedMimes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain'
+        ];
+        if (allowedMimes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('نوع الملف غير مدعوم. يُسمح فقط بالمستندات (PDF, DOC, XLS, PPT)'));
+        }
+    }
+});
 
 const META_API_VERSION = 'v22.0';
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
@@ -354,6 +398,149 @@ router.post('/messages/send', async (req, res) => {
     } catch (error) {
         console.error('[TenantPortal] Send message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
+    }
+});
+
+// ============================================
+// Send Document (PDF, DOC, XLS, etc.)
+// ============================================
+router.post('/messages/send-document', documentUpload.single('file'), async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { recipient, caption, filename } = req.body;
+        const file = req.file;
+
+        if (!recipient) {
+            // Cleanup uploaded file
+            if (file) fs.unlinkSync(file.path);
+            return res.status(400).json({ error: 'رقم المستلم مطلوب' });
+        }
+
+        if (!file) {
+            return res.status(400).json({ error: 'الملف مطلوب' });
+        }
+
+        // Get tenant credentials
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const phoneNumberId = tenant.phone_number_id;
+        const accessToken = tenant.access_token;
+
+        if (!phoneNumberId || !accessToken) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        // Format recipient (remove + prefix if present)
+        const formattedRecipient = recipient.replace(/\+/g, '').trim();
+
+        // 1. Upload document to Meta
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
+        form.append('file', fs.createReadStream(file.path), filename || file.originalname);
+
+        console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`);
+
+        const uploadResponse = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                ...form.getHeaders()
+            },
+            body: form
+        });
+
+        const uploadData = await uploadResponse.json();
+
+        // Cleanup uploaded file
+        try {
+            fs.unlinkSync(file.path);
+        } catch (e) {
+            console.warn('[TenantPortal] Failed to cleanup temp file:', e);
+        }
+
+        if (!uploadResponse.ok || !uploadData.id) {
+            console.error('[TenantPortal] Meta upload error:', uploadData);
+            return res.status(400).json({ 
+                error: 'فشل رفع الملف إلى WhatsApp', 
+                details: uploadData.error?.message || uploadData 
+            });
+        }
+
+        const mediaId = uploadData.id;
+        console.log(`[TenantPortal] Document uploaded. Media ID: ${mediaId}`);
+
+        // 2. Send message with Media ID
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: formattedRecipient,
+            type: 'document',
+            document: {
+                id: mediaId,
+                filename: filename || file.originalname,
+                caption: caption || ''
+            }
+        };
+
+        console.log('[TenantPortal] Sending document:', JSON.stringify(payload, null, 2));
+
+        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            console.error('[TenantPortal] Send document error:', data);
+            return res.status(response.status).json({ 
+                error: data.error?.message || 'فشل إرسال الملف', 
+                data 
+            });
+        }
+
+        // 3. Save to database
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, media_url)
+            VALUES (?, 'outgoing', ?, 'document', ?, 'sent', ?, ?)
+        `).run(
+            tenantId,
+            formattedRecipient,
+            caption || file.originalname,
+            data.messages?.[0]?.id || null,
+            mediaId
+        );
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'document_sent', 'إرسال مستند', 'success')
+        `).run(tenantId, tenant.name);
+
+        res.json({ 
+            success: true, 
+            message_id: data.messages?.[0]?.id,
+            media_id: mediaId 
+        });
+
+    } catch (error) {
+        console.error('[TenantPortal] Send document error:', error);
+        // Cleanup file if it exists
+        if (req.file) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (e) {}
+        }
+        res.status(500).json({ error: 'فشل إرسال الملف' });
     }
 });
 
