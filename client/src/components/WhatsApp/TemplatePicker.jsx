@@ -39,11 +39,12 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         t.status === 'approved' // Only show approved templates
     );
 
-    // Extract variables from template body and header
+    // Extract variables from template body, header, and buttons
     const getTemplateVariables = (template) => {
         const vars = {
             header: [],
-            body: []
+            body: [],
+            buttons: []
         };
 
         // Extract from body text (e.g., "Hello {{1}}, your order {{2}} is ready")
@@ -59,6 +60,34 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
             const matches = template.header_content.match(/{{(\d+)}}/g);
             if (matches) {
                 vars.header = [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))];
+            }
+        }
+
+        // Extract from buttons (URL buttons with variables)
+        if (template.buttons) {
+            try {
+                const buttons = typeof template.buttons === 'string'
+                    ? JSON.parse(template.buttons)
+                    : template.buttons;
+
+                if (Array.isArray(buttons)) {
+                    buttons.forEach((btn, index) => {
+                        if (btn.type === 'URL' && btn.url) {
+                            const matches = btn.url.match(/{{(\d+)}}/g);
+                            if (matches) {
+                                vars.buttons.push({
+                                    index: index.toString(),
+                                    sub_type: 'url',
+                                    text: btn.text,
+                                    url: btn.url,
+                                    variables: [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))]
+                                });
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to parse buttons:', e);
             }
         }
 
@@ -82,7 +111,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
 
         // Construct parameters
         const templateVars = getTemplateVariables(selectedTemplate);
-        const parameters = [];
+        const components = [];
 
         // Header params - use actual variable numbers, not index
         if (templateVars.header.length > 0) {
@@ -90,7 +119,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                 type: 'text',
                 text: variables[`header_${v}`] || ''
             }));
-            parameters.push({ type: 'header', parameters: headerParams });
+            components.push({ type: 'header', parameters: headerParams });
         }
 
         // Body params - use actual variable numbers, not index
@@ -99,20 +128,36 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                 type: 'text',
                 text: variables[`body_${v}`] || ''
             }));
-            parameters.push({ type: 'body', parameters: bodyParams });
+            components.push({ type: 'body', parameters: bodyParams });
         }
+
+        // Button params (for URL buttons with variables)
+        templateVars.buttons.forEach((btn) => {
+            if (btn.variables.length > 0) {
+                const buttonParams = btn.variables.map((v) => ({
+                    type: 'text',
+                    text: variables[`button_${btn.index}_${v}`] || ''
+                }));
+                components.push({
+                    type: 'button',
+                    sub_type: 'url',
+                    index: btn.index,
+                    parameters: buttonParams
+                });
+            }
+        });
 
         onSelect({
             id: selectedTemplate.id,
             name: selectedTemplate.name,
             language: { code: selectedTemplate.language || 'ar' },
-            components: parameters,
+            components: components,
             // Pass full template data for local display/storage optimization
             _templateData: {
                 name: selectedTemplate.name,
                 language: selectedTemplate.language,
                 header: selectedTemplate.header_type === 'text' ? { type: 'text', text: selectedTemplate.header_content } : null,
-                body: selectedTemplate.body, // This is raw text with {{1}}
+                body: selectedTemplate.body,
                 footer: selectedTemplate.footer,
                 buttons: selectedTemplate.buttons
             }
@@ -121,12 +166,25 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
     };
 
     // Helper to render preview with replaced variables
-    const renderPreview = (text, type) => {
+    const renderPreview = (text, type, btnIndex = null) => {
         if (!text) return '';
         return text.replace(/{{(\d+)}}/g, (match, number) => {
-            const val = variables[`${type}_${number}`];
+            const key = btnIndex !== null ? `${type}_${btnIndex}_${number}` : `${type}_${number}`;
+            const val = variables[key];
             return val ? `[${val}]` : match;
         });
+    };
+
+    // Helper to render button URLs with variable substitution
+    const renderButtonPreview = (btn, btnIndex) => {
+        if (btn.type === 'URL' && btn.url) {
+            const previewUrl = btn.url.replace(/{{(\d+)}}/g, (match, number) => {
+                const val = variables[`button_${btnIndex}_${number}`];
+                return val ? `[${val}]` : match;
+            });
+            return previewUrl;
+        }
+        return null;
     };
 
     return (
@@ -217,14 +275,21 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                                 )}
 
                                 {selectedTemplate.buttons && (
-                                    <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                    <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                                         {(() => {
                                             try {
                                                 const btns = typeof selectedTemplate.buttons === 'string'
                                                     ? JSON.parse(selectedTemplate.buttons)
                                                     : selectedTemplate.buttons;
                                                 return Array.isArray(btns) ? btns.map((b, i) => (
-                                                    <Chip key={i} label={b.text} color="primary" variant="outlined" size="small" />
+                                                    <Box key={i}>
+                                                        <Chip label={b.text} color="primary" variant="outlined" size="small" />
+                                                        {b.type === 'URL' && b.url && (
+                                                            <Typography variant="caption" display="block" sx={{ mt: 0.5, wordBreak: 'break-all', color: 'text.secondary' }}>
+                                                                {renderButtonPreview(b, String(i))}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
                                                 )) : null;
                                             } catch (_e) { return null; }
                                         })()}
@@ -261,7 +326,30 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                                 />
                             ))}
 
-                            {getTemplateVariables(selectedTemplate).header.length === 0 && getTemplateVariables(selectedTemplate).body.length === 0 && (
+                            {/* Button Variables */}
+                            {getTemplateVariables(selectedTemplate).buttons.map((btn, btnIdx) => (
+                                <Box key={`btn_section_${btnIdx}`} sx={{ mt: 2 }}>
+                                    <Typography variant="subtitle2" color="primary" gutterBottom>
+                                        زر "{btn.text}" - متغيرات الرابط
+                                    </Typography>
+                                    {btn.variables.map((v, i) => (
+                                        <TextField
+                                            key={`btnvar_${btnIdx}_${i}`}
+                                            label={`Button {{${v}}}`}
+                                            fullWidth
+                                            size="small"
+                                            sx={{ mb: 2 }}
+                                            value={variables[`button_${btn.index}_${v}`] || ''}
+                                            onChange={(e) => handleVariableChange('button', `${btn.index}_${v}`, e.target.value)}
+                                            helperText={btn.url ? `URL: ${btn.url}` : ''}
+                                        />
+                                    ))}
+                                </Box>
+                            ))}
+
+                            {getTemplateVariables(selectedTemplate).header.length === 0 && 
+                             getTemplateVariables(selectedTemplate).body.length === 0 && 
+                             getTemplateVariables(selectedTemplate).buttons.length === 0 && (
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                     هذا القالب لا يحتوي على متغيرات.
                                 </Typography>
