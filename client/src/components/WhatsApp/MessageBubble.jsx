@@ -108,31 +108,63 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             );
         }
 
-        // Default or Document
+        // Document, Video, or Audio media types
+        if (type === 'document' || type === 'video' || type === 'audio') {
+            const mediaId = message.media_id || message.media_url;
+            
+            // Parse filename and caption from content
+            // Format: "filename\n\ncaption" or just "filename"
+            const contentLines = (content || '').split('\n\n');
+            const filename = contentLines[0] || 'مستند';
+            const caption = contentLines.length > 1 ? contentLines.slice(1).join('\n\n') : '';
+            
+            return (
+                <Box>
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: 1,
+                            bgcolor: 'rgba(0,0,0,0.05)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1.5,
+                            borderColor: 'divider',
+                            cursor: 'pointer',
+                            '&:hover': { bgcolor: 'rgba(0,0,0,0.08)' }
+                        }}
+                        onClick={() => {
+                            if (mediaId) {
+                                window.open(getMediaDownloadUrl(mediaId, message.tenant_id), '_blank');
+                            }
+                        }}
+                    >
+                        <FileIcon color="action" />
+                        <Box sx={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
+                                {filename}
+                            </Typography>
+                            {caption && (
+                                <Typography variant="caption" color="text.secondary" sx={{ 
+                                    display: '-webkit-box', 
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden'
+                                }}>
+                                    {caption}
+                                </Typography>
+                            )}
+                        </Box>
+                        <DownloadIcon fontSize="small" color="action" />
+                    </Paper>
+                </Box>
+            );
+        }
+
+        // Unknown type - render as text
         return (
-            <Box>
-                <Paper
-                    variant="outlined"
-                    sx={{
-                        p: 1,
-                        bgcolor: 'rgba(0,0,0,0.05)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        borderColor: 'divider',
-                        cursor: 'pointer'
-                    }}
-                    onClick={() => window.open(getMediaDownloadUrl(message.media_id, message.tenant_id), '_blank')}
-                >
-                    <FileIcon color="action" />
-                    <Box sx={{ overflow: 'hidden' }}>
-                        <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
-                            {message.caption || 'مرفق'} ({(type || 'file').toUpperCase()})
-                        </Typography>
-                    </Box>
-                    <DownloadIcon fontSize="small" color="action" />
-                </Paper>
-            </Box>
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {content}
+            </Typography>
         );
     };
 

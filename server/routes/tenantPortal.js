@@ -519,15 +519,21 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         }
 
         // 3. Save to database
+        // Store filename in content, caption can be appended if provided
+        const displayContent = caption 
+            ? `${file.originalname}\n\n${caption}` 
+            : file.originalname;
+
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, media_url)
-            VALUES (?, 'outgoing', ?, 'document', ?, 'sent', ?, ?)
+            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, media_id, media_mime_type)
+            VALUES (?, 'outgoing', ?, 'document', ?, 'sent', ?, ?, ?)
         `).run(
             tenantId,
             formattedRecipient,
-            caption || file.originalname,
+            displayContent,
             data.messages?.[0]?.id || null,
-            mediaId
+            mediaId,
+            file.mimetype
         );
 
         // Log activity
