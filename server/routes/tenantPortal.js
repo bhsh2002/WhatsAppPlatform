@@ -454,26 +454,20 @@ if (!phoneNumberId || !accessToken) {
         // 1. Upload document to Meta
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
         
         // For Arabic filenames, use a safe ASCII filename
         const safeFilename = file.originalname.replace(/[^\x00-\x7F]/g, '') || `document_${Date.now()}.pdf`;
         
-        // Create read stream and append to form with proper options
+        // Create read stream and append to form
         const fileStream = fs.createReadStream(file.path);
-        form.append('file', fileStream, {
-            filename: safeFilename,
-            contentType: file.mimetype
-        });
+        form.append('file', fileStream, safeFilename);
 
         console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`);
-        console.log(`[TenantPortal] Original filename: ${file.originalname}`);
-        console.log(`[TenantPortal] Safe filename: ${safeFilename}`);
-        console.log(`[TenantPortal] MIME type: ${file.mimetype}`);
-        console.log(`[TenantPortal] File path: ${file.path}, size: ${fileStats.size}`);
+        console.log(`[TenantPortal] File: ${safeFilename}, MIME: ${file.mimetype}, Size: ${fileStats.size}`);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
-        console.log(`[TenantPortal] Upload URL: ${uploadUrl}`);
-        console.log(`[TenantPortal] FormData headers:`, form.getHeaders());
+        console.log(`[TenantPortal] Uploading to: ${uploadUrl}`);
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
@@ -485,8 +479,10 @@ if (!phoneNumberId || !accessToken) {
         });
 
         const uploadData = await uploadResponse.json();
-        console.log('[TenantPortal] Upload response status:', uploadResponse.status);
-        console.log('[TenantPortal] Upload response:', JSON.stringify(uploadData, null, 2));
+        
+        if (!uploadResponse.ok) {
+            console.error('[TenantPortal] Meta upload error:', JSON.stringify(uploadData, null, 2));
+        }
 
         // Cleanup uploaded file
         try {
