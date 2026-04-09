@@ -22,7 +22,7 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + '-' + Buffer.from(file.originalname, 'latin1').toString('utf8'));
+        cb(null, uniqueSuffix + '-' + file.originalname);
     }
 });
 
@@ -430,9 +430,22 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         const phoneNumberId = tenant.phone_number_id;
         const accessToken = tenant.access_token;
 
-        if (!phoneNumberId || !accessToken) {
+if (!phoneNumberId || !accessToken) {
             if (file) fs.unlinkSync(file.path);
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        // Verify file exists and has content
+        const fileStats = fs.statSync(file.path);
+        console.log(`[TenantPortal] File stats:`, {
+            path: file.path,
+            size: fileStats.size,
+            exists: fs.existsSync(file.path)
+        });
+
+        if (fileStats.size === 0) {
+            fs.unlinkSync(file.path);
+            return res.status(400).json({ error: 'الملف فارغ' });
         }
 
         // Format recipient (remove + prefix if present)
@@ -441,19 +454,28 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         // 1. Upload document to Meta
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
-        form.append('type', file.mimetype);
-        form.append('file', fs.createReadStream(file.path), file.originalname);
-
-        console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`, {
-            originalname: file.originalname,
-            mimetype: file.mimetype,
-            size: file.size
+        
+        // For Arabic filenames, use a safe ASCII filename
+        const safeFilename = file.originalname.replace(/[^\x00-\x7F]/g, '') || `document_${Date.now()}.pdf`;
+        
+        // Create read stream and append to form with proper options
+        const fileStream = fs.createReadStream(file.path);
+        form.append('file', fileStream, {
+            filename: safeFilename,
+            contentType: file.mimetype
         });
+
+        console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`);
+        console.log(`[TenantPortal] Original filename: ${file.originalname}`);
+        console.log(`[TenantPortal] Safe filename: ${safeFilename}`);
+        console.log(`[TenantPortal] MIME type: ${file.mimetype}`);
+        console.log(`[TenantPortal] File path: ${file.path}, size: ${fileStats.size}`);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
         console.log(`[TenantPortal] Upload URL: ${uploadUrl}`);
+        console.log(`[TenantPortal] FormData headers:`, form.getHeaders());
 
-        const uploadResponse = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
+        const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -463,6 +485,8 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         });
 
         const uploadData = await uploadResponse.json();
+        console.log('[TenantPortal] Upload response status:', uploadResponse.status);
+        console.log('[TenantPortal] Upload response:', JSON.stringify(uploadData, null, 2));
 
         // Cleanup uploaded file
         try {
