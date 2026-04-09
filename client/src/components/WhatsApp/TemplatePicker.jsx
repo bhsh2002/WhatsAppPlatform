@@ -39,40 +39,28 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         t.status === 'approved' // Only show approved templates
     );
 
-    // Extract variables from template components
+    // Extract variables from template body and header
     const getTemplateVariables = (template) => {
         const vars = {
             header: [],
-            body: [],
-            buttons: []
+            body: []
         };
 
-        if (!template.components) return vars;
-
-        // Ensure components is an array (it might be JSON string from DB)
-        let components = template.components;
-        if (typeof components === 'string') {
-            try {
-                components = JSON.parse(components);
-            } catch (_e) {
-                return vars;
+        // Extract from body text (e.g., "Hello {{1}}, your order {{2}} is ready")
+        if (template.body) {
+            const matches = template.body.match(/{{(\d+)}}/g);
+            if (matches) {
+                vars.body = [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))];
             }
         }
 
-        components.forEach(comp => {
-            if (comp.type === 'HEADER' && comp.format === 'TEXT') {
-                const matches = comp.text.match(/{{(\d+)}}/g);
-                if (matches) {
-                    vars.header = matches.map(m => m.replace(/{{|}}/g, ''));
-                }
+        // Extract from header if it's a text header
+        if (template.header_type === 'text' && template.header_content) {
+            const matches = template.header_content.match(/{{(\d+)}}/g);
+            if (matches) {
+                vars.header = [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))];
             }
-            if (comp.type === 'BODY') {
-                const matches = comp.text.match(/{{(\d+)}}/g);
-                if (matches) {
-                    vars.body = matches.map(m => m.replace(/{{|}}/g, ''));
-                }
-            }
-        });
+        }
 
         return vars;
     };
@@ -96,20 +84,20 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         const templateVars = getTemplateVariables(selectedTemplate);
         const parameters = [];
 
-        // Header params
+        // Header params - use actual variable numbers, not index
         if (templateVars.header.length > 0) {
-            const headerParams = templateVars.header.map((_, idx) => ({
+            const headerParams = templateVars.header.map((v) => ({
                 type: 'text',
-                text: variables[`header_${idx + 1}`] || ''
+                text: variables[`header_${v}`] || ''
             }));
             parameters.push({ type: 'header', parameters: headerParams });
         }
 
-        // Body params
+        // Body params - use actual variable numbers, not index
         if (templateVars.body.length > 0) {
-            const bodyParams = templateVars.body.map((_, idx) => ({
+            const bodyParams = templateVars.body.map((v) => ({
                 type: 'text',
-                text: variables[`body_${idx + 1}`] || ''
+                text: variables[`body_${v}`] || ''
             }));
             parameters.push({ type: 'body', parameters: bodyParams });
         }
@@ -197,9 +185,24 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
 
                             {/* Preview Card */}
                             <Paper variant="outlined" sx={{ p: 2, bgcolor: '#d9fdd3', mb: 3, borderRadius: 2, maxWidth: '80%' }}>
-                                {getTemplateVariables(selectedTemplate).header.length > 0 && (
+                                {selectedTemplate.header_type === 'text' && selectedTemplate.header_content && (
                                     <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                                        {renderPreview(JSON.parse(selectedTemplate.components || '[]').find(c => c.type === 'HEADER')?.text || '', 'header')}
+                                        {renderPreview(selectedTemplate.header_content, 'header')}
+                                    </Typography>
+                                )}
+                                {selectedTemplate.header_type === 'image' && (
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'primary.main' }}>
+                                        [📷 صورة]
+                                    </Typography>
+                                )}
+                                {selectedTemplate.header_type === 'video' && (
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'primary.main' }}>
+                                        [🎥 فيديو]
+                                    </Typography>
+                                )}
+                                {selectedTemplate.header_type === 'document' && (
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'primary.main' }}>
+                                        [📄 مستند]
                                     </Typography>
                                 )}
 
