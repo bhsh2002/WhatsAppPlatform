@@ -442,9 +442,16 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        form.append('file', fs.createReadStream(file.path), filename || file.originalname);
+        form.append('file', fs.createReadStream(file.path), file.originalname);
 
-        console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`);
+        console.log(`[TenantPortal] Uploading document for tenant ${tenantId}`, {
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size
+        });
+
+        const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
+        console.log(`[TenantPortal] Upload URL: ${uploadUrl}`);
 
         const uploadResponse = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
             method: 'POST',
