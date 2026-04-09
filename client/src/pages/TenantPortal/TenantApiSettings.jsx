@@ -93,7 +93,7 @@ const TenantApiSettings = () => {
         try {
             setRegenerating(true);
             setError(null);
-            const data = await api.regeneratePortalApiKey();
+            await api.regeneratePortalApiKey();
             setSuccess('تم إنشاء مفتاح جديد بنجاح');
             fetchSettings();
         } catch (err) {

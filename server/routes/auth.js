@@ -5,7 +5,10 @@ import db from '../db/database.js';
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'whatsapp_platform_secret_key_2024';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.warn('⚠️ WARNING: JWT_SECRET environment variable is not set. Authentication will fail.');
+}
 const JWT_EXPIRES_IN = '7d';
 
 // Register new user

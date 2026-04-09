@@ -51,7 +51,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                 if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
                     templateData = JSON.parse(content);
                 }
-            } catch (e) {
+            } catch (_e) {
                 // Content is plain text
             }
 

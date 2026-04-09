@@ -211,7 +211,6 @@ const FeatureCard = ({ icon, title, desc, color, delay = 0 }) => {
 
 const LandingPage = () => {
     const [scrolled, setScrolled] = useState(false);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     useEffect(() => {
         const onScroll = () => setScrolled(window.scrollY > 50);

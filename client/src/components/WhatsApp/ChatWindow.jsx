@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import {
     Box,
     AppBar,
@@ -35,14 +35,12 @@ const ChatWindow = ({
     messagesEndRef,
     messagesContainerRef,
     // Helpers
-    getProfileImage,
     getDisplayName,
     formatTime,
     getStatusIcon,
     getMediaDownloadUrl,
     // File handling
     selectedFile,
-    setSelectedFile,
     filePreview,
     clearSelectedFile,
     handleFileSelect,

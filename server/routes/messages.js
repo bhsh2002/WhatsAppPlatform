@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import multer from 'multer';
+import FormData from 'form-data';
 
 import fs from 'fs';
 import path from 'path';
@@ -99,15 +100,14 @@ router.post('/send', async (req, res) => {
         const data = await response.json();
 
         // Save message to database
-        // Helper to perform variable substitution (simple version)
         const substituteVariables = (text, params) => {
             if (!text || !params) return text;
             let result = text;
             params.forEach((param, index) => {
                 if (typeof param === 'string' || typeof param === 'number') {
-                    result = result.replace(`{{${index + 1}}}`, param);
+                    result = result.replaceAll(`{{${index + 1}}}`, param);
                 } else if (param.type === 'text') {
-                    result = result.replace(`{{${index + 1}}}`, param.text);
+                    result = result.replaceAll(`{{${index + 1}}}`, param.text);
                 }
             });
             return result;
@@ -600,12 +600,10 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
         // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
         const form = new FormData();
-        const fileBuffer = fs.readFileSync(file.path);
-        const blob = new Blob([fileBuffer], { type: file.mimetype });
 
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        form.append('file', blob, file.originalname);
+        form.append('file', fs.createReadStream(file.path), file.originalname);
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
 
@@ -615,6 +613,7 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
+                ...form.getHeaders()
             },
             body: form
         });

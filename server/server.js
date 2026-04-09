@@ -43,7 +43,11 @@ app.use(cors({
     origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://localhost', 'http://127.0.0.1', 'https://wa.savana.ly', 'http://wa.savana.ly'],
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 
 // Request logging
 app.use((req, res, next) => {

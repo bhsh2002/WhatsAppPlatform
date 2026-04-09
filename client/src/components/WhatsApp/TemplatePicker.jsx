@@ -54,7 +54,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         if (typeof components === 'string') {
             try {
                 components = JSON.parse(components);
-            } catch (e) {
+            } catch (_e) {
                 return vars;
             }
         }
@@ -222,7 +222,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                                                 return Array.isArray(btns) ? btns.map((b, i) => (
                                                     <Chip key={i} label={b.text} color="primary" variant="outlined" size="small" />
                                                 )) : null;
-                                            } catch (e) { return null; }
+                                            } catch (_e) { return null; }
                                         })()}
                                     </Box>
                                 )}

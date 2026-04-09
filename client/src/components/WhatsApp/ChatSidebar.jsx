@@ -23,7 +23,6 @@ const ChatSidebar = ({
     loading,
     searchTerm,
     setSearchTerm,
-    getProfileImage,
     getDisplayName,
     formatDate
 }) => {

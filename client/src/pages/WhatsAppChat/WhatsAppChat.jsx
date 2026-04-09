@@ -22,13 +22,10 @@ const WhatsAppChat = () => {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [sending, setSending] = useState(false);
-    const [sendError, setSendError] = useState(null);
 
     // File State
     const [selectedFile, setSelectedFile] = useState(null);
     const [filePreview, setFilePreview] = useState(null);
-    const [showAttachMenu, setShowAttachMenu] = useState(false); // Managed by ChatWindow mainly, but kept here if needed
 
     // Refs
     const messagesEndRef = useRef(null);
@@ -164,12 +161,9 @@ const WhatsAppChat = () => {
 
         const credentials = getCredentials();
         if (!selectedChat.tenant_id && (!credentials.token || !credentials.phoneId)) {
-            setSendError('Missing credentials');
+            // Missing credentials error logging
             return;
         }
-
-        setSending(true);
-        setSendError(null);
 
         try {
             if (selectedFile) {
@@ -208,9 +202,6 @@ const WhatsAppChat = () => {
             fetchMessages(selectedChat.contact, selectedChat.tenant_id);
         } catch (error) {
             console.error('Failed to send:', error);
-            setSendError('Failed to send message');
-        } finally {
-            setSending(false);
         }
     };
 
@@ -237,7 +228,6 @@ const WhatsAppChat = () => {
         const file = e.target.files?.[0];
         if (file) {
             setSelectedFile(file);
-            setShowAttachMenu(false);
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onloadend = () => setFilePreview(reader.result);

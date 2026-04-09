@@ -1,9 +1,14 @@
 import express from 'express';
+import crypto from 'crypto';
 import db from '../db/database.js';
 
 const router = express.Router();
 
-const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'whatsapp_platform_verify_token_2024';
+const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
+const APP_SECRET = process.env.META_APP_SECRET;
+
+if (!VERIFY_TOKEN) console.warn('⚠️ WARNING: WEBHOOK_VERIFY_TOKEN is missing. Webhook verification will fail.');
+if (!APP_SECRET) console.warn('⚠️ WARNING: META_APP_SECRET is missing. Incoming webhooks cannot be securely verified.');
 
 // Webhook verification (GET request from Meta)
 router.get('/', (req, res) => {
@@ -24,6 +29,21 @@ router.get('/', (req, res) => {
 
 // Webhook events handler (POST request from Meta)
 router.post('/', (req, res) => {
+    // Validate signature if APP_SECRET is provided
+    if (APP_SECRET) {
+        const signature = req.headers['x-hub-signature-256'];
+        if (!signature || !req.rawBody) {
+            console.error('[Webhook] Missing signature or rawBody');
+            return res.sendStatus(403);
+        }
+
+        const expectedSignature = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
+        if (signature !== expectedSignature) {
+            console.error('[Webhook] Invalid signature');
+            return res.sendStatus(403);
+        }
+    }
+
     const body = req.body;
 
     console.log('[Webhook] Received event:', JSON.stringify(body, null, 2));

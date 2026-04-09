@@ -63,7 +63,7 @@ const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false 
 };
 
 function AppRoutes() {
-  const { isAuthenticated, isTenant, isAdmin } = useAuth();
+  const { isAuthenticated, isTenant } = useAuth();
 
   return (
     <Routes>

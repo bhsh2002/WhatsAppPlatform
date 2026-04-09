@@ -254,13 +254,12 @@ router.post('/messages/send', async (req, res) => {
 
         const data = await response.json();
 
-        // Helper to perform variable substitution (simple version)
         const substituteVariables = (text, params) => {
             if (!text || !params) return text;
             let result = text;
             params.forEach((param, index) => {
                 const val = typeof param === 'string' ? param : param.text;
-                result = result.replace(`{{${index + 1}}}`, val || '');
+                result = result.replaceAll(`{{${index + 1}}}`, val || '');
             });
             return result;
         };

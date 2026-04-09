@@ -274,7 +274,7 @@ const PrivacyPolicy = () => {
                 </Paper>
 
                 {/* Sections */}
-                {sections.map((section, idx) => (
+                {sections.map((section, _idx) => (
                     <Paper
                         key={section.id}
                         elevation={0}

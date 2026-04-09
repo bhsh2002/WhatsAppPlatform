@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Box,
     AppBar,
@@ -53,7 +53,6 @@ const TenantChat = () => {
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
-    const fileInputRef = useRef(null);
 
     useEffect(() => {
         fetchConversations();

@@ -3,6 +3,7 @@ import api from '../api';
 
 const TenantContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useTenants = () => useContext(TenantContext);
 
 export const TenantProvider = ({ children }) => {

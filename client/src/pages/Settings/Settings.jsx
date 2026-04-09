@@ -48,7 +48,7 @@ const Settings = () => {
         try {
             await api.checkHealth();
             setServerStatus('online');
-        } catch (error) {
+        } catch (_error) {
             setServerStatus('offline');
         }
     };
@@ -74,7 +74,7 @@ const Settings = () => {
         }
     };
 
-    const StatusIndicator = () => {
+    const renderStatusIndicator = () => {
         if (serverStatus === 'checking') {
             return <Chip icon={<CircularProgress size={16} />} label="جاري الفحص..." variant="outlined" />;
         }
@@ -118,7 +118,7 @@ const Settings = () => {
                                     </Box>
                                 </Box>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                    <StatusIndicator />
+                                    {renderStatusIndicator()}
                                     <IconButton onClick={checkServerStatus} disabled={serverStatus === 'checking'}>
                                         <RefreshIcon />
                                     </IconButton>
