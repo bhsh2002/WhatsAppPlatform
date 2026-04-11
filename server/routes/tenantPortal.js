@@ -6,7 +6,7 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fetch from 'node-fetch'; // Use node-fetch for form-data compatibility
+// Note: Using Node.js built-in fetch (v22+). node-fetch not needed.
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -248,6 +248,10 @@ router.post('/messages/send', async (req, res) => {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
+        if (tenant.status === 'Suspended') {
+            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
+        }
+
         let payload = {
             messaging_product: 'whatsapp',
             to: recipient,
@@ -366,11 +370,12 @@ router.post('/messages/send', async (req, res) => {
         };
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             messageRecord.tenant_id,
             messageRecord.direction,
+            phoneNumberId,
             messageRecord.recipient,
             messageRecord.message_type,
             messageRecord.content,
@@ -434,6 +439,11 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         if (!phoneNumberId || !accessToken) {
             if (file) fs.unlinkSync(file.path);
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        if (tenant.status === 'Suspended') {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الملفات. تواصل مع المدير.' });
         }
 
         // Format recipient (remove + prefix if present)
@@ -525,10 +535,11 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
             : file.originalname;
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, media_id, media_mime_type)
-            VALUES (?, 'outgoing', ?, 'document', ?, 'sent', ?, ?, ?)
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
+            VALUES (?, 'outgoing', ?, ?, 'document', ?, 'sent', ?, ?, ?)
         `).run(
             tenantId,
+            phoneNumberId,
             formattedRecipient,
             displayContent,
             data.messages?.[0]?.id || null,

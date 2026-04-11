@@ -52,6 +52,9 @@ router.post('/send', async (req, res) => {
         if (tenant_id) {
             tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
             if (tenant) {
+                if (tenant.status === 'Suspended') {
+                    return res.status(403).json({ error: 'هذا العميل معلّق ولا يمكنه إرسال الرسائل' });
+                }
                 phoneNumberId = tenant.phone_number_id || phoneNumberId;
                 accessToken = tenant.access_token || accessToken;
             }
@@ -155,11 +158,12 @@ router.post('/send', async (req, res) => {
         };
 
         db.prepare(`
-      INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
             messageRecord.tenant_id,
             messageRecord.direction,
+            reqPhoneId,
             messageRecord.recipient,
             messageRecord.message_type,
             messageRecord.content,

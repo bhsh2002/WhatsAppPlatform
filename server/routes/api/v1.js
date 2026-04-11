@@ -34,6 +34,9 @@ const getTenantCredentials = (tenantId) => {
     if (!tenant || !tenant.phone_number_id || !tenant.access_token) {
         return null;
     }
+    if (tenant.status === 'Suspended') {
+        return { suspended: true };
+    }
     return {
         phoneNumberId: tenant.phone_number_id,
         accessToken: tenant.access_token
@@ -103,6 +106,9 @@ router.post('/messages/send', async (req, res) => {
         const credentials = getTenantCredentials(tenantId);
         if (!credentials) {
             return res.status(400).json({ error: 'WhatsApp API credentials not configured' });
+        }
+        if (credentials.suspended) {
+            return res.status(403).json({ error: 'Tenant account is suspended' });
         }
 
         // Normalize recipient (remove + prefix)
@@ -175,9 +181,9 @@ router.post('/messages/send', async (req, res) => {
         }
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid)
-            VALUES (?, 'outgoing', ?, ?, ?, 'sent', ?)
-        `).run(tenantId, normalizedRecipient, type, content || '', messageId);
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+            VALUES (?, 'outgoing', ?, ?, ?, ?, 'sent', ?)
+        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, type, content || '', messageId);
 
         // Log activity
         const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
@@ -227,6 +233,9 @@ router.post('/messages/send-media', async (req, res) => {
         if (!credentials) {
             return res.status(400).json({ error: 'WhatsApp API credentials not configured' });
         }
+        if (credentials.suspended) {
+            return res.status(403).json({ error: 'Tenant account is suspended' });
+        }
 
         const normalizedRecipient = recipient.replace(/\+/g, '').trim();
 
@@ -266,9 +275,9 @@ router.post('/messages/send-media', async (req, res) => {
 
         // Save to database
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, media_url)
-            VALUES (?, 'outgoing', ?, ?, ?, 'sent', ?, ?)
-        `).run(tenantId, normalizedRecipient, type, caption || '', messageId, media_url);
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_url)
+            VALUES (?, 'outgoing', ?, ?, ?, ?, 'sent', ?, ?)
+        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, type, caption || '', messageId, media_url);
 
         res.json({
             success: true,
@@ -300,6 +309,10 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
         if (!credentials) {
             if (file) fs.unlinkSync(file.path);
             return res.status(400).json({ error: 'WhatsApp API credentials not configured' });
+        }
+        if (credentials.suspended) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(403).json({ error: 'Tenant account is suspended' });
         }
 
         const normalizedRecipient = recipient.replace(/\+/g, '').trim();
@@ -371,9 +384,9 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
 
         // Save to database
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, media_id, media_mime_type)
-            VALUES (?, 'outgoing', ?, 'document', ?, 'sent', ?, ?, ?)
-        `).run(tenantId, normalizedRecipient, caption || file.originalname, messageId, mediaId, file.mimetype);
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
+            VALUES (?, 'outgoing', ?, ?, 'document', ?, 'sent', ?, ?, ?)
+        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, caption || file.originalname, messageId, mediaId, file.mimetype);
 
         res.json({
             success: true,
@@ -541,6 +554,9 @@ router.post('/messages/send-interactive', async (req, res) => {
         if (!credentials) {
             return res.status(400).json({ error: 'WhatsApp API credentials not configured' });
         }
+        if (credentials.suspended) {
+            return res.status(403).json({ error: 'Tenant account is suspended' });
+        }
 
         const normalizedRecipient = recipient.replace(/\+/g, '').trim();
 
@@ -603,9 +619,9 @@ router.post('/messages/send-interactive', async (req, res) => {
         const messageId = data.messages?.[0]?.id;
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid)
-            VALUES (?, 'outgoing', ?, 'interactive', ?, 'sent', ?)
-        `).run(tenantId, normalizedRecipient, JSON.stringify({ type: interactive_type, body: body_text }), messageId);
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+            VALUES (?, 'outgoing', ?, ?, 'interactive', ?, 'sent', ?)
+        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, JSON.stringify({ type: interactive_type, body: body_text }), messageId);
 
         res.json({ success: true, message_id: messageId, recipient: normalizedRecipient });
     } catch (error) {
