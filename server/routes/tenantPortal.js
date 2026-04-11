@@ -49,6 +49,30 @@ const documentUpload = multer({
     }
 });
 
+// Configure multer for media uploads (images, video, audio)
+const mediaUpload = multer({
+    storage,
+    limits: { fileSize: 16 * 1024 * 1024 }, // 16MB limit
+    fileFilter: (req, file, cb) => {
+        const allowedMimes = [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'video/mp4',
+            'video/3gpp',
+            'audio/aac',
+            'audio/mp4',
+            'audio/mpeg',
+            'audio/ogg',
+        ];
+        if (allowedMimes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('نوع الملف غير مدعوم'));
+        }
+    }
+});
+
 const META_API_VERSION = 'v22.0';
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
@@ -568,6 +592,322 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
             } catch (e) { }
         }
         res.status(500).json({ error: 'فشل إرسال الملف' });
+    }
+});
+
+// ============================================
+// Send Image/Media
+// ============================================
+router.post('/messages/send-image', mediaUpload.single('file'), async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { recipient, caption } = req.body;
+        const file = req.file;
+
+        if (!recipient) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(400).json({ error: 'رقم المستلم مطلوب' });
+        }
+
+        if (!file) {
+            return res.status(400).json({ error: 'الملف مطلوب' });
+        }
+
+        // Get tenant credentials
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const phoneNumberId = tenant.phone_number_id;
+        const accessToken = tenant.access_token;
+
+        if (!phoneNumberId || !accessToken) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        if (tenant.status === 'Suspended') {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الملفات. تواصل مع المدير.' });
+        }
+
+        const formattedRecipient = recipient.replace(/\+/g, '').trim();
+
+        // Determine media type
+        let mediaType = 'document';
+        if (file.mimetype.startsWith('image/')) mediaType = 'image';
+        else if (file.mimetype.startsWith('video/')) mediaType = 'video';
+        else if (file.mimetype.startsWith('audio/')) mediaType = 'audio';
+
+        // 1. Upload media to Meta
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
+        form.append('file', fs.createReadStream(file.path), file.originalname);
+
+        const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
+        console.log(`[TenantPortal] Uploading ${mediaType}: ${file.originalname}`);
+
+        const uploadResponse = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                ...form.getHeaders()
+            },
+            body: form
+        });
+
+        const uploadData = await uploadResponse.json();
+
+        // Cleanup temp file
+        try { fs.unlinkSync(file.path); } catch (e) { console.warn('[TenantPortal] Cleanup:', e.message); }
+
+        if (!uploadResponse.ok || !uploadData.id) {
+            return res.status(400).json({
+                error: 'فشل رفع الملف إلى WhatsApp',
+                details: uploadData.error?.message || uploadData
+            });
+        }
+
+        const mediaId = uploadData.id;
+
+        // 2. Send message with Media ID
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: formattedRecipient,
+            type: mediaType,
+            [mediaType]: {
+                id: mediaId,
+                caption: caption || ''
+            }
+        };
+
+        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل إرسال الملف',
+                data
+            });
+        }
+
+        // 3. Save to database
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
+            VALUES (?, 'outgoing', ?, ?, ?, ?, 'sent', ?, ?, ?)
+        `).run(
+            tenantId,
+            phoneNumberId,
+            formattedRecipient,
+            mediaType,
+            caption || `[${mediaType}]`,
+            data.messages?.[0]?.id || null,
+            mediaId,
+            file.mimetype
+        );
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'media_sent', ?, 'success')
+        `).run(tenantId, tenant.name, `إرسال ${mediaType === 'image' ? 'صورة' : mediaType}`);
+
+        res.json({
+            success: true,
+            message_id: data.messages?.[0]?.id,
+            media_id: mediaId
+        });
+
+    } catch (error) {
+        console.error('[TenantPortal] Send image error:', error);
+        if (req.file) {
+            try { fs.unlinkSync(req.file.path); } catch (e) { }
+        }
+        res.status(500).json({ error: 'فشل إرسال الملف' });
+    }
+});
+
+// ============================================
+// Media Download Proxy (for tenant images)
+// ============================================
+router.get('/media/:mediaId/download', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { mediaId } = req.params;
+
+        // Get tenant credentials
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant?.access_token) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const accessToken = tenant.access_token;
+
+        // Get media URL from Meta
+        const urlResponse = await fetch(`${META_API_BASE}/${mediaId}`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+
+        const urlData = await urlResponse.json();
+
+        if (!urlResponse.ok || !urlData.url) {
+            return res.status(urlResponse.status).json({ error: 'فشل جلب رابط الوسائط' });
+        }
+
+        // Download the actual media
+        const mediaResponse = await fetch(urlData.url, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+
+        if (!mediaResponse.ok) {
+            return res.status(mediaResponse.status).json({ error: 'فشل تحميل الوسائط' });
+        }
+
+        // Set content type and pipe the response
+        res.setHeader('Content-Type', urlData.mime_type || 'application/octet-stream');
+        const arrayBuffer = await mediaResponse.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+        console.error('[TenantPortal] Media download error:', error);
+        res.status(500).json({ error: 'فشل تحميل الوسائط' });
+    }
+});
+
+// ============================================
+// Send Interactive Message
+// ============================================
+router.post('/messages/send-interactive', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { recipient, interactive_type, body_text, header_text, footer_text, buttons, sections, list_button_text } = req.body;
+
+        if (!recipient || !interactive_type || !body_text) {
+            return res.status(400).json({ error: 'المستلم ونوع الرسالة والنص مطلوبون' });
+        }
+
+        if (!['button', 'list'].includes(interactive_type)) {
+            return res.status(400).json({ error: 'نوع الرسالة التفاعلية يجب أن يكون "button" أو "list"' });
+        }
+
+        // Get tenant credentials
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const phoneNumberId = tenant.phone_number_id;
+        const accessToken = tenant.access_token;
+
+        if (!phoneNumberId || !accessToken) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        if (tenant.status === 'Suspended') {
+            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
+        }
+
+        // Build interactive payload
+        const interactive = {
+            type: interactive_type,
+            body: { text: body_text }
+        };
+
+        if (header_text) {
+            interactive.header = { type: 'text', text: header_text };
+        }
+        if (footer_text) {
+            interactive.footer = { text: footer_text };
+        }
+
+        if (interactive_type === 'button') {
+            if (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3) {
+                return res.status(400).json({ error: 'يجب تقديم 1-3 أزرار' });
+            }
+            interactive.action = {
+                buttons: buttons.map((btn, i) => ({
+                    type: 'reply',
+                    reply: {
+                        id: btn.id || `btn_${i}`,
+                        title: btn.title
+                    }
+                }))
+            };
+        } else if (interactive_type === 'list') {
+            if (!sections || !Array.isArray(sections) || sections.length === 0) {
+                return res.status(400).json({ error: 'يجب تقديم قسم واحد على الأقل' });
+            }
+            interactive.action = {
+                button: list_button_text || 'عرض الخيارات',
+                sections: sections.map(section => ({
+                    title: section.title,
+                    rows: (section.rows || []).map(row => ({
+                        id: row.id,
+                        title: row.title,
+                        description: row.description || ''
+                    }))
+                }))
+            };
+        }
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: recipient,
+            type: 'interactive',
+            interactive
+        };
+
+        console.log('[TenantPortal] Sending interactive:', JSON.stringify(payload, null, 2));
+
+        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        // Save to database
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message)
+            VALUES (?, 'outgoing', ?, ?, 'interactive', ?, ?, ?, ?)
+        `).run(
+            tenantId,
+            phoneNumberId,
+            recipient,
+            JSON.stringify({ type: interactive_type, body: body_text, header: header_text, footer: footer_text, buttons: interactive_type === 'button' ? buttons : undefined, list_button: list_button_text }),
+            response.ok ? 'sent' : 'failed',
+            data.messages?.[0]?.id || null,
+            data.error?.message || null
+        );
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'interactive_sent', ?, ?)
+        `).run(tenantId, tenant.name, `إرسال رسالة تفاعلية (${interactive_type})`, response.ok ? 'success' : 'error');
+
+        if (response.ok) {
+            res.json({ success: true, message_id: data.messages?.[0]?.id, data });
+        } else {
+            res.status(response.status).json({ success: false, error: data.error?.message, data });
+        }
+    } catch (error) {
+        console.error('[TenantPortal] Send interactive error:', error);
+        res.status(500).json({ error: 'فشل إرسال الرسالة التفاعلية' });
     }
 });
 

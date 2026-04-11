@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
 import { Box, useTheme, useMediaQuery, Typography } from '@mui/material';
 import {
-    Phone as PhoneIcon,
     Check as CheckIcon,
     DoneAll as DoneAllIcon,
     AccessTime as AccessTimeIcon,
@@ -11,27 +10,24 @@ import {
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
 
-// api instance imported directly
-
 const WhatsAppChat = () => {
     // State
     const [conversations, setConversations] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
-    const [templates, setTemplates] = useState([]); // Template state
+    const [templates, setTemplates] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
+    const [loadingMessages, setLoadingMessages] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [sendingDoc, setSendingDoc] = useState(false);
+    const [sendingInteractive, setSendingInteractive] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-
-    // File State
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [filePreview, setFilePreview] = useState(null);
 
     // Refs
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const isFirstLoad = useRef(true);
-    const fileInputRef = useRef(null);
 
     // Helpers
     const getCredentials = () => ({
@@ -98,10 +94,13 @@ const WhatsAppChat = () => {
 
     const fetchMessages = async (contact, tenantId = null) => {
         try {
+            if (isFirstLoad.current) setLoadingMessages(true);
             const data = await api.getThreadMessages(contact, 50, tenantId);
             setMessages(data);
         } catch (error) {
             console.error('Failed to fetch messages:', error);
+        } finally {
+            setLoadingMessages(false);
         }
     };
 
@@ -155,60 +154,47 @@ const WhatsAppChat = () => {
         }
     }, [messages]);
 
+    const scrollToBottom = () => {
+        setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+        }, 50);
+    };
+
     // Handlers
     const handleSendMessage = async () => {
-        if ((!newMessage.trim() && !selectedFile) || !selectedChat) return;
+        if (!newMessage.trim() || !selectedChat || sending) return;
 
         const credentials = getCredentials();
         if (!selectedChat.tenant_id && (!credentials.token || !credentials.phoneId)) {
-            // Missing credentials error logging
             return;
         }
 
         try {
-            if (selectedFile) {
-                const formData = new FormData();
-                formData.append('file', selectedFile);
-                formData.append('recipient', selectedChat.contact);
-                formData.append('caption', newMessage);
-
-                if (selectedChat.tenant_id) {
-                    formData.append('tenant_id', selectedChat.tenant_id);
-                } else {
-                    formData.append('phone_number_id', credentials.phoneId);
-                    formData.append('access_token', credentials.token);
-                }
-
-                if (selectedFile.type.startsWith('image/')) formData.append('type', 'image');
-                else if (selectedFile.type.startsWith('video/')) formData.append('type', 'video');
-                else if (selectedFile.type.startsWith('audio/')) formData.append('type', 'audio');
-                else formData.append('type', 'document');
-
-                await api.sendMediaFile(formData);
-            } else {
-                const payload = {
-                    recipient: selectedChat.contact,
-                    type: 'text',
-                    message: newMessage,
-                    tenant_id: selectedChat.tenant_id || null,
-                    phone_number_id: selectedChat.tenant_id ? null : credentials.phoneId,
-                    access_token: selectedChat.tenant_id ? null : credentials.token,
-                };
-                await api.sendMessage(payload);
-            }
-
+            setSending(true);
+            const payload = {
+                recipient: selectedChat.contact,
+                type: 'text',
+                message: newMessage,
+                tenant_id: selectedChat.tenant_id || null,
+                phone_number_id: selectedChat.tenant_id ? null : credentials.phoneId,
+                access_token: selectedChat.tenant_id ? null : credentials.token,
+            };
+            await api.sendMessage(payload);
             setNewMessage('');
-            clearSelectedFile();
-            fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            scrollToBottom();
         } catch (error) {
             console.error('Failed to send:', error);
+        } finally {
+            setSending(false);
         }
     };
 
     const handleSendTemplate = async (templateData) => {
-        if (!selectedChat) return;
+        if (!selectedChat || sending) return;
 
         try {
+            setSending(true);
             await api.sendMessage({
                 recipient: selectedChat.contact,
                 type: 'template',
@@ -217,31 +203,97 @@ const WhatsAppChat = () => {
                 templateParams: templateData.components,
                 tenant_id: selectedChat.tenant_id
             });
-            fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            scrollToBottom();
         } catch (err) {
             console.error('Failed to send template:', err);
             alert('فشل إرسال القالب');
+        } finally {
+            setSending(false);
         }
     };
 
-    const handleFileSelect = (e) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setSelectedFile(file);
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onloadend = () => setFilePreview(reader.result);
-                reader.readAsDataURL(file);
+    const handleSendDocument = async (file, caption) => {
+        if (!file || !selectedChat) return;
+
+        const credentials = getCredentials();
+        try {
+            setSendingDoc(true);
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('recipient', selectedChat.contact);
+            formData.append('caption', caption || '');
+            formData.append('type', 'document');
+
+            if (selectedChat.tenant_id) {
+                formData.append('tenant_id', selectedChat.tenant_id);
             } else {
-                setFilePreview(null);
+                formData.append('phone_number_id', credentials.phoneId);
+                formData.append('access_token', credentials.token);
             }
+
+            await api.sendMediaFile(formData);
+            await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            scrollToBottom();
+        } catch (err) {
+            console.error('Failed to send document:', err);
+            alert('فشل إرسال الملف');
+        } finally {
+            setSendingDoc(false);
         }
     };
 
-    const clearSelectedFile = () => {
-        setSelectedFile(null);
-        setFilePreview(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+    const handleSendImage = async (file, caption) => {
+        if (!file || !selectedChat) return;
+
+        const credentials = getCredentials();
+        try {
+            setSendingDoc(true);
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('recipient', selectedChat.contact);
+            formData.append('caption', caption || '');
+            formData.append('type', 'image');
+
+            if (selectedChat.tenant_id) {
+                formData.append('tenant_id', selectedChat.tenant_id);
+            } else {
+                formData.append('phone_number_id', credentials.phoneId);
+                formData.append('access_token', credentials.token);
+            }
+
+            await api.sendMediaFile(formData);
+            await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            scrollToBottom();
+        } catch (err) {
+            console.error('Failed to send image:', err);
+            alert('فشل إرسال الصورة');
+        } finally {
+            setSendingDoc(false);
+        }
+    };
+
+    const handleSendInteractive = async (data) => {
+        if (!selectedChat) return;
+
+        const credentials = getCredentials();
+        try {
+            setSendingInteractive(true);
+            await api.sendInteractiveMessage({
+                recipient: selectedChat.contact,
+                tenant_id: selectedChat.tenant_id || null,
+                phone_number_id: selectedChat.tenant_id ? null : credentials.phoneId,
+                access_token: selectedChat.tenant_id ? null : credentials.token,
+                ...data
+            });
+            await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            scrollToBottom();
+        } catch (err) {
+            console.error('Failed to send interactive:', err);
+            alert('فشل إرسال الرسالة التفاعلية');
+        } finally {
+            setSendingInteractive(false);
+        }
     };
 
     // Filter Logic
@@ -258,7 +310,7 @@ const WhatsAppChat = () => {
 
     const handleSelectChat = (chat) => {
         setSelectedChat(chat);
-        setSearchTerm(''); // Optional: clear search on select
+        setSearchTerm('');
     };
 
     return (
@@ -290,27 +342,26 @@ const WhatsAppChat = () => {
                         <ChatWindow
                             selectedChat={selectedChat}
                             messages={messages}
-                            loadingMessages={false}
+                            loadingMessages={loadingMessages}
                             onSendMessage={handleSendMessage}
+                            onSendTemplate={handleSendTemplate}
+                            onSendDocument={handleSendDocument}
+                            onSendImage={handleSendImage}
+                            onSendInteractive={handleSendInteractive}
                             onBack={() => setSelectedChat(null)}
                             newMessage={newMessage}
                             setNewMessage={setNewMessage}
+                            sending={sending}
+                            sendingDoc={sendingDoc}
+                            sendingInteractive={sendingInteractive}
                             messagesEndRef={messagesEndRef}
                             messagesContainerRef={messagesContainerRef}
                             getDisplayName={getDisplayName}
                             formatTime={formatTime}
                             getStatusIcon={getStatusIcon}
                             getMediaDownloadUrl={(mediaId, tenantId) => api.getMediaDownloadUrl(mediaId, tenantId)}
-                            selectedFile={selectedFile}
-                            setSelectedFile={setSelectedFile}
-                            filePreview={filePreview}
-                            clearSelectedFile={clearSelectedFile}
-                            handleFileSelect={handleFileSelect}
                             getDateKey={getDateKey}
-                            fileInputRef={fileInputRef}
-                            // Templates
                             templates={templates}
-                            onSendTemplate={handleSendTemplate}
                         />
                     ) : (
                         // Empty State for Desktop
@@ -321,7 +372,7 @@ const WhatsAppChat = () => {
                             alignItems: 'center',
                             justifyContent: 'center',
                             color: 'text.secondary',
-                            bgcolor: '#f0f2f5', // WhatsApp web background
+                            bgcolor: '#f0f2f5',
                             borderBottom: '6px solid',
                             borderColor: 'success.main',
                             p: 3

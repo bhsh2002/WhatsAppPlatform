@@ -3,7 +3,6 @@ import {
     Box,
     List,
     ListItem,
-    ListItemButton,
     ListItemAvatar,
     ListItemText,
     Avatar,
@@ -11,10 +10,9 @@ import {
     TextField,
     InputAdornment,
     Badge,
-    IconButton,
-    Paper
+    CircularProgress
 } from '@mui/material';
-import { Search as SearchIcon, MoreVert as MoreVertIcon, Message as MessageIcon } from '@mui/icons-material';
+import { Search as SearchIcon } from '@mui/icons-material';
 
 const ChatSidebar = ({
     conversations,
@@ -31,80 +29,85 @@ const ChatSidebar = ({
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            borderRight: { md: '1px solid rgba(0,0,0,0.12)' },
+            borderRight: '1px solid rgba(0,0,0,0.1)',
             bgcolor: 'background.paper'
         }}>
-            {/* Header */}
-            <Box sx={{
-                p: 2,
-                bgcolor: 'background.default',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-            }}>
-                <Avatar sx={{ bgcolor: 'secondary.light' }}>
-                    <MessageIcon />
-                </Avatar>
-                <Box>
-                    <IconButton>
-                        <MoreVertIcon />
-                    </IconButton>
-                </Box>
-            </Box>
-
-            {/* Search */}
-            <Box sx={{ p: 1, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
+            {/* Search Header */}
+            <Box sx={{ p: 2, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+                <Typography variant="h6" fontWeight={700} gutterBottom>
+                    المحادثات
+                </Typography>
                 <TextField
                     fullWidth
                     size="small"
-                    placeholder="بحث في المحادثات..."
+                    placeholder="بحث..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     InputProps={{
                         startAdornment: (
                             <InputAdornment position="start">
-                                <SearchIcon fontSize="small" color="action" />
+                                <SearchIcon color="action" />
                             </InputAdornment>
                         ),
-                        sx: { borderRadius: 2, bgcolor: 'background.default' }
                     }}
                 />
             </Box>
 
-            {/* List */}
+            {/* Conversations */}
             <Box sx={{ flex: 1, overflowY: 'auto' }}>
-                <List sx={{ p: 0 }}>
-                    {loading ? (
-                        <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>jاري التحميل...</Box>
-                    ) : conversations.length === 0 ? (
-                        <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>لا توجد محادثات</Box>
-                    ) : (
-                        conversations.map((conv, idx) => (
-                            <ListItem key={idx} disablePadding disableGutters divider>
-                                <ListItemButton
+                {loading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                        <CircularProgress size={32} />
+                    </Box>
+                ) : conversations.length === 0 ? (
+                    <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
+                        <Typography>لا توجد محادثات</Typography>
+                    </Box>
+                ) : (
+                    <List disablePadding>
+                        {conversations.map((conv, idx) => {
+                            const isSelected = selectedChat?.contact === conv.contact &&
+                                (selectedChat?.tenant_id === conv.tenant_id || (!selectedChat?.tenant_id && !conv.tenant_id));
+
+                            return (
+                                <ListItem
+                                    key={conv.contact + '_' + (conv.tenant_id || idx)}
+                                    component="div"
                                     onClick={() => onSelectChat(conv)}
-                                    selected={selectedChat?.contact === conv.contact && selectedChat?.tenant_id === conv.tenant_id}
                                     sx={{
-                                        px: 2,
+                                        cursor: 'pointer',
+                                        borderBottom: '1px solid rgba(0,0,0,0.05)',
+                                        bgcolor: isSelected ? 'action.selected' : 'transparent',
+                                        '&:hover': { bgcolor: 'action.hover' },
                                         py: 1.5,
-                                        '&.Mui-selected': { bgcolor: 'action.selected' },
-                                        '&:hover': { bgcolor: 'action.hover' }
+                                        px: 2
                                     }}
                                 >
                                     <ListItemAvatar>
-                                        <Box sx={{ position: 'relative' }}>
-                                            <Avatar
-                                                src={conv.profile_picture_url}
-                                                sx={{ width: 50, height: 50 }}
-                                            >
-                                                {!conv.profile_picture_url && '👤'}
+                                        <Badge
+                                            badgeContent={conv.unread_count}
+                                            color="success"
+                                            overlap="circular"
+                                        >
+                                            <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
+                                                {conv.profile_picture_url ? (
+                                                    <img src={conv.profile_picture_url} alt="" style={{ width: '100%', height: '100%' }} />
+                                                ) : (
+                                                    (getDisplayName(conv) || '?')[0].toUpperCase()
+                                                )}
                                             </Avatar>
-                                        </Box>
+                                        </Badge>
                                     </ListItemAvatar>
                                     <ListItemText
                                         primary={
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                                <Typography variant="subtitle1" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                                                <Typography variant="subtitle1" sx={{
+                                                    fontWeight: conv.unread_count ? 700 : 400,
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                    fontSize: '0.95rem'
+                                                }}>
                                                     {getDisplayName(conv)}
                                                 </Typography>
                                                 <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', ml: 1 }}>
@@ -114,34 +117,29 @@ const ChatSidebar = ({
                                         }
                                         secondary={
                                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '70%' }}>
-                                                    {conv.last_message || 'صورة/ملف'}
+                                                <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '75%' }}>
+                                                    {conv.last_message?.substring(0, 40) || 'صورة/ملف'}
                                                 </Typography>
-                                                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                                                    {conv.tenant_name && (
-                                                        <Box component="span" sx={{
-                                                            bgcolor: 'primary.light',
-                                                            color: 'primary.contrastText',
-                                                            px: 0.5,
-                                                            borderRadius: 0.5,
-                                                            fontSize: '0.65rem',
-                                                            opacity: 0.8
-                                                        }}>
-                                                            {conv.tenant_name}
-                                                        </Box>
-                                                    )}
-                                                    {conv.unread_count > 0 && (
-                                                        <Badge badgeContent={conv.unread_count} color="success" />
-                                                    )}
-                                                </Box>
+                                                {conv.tenant_name && (
+                                                    <Box component="span" sx={{
+                                                        bgcolor: 'primary.light',
+                                                        color: 'primary.contrastText',
+                                                        px: 0.5,
+                                                        borderRadius: 0.5,
+                                                        fontSize: '0.65rem',
+                                                        opacity: 0.8
+                                                    }}>
+                                                        {conv.tenant_name}
+                                                    </Box>
+                                                )}
                                             </Box>
                                         }
                                     />
-                                </ListItemButton>
-                            </ListItem>
-                        ))
-                    )}
-                </List>
+                                </ListItem>
+                            );
+                        })}
+                    </List>
+                )}
             </Box>
         </Box>
     );

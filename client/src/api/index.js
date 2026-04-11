@@ -295,6 +295,46 @@ class ApiService {
         });
     }
 
+    async sendPortalImage(formData) {
+        const headers = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        const response = await fetch(`${this.baseUrl}/api/portal/messages/send-image`, {
+            method: 'POST',
+            headers,
+            body: formData
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to send image');
+        }
+        return data;
+    }
+
+    getPortalMediaDownloadUrl(mediaId) {
+        const params = new URLSearchParams();
+        if (this.authToken) params.append('token', this.authToken);
+        const queryString = params.toString() ? `?${params.toString()}` : '';
+        return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
+    }
+
+    async sendPortalInteractiveMessage(data) {
+        return this.request('/api/portal/messages/send-interactive', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async sendInteractiveMessage(data) {
+        return this.request('/api/messages/send-interactive', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     async importPortalTemplate(templateData) {
         return this.request('/api/portal/templates/import', {
             method: 'POST',

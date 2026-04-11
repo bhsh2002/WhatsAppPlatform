@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import {
     Box,
     AppBar,
@@ -8,85 +8,202 @@ import {
     Avatar,
     TextField,
     Paper,
-    InputAdornment
+    CircularProgress,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
     MoreVert as MoreVertIcon,
     Search as SearchIcon,
-    AttachFile as AttachFileIcon,
     Send as SendIcon,
-    Mic as MicIcon,
     InsertEmoticon as EmojiIcon,
-    Close as CloseIcon
+    Description as TemplateIcon,
+    AttachFile as AttachFileIcon,
+    Image as ImageIcon,
+    Close as CloseIcon,
+    PictureAsPdf as PdfIcon,
+    InsertDriveFile as FileIcon,
+    SmartButton as InteractiveIcon
 } from '@mui/icons-material';
 import TemplatePicker from './TemplatePicker';
-import { Description as TemplateIcon } from '@mui/icons-material';
 import MessageBubble from './MessageBubble';
+import InteractiveMessageDialog from './InteractiveMessageDialog';
 
 const ChatWindow = ({
     selectedChat,
     messages,
     loadingMessages,
-    onBack, // Mobile back
-    onSendMessage, // (text, file) => void
+    onBack,
+    onSendMessage,
+    onSendTemplate,
+    onSendDocument,
+    onSendImage,
+    onSendInteractive,
     newMessage,
     setNewMessage,
-    // Refs for scrolling
+    sending = false,
+    sendingDoc = false,
+    sendingInteractive = false,
     messagesEndRef,
     messagesContainerRef,
-    // Helpers
     getDisplayName,
     formatTime,
     getStatusIcon,
     getMediaDownloadUrl,
-    // File handling
-    selectedFile,
-    filePreview,
-    clearSelectedFile,
-    handleFileSelect,
     getDateKey,
-    fileInputRef,
-    // Templates
     templates = [],
-    onSendTemplate
 }) => {
-    const [showTemplatePicker, setShowTemplatePicker] = React.useState(false);
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [showInteractiveDialog, setShowInteractiveDialog] = useState(false);
 
-    // Handle form submit
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        onSendMessage();
+    // Document/Image state
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [fileCaption, setFileCaption] = useState('');
+    const [showFileDialog, setShowFileDialog] = useState(false);
+    const [filePreviewUrl, setFilePreviewUrl] = useState(null);
+    const fileInputRef = useRef(null);
+    const imageInputRef = useRef(null);
+
+    // File handlers
+    const handleDocumentSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const allowedTypes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain'
+        ];
+
+        if (!allowedTypes.includes(file.type)) {
+            alert('نوع الملف غير مدعوم. يُسمح فقط: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT');
+            e.target.value = '';
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            alert('حجم الملف كبير جداً. الحد الأقصى 10 ميجابايت');
+            e.target.value = '';
+            return;
+        }
+
+        setSelectedFile(file);
+        setFileCaption('');
+        setFilePreviewUrl(null);
+        setShowFileDialog(true);
+        e.target.value = '';
+    };
+
+    const handleImageSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('نوع الصورة غير مدعوم. يُسمح فقط: JPG, PNG, WEBP');
+            e.target.value = '';
+            return;
+        }
+
+        if (file.size > 16 * 1024 * 1024) {
+            alert('حجم الصورة كبير جداً. الحد الأقصى 16 ميجابايت');
+            e.target.value = '';
+            return;
+        }
+
+        // Create preview
+        const reader = new FileReader();
+        reader.onloadend = () => setFilePreviewUrl(reader.result);
+        reader.readAsDataURL(file);
+
+        setSelectedFile(file);
+        setFileCaption('');
+        setShowFileDialog(true);
+        e.target.value = '';
+    };
+
+    const handleSendFile = async () => {
+        if (!selectedFile || sendingDoc) return;
+
+        const isImage = selectedFile.type.startsWith('image/');
+
+        if (isImage && onSendImage) {
+            await onSendImage(selectedFile, fileCaption.trim());
+        } else if (onSendDocument) {
+            await onSendDocument(selectedFile, fileCaption.trim());
+        }
+
+        setShowFileDialog(false);
+        setSelectedFile(null);
+        setFileCaption('');
+        setFilePreviewUrl(null);
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            onSendMessage();
+        }
+    };
+
+    const handleSendInteractive = async (data) => {
+        if (onSendInteractive) {
+            await onSendInteractive(data);
+            setShowInteractiveDialog(false);
+        }
+    };
+
+    const getFileIcon = (type) => {
+        if (type === 'application/pdf') return <PdfIcon sx={{ fontSize: 40, color: 'error.main' }} />;
+        return <FileIcon sx={{ fontSize: 40, color: 'primary.main' }} />;
+    };
+
+    const formatFileSize = (bytes) => {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     };
 
     return (
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#efeae2' }}>
-            {/* Header */}
-            <AppBar position="static" color="default" elevation={1} sx={{ bgcolor: 'background.paper', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
+            {/* Chat Header */}
+            <AppBar position="static" color="default" elevation={1} sx={{ bgcolor: 'background.paper' }}>
                 <Toolbar sx={{ px: 1 }}>
-                    <IconButton onClick={onBack} sx={{ mr: 1, display: { md: 'none' } }}>
+                    <IconButton
+                        onClick={onBack}
+                        sx={{ mr: 1, display: { md: 'none' } }}
+                    >
                         <ArrowBackIcon />
                     </IconButton>
 
-                    <Avatar sx={{ width: 40, height: 40, mr: 1.5, cursor: 'pointer' }}>
+                    <Avatar sx={{ width: 40, height: 40, mr: 1.5, bgcolor: 'primary.main' }}>
                         {selectedChat.profile_picture_url ? (
                             <img src={selectedChat.profile_picture_url} alt="" style={{ width: '100%', height: '100%' }} />
-                        ) : '👤'}
+                        ) : (
+                            getDisplayName(selectedChat)[0].toUpperCase()
+                        )}
                     </Avatar>
 
-                    <Box sx={{ flex: 1, cursor: 'pointer' }}>
+                    <Box sx={{ flex: 1 }}>
                         <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
                             {getDisplayName(selectedChat)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                            {selectedChat.profile_name ? selectedChat.contact : 'مشاهدة جهة الاتصال'}
+                            {selectedChat.contact}
                         </Typography>
                     </Box>
 
-                    <Box sx={{ color: 'text.secondary' }}>
-                        <IconButton><SearchIcon /></IconButton>
-                        <IconButton><MoreVertIcon /></IconButton>
-                    </Box>
+                    <IconButton><SearchIcon /></IconButton>
+                    <IconButton><MoreVertIcon /></IconButton>
                 </Toolbar>
             </AppBar>
 
@@ -113,7 +230,7 @@ const ChatWindow = ({
                 ) : (
                     messages.map((msg, idx) => {
                         const prevMsg = messages[idx - 1];
-                        const showDateSeparator = !prevMsg || getDateKey(msg.created_at) !== getDateKey(prevMsg.created_at);
+                        const showDateSeparator = !prevMsg || getDateKey(msg.created_at) !== getDateKey(prevMsg?.created_at);
 
                         return (
                             <React.Fragment key={msg.id || idx}>
@@ -138,77 +255,159 @@ const ChatWindow = ({
                 <div ref={messagesEndRef} />
             </Box>
 
-            {/* File Preview */}
-            {selectedFile && (
-                <Paper sx={{ p: 1, borderTop: '1px solid rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 2 }}>
-                    {filePreview ? (
-                        <Box component="img" src={filePreview} sx={{ height: 60, borderRadius: 1 }} />
-                    ) : (
-                        <Box sx={{ width: 60, height: 60, bgcolor: 'background.default', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <AttachFileIcon />
-                        </Box>
-                    )}
-                    <Box sx={{ flex: 1 }}>
-                        <Typography variant="body2" fontWeight={600}>{selectedFile.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">{(selectedFile.size / 1024).toFixed(1)} KB</Typography>
-                    </Box>
-                    <IconButton onClick={clearSelectedFile}><CloseIcon /></IconButton>
-                </Paper>
-            )}
-
             {/* Input Area */}
             <Paper elevation={0} sx={{
-                p: 1,
-                bgcolor: 'background.default',
-                borderTop: '1px solid rgba(0,0,0,0.1)',
+                p: 1.5,
+                mx: 1,
+                mb: 1,
+                bgcolor: 'background.paper',
+                borderRadius: 3,
                 display: 'flex',
-                alignItems: 'center',
-                gap: 1
+                alignItems: 'flex-end',
+                gap: 1,
+                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
             }}>
-                <IconButton><EmojiIcon /></IconButton>
-                <IconButton onClick={() => setShowTemplatePicker(true)}>
-                    <TemplateIcon />
-                </IconButton>
-                <IconButton onClick={() => fileInputRef.current?.click()}>
-                    <AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />
-                </IconButton>
-                <input
-                    type="file"
-                    ref={fileInputRef}
-                    style={{ display: 'none' }}
-                    onChange={handleFileSelect}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <IconButton size="small"><EmojiIcon /></IconButton>
+                    <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title="قوالب الرسائل">
+                        <TemplateIcon />
+                    </IconButton>
+                    <IconButton size="small" onClick={() => fileInputRef.current?.click()} title="إرسال ملف">
+                        <AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />
+                    </IconButton>
+                    {onSendImage && (
+                        <IconButton size="small" onClick={() => imageInputRef.current?.click()} title="إرسال صورة">
+                            <ImageIcon />
+                        </IconButton>
+                    )}
+                    {onSendInteractive && (
+                        <IconButton size="small" onClick={() => setShowInteractiveDialog(true)} title="رسالة تفاعلية">
+                            <InteractiveIcon />
+                        </IconButton>
+                    )}
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        style={{ display: 'none' }}
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                        onChange={handleDocumentSelect}
+                    />
+                    <input
+                        type="file"
+                        ref={imageInputRef}
+                        style={{ display: 'none' }}
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageSelect}
+                    />
+                </Box>
+
+                <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="اكتب رسالة..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    multiline
+                    maxRows={4}
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            borderRadius: 4,
+                            bgcolor: 'grey.50'
+                        }
+                    }}
                 />
 
-                <Box component="form" onSubmit={handleSubmit} sx={{ flex: 1, display: 'flex', gap: 1 }}>
-                    <TextField
-                        fullWidth
-                        size="small"
-                        placeholder="اكتب رسالة..."
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        multiline
-                        maxRows={4}
-                        sx={{
-                            bgcolor: 'background.paper',
-                            '& .MuiOutlinedInput-root': { borderRadius: 2 }
-                        }}
-                    />
-
-                    {newMessage.trim() || selectedFile ? (
-                        <IconButton type="submit" color="primary" sx={{ circle: { r: 20 }, bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}>
-                            <SendIcon />
-                        </IconButton>
-                    ) : (
-                        <IconButton><MicIcon /></IconButton>
-                    )}
-                </Box>
+                <IconButton
+                    onClick={onSendMessage}
+                    disabled={sending || !newMessage.trim()}
+                    sx={{
+                        bgcolor: 'primary.main',
+                        color: 'white',
+                        '&:hover': { bgcolor: 'primary.dark' },
+                        '&:disabled': { bgcolor: 'action.disabled', color: 'white' }
+                    }}
+                >
+                    {sending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+                </IconButton>
             </Paper>
 
+            {/* File/Image Preview Dialog */}
+            <Dialog open={showFileDialog} onClose={() => !sendingDoc && setShowFileDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {selectedFile?.type?.startsWith('image/') ? 'إرسال صورة' : 'إرسال مستند'}
+                    <IconButton onClick={() => setShowFileDialog(false)} disabled={sendingDoc}>
+                        <CloseIcon />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent>
+                    {selectedFile && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {/* Preview */}
+                            {filePreviewUrl ? (
+                                <Box sx={{ textAlign: 'center' }}>
+                                    <Box
+                                        component="img"
+                                        src={filePreviewUrl}
+                                        sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 2, objectFit: 'contain' }}
+                                    />
+                                </Box>
+                            ) : (
+                                <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    {getFileIcon(selectedFile.type)}
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography variant="subtitle2" noWrap>
+                                            {selectedFile.name}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {formatFileSize(selectedFile.size)}
+                                        </Typography>
+                                    </Box>
+                                </Paper>
+                            )}
+
+                            {/* Caption */}
+                            <TextField
+                                label="وصف (اختياري)"
+                                placeholder="أضف وصفاً..."
+                                value={fileCaption}
+                                onChange={(e) => setFileCaption(e.target.value)}
+                                multiline
+                                rows={2}
+                                fullWidth
+                            />
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowFileDialog(false)} disabled={sendingDoc}>
+                        إلغاء
+                    </Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleSendFile}
+                        disabled={sendingDoc || !selectedFile}
+                        startIcon={sendingDoc ? <CircularProgress size={16} /> : <SendIcon />}
+                    >
+                        {sendingDoc ? 'جاري الإرسال...' : 'إرسال'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Template Picker */}
             <TemplatePicker
                 open={showTemplatePicker}
                 onClose={() => setShowTemplatePicker(false)}
                 onSelect={onSendTemplate}
                 templates={templates}
+            />
+
+            {/* Interactive Message Dialog */}
+            <InteractiveMessageDialog
+                open={showInteractiveDialog}
+                onClose={() => setShowInteractiveDialog(false)}
+                onSend={handleSendInteractive}
+                sending={sendingInteractive}
             />
         </Box>
     );
