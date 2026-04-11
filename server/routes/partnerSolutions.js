@@ -26,7 +26,7 @@ router.get('/clients', async (req, res) => {
         }
 
         const response = await fetch(
-            `${META_API_BASE}/${businessId}/owned_businesses?fields=name,id,created_time&limit=50`,
+            `${META_API_BASE}/${businessId}/owned_businesses?fields=name,id&limit=50`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
@@ -35,9 +35,17 @@ router.get('/clients', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
-            // If owned_businesses doesn't work, it might not be a partner account
+            // Permission error — return empty list with explanation
+            if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
+                return res.json({
+                    clients: [],
+                    paging: null,
+                    permission_error: 'هذه الميزة تحتاج صلاحية business_management. تأكد من صلاحيات Access Token.',
+                    hint: 'هذه الميزة متاحة فقط لحسابات الشركاء (Partner accounts)'
+                });
+            }
             return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب العملاء المُدارين. تأكد من صلاحيات الحساب.',
+                error: data.error?.message || 'فشل جلب العملاء المُدارين.',
                 details: data.error,
                 hint: 'هذه الميزة متاحة فقط لحسابات الشركاء (Partner accounts)'
             });
