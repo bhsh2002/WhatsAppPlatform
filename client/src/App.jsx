@@ -33,6 +33,8 @@ import TenantConversions from './pages/TenantPortal/TenantConversions';
 import BusinessManager from './pages/Settings/BusinessManager';
 import FacebookPages from './pages/Settings/FacebookPages';
 import PartnerSolutions from './pages/Settings/PartnerSolutions';
+import PhoneNumbers from './pages/Settings/PhoneNumbers';
+import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -171,6 +173,22 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><PartnerSolutions /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/phone-numbers"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><PhoneNumbers /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/webhook-subscriptions"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><WebhookSubscriptions /></MainLayout>
           </ProtectedRoute>
         }
       />

@@ -31,7 +31,9 @@ import {
     Business as BusinessIcon,
     Facebook as FacebookIcon,
     Handshake as HandshakeIcon,
-    TrendingUp as TrendingUpIcon
+    TrendingUp as TrendingUpIcon,
+    PhoneCallback as PhoneCallbackIcon,
+    Webhook as WebhookSubIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -55,6 +57,8 @@ const Sidebar = () => {
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
         { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
         { label: 'صفحات فيسبوك', path: '/facebook-pages', icon: <FacebookIcon /> },
+        { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
+        { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
         { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
         { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
     ];
