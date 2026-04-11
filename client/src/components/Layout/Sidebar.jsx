@@ -24,7 +24,14 @@ import {
     Person as PersonIcon,
     Description as TemplateIcon,
     Api as ApiIcon,
-    PrivacyTip as PrivacyTipIcon
+    PrivacyTip as PrivacyTipIcon,
+    Store as StoreIcon,
+    Analytics as AnalyticsIcon,
+    QrCode as QrCodeIcon,
+    Business as BusinessIcon,
+    Facebook as FacebookIcon,
+    Handshake as HandshakeIcon,
+    TrendingUp as TrendingUpIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -46,6 +53,9 @@ const Sidebar = () => {
         { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
         { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
+        { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
+        { label: 'صفحات فيسبوك', path: '/facebook-pages', icon: <FacebookIcon /> },
+        { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
         { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
     ];
 
@@ -54,6 +64,10 @@ const Sidebar = () => {
         { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
         { label: 'المحادثات', path: '/portal/chat', icon: <ChatIcon /> },
         { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
+        { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <StoreIcon /> },
+        { label: 'التحليلات', path: '/portal/analytics', icon: <AnalyticsIcon /> },
+        { label: 'رموز QR', path: '/portal/qr-codes', icon: <QrCodeIcon /> },
+        { label: 'أحداث التحويل', path: '/portal/conversions', icon: <TrendingUpIcon /> },
         { label: 'إعدادات API', path: '/portal/api-settings', icon: <ApiIcon /> },
     ];
 

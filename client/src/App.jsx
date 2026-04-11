@@ -24,6 +24,15 @@ import TenantDashboard from './pages/TenantPortal/TenantDashboard';
 import TenantChat from './pages/TenantPortal/TenantChat';
 import TenantTemplates from './pages/TenantPortal/TenantTemplates';
 import TenantApiSettings from './pages/TenantPortal/TenantApiSettings';
+import TenantBusinessProfile from './pages/TenantPortal/TenantBusinessProfile';
+import TenantAnalytics from './pages/TenantPortal/TenantAnalytics';
+import TenantQRCodes from './pages/TenantPortal/TenantQRCodes';
+import TenantConversions from './pages/TenantPortal/TenantConversions';
+
+// Admin Feature Pages
+import BusinessManager from './pages/Settings/BusinessManager';
+import FacebookPages from './pages/Settings/FacebookPages';
+import PartnerSolutions from './pages/Settings/PartnerSolutions';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -141,6 +150,30 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/business-manager"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><BusinessManager /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/facebook-pages"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><FacebookPages /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/partner-solutions"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><PartnerSolutions /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
 
       {/* ============================================ */}
       {/* Tenant Portal Routes */}
@@ -174,6 +207,38 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantApiSettings /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/business-profile"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantBusinessProfile /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/analytics"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantAnalytics /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/qr-codes"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantQRCodes /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/conversions"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantConversions /></MainLayout>
           </ProtectedRoute>
         }
       />

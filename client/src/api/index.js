@@ -363,6 +363,193 @@ class ApiService {
             body: JSON.stringify(templateData),
         });
     }
+
+    // ============================================
+    // Business Profile APIs
+    // ============================================
+    async getBusinessProfile(phoneNumberId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/business-profile/${phoneNumberId}${query}`);
+    }
+
+    async updateBusinessProfile(phoneNumberId, data) {
+        return this.request(`/api/business-profile/${phoneNumberId}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getMyBusinessProfile() {
+        return this.request('/api/business-profile/me/profile');
+    }
+
+    async updateMyBusinessProfile(data) {
+        return this.request('/api/business-profile/me/profile', {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Phone Numbers APIs
+    // ============================================
+    async getPhoneNumbers(wabaId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/phone-numbers/${wabaId}${query}`);
+    }
+
+    async getPhoneNumberInfo(phoneNumberId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/phone-numbers/info/${phoneNumberId}${query}`);
+    }
+
+    async registerPhoneNumber(phoneNumberId, data) {
+        return this.request(`/api/phone-numbers/register/${phoneNumberId}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // QR Codes APIs
+    // ============================================
+    async getQRCodes(phoneNumberId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/qr-codes/${phoneNumberId}${query}`);
+    }
+
+    async createQRCode(phoneNumberId, data) {
+        return this.request(`/api/qr-codes/${phoneNumberId}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deleteQRCode(phoneNumberId, qrCodeId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/qr-codes/${phoneNumberId}/${qrCodeId}${query}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // ============================================
+    // Analytics APIs
+    // ============================================
+    async getConversationAnalytics(wabaId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/analytics/conversations/${wabaId}${query ? '?' + query : ''}`);
+    }
+
+    async getMessageAnalytics(wabaId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/analytics/messages/${wabaId}${query ? '?' + query : ''}`);
+    }
+
+    async getLocalAnalytics(tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/analytics/local/summary${query}`);
+    }
+
+    // ============================================
+    // Business Manager APIs
+    // ============================================
+    async getBusinessManagerInfo(businessId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/business-manager/${businessId}${query}`);
+    }
+
+    async getAdAccounts(businessId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/business-manager/${businessId}/ad-accounts${query}`);
+    }
+
+    async getBusinessAssets(businessId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/business-manager/${businessId}/assets${query}`);
+    }
+
+    // ============================================
+    // Facebook Pages APIs
+    // ============================================
+    async getMyPages(tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/pages/me${query}`);
+    }
+
+    async getPageInfo(pageId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/pages/${pageId}/info${query}`);
+    }
+
+    // ============================================
+    // Partner Solutions APIs
+    // ============================================
+    async getPartnerClients(businessId, tenantId = null) {
+        const query = new URLSearchParams({ business_id: businessId });
+        if (tenantId) query.append('tenant_id', tenantId);
+        return this.request(`/api/partner/clients?${query.toString()}`);
+    }
+
+    async addPartnerClient(data) {
+        return this.request('/api/partner/clients', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Conversions APIs
+    // ============================================
+    async getDatasets(wabaId, tenantId = null) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/conversions/datasets/${wabaId}${query}`);
+    }
+
+    async sendConversionEvents(datasetId, data) {
+        return this.request(`/api/conversions/events/${datasetId}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getConversionHistory(tenantId = null, params = {}) {
+        const query = new URLSearchParams(params);
+        if (tenantId) query.append('tenant_id', tenantId);
+        return this.request(`/api/conversions/events/history?${query.toString()}`);
+    }
+
+    async logConversionEvent(data) {
+        return this.request('/api/conversions/log-event', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Meta Template Management (Admin)
+    // ============================================
+    async createMetaTemplate(tenantId, data) {
+        return this.request(`/api/tenants/${tenantId}/templates/create-meta`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deleteMetaTemplate(tenantId, name) {
+        return this.request(`/api/tenants/${tenantId}/templates/delete-meta?name=${encodeURIComponent(name)}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async subscribeWebhook(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/subscribe-webhook`, {
+            method: 'POST',
+        });
+    }
+
+    async getWebhookSubscriptions(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/webhook-subscriptions`);
+    }
 }
 
 const api = new ApiService();

@@ -11,6 +11,14 @@ import webhooksRouter from './routes/webhooks.js';
 import authRouter from './routes/auth.js';
 import tenantPortalRouter from './routes/tenantPortal.js';
 import apiV1Router from './routes/api/v1.js';
+import businessProfileRouter from './routes/businessProfile.js';
+import phoneNumbersRouter from './routes/phoneNumbers.js';
+import qrCodesRouter from './routes/qrCodes.js';
+import analyticsRouter from './routes/analytics.js';
+import businessManagerRouter from './routes/businessManager.js';
+import pagesRouter from './routes/pages.js';
+import partnerSolutionsRouter from './routes/partnerSolutions.js';
+import conversionsRouter from './routes/conversions.js';
 
 // Import middleware
 import { authMiddleware } from './middleware/auth.js';
@@ -69,6 +77,14 @@ app.use('/auth', authRouter);
 app.use('/tenants', authMiddleware, tenantsRouter);
 app.use('/stats', authMiddleware, statsRouter);
 app.use('/messages', authMiddleware, messagesRouter);
+app.use('/business-profile', authMiddleware, businessProfileRouter);
+app.use('/phone-numbers', authMiddleware, phoneNumbersRouter);
+app.use('/qr-codes', authMiddleware, qrCodesRouter);
+app.use('/analytics', authMiddleware, analyticsRouter);
+app.use('/business-manager', authMiddleware, businessManagerRouter);
+app.use('/pages', authMiddleware, pagesRouter);
+app.use('/partner', authMiddleware, partnerSolutionsRouter);
+app.use('/conversions', authMiddleware, conversionsRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);
