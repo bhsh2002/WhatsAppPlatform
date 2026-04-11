@@ -28,7 +28,7 @@ try {
     }
   }
 
-  // Check if tenants table exists and add waba_id column
+  // Check if tenants table exists and add missing columns
   const tenantsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'").get();
 
   if (tenantsTableExists) {
@@ -38,6 +38,14 @@ try {
     if (!tenantColumnNames.includes('waba_id')) {
       db.exec('ALTER TABLE tenants ADD COLUMN waba_id TEXT');
       console.log('[DB] Added waba_id column to tenants table');
+    }
+    if (!tenantColumnNames.includes('business_id')) {
+      db.exec('ALTER TABLE tenants ADD COLUMN business_id TEXT');
+      console.log('[DB] Added business_id column to tenants table');
+    }
+    if (!tenantColumnNames.includes('dataset_id')) {
+      db.exec('ALTER TABLE tenants ADD COLUMN dataset_id TEXT');
+      console.log('[DB] Added dataset_id column to tenants table');
     }
   }
 
@@ -192,6 +200,26 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
   CREATE INDEX IF NOT EXISTS idx_templates_tenant ON templates(tenant_id);
   CREATE INDEX IF NOT EXISTS idx_tenant_api_settings_key ON tenant_api_settings(api_key);
+
+  -- Conversion events table for Conversions API tracking
+  CREATE TABLE IF NOT EXISTS conversion_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER,
+    dataset_id TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    event_time DATETIME NOT NULL,
+    phone TEXT,
+    wamid TEXT,
+    custom_data TEXT,
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'sent', 'failed', 'local_only')),
+    meta_response TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_conversion_events_tenant ON conversion_events(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_conversion_events_name ON conversion_events(event_name);
+  CREATE INDEX IF NOT EXISTS idx_conversion_events_created ON conversion_events(created_at);
 `);
 
 // Helper function to generate API key
