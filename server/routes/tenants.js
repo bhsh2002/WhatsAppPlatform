@@ -584,6 +584,191 @@ router.post('/:id/templates/import', (req, res) => {
     }
 });
 
+// ============================================
+// Create template on Meta API directly
+// ============================================
+router.post('/:id/templates/create-meta', async (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+        if (!tenant.access_token || !tenant.waba_id) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة (يجب توفر Access Token و WABA ID)' });
+        }
+
+        const { name, language, category, components } = req.body;
+        if (!name || !category || !components) {
+            return res.status(400).json({ error: 'name, category, and components are required' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.waba_id}/message_templates`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name,
+                    language: language || 'ar',
+                    category: category || 'UTILITY',
+                    components
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل إنشاء القالب في Meta',
+                details: data.error
+            });
+        }
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'template_created_meta', ?, 'success')
+        `).run(tenantId, tenant.name, `إنشاء قالب في Meta: ${name}`);
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Error creating Meta template:', error);
+        res.status(500).json({ error: 'فشل إنشاء القالب في Meta' });
+    }
+});
+
+// ============================================
+// Delete template from Meta API
+// ============================================
+router.delete('/:id/templates/delete-meta', async (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const { name } = req.query;
+
+        if (!name) return res.status(400).json({ error: 'اسم القالب مطلوب' });
+
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+        if (!tenant.access_token || !tenant.waba_id) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.waba_id}/message_templates?name=${encodeURIComponent(name)}`,
+            {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل حذف القالب من Meta',
+                details: data.error
+            });
+        }
+
+        // Also delete from local DB
+        db.prepare('DELETE FROM templates WHERE tenant_id = ? AND name = ?').run(tenantId, name);
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'template_deleted_meta', ?, 'success')
+        `).run(tenantId, tenant.name, `حذف قالب من Meta: ${name}`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting Meta template:', error);
+        res.status(500).json({ error: 'فشل حذف القالب من Meta' });
+    }
+});
+
+// ============================================
+// Subscribe app to WABA webhooks
+// ============================================
+router.post('/:id/subscribe-webhook', async (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+        if (!tenant.access_token || !tenant.waba_id) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.waba_id}/subscribed_apps`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل اشتراك Webhook',
+                details: data.error
+            });
+        }
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'webhook_subscribed', 'تم اشتراك التطبيق في webhooks', 'success')
+        `).run(tenantId, tenant.name);
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Error subscribing webhook:', error);
+        res.status(500).json({ error: 'فشل اشتراك Webhook' });
+    }
+});
+
+// ============================================
+// Get webhook subscriptions
+// ============================================
+router.get('/:id/webhook-subscriptions', async (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+        if (!tenant.access_token || !tenant.waba_id) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.waba_id}/subscribed_apps`,
+            {
+                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل جلب اشتراكات Webhook',
+                details: data.error
+            });
+        }
+
+        res.json({
+            subscriptions: data.data || [],
+        });
+    } catch (error) {
+        console.error('Error getting webhook subscriptions:', error);
+        res.status(500).json({ error: 'فشل جلب اشتراكات Webhook' });
+    }
+});
+
 export default router;
 
 
