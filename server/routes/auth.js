@@ -112,7 +112,7 @@ router.post('/login', async (req, res) => {
         // Include tenant info if user has a tenant_id (they are a tenant user)
         let tenant = null;
         if (user.tenant_id) {
-            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality FROM tenants WHERE id = ?')
+            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality, phone_number_id, waba_id, business_id, dataset_id FROM tenants WHERE id = ?')
                 .get(user.tenant_id);
         }
 
@@ -151,7 +151,7 @@ router.get('/me', (req, res) => {
         // If user has tenant_id, include tenant info
         let tenant = null;
         if (user.tenant_id) {
-            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality FROM tenants WHERE id = ?')
+            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality, phone_number_id, waba_id, business_id, dataset_id FROM tenants WHERE id = ?')
                 .get(user.tenant_id);
         }
 
