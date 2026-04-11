@@ -25,7 +25,7 @@ router.get('/:businessId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const fields = 'name,id,verification_status,created_time,primary_page,profile_picture_uri,timezone_id,two_factor_type';
+        const fields = 'name,id,created_time,primary_page,profile_picture_uri,timezone_id';
         const response = await fetch(
             `${META_API_BASE}/${businessId}?fields=${fields}`,
             {
@@ -67,9 +67,9 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const fields = 'name,account_id,account_status,currency,timezone_name,amount_spent,balance';
+        const fields = 'name,account_id,account_status,currency,timezone_name,balance';
         const response = await fetch(
-            `${META_API_BASE}/${businessId}/owned_ad_accounts?fields=${fields}`,
+            `${META_API_BASE}/${businessId}/owned_ad_accounts?fields=${fields}&limit=50`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
@@ -164,17 +164,17 @@ router.get('/:businessId/assets', async (req, res) => {
 
         // Fetch multiple asset types in parallel
         const [pagesRes, wabaRes] = await Promise.all([
-            fetch(`${META_API_BASE}/${businessId}/owned_pages?fields=name,id,category`, {
+            fetch(`${META_API_BASE}/${businessId}/owned_pages?fields=name,id,category&limit=50`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
-            }),
-            fetch(`${META_API_BASE}/${businessId}/owned_whatsapp_business_accounts?fields=name,id,currency,timezone_id`, {
+            }).catch(() => null),
+            fetch(`${META_API_BASE}/${businessId}/owned_whatsapp_business_accounts?fields=name,id,currency,timezone_id&limit=50`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
-            })
+            }).catch(() => null)
         ]);
 
         const [pagesData, wabaData] = await Promise.all([
-            pagesRes.json(),
-            wabaRes.json()
+            pagesRes?.ok ? pagesRes.json() : { data: [] },
+            wabaRes?.ok ? wabaRes.json() : { data: [] }
         ]);
 
         res.json({
