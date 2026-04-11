@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { getAccessToken } from '../utils/credentials.js';
 
 const router = express.Router();
 
@@ -10,11 +11,11 @@ const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 // Helper: Get credentials
 // ============================================
 const getCredentials = (tenantId) => {
-    if (!tenantId) return { accessToken: process.env.DEFAULT_ACCESS_TOKEN };
+    if (!tenantId) return { accessToken: getAccessToken() };
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     return {
         tenant,
-        accessToken: tenant?.access_token || process.env.DEFAULT_ACCESS_TOKEN,
+        accessToken: tenant?.access_token || getAccessToken(),
         wabaId: tenant?.waba_id
     };
 };

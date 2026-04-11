@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { getAccessToken } from '../utils/credentials.js';
 
 const router = express.Router();
 
@@ -24,7 +25,7 @@ const getCredentials = (req) => {
 
     // Fallback to defaults
     phoneNumberId = phoneNumberId || process.env.DEFAULT_PHONE_NUMBER_ID;
-    accessToken = accessToken || process.env.DEFAULT_ACCESS_TOKEN;
+    accessToken = accessToken || getAccessToken();
 
     return { phoneNumberId, accessToken, tenantId };
 };
@@ -38,7 +39,7 @@ router.get('/:phoneNumberId', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         // Get access token
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -83,7 +84,7 @@ router.post('/:phoneNumberId', async (req, res) => {
         const { tenant_id, about, address, description, email, vertical, websites, profile_picture_handle } = req.body;
 
         // Get access token
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
             if (tenant?.access_token) accessToken = tenant.access_token;

@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { getAccessToken } from '../utils/credentials.js';
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ router.get('/me', async (req, res) => {
     try {
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -58,7 +59,7 @@ router.get('/:pageId/info', async (req, res) => {
         const { pageId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -100,7 +101,7 @@ router.get('/:pageId/linked-waba', async (req, res) => {
         const { pageId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;

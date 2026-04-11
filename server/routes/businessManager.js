@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { getAccessToken } from '../utils/credentials.js';
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.get('/:businessId', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -56,7 +57,7 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -101,7 +102,7 @@ router.post('/:businessId/claim-ad-account', async (req, res) => {
         const { businessId } = req.params;
         const { tenant_id, adaccount_id } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -151,7 +152,7 @@ router.get('/:businessId/assets', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -194,7 +195,7 @@ router.get('/:businessId/whatsapp-accounts', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;

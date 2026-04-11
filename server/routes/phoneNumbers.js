@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { getAccessToken } from '../utils/credentials.js';
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.get('/:wabaId', async (req, res) => {
         const { wabaId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const creds = getTenantCreds(tenantId);
             if (creds?.accessToken) accessToken = creds.accessToken;
@@ -73,7 +74,7 @@ router.get('/info/:phoneNumberId', async (req, res) => {
         const { phoneNumberId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const creds = getTenantCreds(tenantId);
             if (creds?.accessToken) accessToken = creds.accessToken;
@@ -115,7 +116,7 @@ router.post('/register/:phoneNumberId', async (req, res) => {
         const { phoneNumberId } = req.params;
         const { tenant_id, pin } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const creds = getTenantCreds(tenant_id);
             if (creds?.accessToken) accessToken = creds.accessToken;
@@ -177,7 +178,7 @@ router.post('/request-code/:phoneNumberId', async (req, res) => {
         const { phoneNumberId } = req.params;
         const { tenant_id, code_method, language } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const creds = getTenantCreds(tenant_id);
             if (creds?.accessToken) accessToken = creds.accessToken;
@@ -226,7 +227,7 @@ router.post('/verify-code/:phoneNumberId', async (req, res) => {
         const { phoneNumberId } = req.params;
         const { tenant_id, code } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const creds = getTenantCreds(tenant_id);
             if (creds?.accessToken) accessToken = creds.accessToken;
@@ -272,7 +273,7 @@ router.post('/two-step/:phoneNumberId', async (req, res) => {
         const { phoneNumberId } = req.params;
         const { tenant_id, pin } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const creds = getTenantCreds(tenant_id);
             if (creds?.accessToken) accessToken = creds.accessToken;

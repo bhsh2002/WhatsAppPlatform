@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { getAccessToken } from '../utils/credentials.js';
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.get('/clients', async (req, res) => {
         const businessId = req.query.business_id;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -57,7 +58,7 @@ router.post('/clients', async (req, res) => {
     try {
         const { business_id, tenant_id, existing_client_business_id, name, survey_business_type, timezone_id } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -124,7 +125,7 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
         const { clientBusinessId } = req.params;
         const { business_id, tenant_id } = req.query;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -172,7 +173,7 @@ router.get('/clients/:clientBusinessId/waba', async (req, res) => {
         const { clientBusinessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenantId);
         if (tenantId) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
             if (tenant?.access_token) accessToken = tenant.access_token;
@@ -216,7 +217,7 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
         const { clientBusinessId } = req.params;
         const { tenant_id, name, role } = req.body;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let accessToken = getAccessToken(tenant_id);
         if (tenant_id) {
             const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
             if (tenant?.access_token) accessToken = tenant.access_token;
