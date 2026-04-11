@@ -11,9 +11,23 @@ if (!JWT_SECRET) {
 }
 const JWT_EXPIRES_IN = '7d';
 
-// Register new user
+// Register new user (admin only — requires valid admin token)
 router.post('/register', async (req, res) => {
     try {
+        // Verify admin authorization
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'التسجيل مقتصر على المديرين فقط' });
+        }
+        try {
+            const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+            if (decoded.role !== 'admin') {
+                return res.status(403).json({ error: 'صلاحيات غير كافية — فقط المديرون يمكنهم إنشاء حسابات' });
+            }
+        } catch {
+            return res.status(401).json({ error: 'رمز غير صالح أو منتهي الصلاحية' });
+        }
+
         const { username, email, password, name } = req.body;
 
         if (!username || !password) {
