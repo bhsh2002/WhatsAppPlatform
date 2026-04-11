@@ -1,0 +1,233 @@
+import express from 'express';
+import db from '../db/database.js';
+
+const router = express.Router();
+
+const META_API_VERSION = 'v22.0';
+const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
+
+// ============================================
+// Get Business Manager info
+// ============================================
+router.get('/:businessId', async (req, res) => {
+    try {
+        const { businessId } = req.params;
+        const tenantId = req.query.tenant_id;
+
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        if (tenantId) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+            if (tenant?.access_token) accessToken = tenant.access_token;
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        }
+
+        const fields = 'name,id,verification_status,created_time,primary_page,profile_picture_uri,timezone_id,two_factor_type';
+        const response = await fetch(
+            `${META_API_BASE}/${businessId}?fields=${fields}`,
+            {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل جلب معلومات مدير الأعمال',
+                details: data.error
+            });
+        }
+
+        res.json(data);
+    } catch (error) {
+        console.error('[BusinessManager] Info error:', error);
+        res.status(500).json({ error: 'فشل جلب معلومات مدير الأعمال' });
+    }
+});
+
+// ============================================
+// Get owned ad accounts
+// ============================================
+router.get('/:businessId/ad-accounts', async (req, res) => {
+    try {
+        const { businessId } = req.params;
+        const tenantId = req.query.tenant_id;
+
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        if (tenantId) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+            if (tenant?.access_token) accessToken = tenant.access_token;
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        }
+
+        const fields = 'name,account_id,account_status,currency,timezone_name,amount_spent,balance';
+        const response = await fetch(
+            `${META_API_BASE}/${businessId}/owned_ad_accounts?fields=${fields}`,
+            {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل جلب الحسابات الإعلانية',
+                details: data.error
+            });
+        }
+
+        res.json({
+            ad_accounts: data.data || [],
+            paging: data.paging || null
+        });
+    } catch (error) {
+        console.error('[BusinessManager] Ad accounts error:', error);
+        res.status(500).json({ error: 'فشل جلب الحسابات الإعلانية' });
+    }
+});
+
+// ============================================
+// Claim ad account
+// ============================================
+router.post('/:businessId/claim-ad-account', async (req, res) => {
+    try {
+        const { businessId } = req.params;
+        const { tenant_id, adaccount_id } = req.body;
+
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        if (tenant_id) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+            if (tenant?.access_token) accessToken = tenant.access_token;
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        }
+
+        if (!adaccount_id) {
+            return res.status(400).json({ error: 'معرف الحساب الإعلاني مطلوب' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${businessId}/claimed_adaccounts`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ adaccount_id })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل المطالبة بالحساب الإعلاني',
+                details: data.error
+            });
+        }
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('[BusinessManager] Claim ad account error:', error);
+        res.status(500).json({ error: 'فشل المطالبة بالحساب الإعلاني' });
+    }
+});
+
+// ============================================
+// Get business assets
+// ============================================
+router.get('/:businessId/assets', async (req, res) => {
+    try {
+        const { businessId } = req.params;
+        const tenantId = req.query.tenant_id;
+
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        if (tenantId) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+            if (tenant?.access_token) accessToken = tenant.access_token;
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        }
+
+        // Fetch multiple asset types in parallel
+        const [pagesRes, wabaRes] = await Promise.all([
+            fetch(`${META_API_BASE}/${businessId}/owned_pages?fields=name,id,category`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            }),
+            fetch(`${META_API_BASE}/${businessId}/owned_whatsapp_business_accounts?fields=name,id,currency,timezone_id`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            })
+        ]);
+
+        const [pagesData, wabaData] = await Promise.all([
+            pagesRes.json(),
+            wabaRes.json()
+        ]);
+
+        res.json({
+            pages: pagesData.data || [],
+            whatsapp_accounts: wabaData.data || [],
+        });
+    } catch (error) {
+        console.error('[BusinessManager] Assets error:', error);
+        res.status(500).json({ error: 'فشل جلب أصول الأعمال' });
+    }
+});
+
+// ============================================
+// Get owned WABA accounts
+// ============================================
+router.get('/:businessId/whatsapp-accounts', async (req, res) => {
+    try {
+        const { businessId } = req.params;
+        const tenantId = req.query.tenant_id;
+
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        if (tenantId) {
+            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+            if (tenant?.access_token) accessToken = tenant.access_token;
+        }
+
+        if (!accessToken) {
+            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${businessId}/owned_whatsapp_business_accounts?fields=name,id,currency,timezone_id,message_template_namespace`,
+            {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل جلب حسابات واتساب',
+                details: data.error
+            });
+        }
+
+        res.json({
+            whatsapp_accounts: data.data || [],
+            paging: data.paging || null
+        });
+    } catch (error) {
+        console.error('[BusinessManager] WABA accounts error:', error);
+        res.status(500).json({ error: 'فشل جلب حسابات واتساب' });
+    }
+});
+
+export default router;
