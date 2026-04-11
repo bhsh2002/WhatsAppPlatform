@@ -707,5 +707,133 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
     }
 });
 
+// Send interactive message (buttons or list)
+router.post('/send-interactive', async (req, res) => {
+    try {
+        const { tenant_id, recipient, interactive_type, body_text, header_text, footer_text, buttons, sections, list_button_text } = req.body;
+
+        if (!recipient || !interactive_type || !body_text) {
+            return res.status(400).json({ error: 'recipient, interactive_type, and body_text are required' });
+        }
+
+        if (!['button', 'list'].includes(interactive_type)) {
+            return res.status(400).json({ error: 'interactive_type must be "button" or "list"' });
+        }
+
+        // Get credentials
+        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let tenant = null;
+
+        if (tenant_id) {
+            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+            if (tenant) {
+                phoneNumberId = tenant.phone_number_id || phoneNumberId;
+                accessToken = tenant.access_token || accessToken;
+            }
+        }
+
+        const reqPhoneId = req.body.phone_number_id || phoneNumberId;
+        const reqToken = req.body.access_token || accessToken;
+
+        if (!reqPhoneId || !reqToken) {
+            return res.status(400).json({ error: 'Missing API credentials' });
+        }
+
+        // Build interactive payload
+        const interactive = {
+            type: interactive_type,
+            body: { text: body_text }
+        };
+
+        if (header_text) {
+            interactive.header = { type: 'text', text: header_text };
+        }
+        if (footer_text) {
+            interactive.footer = { text: footer_text };
+        }
+
+        if (interactive_type === 'button') {
+            if (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3) {
+                return res.status(400).json({ error: 'buttons must be an array of 1-3 items' });
+            }
+            interactive.action = {
+                buttons: buttons.map((btn, i) => ({
+                    type: 'reply',
+                    reply: {
+                        id: btn.id || `btn_${i}`,
+                        title: btn.title
+                    }
+                }))
+            };
+        } else if (interactive_type === 'list') {
+            if (!sections || !Array.isArray(sections) || sections.length === 0) {
+                return res.status(400).json({ error: 'sections must be a non-empty array for list type' });
+            }
+            interactive.action = {
+                button: list_button_text || 'عرض الخيارات',
+                sections: sections.map(section => ({
+                    title: section.title,
+                    rows: (section.rows || []).map(row => ({
+                        id: row.id,
+                        title: row.title,
+                        description: row.description || ''
+                    }))
+                }))
+            };
+        }
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: recipient,
+            type: 'interactive',
+            interactive
+        };
+
+        console.log('[Messages] Sending interactive to Meta:', JSON.stringify(payload, null, 2));
+
+        const response = await fetch(`${META_API_BASE}/${reqPhoneId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${reqToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        // Save to database
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message)
+            VALUES (?, 'outgoing', ?, 'interactive', ?, ?, ?, ?)
+        `).run(
+            tenant?.id || null,
+            recipient,
+            JSON.stringify({ type: interactive_type, body: body_text, header: header_text }),
+            response.ok ? 'sent' : 'failed',
+            data.messages?.[0]?.id || null,
+            data.error?.message || null
+        );
+
+        // Log activity
+        if (tenant) {
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (?, ?, 'interactive_sent', ?, ?)
+            `).run(tenant.id, tenant.name, `إرسال رسالة تفاعلية (${interactive_type})`, response.ok ? 'success' : 'error');
+        }
+
+        if (response.ok) {
+            res.json({ success: true, message_id: data.messages?.[0]?.id, data });
+        } else {
+            res.status(response.status).json({ success: false, error: data.error?.message, data });
+        }
+    } catch (error) {
+        console.error('[Messages] Send interactive error:', error);
+        res.status(500).json({ error: 'Failed to send interactive message' });
+    }
+});
+
 export default router;
 
