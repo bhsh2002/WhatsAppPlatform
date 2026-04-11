@@ -25,7 +25,7 @@ router.get('/:businessId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const fields = 'name,id,created_time,primary_page,profile_picture_uri,timezone_id';
+        const fields = 'name,id,profile_picture_uri,timezone_id';
         const response = await fetch(
             `${META_API_BASE}/${businessId}?fields=${fields}`,
             {
@@ -78,6 +78,14 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            // If permission error, return empty list instead of failing
+            if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
+                return res.json({
+                    ad_accounts: [],
+                    paging: null,
+                    permission_error: 'يحتاج صلاحية business_management للوصول للحسابات الإعلانية'
+                });
+            }
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل جلب الحسابات الإعلانية',
                 details: data.error
@@ -172,9 +180,23 @@ router.get('/:businessId/assets', async (req, res) => {
             }).catch(() => null)
         ]);
 
+        const parseSafe = async (response) => {
+            if (!response) return { data: [] };
+            try {
+                const json = await response.json();
+                // If permission error, return empty
+                if (!response.ok && (json.error?.code === 100 || json.error?.type === 'OAuthException')) {
+                    return { data: [], permission_error: json.error?.message };
+                }
+                return response.ok ? json : { data: [] };
+            } catch {
+                return { data: [] };
+            }
+        };
+
         const [pagesData, wabaData] = await Promise.all([
-            pagesRes?.ok ? pagesRes.json() : { data: [] },
-            wabaRes?.ok ? wabaRes.json() : { data: [] }
+            parseSafe(pagesRes),
+            parseSafe(wabaRes)
         ]);
 
         res.json({
