@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     Box,
     List,
@@ -10,20 +10,61 @@ import {
     TextField,
     InputAdornment,
     Badge,
-    CircularProgress
+    CircularProgress,
+    IconButton,
+    Tooltip,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button
 } from '@mui/material';
-import { Search as SearchIcon } from '@mui/icons-material';
+import {
+    Search as SearchIcon,
+    ChatBubble as NewChatIcon,
+    Close as CloseIcon
+} from '@mui/icons-material';
 
 const ChatSidebar = ({
     conversations,
     selectedChat,
     onSelectChat,
+    onNewChat,
     loading,
     searchTerm,
     setSearchTerm,
     getDisplayName,
     formatDate
 }) => {
+    const [showNewChatDialog, setShowNewChatDialog] = useState(false);
+    const [newChatPhone, setNewChatPhone] = useState('');
+
+    const handleStartNewChat = () => {
+        const phone = newChatPhone.replace(/[\s\-\+]/g, '').trim();
+        if (!phone || phone.length < 9) {
+            alert('يرجى إدخال رقم هاتف صالح');
+            return;
+        }
+
+        // Create a virtual conversation object
+        const newConv = {
+            contact: phone,
+            profile_name: null,
+            last_message: null,
+            last_interaction: new Date().toISOString(),
+            unread_count: 0
+        };
+
+        if (onNewChat) {
+            onNewChat(newConv);
+        } else {
+            onSelectChat(newConv);
+        }
+
+        setShowNewChatDialog(false);
+        setNewChatPhone('');
+    };
+
     return (
         <Box sx={{
             height: '100%',
@@ -34,9 +75,26 @@ const ChatSidebar = ({
         }}>
             {/* Search Header */}
             <Box sx={{ p: 2, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-                <Typography variant="h6" fontWeight={700} gutterBottom>
-                    المحادثات
-                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="h6" fontWeight={700}>
+                        المحادثات
+                    </Typography>
+                    <Tooltip title="محادثة جديدة">
+                        <IconButton
+                            onClick={() => setShowNewChatDialog(true)}
+                            size="small"
+                            sx={{
+                                bgcolor: 'primary.main',
+                                color: 'white',
+                                '&:hover': { bgcolor: 'primary.dark' },
+                                width: 36,
+                                height: 36
+                            }}
+                        >
+                            <NewChatIcon fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
+                </Box>
                 <TextField
                     fullWidth
                     size="small"
@@ -61,7 +119,15 @@ const ChatSidebar = ({
                     </Box>
                 ) : conversations.length === 0 ? (
                     <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                        <Typography>لا توجد محادثات</Typography>
+                        <Typography gutterBottom>لا توجد محادثات</Typography>
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<NewChatIcon />}
+                            onClick={() => setShowNewChatDialog(true)}
+                        >
+                            بدء محادثة جديدة
+                        </Button>
                     </Box>
                 ) : (
                     <List disablePadding>
@@ -141,6 +207,51 @@ const ChatSidebar = ({
                     </List>
                 )}
             </Box>
+
+            {/* New Chat Dialog */}
+            <Dialog
+                open={showNewChatDialog}
+                onClose={() => setShowNewChatDialog(false)}
+                maxWidth="xs"
+                fullWidth
+            >
+                <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    محادثة جديدة
+                    <IconButton onClick={() => setShowNewChatDialog(false)} size="small">
+                        <CloseIcon />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        أدخل رقم الهاتف مع رمز الدولة (مثال: 966501234567)
+                    </Typography>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        label="رقم الهاتف"
+                        placeholder="966501234567"
+                        value={newChatPhone}
+                        onChange={(e) => setNewChatPhone(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleStartNewChat();
+                        }}
+                        dir="ltr"
+                        sx={{
+                            '& input': { textAlign: 'left', direction: 'ltr' }
+                        }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowNewChatDialog(false)}>إلغاء</Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleStartNewChat}
+                        disabled={!newChatPhone.trim()}
+                    >
+                        بدء المحادثة
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };
