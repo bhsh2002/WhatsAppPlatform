@@ -22,6 +22,7 @@ import {
 } from '@mui/icons-material';
 import TemplatePicker from './TemplatePicker';
 import { Description as TemplateIcon } from '@mui/icons-material';
+import MessageBubble from './MessageBubble';
 
 const ChatWindow = ({
     selectedChat,
