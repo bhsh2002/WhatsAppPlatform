@@ -97,7 +97,7 @@ const TenantConversions = () => {
 
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 {statCards.map((card, i) => (
-                    <Grid item xs={12} md={4} key={i}>
+                    <Grid size={{ xs: 12, md: 4 }} key={i}>
                         <Card sx={{ bgcolor: card.color + '10', border: `1px solid ${card.color}30` }}>
                             <CardContent sx={{ textAlign: 'center' }}>
                                 <Typography variant="h3" fontWeight={700} sx={{ color: card.color }}>{card.value}</Typography>
@@ -164,21 +164,21 @@ const TenantConversions = () => {
                 <DialogTitle>تسجيل حدث تحويل</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <TextField fullWidth select label="نوع الحدث" value={form.event_name}
                                 onChange={e => setForm({ ...form, event_name: e.target.value })}>
                                 {eventTypes.map(et => <MenuItem key={et.value} value={et.value}>{et.label}</MenuItem>)}
                             </TextField>
                         </Grid>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <TextField fullWidth label="رقم الهاتف (اختياري)" value={form.phone}
                                 onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="218xxxxxxxxx" />
                         </Grid>
-                        <Grid item xs={8}>
+                        <Grid size={{ xs: 8 }}>
                             <TextField fullWidth label="القيمة (اختياري)" value={form.value} type="number"
                                 onChange={e => setForm({ ...form, value: e.target.value })} />
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                             <TextField fullWidth select label="العملة" value={form.currency}
                                 onChange={e => setForm({ ...form, currency: e.target.value })}>
                                 <MenuItem value="LYD">LYD</MenuItem>

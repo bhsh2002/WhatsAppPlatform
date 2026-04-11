@@ -114,25 +114,25 @@ const TenantBusinessProfile = () => {
 
             <Paper sx={{ p: 3 }}>
                 <Grid container spacing={3}>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                         <TextField fullWidth label="نبذة عن النشاط" value={form.about} disabled={!editing}
                             onChange={e => setForm({ ...form, about: e.target.value })}
                             helperText="حد أقصى 139 حرف" inputProps={{ maxLength: 139 }} />
                     </Grid>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                         <TextField fullWidth multiline rows={3} label="الوصف" value={form.description} disabled={!editing}
                             onChange={e => setForm({ ...form, description: e.target.value })}
                             helperText="وصف مفصل عن النشاط التجاري" />
                     </Grid>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                         <TextField fullWidth label="البريد الإلكتروني" value={form.email} disabled={!editing}
                             onChange={e => setForm({ ...form, email: e.target.value })} type="email" />
                     </Grid>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                         <TextField fullWidth label="العنوان" value={form.address} disabled={!editing}
                             onChange={e => setForm({ ...form, address: e.target.value })} />
                     </Grid>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                         <TextField fullWidth select label="قطاع النشاط" value={form.vertical} disabled={!editing}
                             onChange={e => setForm({ ...form, vertical: e.target.value })}
                             SelectProps={{ native: true }}>
@@ -140,7 +140,7 @@ const TenantBusinessProfile = () => {
                             {verticalOptions.map(v => <option key={v} value={v}>{v.replace(/_/g, ' ')}</option>)}
                         </TextField>
                     </Grid>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                         <TextField fullWidth label="المواقع الإلكترونية" value={form.websites} disabled={!editing}
                             onChange={e => setForm({ ...form, websites: e.target.value })}
                             helperText="افصل بين عدة مواقع بفاصلة" />

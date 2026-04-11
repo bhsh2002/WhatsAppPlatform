@@ -81,9 +81,9 @@ const BusinessManager = () => {
                                 </Box>
                                 <Divider sx={{ mb: 2 }} />
                                 <Grid container spacing={2}>
-                                    <Grid item xs={6}><Typography variant="body2" color="text.secondary">تاريخ الإنشاء</Typography><Typography>{info.created_time || '-'}</Typography></Grid>
-                                    <Grid item xs={6}><Typography variant="body2" color="text.secondary">المنطقة الزمنية</Typography><Typography>{info.timezone_id || '-'}</Typography></Grid>
-                                    <Grid item xs={6}><Typography variant="body2" color="text.secondary">التحقق بخطوتين</Typography><Typography>{info.two_factor_type || '-'}</Typography></Grid>
+                                    <Grid size={{ xs: 6 }}><Typography variant="body2" color="text.secondary">تاريخ الإنشاء</Typography><Typography>{info.created_time || '-'}</Typography></Grid>
+                                    <Grid size={{ xs: 6 }}><Typography variant="body2" color="text.secondary">المنطقة الزمنية</Typography><Typography>{info.timezone_id || '-'}</Typography></Grid>
+                                    <Grid size={{ xs: 6 }}><Typography variant="body2" color="text.secondary">التحقق بخطوتين</Typography><Typography>{info.two_factor_type || '-'}</Typography></Grid>
                                 </Grid>
                             </CardContent>
                         </Card>
@@ -121,7 +121,7 @@ const BusinessManager = () => {
 
                     {activeTab === 'assets' && assets && (
                         <Grid container spacing={3}>
-                            <Grid item xs={12} md={6}>
+                            <Grid size={{ xs: 12, md: 6 }}>
                                 <Paper sx={{ p: 3 }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                                         <Store />
@@ -136,7 +136,7 @@ const BusinessManager = () => {
                                     {(!assets.pages || assets.pages.length === 0) && <Typography color="text.secondary">لا توجد صفحات</Typography>}
                                 </Paper>
                             </Grid>
-                            <Grid item xs={12} md={6}>
+                            <Grid size={{ xs: 12, md: 6 }}>
                                 <Paper sx={{ p: 3 }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                                         <AccountBalance />

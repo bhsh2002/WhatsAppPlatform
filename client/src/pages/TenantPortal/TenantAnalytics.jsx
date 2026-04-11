@@ -52,7 +52,7 @@ const TenantAnalytics = () => {
 
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 {statCards.map((card, i) => (
-                    <Grid item xs={6} md={3} key={i}>
+                    <Grid size={{ xs: 6, md: 3 }} key={i}>
                         <Card sx={{ bgcolor: card.color + '10', border: `1px solid ${card.color}30` }}>
                             <CardContent sx={{ textAlign: 'center' }}>
                                 <Box sx={{ color: card.color, mb: 1 }}>{card.icon}</Box>
@@ -65,7 +65,7 @@ const TenantAnalytics = () => {
             </Grid>
 
             <Grid container spacing={3}>
-                <Grid item xs={12} md={7}>
+                <Grid size={{ xs: 12, md: 7 }}>
                     <Paper sx={{ p: 3 }}>
                         <Typography variant="h6" gutterBottom fontWeight={600}>النشاط اليومي (آخر 30 يوم)</Typography>
                         <TableContainer>
@@ -106,7 +106,7 @@ const TenantAnalytics = () => {
                     </Paper>
                 </Grid>
 
-                <Grid item xs={12} md={5}>
+                <Grid size={{ xs: 12, md: 5 }}>
                     <Paper sx={{ p: 3 }}>
                         <Typography variant="h6" gutterBottom fontWeight={600}>توزيع أنواع الرسائل</Typography>
                         {(stats?.typeDistribution || []).map((type, i) => (
