@@ -25,7 +25,7 @@ router.get('/:businessId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const fields = 'name,id,profile_picture_uri,timezone_id';
+        const fields = 'name,id';
         const response = await fetch(
             `${META_API_BASE}/${businessId}?fields=${fields}`,
             {
@@ -36,6 +36,14 @@ router.get('/:businessId', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            // Permission error — return minimal info
+            if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
+                return res.json({
+                    id: businessId,
+                    name: 'غير متاح',
+                    permission_error: 'صلاحيات محدودة — بعض المعلومات غير متاحة'
+                });
+            }
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل جلب معلومات مدير الأعمال',
                 details: data.error
