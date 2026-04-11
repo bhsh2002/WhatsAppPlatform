@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 
 // Import routes
 import tenantsRouter from './routes/tenants.js';
@@ -21,7 +22,7 @@ import partnerSolutionsRouter from './routes/partnerSolutions.js';
 import conversionsRouter from './routes/conversions.js';
 
 // Import middleware
-import { authMiddleware } from './middleware/auth.js';
+import { authMiddleware, adminMiddleware } from './middleware/auth.js';
 import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 
 // Import database for seeding
@@ -65,25 +66,45 @@ app.use((req, res, next) => {
     next();
 });
 
+// Rate limiters
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // 10 attempts per window
+    message: { error: 'محاولات كثيرة. حاول مرة أخرى بعد 15 دقيقة.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 100, // 100 requests per minute
+    message: { error: 'طلبات كثيرة. حاول مرة أخرى.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Apply general rate limit to all routes
+app.use(apiLimiter);
+
 // Health check (public)
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Auth routes (public)
-app.use('/auth', authRouter);
+// Auth routes (public, with stricter rate limit on login/register)
+app.use('/auth', authLimiter, authRouter);
 
-// Protected API Routes - Admin
-app.use('/tenants', authMiddleware, tenantsRouter);
-app.use('/stats', authMiddleware, statsRouter);
-app.use('/messages', authMiddleware, messagesRouter);
+// Protected API Routes - Admin (require both auth + admin role)
+app.use('/tenants', authMiddleware, adminMiddleware, tenantsRouter);
+app.use('/stats', authMiddleware, adminMiddleware, statsRouter);
+app.use('/messages', authMiddleware, adminMiddleware, messagesRouter);
 app.use('/business-profile', authMiddleware, businessProfileRouter);
-app.use('/phone-numbers', authMiddleware, phoneNumbersRouter);
+app.use('/phone-numbers', authMiddleware, adminMiddleware, phoneNumbersRouter);
 app.use('/qr-codes', authMiddleware, qrCodesRouter);
 app.use('/analytics', authMiddleware, analyticsRouter);
-app.use('/business-manager', authMiddleware, businessManagerRouter);
-app.use('/pages', authMiddleware, pagesRouter);
-app.use('/partner', authMiddleware, partnerSolutionsRouter);
+app.use('/business-manager', authMiddleware, adminMiddleware, businessManagerRouter);
+app.use('/pages', authMiddleware, adminMiddleware, pagesRouter);
+app.use('/partner', authMiddleware, adminMiddleware, partnerSolutionsRouter);
 app.use('/conversions', authMiddleware, conversionsRouter);
 
 // Protected API Routes - Tenant Portal
