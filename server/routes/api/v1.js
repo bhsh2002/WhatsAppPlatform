@@ -521,4 +521,212 @@ router.get('/templates/:id', (req, res) => {
     }
 });
 
+// ============================================
+// Send Interactive Message
+// ============================================
+router.post('/messages/send-interactive', async (req, res) => {
+    try {
+        const tenantId = req.tenantId;
+        const { recipient, interactive_type, body_text, header_text, footer_text, buttons, sections, list_button_text } = req.body;
+
+        if (!recipient || !interactive_type || !body_text) {
+            return res.status(400).json({ error: 'recipient, interactive_type, and body_text are required' });
+        }
+
+        if (!['button', 'list'].includes(interactive_type)) {
+            return res.status(400).json({ error: 'interactive_type must be "button" or "list"' });
+        }
+
+        const credentials = getTenantCredentials(tenantId);
+        if (!credentials) {
+            return res.status(400).json({ error: 'WhatsApp API credentials not configured' });
+        }
+
+        const normalizedRecipient = recipient.replace(/\+/g, '').trim();
+
+        const interactive = {
+            type: interactive_type,
+            body: { text: body_text }
+        };
+
+        if (header_text) interactive.header = { type: 'text', text: header_text };
+        if (footer_text) interactive.footer = { text: footer_text };
+
+        if (interactive_type === 'button') {
+            if (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3) {
+                return res.status(400).json({ error: 'buttons must be an array of 1-3 items' });
+            }
+            interactive.action = {
+                buttons: buttons.map((btn, i) => ({
+                    type: 'reply',
+                    reply: { id: btn.id || `btn_${i}`, title: btn.title }
+                }))
+            };
+        } else {
+            if (!sections || !Array.isArray(sections) || sections.length === 0) {
+                return res.status(400).json({ error: 'sections required for list type' });
+            }
+            interactive.action = {
+                button: list_button_text || 'View Options',
+                sections: sections.map(s => ({
+                    title: s.title,
+                    rows: (s.rows || []).map(r => ({ id: r.id, title: r.title, description: r.description || '' }))
+                }))
+            };
+        }
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: normalizedRecipient,
+            type: 'interactive',
+            interactive
+        };
+
+        const response = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${credentials.accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'Failed to send interactive message',
+                details: data.error
+            });
+        }
+
+        const messageId = data.messages?.[0]?.id;
+
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid)
+            VALUES (?, 'outgoing', ?, 'interactive', ?, 'sent', ?)
+        `).run(tenantId, normalizedRecipient, JSON.stringify({ type: interactive_type, body: body_text }), messageId);
+
+        res.json({ success: true, message_id: messageId, recipient: normalizedRecipient });
+    } catch (error) {
+        console.error('[API v1] Send interactive error:', error);
+        res.status(500).json({ error: 'Failed to send interactive message', message: error.message });
+    }
+});
+
+// ============================================
+// Send Conversion Event
+// ============================================
+router.post('/events', async (req, res) => {
+    try {
+        const tenantId = req.tenantId;
+        const { events } = req.body;
+
+        if (!events || !Array.isArray(events) || events.length === 0) {
+            return res.status(400).json({ error: 'events array is required' });
+        }
+
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(400).json({ error: 'Tenant not found' });
+        }
+
+        if (!tenant.dataset_id) {
+            return res.status(400).json({ error: 'Dataset ID not configured for this tenant' });
+        }
+
+        const hashData = (value) => {
+            if (!value) return null;
+            return crypto.createHash('sha256').update(value.toString().toLowerCase().trim()).digest('hex');
+        };
+
+        const formattedEvents = events.map(event => {
+            const formatted = {
+                event_name: event.event_name,
+                event_time: event.event_time || Math.floor(Date.now() / 1000),
+                action_source: event.action_source || 'business_messaging',
+                messaging_channel: 'whatsapp',
+                user_data: {}
+            };
+
+            if (event.phone) formatted.user_data.phones = [hashData(event.phone)];
+            if (event.email) formatted.user_data.emails = [hashData(event.email)];
+            if (event.custom_data) formatted.custom_data = event.custom_data;
+
+            return formatted;
+        });
+
+        const response = await fetch(`${META_API_BASE}/${tenant.dataset_id}/events`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${tenant.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ data: formattedEvents })
+        });
+
+        const data = await response.json();
+        const status = response.ok ? 'sent' : 'failed';
+
+        // Save all events locally
+        for (const event of events) {
+            db.prepare(`
+                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                tenantId,
+                tenant.dataset_id,
+                event.event_name,
+                new Date((event.event_time || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+                event.phone || null,
+                event.wamid || null,
+                event.custom_data ? JSON.stringify(event.custom_data) : null,
+                status,
+                JSON.stringify(data)
+            );
+        }
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'Failed to send events',
+                details: data.error
+            });
+        }
+
+        res.json({
+            success: true,
+            events_received: data.events_received || events.length,
+            fbtrace_id: data.fbtrace_id
+        });
+    } catch (error) {
+        console.error('[API v1] Send events error:', error);
+        res.status(500).json({ error: 'Failed to send conversion events', message: error.message });
+    }
+});
+
+// ============================================
+// Get Conversion Events History
+// ============================================
+router.get('/events/history', (req, res) => {
+    try {
+        const tenantId = req.tenantId;
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = parseInt(req.query.offset) || 0;
+
+        const events = db.prepare(`
+            SELECT * FROM conversion_events 
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        `).all(tenantId, limit, offset);
+
+        const total = db.prepare('SELECT COUNT(*) as count FROM conversion_events WHERE tenant_id = ?').get(tenantId)?.count || 0;
+
+        res.json({ events, total, limit, offset });
+    } catch (error) {
+        console.error('[API v1] Events history error:', error);
+        res.status(500).json({ error: 'Failed to get events history' });
+    }
+});
+
 export default router;
