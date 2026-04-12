@@ -856,5 +856,85 @@ router.post('/send-interactive', async (req, res) => {
     }
 });
 
+// ============================================
+// Contact Management (Admin)
+// ============================================
+
+// List contacts with search, pagination, tenant filter
+router.get('/contacts', (req, res) => {
+    try {
+        const { search, tenant_id, label, page = 1, limit = 50 } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let where = [];
+        let params = [];
+
+        if (tenant_id) {
+            where.push('c.tenant_id = ?');
+            params.push(tenant_id);
+        }
+        if (search) {
+            where.push('(c.phone LIKE ? OR c.profile_name LIKE ?)');
+            params.push(`%${search}%`, `%${search}%`);
+        }
+        if (label) {
+            where.push('c.label = ?');
+            params.push(label);
+        }
+
+        const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+        const contacts = db.prepare(`
+            SELECT c.*, t.name as tenant_name,
+                (SELECT COUNT(*) FROM messages m WHERE
+                    m.tenant_id = c.tenant_id AND (m.sender = c.phone OR m.recipient = c.phone)
+                ) as message_count
+            FROM contacts c
+            LEFT JOIN tenants t ON c.tenant_id = t.id
+            ${whereClause}
+            ORDER BY c.updated_at DESC
+            LIMIT ? OFFSET ?
+        `).all(...params, parseInt(limit), offset);
+
+        const total = db.prepare(`SELECT COUNT(*) as count FROM contacts c ${whereClause}`).get(...params);
+
+        res.json({
+            contacts,
+            total: total.count,
+            page: parseInt(page),
+            limit: parseInt(limit),
+        });
+    } catch (error) {
+        console.error('[Messages] Contacts list error:', error);
+        res.status(500).json({ error: 'Failed to list contacts' });
+    }
+});
+
+// Update contact label/notes
+router.put('/contacts/:id', (req, res) => {
+    try {
+        const { label, notes, profile_name } = req.body;
+        const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
+        if (!contact) {
+            return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
+        }
+
+        db.prepare(`
+            UPDATE contacts SET
+                label = COALESCE(?, label),
+                notes = COALESCE(?, notes),
+                profile_name = COALESCE(?, profile_name),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(label, notes, profile_name, req.params.id);
+
+        const updated = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
+        res.json(updated);
+    } catch (error) {
+        console.error('[Messages] Contact update error:', error);
+        res.status(500).json({ error: 'Failed to update contact' });
+    }
+});
+
 export default router;
 

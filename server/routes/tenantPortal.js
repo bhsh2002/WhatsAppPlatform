@@ -186,6 +186,71 @@ router.get('/conversations/:phone/messages', (req, res) => {
 });
 
 // ============================================
+// Contact Management (Tenant)
+// ============================================
+router.get('/contacts', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { search, label, page = 1, limit = 50 } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let where = ['c.tenant_id = ?'];
+        let params = [tenantId];
+
+        if (search) {
+            where.push('(c.phone LIKE ? OR c.profile_name LIKE ?)');
+            params.push(`%${search}%`, `%${search}%`);
+        }
+        if (label) {
+            where.push('c.label = ?');
+            params.push(label);
+        }
+
+        const whereClause = `WHERE ${where.join(' AND ')}`;
+
+        const contacts = db.prepare(`
+            SELECT c.*,
+                (SELECT COUNT(*) FROM messages m WHERE
+                    m.tenant_id = c.tenant_id AND (m.sender = c.phone OR m.recipient = c.phone)
+                ) as message_count
+            FROM contacts c
+            ${whereClause}
+            ORDER BY c.updated_at DESC
+            LIMIT ? OFFSET ?
+        `).all(...params, parseInt(limit), offset);
+
+        const total = db.prepare(`SELECT COUNT(*) as count FROM contacts c ${whereClause}`).get(...params);
+
+        res.json({ contacts, total: total.count });
+    } catch (error) {
+        console.error('[TenantPortal] Contacts list error:', error);
+        res.status(500).json({ error: 'فشل جلب جهات الاتصال' });
+    }
+});
+
+router.put('/contacts/:id', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { label, notes } = req.body;
+
+        const contact = db.prepare('SELECT * FROM contacts WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+        if (!contact) {
+            return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
+        }
+
+        db.prepare('UPDATE contacts SET label = COALESCE(?, label), notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(label, notes, req.params.id);
+
+        const updated = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
+        res.json(updated);
+    } catch (error) {
+        console.error('[TenantPortal] Contact update error:', error);
+        res.status(500).json({ error: 'فشل تحديث جهة الاتصال' });
+    }
+});
+
+// ============================================
 // Conversation Window Status
 // ============================================
 router.get('/messages/window/:phone', (req, res) => {
