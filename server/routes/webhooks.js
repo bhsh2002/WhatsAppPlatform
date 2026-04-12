@@ -29,27 +29,42 @@ const forwardToTenantWebhook = async (tenantId, event, data) => {
             data
         };
 
-        // Sign payload with webhook secret
-        const signature = crypto.createHmac('sha256', settings.webhook_secret)
-            .update(JSON.stringify(payload))
-            .digest('hex');
+        const body = JSON.stringify(payload);
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Tenant-Id': String(tenantId)
+        };
 
-        // Fire and forget - don't wait for response
-        fetch(settings.webhook_url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Signature': `sha256=${signature}`,
-                'X-Tenant-Id': String(tenantId)
-            },
-            body: JSON.stringify(payload)
-        }).catch(err => {
-            console.error('[Webhook] Forward to tenant failed:', err.message);
-        });
+        // Sign payload if webhook secret is configured
+        if (settings.webhook_secret) {
+            const signature = crypto.createHmac('sha256', settings.webhook_secret)
+                .update(body).digest('hex');
+            headers['X-Signature'] = `sha256=${signature}`;
+        }
 
-        console.log('[Webhook] Forwarding to tenant webhook:', settings.webhook_url);
+        // Retry with exponential backoff (3 attempts)
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await fetch(settings.webhook_url, {
+                    method: 'POST',
+                    headers,
+                    body,
+                    signal: AbortSignal.timeout(10000), // 10s timeout
+                });
+                if (response.ok) return; // Success
+                if (response.status >= 400 && response.status < 500) return; // Client error, don't retry
+            } catch (err) {
+                if (attempt === maxRetries) {
+                    console.error(`[Webhook] Forward to tenant ${tenantId} failed after ${maxRetries} attempts:`, err.message);
+                    return;
+                }
+            }
+            // Wait before retry: 1s, 2s, 4s
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+        }
     } catch (error) {
-        console.error('[Webhook] Forward error:', error);
+        console.error('[Webhook] Forward error:', error.message);
     }
 };
 
@@ -72,23 +87,28 @@ const sendStatusCallback = async (tenantId, data) => {
             data
         };
 
-        const signature = crypto.createHmac('sha256', settings.webhook_secret)
-            .update(JSON.stringify(payload))
-            .digest('hex');
+        const body = JSON.stringify(payload);
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Tenant-Id': String(tenantId)
+        };
+
+        if (settings.webhook_secret) {
+            const signature = crypto.createHmac('sha256', settings.webhook_secret)
+                .update(body).digest('hex');
+            headers['X-Signature'] = `sha256=${signature}`;
+        }
 
         fetch(settings.callback_url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Signature': `sha256=${signature}`,
-                'X-Tenant-Id': String(tenantId)
-            },
-            body: JSON.stringify(payload)
+            headers,
+            body,
+            signal: AbortSignal.timeout(10000),
         }).catch(err => {
             console.error('[Callback] Status callback failed:', err.message);
         });
     } catch (error) {
-        console.error('[Callback] Error:', error);
+        console.error('[Callback] Error:', error.message);
     }
 };
 
