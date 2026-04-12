@@ -258,4 +258,74 @@ router.post('/change-password', async (req, res) => {
     }
 });
 
+// ============================================
+// Tenant Self-Registration (public, rate-limited)
+// ============================================
+router.post('/register-tenant', async (req, res) => {
+    try {
+        const { business_name, phone, username, password, email, contact_name } = req.body;
+
+        // Validation
+        if (!business_name || !phone || !username || !password) {
+            return res.status(400).json({
+                error: 'جميع الحقول مطلوبة: اسم النشاط التجاري، رقم الهاتف، اسم المستخدم، وكلمة المرور',
+            });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
+        }
+
+        // Check for duplicates
+        const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+        if (existingUser) {
+            return res.status(409).json({ error: 'اسم المستخدم مستخدم بالفعل' });
+        }
+
+        const existingTenant = db.prepare('SELECT id FROM tenants WHERE phone = ?').get(phone);
+        if (existingTenant) {
+            return res.status(409).json({ error: 'رقم الهاتف مسجل بالفعل' });
+        }
+
+        // Create tenant + user in a transaction
+        const password_hash = await bcrypt.hash(password, 10);
+
+        const result = db.transaction(() => {
+            // Create tenant with Pending status
+            const tenantResult = db.prepare(`
+                INSERT INTO tenants (name, phone, status, tier, credits)
+                VALUES (?, ?, 'Pending', '1K', 0)
+            `).run(business_name, phone);
+
+            const tenantId = tenantResult.lastInsertRowid;
+
+            // Create user account
+            db.prepare(`
+                INSERT INTO users (username, email, password_hash, name, role, tenant_id, is_active)
+                VALUES (?, ?, ?, ?, 'user', ?, 1)
+            `).run(username, email || null, password_hash, contact_name || business_name, tenantId);
+
+            return tenantId;
+        })();
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'tenant_registered', 'تسجيل عميل جديد (في انتظار الموافقة)', 'success')
+        `).run(result, business_name);
+
+        res.status(201).json({
+            success: true,
+            message: 'تم التسجيل بنجاح. حسابك في انتظار موافقة المدير.',
+            tenant_id: result,
+        });
+    } catch (error) {
+        console.error('[Auth] Tenant registration error:', error);
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            return res.status(409).json({ error: 'البيانات المدخلة مسجلة بالفعل' });
+        }
+        res.status(500).json({ error: 'فشل التسجيل' });
+    }
+});
+
 export default router;
