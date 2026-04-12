@@ -85,24 +85,30 @@ router.put('/:id', (req, res) => {
             return res.status(404).json({ error: 'Tenant not found' });
         }
 
-        const stmt = db.prepare(`
-      UPDATE tenants SET
-        name = COALESCE(?, name),
-        phone = COALESCE(?, phone),
-        status = COALESCE(?, status),
-        tier = COALESCE(?, tier),
-        credits = COALESCE(?, credits),
-        quality = COALESCE(?, quality),
-        phone_number_id = COALESCE(?, phone_number_id),
-        access_token = COALESCE(?, access_token),
-        waba_id = COALESCE(?, waba_id),
-        business_id = COALESCE(?, business_id),
-        dataset_id = COALESCE(?, dataset_id),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-
-        stmt.run(name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id, business_id, dataset_id, req.params.id);
+        // Build dynamic UPDATE — only include fields present in the request body.
+        // This allows clearing fields by sending null explicitly,
+        // while absent fields remain unchanged.
+        const clearableFields = ['name', 'phone', 'status', 'tier', 'credits', 'quality',
+            'phone_number_id', 'access_token', 'waba_id', 'business_id', 'dataset_id'];
+        
+        const setClauses = [];
+        const values = [];
+        
+        for (const field of clearableFields) {
+            if (field in req.body) {
+                setClauses.push(`${field} = ?`);
+                values.push(req.body[field]);
+            }
+        }
+        
+        if (setClauses.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        setClauses.push('updated_at = CURRENT_TIMESTAMP');
+        values.push(req.params.id);
+        
+        db.prepare(`UPDATE tenants SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
 
         const updatedTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
 
