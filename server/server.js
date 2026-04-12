@@ -44,15 +44,27 @@ const PORT = process.env.PORT || 3031;
 const seedAdmin = async () => {
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
     if (userCount.count === 0) {
+        // Generate a random password instead of hardcoded 'admin123'
+        const crypto = await import('crypto');
+        const randomPassword = crypto.randomBytes(8).toString('hex');
         const salt = await bcrypt.genSalt(10);
-        const password_hash = await bcrypt.hash('admin123', salt);
+        const password_hash = await bcrypt.hash(randomPassword, salt);
 
         db.prepare(`
       INSERT INTO users (username, email, password_hash, name, role)
       VALUES (?, ?, ?, ?, ?)
     `).run('admin', 'admin@example.com', password_hash, 'مدير النظام', 'admin');
 
-        console.log('[Auth] Created default admin user: admin / admin123');
+        console.log('');
+        console.log('╔══════════════════════════════════════════════╗');
+        console.log('║  🔐 Default admin account created           ║');
+        console.log('║                                              ║');
+        console.log(`║  Username: admin                             ║`);
+        console.log(`║  Password: ${randomPassword}                 ║`);
+        console.log('║                                              ║');
+        console.log('║  ⚠️  Change this password after first login  ║');
+        console.log('╚══════════════════════════════════════════════╝');
+        console.log('');
     }
 };
 
