@@ -155,7 +155,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║      WhatsApp Management Platform Server                     ║
@@ -200,5 +200,35 @@ app.listen(PORT, () => {
     startMaintenanceScheduler(uploadDir);
 });
 
-export default app;
+// ============================================
+// Graceful Shutdown
+// ============================================
+const shutdown = (signal) => {
+    console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+    
+    server.close(() => {
+        console.log('[Server] HTTP server closed');
+        
+        // Close SQLite database
+        try {
+            db.close();
+            console.log('[Server] Database connection closed');
+        } catch (e) {
+            // Already closed or error
+        }
+        
+        console.log('[Server] Shutdown complete');
+        process.exit(0);
+    });
 
+    // Force exit after 10 seconds if graceful shutdown fails
+    setTimeout(() => {
+        console.error('[Server] Forced shutdown after timeout');
+        process.exit(1);
+    }, 10000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+export default app;
