@@ -1089,19 +1089,69 @@ router.post('/templates/sync', async (req, res) => {
             });
         }
 
-        const templates = (templatesData.data || []).map(t => ({
-            id: t.id,
-            name: t.name,
-            language: t.language,
-            category: t.category,
-            status: t.status,
-            components: t.components
-        }));
+        const metaTemplates = templatesData.data || [];
+        let created = 0, updated = 0, unchanged = 0;
+
+        for (const t of metaTemplates) {
+            // Parse components to extract body, header, footer, buttons
+            let headerType = 'none', headerContent = '', body = '', footer = '', buttons = null;
+            if (t.components) {
+                for (const comp of t.components) {
+                    switch (comp.type) {
+                        case 'HEADER':
+                            headerType = (comp.format || 'text').toLowerCase();
+                            headerContent = comp.text || '';
+                            break;
+                        case 'BODY':
+                            body = comp.text || '';
+                            break;
+                        case 'FOOTER':
+                            footer = comp.text || '';
+                            break;
+                        case 'BUTTONS':
+                            buttons = JSON.stringify(comp.buttons || []);
+                            break;
+                    }
+                }
+            }
+
+            const existing = db.prepare('SELECT id, status, body FROM templates WHERE tenant_id = ? AND name = ?')
+                .get(tenantId, t.name);
+
+            if (existing) {
+                // Update if status or body changed
+                const metaStatus = (t.status || '').toLowerCase();
+                if (existing.status !== metaStatus || existing.body !== body) {
+                    db.prepare(`
+                        UPDATE templates SET
+                            status = ?, category = ?, header_type = ?, header_content = ?,
+                            body = ?, footer = ?, buttons = ?, meta_template_id = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    `).run(metaStatus, t.category, headerType, headerContent,
+                        body, footer, buttons, t.id, existing.id);
+                    updated++;
+                } else {
+                    unchanged++;
+                }
+            } else {
+                // Create new template
+                db.prepare(`
+                    INSERT INTO templates (tenant_id, name, language, category, status, header_type, header_content, body, footer, buttons, meta_template_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(tenantId, t.name, t.language, t.category,
+                    (t.status || '').toLowerCase(), headerType, headerContent,
+                    body, footer, buttons, t.id);
+                created++;
+            }
+        }
 
         res.json({
             success: true,
-            templates,
-            count: templates.length
+            synced: metaTemplates.length,
+            created,
+            updated,
+            unchanged,
         });
     } catch (error) {
         console.error('[TenantPortal] Sync templates error:', error);
