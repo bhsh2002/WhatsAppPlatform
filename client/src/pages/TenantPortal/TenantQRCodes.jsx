@@ -19,20 +19,16 @@ const TenantQRCodes = () => {
     const [creating, setCreating] = useState(false);
 
     const loadQRCodes = useCallback(async () => {
-        if (!tenant?.phone_number_id) {
-            setLoading(false);
-            return;
-        }
         try {
             setLoading(true);
-            const data = await api.getQRCodes(tenant.phone_number_id);
+            const data = await api.getPortalQRCodes();
             setQrCodes(data.qr_codes || []);
         } catch (err) {
             setError(err.message || 'فشل تحميل رموز QR');
         } finally {
             setLoading(false);
         }
-    }, [tenant]);
+    }, []);
 
     useEffect(() => { loadQRCodes(); }, [loadQRCodes]);
 
@@ -40,7 +36,7 @@ const TenantQRCodes = () => {
         if (!newMessage.trim()) return;
         try {
             setCreating(true);
-            await api.createQRCode(tenant.phone_number_id, { prefilled_message: newMessage });
+            await api.createPortalQRCode({ prefilled_message: newMessage });
             setSuccess('تم إنشاء رمز QR بنجاح');
             setCreateOpen(false);
             setNewMessage('');
@@ -55,7 +51,7 @@ const TenantQRCodes = () => {
     const handleDelete = async (qrCodeId) => {
         if (!window.confirm('هل أنت متأكد من حذف رمز QR؟')) return;
         try {
-            await api.deleteQRCode(tenant.phone_number_id, qrCodeId);
+            await api.deletePortalQRCode(qrCodeId);
             setSuccess('تم حذف رمز QR');
             loadQRCodes();
         } catch (err) {

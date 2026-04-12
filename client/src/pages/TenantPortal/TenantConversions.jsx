@@ -34,7 +34,7 @@ const TenantConversions = () => {
     const loadData = useCallback(async () => {
         try {
             setLoading(true);
-            const data = await api.getConversionHistory();
+            const data = await api.getPortalConversionHistory();
             setEvents(data.events || []);
             setStats(data.stats || null);
         } catch (err) {
@@ -56,7 +56,7 @@ const TenantConversions = () => {
             if (form.value) {
                 payload.custom_data = { value: parseFloat(form.value), currency: form.currency };
             }
-            await api.logConversionEvent(payload);
+            await api.logPortalConversionEvent(payload);
             setSuccess('تم تسجيل الحدث بنجاح');
             setLogOpen(false);
             setForm({ event_name: 'Purchase', phone: '', value: '', currency: 'LYD' });

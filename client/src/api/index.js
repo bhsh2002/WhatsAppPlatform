@@ -367,6 +367,32 @@ class ApiService {
         return this.request('/api/portal/analytics/summary');
     }
 
+    async getPortalQRCodes() {
+        return this.request('/api/portal/qr-codes');
+    }
+
+    async createPortalQRCode(data) {
+        return this.request('/api/portal/qr-codes', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deletePortalQRCode(qrCodeId) {
+        return this.request(`/api/portal/qr-codes/${qrCodeId}`, { method: 'DELETE' });
+    }
+
+    async getPortalConversionHistory() {
+        return this.request('/api/portal/conversions/history');
+    }
+
+    async logPortalConversionEvent(data) {
+        return this.request('/api/portal/conversions/log-event', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     // ============================================
     // Admin Template Management
     // ============================================

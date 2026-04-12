@@ -1602,4 +1602,204 @@ router.get('/analytics/summary', (req, res) => {
     }
 });
 
+// ============================================
+// QR Codes (Tenant)
+// ============================================
+router.get('/qr-codes', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+
+        if (!tenant?.phone_number_id || !tenant?.access_token) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.phone_number_id}/message_qrdls`,
+            { headers: { 'Authorization': `Bearer ${tenant.access_token}` } }
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل جلب رموز QR', details: data.error
+            });
+        }
+
+        res.json({ qr_codes: data.data || [], paging: data.paging || null });
+    } catch (error) {
+        console.error('[TenantPortal] QR list error:', error);
+        res.status(500).json({ error: 'فشل جلب رموز QR' });
+    }
+});
+
+router.post('/qr-codes', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { prefilled_message, generate_qr_image } = req.body;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+
+        if (!tenant?.phone_number_id || !tenant?.access_token) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+        if (!prefilled_message) {
+            return res.status(400).json({ error: 'نص الرسالة المعبأة مسبقاً مطلوب' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.phone_number_id}/message_qrdls`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ prefilled_message, generate_qr_image: generate_qr_image || 'PNG' })
+            }
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل إنشاء رمز QR', details: data.error
+            });
+        }
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'qr_code_created', 'إنشاء رمز QR جديد', 'success')
+        `).run(tenantId, tenant.name);
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('[TenantPortal] QR create error:', error);
+        res.status(500).json({ error: 'فشل إنشاء رمز QR' });
+    }
+});
+
+router.delete('/qr-codes/:qrCodeId', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { qrCodeId } = req.params;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+
+        if (!tenant?.phone_number_id || !tenant?.access_token) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.phone_number_id}/message_qrdls/${qrCodeId}`,
+            { method: 'DELETE', headers: { 'Authorization': `Bearer ${tenant.access_token}` } }
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل حذف رمز QR', details: data.error
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] QR delete error:', error);
+        res.status(500).json({ error: 'فشل حذف رمز QR' });
+    }
+});
+
+// ============================================
+// Conversions (Tenant)
+// ============================================
+router.get('/conversions/history', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = parseInt(req.query.offset) || 0;
+
+        const events = db.prepare(
+            'SELECT * FROM conversion_events WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        ).all(tenantId, limit, offset);
+
+        const total = db.prepare(
+            'SELECT COUNT(*) as total FROM conversion_events WHERE tenant_id = ?'
+        ).get(tenantId)?.total || 0;
+
+        const stats = {
+            totalEvents: total,
+            sentEvents: db.prepare("SELECT COUNT(*) as count FROM conversion_events WHERE tenant_id = ? AND status = 'sent'").get(tenantId)?.count || 0,
+            failedEvents: db.prepare("SELECT COUNT(*) as count FROM conversion_events WHERE tenant_id = ? AND status = 'failed'").get(tenantId)?.count || 0,
+            eventBreakdown: db.prepare(
+                'SELECT event_name, COUNT(*) as count FROM conversion_events WHERE tenant_id = ? GROUP BY event_name ORDER BY count DESC'
+            ).all(tenantId),
+        };
+
+        res.json({ events, total, limit, offset, stats });
+    } catch (error) {
+        console.error('[TenantPortal] Conversions history error:', error);
+        res.status(500).json({ error: 'فشل جلب سجل الأحداث' });
+    }
+});
+
+router.post('/conversions/log-event', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { phone, event_name, wamid, custom_data } = req.body;
+
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const datasetId = tenant.dataset_id;
+        if (!datasetId) {
+            db.prepare(`
+                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status)
+                VALUES (?, 'local', ?, ?, ?, ?, ?, 'local_only')
+            `).run(tenantId, event_name, new Date().toISOString(), phone || null, wamid || null, custom_data ? JSON.stringify(custom_data) : null);
+
+            return res.json({ success: true, note: 'الحدث تم حفظه محلياً فقط.' });
+        }
+
+        const formattedEvent = {
+            event_name,
+            event_time: Math.floor(Date.now() / 1000),
+            action_source: 'business_messaging',
+            messaging_channel: 'whatsapp',
+            user_data: {}
+        };
+
+        if (phone) {
+            formattedEvent.user_data.phones = [crypto.createHash('sha256').update(phone.toLowerCase().trim()).digest('hex')];
+        }
+        if (wamid) formattedEvent.user_data.madid = wamid;
+        if (custom_data) formattedEvent.custom_data = custom_data;
+
+        const response = await fetch(`${META_API_BASE}/${datasetId}/events`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${tenant.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ data: [formattedEvent] })
+        });
+
+        const data = await response.json();
+        const status = response.ok ? 'sent' : 'failed';
+
+        db.prepare(`
+            INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(tenantId, datasetId, event_name, new Date().toISOString(), phone || null, wamid || null,
+            custom_data ? JSON.stringify(custom_data) : null, status, JSON.stringify(data));
+
+        if (response.ok) {
+            res.json({ success: true, data });
+        } else {
+            res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الحدث', details: data.error });
+        }
+    } catch (error) {
+        console.error('[TenantPortal] Log event error:', error);
+        res.status(500).json({ error: 'فشل تسجيل الحدث' });
+    }
+});
+
 export default router;
