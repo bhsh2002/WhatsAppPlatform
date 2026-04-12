@@ -590,10 +590,74 @@ class ApiService {
     async getWebhookSubscriptions(tenantId) {
         return this.request(`/api/tenants/${tenantId}/webhook-subscriptions`);
     }
+
+    // ============================================
+    // Contact Management (Admin)
+    // ============================================
+    async getContacts(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/messages/contacts${query ? '?' + query : ''}`);
+    }
+
+    async updateContact(id, data) {
+        return this.request(`/api/messages/contacts/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Contact Management (Tenant)
+    // ============================================
+    async getPortalContacts(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/contacts${query ? '?' + query : ''}`);
+    }
+
+    async updatePortalContact(id, data) {
+        return this.request(`/api/portal/contacts/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Broadcast
+    // ============================================
+    async broadcastMessage(data) {
+        return this.request('/api/messages/broadcast', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Tenant Self-Registration
+    // ============================================
+    async registerTenant(data) {
+        return this.request('/api/auth/register-tenant', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // 24h Window Status (Tenant)
+    // ============================================
+    async getWindowStatus(phone) {
+        return this.request(`/api/portal/messages/window/${encodeURIComponent(phone)}`);
+    }
+
+    // ============================================
+    // Credits Management (Admin)
+    // ============================================
+    async addTenantCredits(tenantId, amount) {
+        return this.request(`/api/tenants/${tenantId}/credits`, {
+            method: 'POST',
+            body: JSON.stringify({ amount }),
+        });
+    }
 }
 
 const api = new ApiService();
 export default api;
-
-
-
