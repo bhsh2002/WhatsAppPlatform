@@ -44,7 +44,8 @@ const TenantChat = () => {
         let sseConnected = false;
 
         try {
-            const evtSource = new EventSource(`${baseUrl}/api/portal/events`);
+            const token = localStorage.getItem('auth_token');
+            const evtSource = new EventSource(`${baseUrl}/api/portal/events${token ? '?token=' + token : ''}`);
 
             evtSource.addEventListener('connected', () => {
                 sseConnected = true;

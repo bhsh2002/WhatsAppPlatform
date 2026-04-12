@@ -363,6 +363,10 @@ class ApiService {
         return this.request('/api/portal/profile');
     }
 
+    async getPortalAnalytics() {
+        return this.request('/api/portal/analytics/summary');
+    }
+
     // ============================================
     // Admin Template Management
     // ============================================
@@ -420,11 +424,11 @@ class ApiService {
     }
 
     async getMyBusinessProfile() {
-        return this.request('/api/business-profile/me/profile');
+        return this.request('/api/portal/business-profile');
     }
 
     async updateMyBusinessProfile(data) {
-        return this.request('/api/business-profile/me/profile', {
+        return this.request('/api/portal/business-profile', {
             method: 'PUT',
             body: JSON.stringify(data),
         });

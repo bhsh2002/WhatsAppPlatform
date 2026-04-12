@@ -14,7 +14,7 @@ const TenantAnalytics = () => {
     const loadStats = useCallback(async () => {
         try {
             setLoading(true);
-            const data = await api.getLocalAnalytics();
+            const data = await api.getPortalAnalytics();
             setStats(data);
         } catch (err) {
             setError(err.message || 'فشل تحميل الإحصائيات');

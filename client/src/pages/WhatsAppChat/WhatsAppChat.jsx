@@ -122,21 +122,14 @@ const WhatsAppChat = () => {
     useEffect(() => {
         fetchConversations();
 
-        const token = localStorage.getItem('token');
+        const authToken = localStorage.getItem('auth_token');
         const baseUrl = import.meta.env.VITE_API_URL || '';
-        const eventSource = new EventSource(`${baseUrl}/api/messages/events`, {
-            // Note: EventSource doesn't support custom headers natively.
-            // We rely on cookie-based auth or pass token via query param.
-        });
 
-        // For auth, we'll use a custom approach: close native and use fetch-based SSE
-        // Actually, let's use polling as the primary with SSE as accelerator
-        let pollingInterval = setInterval(fetchConversations, 15000); // Slower poll as backup
-
-        // Try SSE connection
+        // Try SSE connection with polling fallback
+        let pollingInterval = setInterval(fetchConversations, 15000);
         let sseConnected = false;
         try {
-            const evtSource = new EventSource(`${baseUrl}/api/messages/events`);
+            const evtSource = new EventSource(`${baseUrl}/api/messages/events${authToken ? '?token=' + authToken : ''}`);
 
             evtSource.addEventListener('connected', () => {
                 sseConnected = true;
