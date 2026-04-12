@@ -1,78 +1,17 @@
 import express from 'express';
 import db, { generateApiKey } from '../db/database.js';
 import crypto from 'crypto';
-import multer from 'multer';
 import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
+import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
-
-// Configure multer for document uploads
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + '-' + file.originalname);
-    }
-});
-
-const documentUpload = multer({
-    storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-    fileFilter: (req, file, cb) => {
-        const allowedMimes = [
-            'application/pdf',
-            'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/vnd.ms-excel',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'application/vnd.ms-powerpoint',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            'text/plain'
-        ];
-        if (allowedMimes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('نوع الملف غير مدعوم. يُسمح فقط بالمستندات (PDF, DOC, XLS, PPT)'));
-        }
-    }
-});
-
-// Configure multer for media uploads (images, video, audio)
-const mediaUpload = multer({
-    storage,
-    limits: { fileSize: 16 * 1024 * 1024 }, // 16MB limit
-    fileFilter: (req, file, cb) => {
-        const allowedMimes = [
-            'image/jpeg',
-            'image/png',
-            'image/webp',
-            'video/mp4',
-            'video/3gpp',
-            'audio/aac',
-            'audio/mp4',
-            'audio/mpeg',
-            'audio/ogg',
-        ];
-        if (allowedMimes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('نوع الملف غير مدعوم'));
-        }
-    }
-});
-
 
 
 // Middleware to ensure user is a tenant (has tenant_id)
