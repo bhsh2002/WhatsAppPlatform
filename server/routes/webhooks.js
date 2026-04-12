@@ -157,11 +157,12 @@ router.post('/', (req, res) => {
     res.sendStatus(200);
 
     try {
-        // Log the raw webhook
-        db.prepare(`
+        // Log the raw webhook (tenant_id will be updated after resolution)
+        const logResult = db.prepare(`
       INSERT INTO webhook_logs (event_type, payload)
       VALUES (?, ?)
     `).run(body.object || 'unknown', JSON.stringify(body));
+        const webhookLogId = logResult.lastInsertRowid;
 
         // Process WhatsApp Business Account Events
         if (body.object === 'whatsapp_business_account') {
@@ -176,6 +177,12 @@ router.post('/', (req, res) => {
 
                     // Find tenant by phone_number_id
                     const tenant = db.prepare('SELECT * FROM tenants WHERE phone_number_id = ?').get(phoneNumberId);
+
+                    // Associate webhook log with resolved tenant
+                    if (tenant) {
+                        db.prepare('UPDATE webhook_logs SET tenant_id = ? WHERE id = ?')
+                            .run(tenant.id, webhookLogId);
+                    }
 
                     // Handle contact profile updates
                     if (value.contacts) {
