@@ -232,20 +232,38 @@ router.post('/messages/send', async (req, res) => {
                 language: { code: template.language || 'ar' },
             };
 
+            // Validate template variable count
+            const placeholders = (template.body || '').match(/\{\{\d+\}\}/g) || [];
+            const expectedCount = placeholders.length;
+
+            let providedParams = [];
+            if (components && Array.isArray(components) && components.length > 0) {
+                const bodyComp = components.find(c => c.type === 'body' || c.type === 'BODY');
+                providedParams = bodyComp?.parameters || [];
+            } else if (template.variables) {
+                try {
+                    const variables = JSON.parse(template.variables);
+                    providedParams = variables.body || [];
+                } catch (e) { }
+            }
+
+            if (expectedCount > 0 && providedParams.length !== expectedCount) {
+                return res.status(400).json({
+                    error: `القالب يتطلب ${expectedCount} متغيرات، تم تقديم ${providedParams.length}`,
+                    code: 'TEMPLATE_PARAM_MISMATCH',
+                    expected: expectedCount,
+                    provided: providedParams.length,
+                });
+            }
+
             // Add components if provided (from user input)
             if (components && Array.isArray(components) && components.length > 0) {
                 payload.template.components = components;
-            } else if (template.variables) {
-                // Fallback to stored variables if no input provided (legacy/auto messages)
-                try {
-                    const variables = JSON.parse(template.variables);
-                    if (variables.body && variables.body.length > 0) {
-                        payload.template.components = [{
-                            type: 'body',
-                            parameters: variables.body.map(v => ({ type: 'text', text: v }))
-                        }];
-                    }
-                } catch (e) { }
+            } else if (providedParams.length > 0) {
+                payload.template.components = [{
+                    type: 'body',
+                    parameters: providedParams.map(v => typeof v === 'string' ? { type: 'text', text: v } : v)
+                }];
             }
         } else {
             payload.type = 'text';

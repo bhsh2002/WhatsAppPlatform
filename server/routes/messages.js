@@ -58,6 +58,27 @@ router.post('/send', async (req, res) => {
                 name: templateName,
                 language: { code: templateLanguage || 'ar' },
             };
+
+            // Validate template variable count if we can find the template
+            if (tenant_id) {
+                const tmpl = db.prepare('SELECT body FROM templates WHERE tenant_id = ? AND name = ?')
+                    .get(tenant_id, templateName);
+                if (tmpl) {
+                    const placeholders = (tmpl.body || '').match(/\{\{\d+\}\}/g) || [];
+                    const expectedCount = placeholders.length;
+                    const bodyComp = templateParams?.find(c => c.type === 'body' || c.type === 'BODY');
+                    const providedCount = bodyComp?.parameters?.length || 0;
+                    if (expectedCount > 0 && providedCount !== expectedCount) {
+                        return res.status(400).json({
+                            error: `القالب يتطلب ${expectedCount} متغيرات، تم تقديم ${providedCount}`,
+                            code: 'TEMPLATE_PARAM_MISMATCH',
+                            expected: expectedCount,
+                            provided: providedCount,
+                        });
+                    }
+                }
+            }
+
             if (templateParams && templateParams.length > 0) {
                 payload.template.components = templateParams;
             }
