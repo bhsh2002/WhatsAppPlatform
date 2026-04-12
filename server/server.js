@@ -29,6 +29,7 @@ import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 import db from './db/database.js';
 import { startMaintenanceScheduler } from './services/maintenance.js';
 import { uploadDir } from './config/upload.js';
+import { errorHandler } from './middleware/errorHandler.js';
 
 // ===========================================
 // Startup validation — fail fast on missing secrets
@@ -148,11 +149,8 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
 
-// Error handler
-app.use((err, req, res, next) => {
-    console.error('[Error]', err);
-    res.status(500).json({ error: 'Internal server error' });
-});
+// Error handler — must be after all routes
+app.use(errorHandler);
 
 // Start server
 const server = app.listen(PORT, () => {
