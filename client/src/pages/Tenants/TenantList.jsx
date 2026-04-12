@@ -40,7 +40,8 @@ import {
     WhatsApp as WhatsAppIcon,
     PersonAdd as PersonAddIcon,
     Key as KeyIcon,
-    CheckCircle as CheckCircleIcon
+    CheckCircle as CheckCircleIcon,
+    AccountBalanceWallet as CreditsIcon
 } from '@mui/icons-material';
 
 const TenantList = () => {
@@ -74,6 +75,11 @@ const TenantList = () => {
     const [accountInfo, setAccountInfo] = useState(null);
     const [accountLoading, setAccountLoading] = useState(false);
     const [accountError, setAccountError] = useState(null);
+
+    // Credits top-up state
+    const [showCreditsModal, setShowCreditsModal] = useState(false);
+    const [creditsAmount, setCreditsAmount] = useState(100);
+    const [creditsLoading, setCreditsLoading] = useState(false);
 
     const filteredTenants = tenants.filter(tenant => {
         const matchesSearch = tenant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -266,6 +272,27 @@ const TenantList = () => {
         handleMenuClose();
     };
 
+    const openCreditsModal = () => {
+        setCreditsAmount(100);
+        setShowCreditsModal(true);
+        setAnchorEl(null);
+    };
+
+    const handleAddCredits = async () => {
+        if (!selectedTenantId || creditsAmount <= 0) return;
+        try {
+            setCreditsLoading(true);
+            const result = await api.addTenantCredits(selectedTenantId, creditsAmount);
+            alert(`تم إضافة ${creditsAmount} رصيد بنجاح. الرصيد الجديد: ${result.credits}`);
+            setShowCreditsModal(false);
+            window.location.reload();
+        } catch (err) {
+            alert('فشل إضافة الرصيد: ' + err.message);
+        } finally {
+            setCreditsLoading(false);
+        }
+    };
+
     return (
         <Box sx={{ p: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
@@ -396,6 +423,12 @@ const TenantList = () => {
                         <PersonAddIcon fontSize="small" color="primary" />
                     </ListItemIcon>
                     حساب الدخول
+                </MenuItem>
+                <MenuItem onClick={openCreditsModal}>
+                    <ListItemIcon>
+                        <CreditsIcon fontSize="small" color="success" />
+                    </ListItemIcon>
+                    إضافة رصيد
                 </MenuItem>
                 <Divider />
                 <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
@@ -667,6 +700,61 @@ const TenantList = () => {
                 <DialogActions>
                     <Button onClick={() => setShowAccountModal(false)}>
                         إغلاق
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Credits Top-Up Dialog */}
+            <Dialog open={showCreditsModal} onClose={() => !creditsLoading && setShowCreditsModal(false)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CreditsIcon color="success" />
+                    إضافة رصيد
+                </DialogTitle>
+                <DialogContent dividers>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                            <Typography variant="body2" color="text.secondary">العميل</Typography>
+                            <Typography variant="h6">
+                                {tenants.find(t => t.id === selectedTenantId)?.name || '—'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                الرصيد الحالي: {tenants.find(t => t.id === selectedTenantId)?.credits?.toLocaleString() || 0}
+                            </Typography>
+                        </Box>
+
+                        <TextField
+                            fullWidth
+                            type="number"
+                            label="عدد الرصيد المراد إضافته"
+                            value={creditsAmount}
+                            onChange={(e) => setCreditsAmount(Math.max(1, parseInt(e.target.value) || 0))}
+                            inputProps={{ min: 1, max: 100000 }}
+                            helperText="كل رسالة مرسلة تخصم 1 رصيد"
+                        />
+
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            {[50, 100, 500, 1000, 5000].map(amt => (
+                                <Chip
+                                    key={amt}
+                                    label={`+${amt}`}
+                                    onClick={() => setCreditsAmount(amt)}
+                                    color={creditsAmount === amt ? 'success' : 'default'}
+                                    clickable
+                                />
+                            ))}
+                        </Box>
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowCreditsModal(false)} disabled={creditsLoading}>إلغاء</Button>
+                    <Button
+                        variant="contained"
+                        color="success"
+                        onClick={handleAddCredits}
+                        disabled={creditsLoading || creditsAmount <= 0}
+                        startIcon={creditsLoading ? <CircularProgress size={16} /> : <CreditsIcon />}
+                    >
+                        {creditsLoading ? 'جاري الإضافة...' : `إضافة ${creditsAmount} رصيد`}
                     </Button>
                 </DialogActions>
             </Dialog>

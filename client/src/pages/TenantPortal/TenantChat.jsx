@@ -21,6 +21,7 @@ const TenantChat = () => {
     const [sendingDoc, setSendingDoc] = useState(false);
     const [sendingInteractive, setSendingInteractive] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [windowStatus, setWindowStatus] = useState(null);
 
     // Template State
     const [templates, setTemplates] = useState([]);
@@ -86,8 +87,11 @@ const TenantChat = () => {
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact);
+            fetchWindowStatus(selectedChat.contact);
             const interval = setInterval(() => fetchMessages(selectedChat.contact), 15000);
             return () => clearInterval(interval);
+        } else {
+            setWindowStatus(null);
         }
     }, [selectedChat]);
 
@@ -126,6 +130,16 @@ const TenantChat = () => {
             setTemplates(data || []);
         } catch (err) {
             console.error('Failed to fetch templates:', err);
+        }
+    };
+
+    const fetchWindowStatus = async (phone) => {
+        try {
+            const data = await api.getWindowStatus(phone);
+            setWindowStatus(data);
+        } catch (err) {
+            console.error('Failed to fetch window status:', err);
+            setWindowStatus(null);
         }
     };
 
@@ -361,6 +375,7 @@ const TenantChat = () => {
                             getMediaDownloadUrl={getMediaDownloadUrl}
                             getDateKey={getDateKey}
                             templates={templates}
+                            windowStatus={windowStatus}
                         />
                     ) : (
                         <Box sx={{

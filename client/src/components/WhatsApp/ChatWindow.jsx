@@ -13,7 +13,9 @@ import {
     DialogTitle,
     DialogContent,
     DialogActions,
-    Button
+    Button,
+    Alert,
+    Chip
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -29,6 +31,7 @@ import {
     InsertDriveFile as FileIcon,
     SmartButton as InteractiveIcon
 } from '@mui/icons-material';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TemplatePicker from './TemplatePicker';
 import MessageBubble from './MessageBubble';
 import InteractiveMessageDialog from './InteractiveMessageDialog';
@@ -56,6 +59,7 @@ const ChatWindow = ({
     getMediaDownloadUrl,
     getDateKey,
     templates = [],
+    windowStatus = null,
 }) => {
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
     const [showInteractiveDialog, setShowInteractiveDialog] = useState(false);
@@ -254,6 +258,27 @@ const ChatWindow = ({
                 )}
                 <div ref={messagesEndRef} />
             </Box>
+
+            {/* 24h Window Status */}
+            {windowStatus && !windowStatus.is_open && (
+                <Alert
+                    severity="warning"
+                    icon={<AccessTimeIcon />}
+                    sx={{ mx: 1, mb: 0.5, borderRadius: 2 }}
+                >
+                    نافذة المحادثة (24 ساعة) مغلقة — يمكنك فقط إرسال قوالب معتمدة.
+                </Alert>
+            )}
+            {windowStatus && windowStatus.is_open && windowStatus.window_closes_at && (
+                <Chip
+                    icon={<AccessTimeIcon />}
+                    label={`النافذة مفتوحة — تغلق ${new Date(windowStatus.window_closes_at).toLocaleTimeString('ar-LY', { hour: '2-digit', minute: '2-digit' })}`}
+                    color="success"
+                    size="small"
+                    variant="outlined"
+                    sx={{ mx: 2, mb: 0.5, alignSelf: 'center' }}
+                />
+            )}
 
             {/* Input Area */}
             <Paper elevation={0} sx={{

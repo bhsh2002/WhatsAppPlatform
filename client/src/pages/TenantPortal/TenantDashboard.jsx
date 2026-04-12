@@ -23,7 +23,8 @@ import {
     Description as TemplateIcon,
     NotificationsActive as UnreadIcon,
     Refresh as RefreshIcon,
-    History as HistoryIcon
+    History as HistoryIcon,
+    AccountBalanceWallet as CreditsIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api';
@@ -195,7 +196,31 @@ const TenantDashboard = () => {
                         description="إجمالي الرسائل اليوم"
                     />
                 </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <StatCard
+                        title="الرصيد المتبقي"
+                        value={dashboardData?.tenant?.credits ?? '—'}
+                        icon={<CreditsIcon />}
+                        color={
+                            (dashboardData?.tenant?.credits ?? 999) > 100 ? 'success' :
+                            (dashboardData?.tenant?.credits ?? 999) >= 10 ? 'warning' : 'error'
+                        }
+                        description="رصيد إرسال الرسائل"
+                    />
+                </Grid>
             </Grid>
+
+            {/* Low Credit Alert */}
+            {dashboardData?.tenant?.credits !== null && dashboardData?.tenant?.credits < 10 && (
+                <Alert severity="error" sx={{ mb: 3 }}>
+                    ⚠️ رصيدك منخفض جداً ({dashboardData.tenant.credits} رسالة متبقية). تواصل مع المدير لإعادة الشحن.
+                </Alert>
+            )}
+            {dashboardData?.tenant?.credits !== null && dashboardData?.tenant?.credits >= 10 && dashboardData?.tenant?.credits < 50 && (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                    رصيدك يقترب من النفاد ({dashboardData.tenant.credits} رسالة متبقية). تواصل مع المدير لإعادة الشحن.
+                </Alert>
+            )}
 
             {/* Recent Activity */}
             <Card elevation={2}>
