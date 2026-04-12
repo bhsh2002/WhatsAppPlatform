@@ -857,6 +857,123 @@ router.post('/send-interactive', async (req, res) => {
 });
 
 // ============================================
+// Broadcast (Admin)
+// ============================================
+router.post('/broadcast', async (req, res) => {
+    try {
+        const { tenant_id, recipients, template_name, template_language, template_params } = req.body;
+
+        if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+            return res.status(400).json({ error: 'recipients array is required' });
+        }
+        if (!template_name) {
+            return res.status(400).json({ error: 'template_name is required (broadcasts must use templates)' });
+        }
+        if (recipients.length > 500) {
+            return res.status(400).json({ error: 'Maximum 500 recipients per broadcast' });
+        }
+
+        // Resolve credentials
+        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
+        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        let tenant = null;
+
+        if (tenant_id) {
+            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+            if (tenant) {
+                phoneNumberId = tenant.phone_number_id || phoneNumberId;
+                accessToken = tenant.access_token || accessToken;
+
+                // Credit check
+                if (tenant.credits !== null && tenant.credits < recipients.length) {
+                    return res.status(402).json({
+                        error: `رصيد غير كافٍ. مطلوب ${recipients.length}، متاح ${tenant.credits}`,
+                        code: 'INSUFFICIENT_CREDITS',
+                        required: recipients.length,
+                        available: tenant.credits,
+                    });
+                }
+            }
+        }
+
+        if (!phoneNumberId || !accessToken) {
+            return res.status(400).json({ error: 'Missing API credentials' });
+        }
+
+        const results = [];
+        let sent = 0, failed = 0;
+
+        for (const recipient of recipients) {
+            try {
+                const payload = {
+                    messaging_product: 'whatsapp',
+                    to: recipient.replace(/\+/g, '').trim(),
+                    type: 'template',
+                    template: {
+                        name: template_name,
+                        language: { code: template_language || 'ar' },
+                    },
+                };
+                if (template_params && template_params.length > 0) {
+                    payload.template.components = template_params;
+                }
+
+                const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const messageId = data.messages?.[0]?.id;
+                    db.prepare(`
+                        INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid)
+                        VALUES (?, 'outgoing', ?, 'template', ?, 'sent', ?)
+                    `).run(tenant_id || null, recipient, `[قالب: ${template_name}]`, messageId);
+                    results.push({ recipient, status: 'sent', message_id: messageId });
+                    sent++;
+                } else {
+                    results.push({ recipient, status: 'failed', error: data.error?.message });
+                    failed++;
+                }
+            } catch (err) {
+                results.push({ recipient, status: 'failed', error: err.message });
+                failed++;
+            }
+
+            // Rate limit: ~10 msg/sec to stay under Meta's limits
+            await new Promise(r => setTimeout(r, 100));
+        }
+
+        // Deduct credits for successful sends
+        if (tenant_id && sent > 0) {
+            db.prepare('UPDATE tenants SET credits = credits - ? WHERE id = ? AND credits >= ?')
+                .run(sent, tenant_id, sent);
+        }
+
+        // Log activity
+        if (tenant) {
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (?, ?, 'broadcast', ?, ?)
+            `).run(tenant_id, tenant.name,
+                `بث ${template_name} إلى ${recipients.length} مستلم (${sent} نجاح، ${failed} فشل)`,
+                failed === 0 ? 'success' : 'partial');
+        }
+
+        res.json({ success: true, total: recipients.length, sent, failed, results });
+    } catch (error) {
+        console.error('[Messages] Broadcast error:', error);
+        res.status(500).json({ error: 'Failed to broadcast' });
+    }
+});
+
+// ============================================
 // Contact Management (Admin)
 // ============================================
 
