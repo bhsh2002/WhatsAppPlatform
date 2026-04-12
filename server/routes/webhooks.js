@@ -162,17 +162,16 @@ router.post('/', (req, res) => {
                         value.contacts.forEach(contact => {
                             const profileName = contact.profile?.name || null;
                             const phone = contact.wa_id;
+                            const tenantId = tenant?.id || null;
 
                             if (phone) {
                                 db.prepare(`
-                                    INSERT INTO contacts (phone, profile_name, updated_at)
-                                    VALUES (?, ?, CURRENT_TIMESTAMP)
-                                    ON CONFLICT(phone) DO UPDATE SET
+                                    INSERT INTO contacts (tenant_id, phone, profile_name, updated_at)
+                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                                    ON CONFLICT(tenant_id, phone) DO UPDATE SET
                                         profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
                                         updated_at = CURRENT_TIMESTAMP
-                                `).run(phone, profileName);
-
-                                console.log('[Webhook] Contact profile saved:', phone, profileName);
+                                `).run(tenantId, phone, profileName);
                             }
                         });
                     }
