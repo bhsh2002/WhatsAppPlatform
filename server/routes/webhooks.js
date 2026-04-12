@@ -115,15 +115,6 @@ router.post('/', (req, res) => {
     if (APP_SECRET) {
         const signature = req.headers['x-hub-signature-256'];
         
-        // Debug logging
-        console.log('[Webhook] Signature validation debug:', {
-            hasSignature: !!signature,
-            hasRawBody: !!req.rawBody,
-            rawBodyLength: req.rawBody?.length,
-            appSecretLength: APP_SECRET?.length,
-            appSecretFirstChars: APP_SECRET ? APP_SECRET.substring(0, 4) + '...' : 'none'
-        });
-        
         if (!signature || !req.rawBody) {
             console.error('[Webhook] Missing signature or rawBody');
             return res.sendStatus(403);
@@ -131,26 +122,16 @@ router.post('/', (req, res) => {
 
         const expectedSignature = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
         
-        // Debug: show both signatures (first 20 chars only for security)
-        console.log('[Webhook] Signature comparison:', {
-            received: signature.substring(0, 30) + '...',
-            expected: expectedSignature.substring(0, 30) + '...',
-            match: signature === expectedSignature
-        });
-        
         if (signature !== expectedSignature) {
-            console.error('[Webhook] Invalid signature');
+            console.error('[Webhook] Invalid signature — rejecting request');
             return res.sendStatus(403);
         }
-        
-        console.log('[Webhook] Signature validated successfully');
     } else {
-        console.warn('[Webhook] Skipping signature validation - APP_SECRET not set');
+        console.warn('[Webhook] Skipping signature validation — APP_SECRET not set');
     }
 
     const body = req.body;
 
-    console.log('[Webhook] Received event:', JSON.stringify(body, null, 2));
 
     // Always respond 200 OK quickly to Meta
     res.sendStatus(200);
