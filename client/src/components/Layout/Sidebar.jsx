@@ -33,7 +33,9 @@ import {
     Handshake as HandshakeIcon,
     TrendingUp as TrendingUpIcon,
     PhoneCallback as PhoneCallbackIcon,
-    Webhook as WebhookSubIcon
+    Webhook as WebhookSubIcon,
+    ContactPhone as ContactPhoneIcon,
+    Campaign as CampaignIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -52,6 +54,8 @@ const Sidebar = () => {
         { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
         { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
         { label: 'المحادثات', path: '/chat', icon: <ChatIcon /> },
+        { label: 'جهات الاتصال', path: '/contacts', icon: <ContactPhoneIcon /> },
+        { label: 'البث الجماعي', path: '/broadcast', icon: <CampaignIcon /> },
         { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
         { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
@@ -67,6 +71,7 @@ const Sidebar = () => {
     const tenantNavItems = [
         { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
         { label: 'المحادثات', path: '/portal/chat', icon: <ChatIcon /> },
+        { label: 'جهات الاتصال', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
         { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
         { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <StoreIcon /> },
         { label: 'التحليلات', path: '/portal/analytics', icon: <AnalyticsIcon /> },

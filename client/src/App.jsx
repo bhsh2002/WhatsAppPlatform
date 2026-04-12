@@ -28,6 +28,7 @@ import TenantBusinessProfile from './pages/TenantPortal/TenantBusinessProfile';
 import TenantAnalytics from './pages/TenantPortal/TenantAnalytics';
 import TenantQRCodes from './pages/TenantPortal/TenantQRCodes';
 import TenantConversions from './pages/TenantPortal/TenantConversions';
+import TenantContacts from './pages/TenantPortal/TenantContacts';
 
 // Admin Feature Pages
 import BusinessManager from './pages/Settings/BusinessManager';
@@ -35,6 +36,8 @@ import FacebookPages from './pages/Settings/FacebookPages';
 import PartnerSolutions from './pages/Settings/PartnerSolutions';
 import PhoneNumbers from './pages/Settings/PhoneNumbers';
 import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
+import ContactManager from './pages/Contacts/ContactManager';
+import BroadcastManager from './pages/Broadcast/BroadcastManager';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -125,6 +128,22 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><WhatsAppChat /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/contacts"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><ContactManager /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/broadcast"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><BroadcastManager /></MainLayout>
           </ProtectedRoute>
         }
       />
@@ -257,6 +276,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantConversions /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/contacts"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantContacts /></MainLayout>
           </ProtectedRoute>
         }
       />
