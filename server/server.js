@@ -119,14 +119,14 @@ app.use('/auth', authLimiter, authRouter);
 app.use('/tenants', authMiddleware, adminMiddleware, tenantsRouter);
 app.use('/stats', authMiddleware, adminMiddleware, statsRouter);
 app.use('/messages', authMiddleware, adminMiddleware, messagesRouter);
-app.use('/business-profile', authMiddleware, businessProfileRouter);
+app.use('/business-profile', authMiddleware, adminMiddleware, businessProfileRouter);
 app.use('/phone-numbers', authMiddleware, adminMiddleware, phoneNumbersRouter);
-app.use('/qr-codes', authMiddleware, qrCodesRouter);
-app.use('/analytics', authMiddleware, analyticsRouter);
+app.use('/qr-codes', authMiddleware, adminMiddleware, qrCodesRouter);
+app.use('/analytics', authMiddleware, adminMiddleware, analyticsRouter);
 app.use('/business-manager', authMiddleware, adminMiddleware, businessManagerRouter);
 app.use('/pages', authMiddleware, adminMiddleware, pagesRouter);
 app.use('/partner', authMiddleware, adminMiddleware, partnerSolutionsRouter);
-app.use('/conversions', authMiddleware, conversionsRouter);
+app.use('/conversions', authMiddleware, adminMiddleware, conversionsRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);
