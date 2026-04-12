@@ -13,60 +13,34 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// ============================================
-// Helper: Get tenant credentials
-// ============================================
+import { getTenantCredentials as _getTenantCredentials } from '../../services/credentials.js';
+
+// Adapter: wraps shared credentials service to match existing v1 API contract
 const getTenantCredentials = (tenantId) => {
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-    if (!tenant || !tenant.phone_number_id || !tenant.access_token) {
-        return null;
-    }
-    if (tenant.status === 'Suspended') {
-        return { suspended: true };
-    }
-    return {
-        phoneNumberId: tenant.phone_number_id,
-        accessToken: tenant.access_token
-    };
+    const { tenant, accessToken, phoneNumberId } = _getTenantCredentials(tenantId);
+    if (!tenant || !phoneNumberId || !accessToken) return null;
+    if (tenant.status === 'Suspended') return { suspended: true };
+    return { phoneNumberId, accessToken };
 };
 
-// ============================================
-// Helper: Send webhook callback
-// ============================================
+// Minimal callback sender for API v1 outbound notifications
 const sendCallback = async (tenantId, event, data) => {
     try {
-        const settings = db.prepare(`
-            SELECT * FROM tenant_api_settings 
-            WHERE tenant_id = ? AND callback_url IS NOT NULL
-        `).get(tenantId);
+        const settings = db.prepare(
+            'SELECT callback_url, webhook_secret FROM tenant_api_settings WHERE tenant_id = ? AND callback_url IS NOT NULL'
+        ).get(tenantId);
+        if (!settings?.callback_url) return;
 
-        if (!settings || !settings.callback_url) return;
-
-        const payload = {
-            event,
-            timestamp: new Date().toISOString(),
-            tenant_id: tenantId,
-            data
-        };
-
-        const signature = crypto.createHmac('sha256', settings.webhook_secret)
-            .update(JSON.stringify(payload))
-            .digest('hex');
-
-        await fetch(settings.callback_url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Signature': `sha256=${signature}`
-            },
-            body: JSON.stringify(payload)
-        });
-    } catch (error) {
-        console.error('[API v1] Callback failed:', error);
-    }
+        const body = JSON.stringify({ event, timestamp: new Date().toISOString(), tenant_id: tenantId, data });
+        const headers = { 'Content-Type': 'application/json' };
+        if (settings.webhook_secret) {
+            headers['X-Signature'] = 'sha256=' + crypto.createHmac('sha256', settings.webhook_secret).update(body).digest('hex');
+        }
+        fetch(settings.callback_url, { method: 'POST', headers, body, signal: AbortSignal.timeout(10000) })
+            .catch(err => console.error('[API v1] Callback failed:', err.message));
+    } catch (e) { /* ignore */ }
 };
 
-// ============================================
 // Health Check (public)
 // ============================================
 router.get('/health', (req, res) => {
