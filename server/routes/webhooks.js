@@ -193,10 +193,11 @@ router.post('/', (req, res) => {
 
                             if (phone) {
                                 db.prepare(`
-                                    INSERT INTO contacts (tenant_id, phone, profile_name, updated_at)
-                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                                    INSERT INTO contacts (tenant_id, phone, profile_name, last_customer_message_at, updated_at)
+                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                     ON CONFLICT(tenant_id, phone) DO UPDATE SET
                                         profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
+                                        last_customer_message_at = CURRENT_TIMESTAMP,
                                         updated_at = CURRENT_TIMESTAMP
                                 `).run(tenantId, phone, profileName);
                             }

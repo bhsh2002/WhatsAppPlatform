@@ -46,6 +46,24 @@ router.post('/send', async (req, res) => {
             return res.status(400).json({ error: 'Missing API credentials. Configure tenant or provide phone_number_id and access_token.' });
         }
 
+        // 24h conversation window enforcement for non-template messages (tenant sends only)
+        if (type !== 'template' && tenant_id) {
+            const contact = db.prepare(
+                'SELECT last_customer_message_at FROM contacts WHERE tenant_id = ? AND phone = ?'
+            ).get(tenant_id, recipient);
+
+            const lastMsg = contact?.last_customer_message_at ? new Date(contact.last_customer_message_at) : null;
+            const windowMs = 24 * 60 * 60 * 1000;
+
+            if (!lastMsg || (Date.now() - lastMsg.getTime()) > windowMs) {
+                return res.status(400).json({
+                    error: 'نافذة المحادثة (24 ساعة) مغلقة. يمكنك فقط إرسال قوالب معتمدة.',
+                    code: 'OUTSIDE_WINDOW',
+                    window_closed_at: lastMsg ? new Date(lastMsg.getTime() + windowMs).toISOString() : null,
+                });
+            }
+        }
+
         // Build payload
         let payload = {
             messaging_product: 'whatsapp',

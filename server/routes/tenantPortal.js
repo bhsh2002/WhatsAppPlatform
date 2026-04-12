@@ -186,6 +186,27 @@ router.get('/conversations/:phone/messages', (req, res) => {
 });
 
 // ============================================
+// Conversation Window Status
+// ============================================
+router.get('/messages/window/:phone', (req, res) => {
+    const tenantId = req.user.tenant_id;
+    const phone = req.params.phone;
+    const contact = db.prepare(
+        'SELECT last_customer_message_at FROM contacts WHERE tenant_id = ? AND phone = ?'
+    ).get(tenantId, phone);
+
+    const lastMsg = contact?.last_customer_message_at ? new Date(contact.last_customer_message_at) : null;
+    const windowMs = 24 * 60 * 60 * 1000;
+    const isOpen = lastMsg && (Date.now() - lastMsg.getTime()) <= windowMs;
+
+    res.json({
+        is_open: isOpen,
+        last_customer_message_at: lastMsg?.toISOString() || null,
+        window_closes_at: lastMsg ? new Date(lastMsg.getTime() + windowMs).toISOString() : null,
+    });
+});
+
+// ============================================
 // Send Message
 // ============================================
 router.post('/messages/send', async (req, res) => {
@@ -212,6 +233,25 @@ router.post('/messages/send', async (req, res) => {
 
         if (tenant.status === 'Suspended') {
             return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
+        }
+
+        // 24h conversation window enforcement (non-template messages only)
+        if (type !== 'template') {
+            const contact = db.prepare(
+                'SELECT last_customer_message_at FROM contacts WHERE tenant_id = ? AND phone = ?'
+            ).get(tenantId, recipient);
+
+            const lastMsg = contact?.last_customer_message_at ? new Date(contact.last_customer_message_at) : null;
+            const windowMs = 24 * 60 * 60 * 1000;
+
+            if (!lastMsg || (Date.now() - lastMsg.getTime()) > windowMs) {
+                return res.status(400).json({
+                    error: 'نافذة المحادثة (24 ساعة) مغلقة. يمكنك فقط إرسال قوالب معتمدة.',
+                    code: 'OUTSIDE_WINDOW',
+                    window_closed_at: lastMsg ? new Date(lastMsg.getTime() + windowMs).toISOString() : null,
+                    hint: 'استخدم قالب رسالة معتمد لإعادة فتح المحادثة',
+                });
+            }
         }
 
         let payload = {
