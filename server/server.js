@@ -28,6 +28,15 @@ import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 // Import database for seeding
 import db from './db/database.js';
 
+// ===========================================
+// Startup validation — fail fast on missing secrets
+// ===========================================
+if (!process.env.JWT_SECRET) {
+    console.error('❌ FATAL: JWT_SECRET environment variable is not set.');
+    console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3031;
 
