@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import db from '../db/database.js';
+import eventBus from '../services/eventBus.js';
 
 const router = express.Router();
 
@@ -260,6 +261,19 @@ router.post('/', (req, res) => {
                             }
 
                             console.log('[Webhook] Incoming message saved:', message.id);
+
+                            // SSE: push to connected clients
+                            eventBus.emitNewMessage({
+                                tenant_id: tenant?.id || null,
+                                direction: 'incoming',
+                                sender: message.from,
+                                message_type: message.type,
+                                content: extractMessageContent(message),
+                                wamid: message.id,
+                                profile_name: value.contacts?.[0]?.profile?.name || null,
+                                created_at: new Date().toISOString(),
+                            });
+                            eventBus.emitConversationUpdate(tenant?.id || null);
                         });
                     }
 
@@ -271,6 +285,13 @@ router.post('/', (req, res) => {
               `).run(status.status, status.id);
 
                             console.log('[Webhook] Status update:', status.id, '->', status.status);
+
+                            // SSE: push status update
+                            eventBus.emitStatusUpdate({
+                                wamid: status.id,
+                                status: status.status,
+                                tenant_id: tenant?.id || null,
+                            });
 
                             // Send callback for status update
                             if (tenant?.id) {

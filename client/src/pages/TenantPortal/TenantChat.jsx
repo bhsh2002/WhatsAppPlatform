@@ -33,18 +33,60 @@ const TenantChat = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
+    // SSE: Real-time updates with polling fallback
     useEffect(() => {
         fetchConversations();
         fetchTemplates();
-        const interval = setInterval(fetchConversations, 10000);
-        return () => clearInterval(interval);
+
+        const baseUrl = import.meta.env.VITE_API_URL || '';
+        let pollingInterval = setInterval(fetchConversations, 15000);
+        let sseConnected = false;
+
+        try {
+            const evtSource = new EventSource(`${baseUrl}/api/portal/events`);
+
+            evtSource.addEventListener('connected', () => {
+                sseConnected = true;
+                clearInterval(pollingInterval);
+                pollingInterval = setInterval(fetchConversations, 30000);
+            });
+
+            evtSource.addEventListener('message:new', (e) => {
+                const data = JSON.parse(e.data);
+                fetchConversations();
+                if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
+                    fetchMessages(selectedChat.contact);
+                }
+            });
+
+            evtSource.addEventListener('message:status', (e) => {
+                const data = JSON.parse(e.data);
+                setMessages(prev => prev.map(msg =>
+                    msg.wamid === data.wamid ? { ...msg, status: data.status } : msg
+                ));
+            });
+
+            evtSource.addEventListener('conversation:update', () => fetchConversations());
+
+            evtSource.onerror = () => {
+                if (sseConnected) {
+                    sseConnected = false;
+                    clearInterval(pollingInterval);
+                    pollingInterval = setInterval(fetchConversations, 10000);
+                }
+            };
+
+            return () => { evtSource.close(); clearInterval(pollingInterval); };
+        } catch {
+            return () => clearInterval(pollingInterval);
+        }
     }, []);
 
     useEffect(() => {
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact);
-            const interval = setInterval(() => fetchMessages(selectedChat.contact), 5000);
+            const interval = setInterval(() => fetchMessages(selectedChat.contact), 15000);
             return () => clearInterval(interval);
         }
     }, [selectedChat]);

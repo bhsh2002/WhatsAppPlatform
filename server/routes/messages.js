@@ -6,12 +6,37 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
 import { generalUpload as upload, uploadDir, cleanupFile } from '../config/upload.js';
+import eventBus from '../services/eventBus.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
+// ============================================
+// SSE: Real-time message events (admin)
+// ============================================
+router.get('/events', (req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering
+    });
+
+    // Send initial heartbeat
+    res.write('event: connected\ndata: {"status":"ok"}\n\n');
+
+    // Register on admin channel
+    eventBus.addClient('admin', res);
+
+    // Heartbeat every 30s to keep connection alive
+    const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+    }, 30000);
+
+    req.on('close', () => clearInterval(heartbeat));
+});
 
 // Send message via Meta API
 router.post('/send', async (req, res) => {

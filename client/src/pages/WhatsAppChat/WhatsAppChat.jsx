@@ -118,10 +118,73 @@ const WhatsAppChat = () => {
         }
     };
 
+    // SSE: Real-time updates with polling fallback
     useEffect(() => {
         fetchConversations();
-        const interval = setInterval(fetchConversations, 10000);
-        return () => clearInterval(interval);
+
+        const token = localStorage.getItem('token');
+        const baseUrl = import.meta.env.VITE_API_URL || '';
+        const eventSource = new EventSource(`${baseUrl}/api/messages/events`, {
+            // Note: EventSource doesn't support custom headers natively.
+            // We rely on cookie-based auth or pass token via query param.
+        });
+
+        // For auth, we'll use a custom approach: close native and use fetch-based SSE
+        // Actually, let's use polling as the primary with SSE as accelerator
+        let pollingInterval = setInterval(fetchConversations, 15000); // Slower poll as backup
+
+        // Try SSE connection
+        let sseConnected = false;
+        try {
+            const evtSource = new EventSource(`${baseUrl}/api/messages/events`);
+
+            evtSource.addEventListener('connected', () => {
+                sseConnected = true;
+                console.log('[SSE] Connected — real-time updates active');
+                // Slow down polling when SSE is active
+                clearInterval(pollingInterval);
+                pollingInterval = setInterval(fetchConversations, 30000);
+            });
+
+            evtSource.addEventListener('message:new', (e) => {
+                const data = JSON.parse(e.data);
+                // Refresh conversation list
+                fetchConversations();
+                // If this message is for the currently selected chat, refresh messages
+                if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
+                    fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+                }
+            });
+
+            evtSource.addEventListener('message:status', (e) => {
+                const data = JSON.parse(e.data);
+                // Update message status in-place without full refetch
+                setMessages(prev => prev.map(msg =>
+                    msg.wamid === data.wamid ? { ...msg, status: data.status } : msg
+                ));
+            });
+
+            evtSource.addEventListener('conversation:update', () => {
+                fetchConversations();
+            });
+
+            evtSource.onerror = () => {
+                if (sseConnected) {
+                    console.warn('[SSE] Connection lost — falling back to polling');
+                    sseConnected = false;
+                    clearInterval(pollingInterval);
+                    pollingInterval = setInterval(fetchConversations, 10000);
+                }
+            };
+
+            return () => {
+                evtSource.close();
+                clearInterval(pollingInterval);
+            };
+        } catch {
+            // SSE not available, pure polling
+            return () => clearInterval(pollingInterval);
+        }
     }, []);
 
     useEffect(() => {
@@ -129,7 +192,8 @@ const WhatsAppChat = () => {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact, selectedChat.tenant_id);
             fetchTemplates(selectedChat.tenant_id);
-            const interval = setInterval(() => fetchMessages(selectedChat.contact, selectedChat.tenant_id), 5000);
+            // Keep a slower poll for messages as backup
+            const interval = setInterval(() => fetchMessages(selectedChat.contact, selectedChat.tenant_id), 15000);
             return () => clearInterval(interval);
         }
     }, [selectedChat]);

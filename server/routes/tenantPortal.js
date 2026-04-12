@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
 import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
+import eventBus from '../services/eventBus.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +25,24 @@ const ensureTenant = (req, res, next) => {
 
 // Apply tenant middleware to all routes
 router.use(ensureTenant);
+
+// ============================================
+// SSE: Real-time message events (tenant)
+// ============================================
+router.get('/events', (req, res) => {
+    const tenantId = req.user.tenant_id;
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+    res.write('event: connected\ndata: {"status":"ok"}\n\n');
+    eventBus.addClient(`tenant:${tenantId}`, res);
+
+    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 30000);
+    req.on('close', () => clearInterval(heartbeat));
+});
 
 // ============================================
 // Dashboard Stats
