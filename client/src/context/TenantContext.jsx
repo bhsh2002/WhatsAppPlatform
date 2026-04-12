@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../api';
+import { useAuth } from './AuthContext';
 
 const TenantContext = createContext();
 
@@ -7,6 +8,7 @@ const TenantContext = createContext();
 export const useTenants = () => useContext(TenantContext);
 
 export const TenantProvider = ({ children }) => {
+    const { isAdmin, isAuthenticated } = useAuth();
     const [tenants, setTenants] = useState([]);
     const [stats, setStats] = useState({
         total: 0,
@@ -14,11 +16,12 @@ export const TenantProvider = ({ children }) => {
         warning: 0,
         critical: 0,
     });
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // Fetch tenants from backend
+    // Fetch tenants from backend (admin-only)
     const fetchTenants = useCallback(async () => {
+        if (!isAdmin) return;
         try {
             setLoading(true);
             setError(null);
@@ -30,10 +33,11 @@ export const TenantProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [isAdmin]);
 
-    // Fetch stats from backend
+    // Fetch stats from backend (admin-only)
     const fetchStats = useCallback(async () => {
+        if (!isAdmin) return;
         try {
             const data = await api.getDashboardStats();
             setStats(data);
@@ -47,7 +51,7 @@ export const TenantProvider = ({ children }) => {
                 critical: tenants.filter(t => t.quality === 'Low' || t.status === 'Suspended').length,
             });
         }
-    }, [tenants]);
+    }, [isAdmin, tenants]);
 
     // Create tenant
     const createTenant = useCallback(async (data) => {
@@ -72,15 +76,17 @@ export const TenantProvider = ({ children }) => {
         fetchStats();
     }, [fetchStats]);
 
-    // Initial load
+    // Initial load — only for admin users
     useEffect(() => {
-        fetchTenants();
-        fetchStats();
-    }, []);
+        if (isAuthenticated && isAdmin) {
+            fetchTenants();
+            fetchStats();
+        }
+    }, [isAuthenticated, isAdmin]);
 
-    // Refresh stats when tenants change
+    // Refresh stats when tenants change (admin only)
     useEffect(() => {
-        if (tenants.length > 0) {
+        if (isAdmin && tenants.length > 0) {
             fetchStats();
         }
     }, [tenants.length]);
