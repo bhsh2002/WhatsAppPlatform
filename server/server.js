@@ -25,8 +25,10 @@ import conversionsRouter from './routes/conversions.js';
 import { authMiddleware, adminMiddleware } from './middleware/auth.js';
 import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 
-// Import database for seeding
+// Import database and services
 import db from './db/database.js';
+import { startMaintenanceScheduler } from './services/maintenance.js';
+import { uploadDir } from './config/upload.js';
 
 // ===========================================
 // Startup validation — fail fast on missing secrets
@@ -193,6 +195,9 @@ app.listen(PORT, () => {
 ║  • GET  /api/v1/health            - API health check          ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
+
+    // Start background maintenance (log rotation, cleanup)
+    startMaintenanceScheduler(uploadDir);
 });
 
 export default app;
