@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import db from '../db/database.js';
-import { getAccessToken } from '../utils/credentials.js';
+import { getAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 
 const router = express.Router();
