@@ -71,8 +71,12 @@ const seedAdmin = async () => {
 seedAdmin().catch(console.error);
 
 // Middleware
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173'];
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://localhost', 'http://127.0.0.1', 'https://wa.savana.ly', 'http://wa.savana.ly'],
+    origin: CORS_ORIGINS,
     credentials: true
 }));
 app.use(express.json({
