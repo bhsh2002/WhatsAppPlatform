@@ -55,11 +55,11 @@ export function runMigrationsSync(db) {
         try {
             const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
 
-            // Split by semicolons and execute each statement
+            // Split by semicolons, strip comment-only lines, filter empty
             const statements = sql
                 .split(';')
-                .map(s => s.trim())
-                .filter(s => s.length > 0 && !s.startsWith('--'));
+                .map(s => s.split('\n').filter(line => !line.trim().startsWith('--')).join('\n').trim())
+                .filter(s => s.length > 0);
 
             const transaction = db.transaction(() => {
                 for (const stmt of statements) {

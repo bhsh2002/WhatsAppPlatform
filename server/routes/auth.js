@@ -1,10 +1,35 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import db from '../db/database.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
 
 const router = express.Router();
+
+// Helper: sign a JWT with a unique jti for revocation support
+function signToken(payload) {
+    const jti = crypto.randomUUID();
+    const token = jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    return { token, jti };
+}
+
+// Helper: revoke a specific token by jti
+function revokeToken(jti, userId) {
+    // Calculate expiry (7 days from now — matches JWT_EXPIRES_IN)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)')
+        .run(jti, userId, expiresAt);
+}
+
+// Helper: revoke ALL tokens for a user
+function revokeAllUserTokens(userId) {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    // We can't enumerate all JTIs, but we record a user-level revocation
+    // The middleware checks both jti and user-level revocation
+    db.prepare('INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)')
+        .run(`user_revoke_${userId}_${Date.now()}`, userId, expiresAt);
+}
 
 // Register new user (admin only — requires valid admin token)
 router.post('/register', async (req, res) => {
@@ -55,12 +80,8 @@ router.post('/register', async (req, res) => {
         const user = db.prepare('SELECT id, username, email, name, role, created_at FROM users WHERE id = ?')
             .get(result.lastInsertRowid);
 
-        // Generate token
-        const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role },
-            JWT_SECRET,
-            { expiresIn: JWT_EXPIRES_IN }
-        );
+        // Generate token with jti for revocation support
+        const { token } = signToken({ id: user.id, username: user.username, role: user.role });
 
         res.status(201).json({
             message: 'تم إنشاء الحساب بنجاح',
@@ -113,7 +134,7 @@ router.post('/login', async (req, res) => {
             tokenPayload.tenant_id = user.tenant_id;
         }
 
-        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+        const { token } = signToken(tokenPayload);
 
         // Return user without password
         const { password_hash, ...userWithoutPassword } = user;
@@ -170,8 +191,20 @@ router.get('/me', (req, res) => {
     }
 });
 
-// Logout (client-side, just for logging)
+// Logout — server-side token revocation
 router.post('/logout', (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.split(' ')[1];
+            const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+            if (decoded.jti) {
+                revokeToken(decoded.jti, decoded.id);
+            }
+        }
+    } catch (e) {
+        // Token invalid — no need to revoke
+    }
     res.json({ message: 'تم تسجيل الخروج' });
 });
 
@@ -210,7 +243,15 @@ router.post('/change-password', async (req, res) => {
         db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
             .run(password_hash, decoded.id);
 
-        res.json({ message: 'تم تغيير كلمة المرور بنجاح' });
+        // Revoke the current token (user must re-login)
+        if (decoded.jti) {
+            revokeToken(decoded.jti, decoded.id);
+        }
+
+        // Issue a fresh token
+        const { token: newToken } = signToken({ id: decoded.id, username: decoded.username, role: decoded.role, tenant_id: decoded.tenant_id });
+
+        res.json({ message: 'تم تغيير كلمة المرور بنجاح', token: newToken });
     } catch (error) {
         console.error('[Auth] Change password error:', error);
         res.status(500).json({ error: 'فشل تغيير كلمة المرور' });

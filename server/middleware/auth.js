@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/index.js';
+import db from '../db/database.js';
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token (with revocation check)
 export const authMiddleware = (req, res, next) => {
     let token;
     const authHeader = req.headers.authorization;
@@ -18,6 +19,21 @@ export const authMiddleware = (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Check if token has been revoked (by jti)
+        if (decoded.jti) {
+            const revoked = db.prepare('SELECT 1 FROM revoked_tokens WHERE jti = ?').get(decoded.jti);
+            if (revoked) {
+                return res.status(401).json({ error: 'تم إلغاء الجلسة — يرجى تسجيل الدخول مجدداً' });
+            }
+        }
+
+        // Check if user account is still active
+        const user = db.prepare('SELECT is_active FROM users WHERE id = ?').get(decoded.id);
+        if (!user || !user.is_active) {
+            return res.status(401).json({ error: 'الحساب غير مُفعّل' });
+        }
+
         req.user = decoded;
         next();
     } catch (error) {
