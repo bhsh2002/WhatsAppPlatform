@@ -268,6 +268,43 @@ router.put('/:id/account/password', async (req, res) => {
     }
 });
 
+// Add credits to tenant
+router.post('/:id/credits', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const { amount } = req.body;
+
+        if (!amount || typeof amount !== 'number' || amount <= 0) {
+            return res.status(400).json({ error: 'المبلغ يجب أن يكون رقماً موجباً' });
+        }
+
+        const tenant = db.prepare('SELECT id, name, credits FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        db.prepare('UPDATE tenants SET credits = credits + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(amount, tenantId);
+
+        const updated = db.prepare('SELECT credits FROM tenants WHERE id = ?').get(tenantId);
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'credits_added', ?, 'success')
+        `).run(tenantId, tenant.name, `إضافة ${amount} رصيد`);
+
+        res.json({
+            success: true,
+            credits: updated.credits,
+            added: amount,
+        });
+    } catch (error) {
+        console.error('Error adding credits:', error);
+        res.status(500).json({ error: 'فشل إضافة الرصيد' });
+    }
+});
+
 // Toggle tenant account status
 router.put('/:id/account/toggle', (req, res) => {
     try {

@@ -235,6 +235,15 @@ router.post('/messages/send', async (req, res) => {
             return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
         }
 
+        // Credit check
+        if (tenant.credits !== null && tenant.credits <= 0) {
+            return res.status(402).json({
+                error: 'رصيد الرسائل غير كافٍ. تواصل مع المدير لإعادة الشحن.',
+                code: 'INSUFFICIENT_CREDITS',
+                credits: tenant.credits,
+            });
+        }
+
         // 24h conversation window enforcement (non-template messages only)
         if (type !== 'template') {
             const contact = db.prepare(
@@ -417,6 +426,9 @@ router.post('/messages/send', async (req, res) => {
         );
 
         if (response.ok) {
+            // Deduct 1 credit on successful send
+            db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0')
+                .run(tenantId);
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
             res.status(response.status).json({ success: false, error: data.error?.message, data });
