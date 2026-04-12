@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { META_API_BASE } from '../config/index.js';
 
 const router = express.Router();
 
@@ -289,8 +290,7 @@ router.put('/:id/account/toggle', (req, res) => {
 // Admin Template Management
 // ============================================
 
-const META_API_VERSION = 'v22.0';
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
+
 
 // Get templates for a tenant
 router.get('/:id/templates', (req, res) => {

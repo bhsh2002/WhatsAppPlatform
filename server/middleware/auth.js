@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'whatsapp_platform_secret_key_2024';
+import { JWT_SECRET } from '../config/index.js';
 
 // Middleware to verify JWT token
 export const authMiddleware = (req, res, next) => {

@@ -2,10 +2,10 @@ import express from 'express';
 import db from '../db/database.js';
 import multer from 'multer';
 import FormData from 'form-data';
-
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { META_API_BASE } from '../config/index.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,8 +32,7 @@ const upload = multer({
     limits: { fileSize: 16 * 1024 * 1024 } // 16MB limit
 });
 
-const META_API_VERSION = 'v22.0';
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
+
 
 // Send message via Meta API
 router.post('/send', async (req, res) => {

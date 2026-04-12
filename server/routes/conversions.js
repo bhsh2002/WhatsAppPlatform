@@ -2,11 +2,9 @@ import express from 'express';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { getAccessToken } from '../utils/credentials.js';
+import { META_API_BASE } from '../config/index.js';
 
 const router = express.Router();
-
-const META_API_VERSION = 'v22.0';
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
 // ============================================
 // Helper: Hash data for privacy (SHA-256)

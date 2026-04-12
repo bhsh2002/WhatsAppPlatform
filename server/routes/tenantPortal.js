@@ -6,7 +6,7 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-// Note: Using Node.js built-in fetch (v22+). node-fetch not needed.
+import { META_API_BASE } from '../config/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,8 +73,7 @@ const mediaUpload = multer({
     }
 });
 
-const META_API_VERSION = 'v22.0';
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
+
 
 // Middleware to ensure user is a tenant (has tenant_id)
 const ensureTenant = (req, res, next) => {

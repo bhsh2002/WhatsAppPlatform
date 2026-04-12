@@ -2,14 +2,9 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
+import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
 
 const router = express.Router();
-
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-    console.warn('⚠️ WARNING: JWT_SECRET environment variable is not set. Authentication will fail.');
-}
-const JWT_EXPIRES_IN = '7d';
 
 // Register new user (admin only — requires valid admin token)
 router.post('/register', async (req, res) => {

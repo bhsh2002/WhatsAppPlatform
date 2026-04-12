@@ -6,14 +6,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import { META_API_BASE } from '../../config/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
-
-const META_API_VERSION = 'v22.0';
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
 // Configure multer for file uploads
 const uploadDir = path.join(__dirname, '../../uploads');
