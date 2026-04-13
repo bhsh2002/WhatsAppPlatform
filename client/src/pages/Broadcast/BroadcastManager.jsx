@@ -193,7 +193,7 @@ const BroadcastManager = () => {
                                         setSelectedTemplate(tmpl);
                                     }}
                                 >
-                                    {templates.filter(t => t.status === 'APPROVED').map(t => (
+                                    {templates.filter(t => t.status === 'approved').map(t => (
                                         <MenuItem key={t.id} value={t.id}>
                                             {t.name} ({t.language || 'ar'})
                                         </MenuItem>
