@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
 import { generalUpload as upload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
+import { resolveCredentials } from '../services/credentials.js';
+import { substituteVariables, buildInteractivePayload } from '../services/messaging.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,28 +50,24 @@ router.post('/send', async (req, res) => {
         }
 
         // Get tenant credentials or use defaults
-        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
-        let tenant = null;
+        const credentials = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: req.body.phone_number_id,
+            accessTokenOverride: req.body.access_token,
+        });
 
-        if (tenant_id) {
-            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant) {
-                if (tenant.status === 'Suspended') {
-                    return res.status(403).json({ error: 'هذا العميل معلّق ولا يمكنه إرسال الرسائل' });
-                }
-                phoneNumberId = tenant.phone_number_id || phoneNumberId;
-                accessToken = tenant.access_token || accessToken;
-            }
+        if (credentials.isSuspended) {
+            return res.status(403).json({ error: 'هذا العميل معلّق ولا يمكنه إرسال الرسائل' });
         }
 
-        // Also accept direct credentials in request (for console testing)
-        const reqPhoneId = req.body.phone_number_id || phoneNumberId;
-        const reqToken = req.body.access_token || accessToken;
+        const { tenant, phoneNumberId, accessToken } = credentials;
 
-        if (!reqPhoneId || !reqToken) {
+        if (!phoneNumberId || !accessToken) {
             return res.status(400).json({ error: 'Missing API credentials. Configure tenant or provide phone_number_id and access_token.' });
         }
+
+        const reqPhoneId = phoneNumberId;
+        const reqToken = accessToken;
 
         // 24h conversation window enforcement for non-template messages (tenant sends only)
         if (type !== 'template' && tenant_id) {
@@ -145,19 +143,6 @@ router.post('/send', async (req, res) => {
         const data = await response.json();
 
         // Save message to database
-        const substituteVariables = (text, params) => {
-            if (!text || !params) return text;
-            let result = text;
-            params.forEach((param, index) => {
-                if (typeof param === 'string' || typeof param === 'number') {
-                    result = result.replaceAll(`{{${index + 1}}}`, param);
-                } else if (param.type === 'text') {
-                    result = result.replaceAll(`{{${index + 1}}}`, param.text);
-                }
-            });
-            return result;
-        };
-
         let storedContent = message;
         if (type === 'template') {
             storedContent = `[Template: ${templateName}]`; // Default fallback
@@ -357,7 +342,7 @@ router.get('/conversations', (req, res) => {
                     ) as rn
                 FROM messages
             ) t
-            LEFT JOIN contacts c ON c.phone = t.contact
+            LEFT JOIN contacts c ON c.phone = t.contact AND (c.tenant_id = t.tenant_id OR (c.tenant_id IS NULL AND t.tenant_id IS NULL))
             LEFT JOIN tenants ON tenants.id = t.tenant_id
             WHERE rn = 1
             ORDER BY last_interaction DESC
@@ -527,20 +512,15 @@ router.post('/send-media', async (req, res) => {
         }
 
         // Get credentials
-        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
-        let tenant = null;
+        const credentials = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: req.body.phone_number_id,
+            accessTokenOverride: req.body.access_token,
+        });
 
-        if (tenant_id) {
-            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant) {
-                phoneNumberId = tenant.phone_number_id || phoneNumberId;
-                accessToken = tenant.access_token || accessToken;
-            }
-        }
-
-        const reqPhoneId = req.body.phone_number_id || phoneNumberId;
-        const reqToken = req.body.access_token || accessToken;
+        const { tenant, phoneNumberId, accessToken } = credentials;
+        const reqPhoneId = phoneNumberId;
+        const reqToken = accessToken;
 
         if (!reqPhoneId || !reqToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
@@ -577,6 +557,7 @@ router.post('/send-media', async (req, res) => {
         const messageRecord = {
             tenant_id: tenant?.id || null,
             direction: 'outgoing',
+            sender: reqPhoneId,
             recipient: recipient,
             message_type: type,
             content: caption || `[${type}]`,
@@ -587,11 +568,12 @@ router.post('/send-media', async (req, res) => {
         };
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message, media_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message, media_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             messageRecord.tenant_id,
             messageRecord.direction,
+            messageRecord.sender,
             messageRecord.recipient,
             messageRecord.message_type,
             messageRecord.content,
@@ -718,6 +700,7 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         const messageRecord = {
             tenant_id: tenant_id || null, // Ensure tenant_id is stored
             direction: 'outgoing',
+            sender: phoneNumberId,
             recipient: recipient,
             message_type: type,
             content: caption || `[${type}]`,
@@ -729,11 +712,12 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         };
 
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message, media_id, media_mime_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message, media_id, media_mime_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             messageRecord.tenant_id,
             messageRecord.direction,
+            messageRecord.sender,
             messageRecord.recipient,
             messageRecord.message_type,
             messageRecord.content,
@@ -766,68 +750,40 @@ router.post('/send-interactive', async (req, res) => {
             return res.status(400).json({ error: 'interactive_type must be "button" or "list"' });
         }
 
-        // Get credentials
-        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
-        let tenant = null;
-
-        if (tenant_id) {
-            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant) {
-                phoneNumberId = tenant.phone_number_id || phoneNumberId;
-                accessToken = tenant.access_token || accessToken;
-            }
+        // Validate buttons/sections based on type
+        if (interactive_type === 'button' && (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3)) {
+            return res.status(400).json({ error: 'buttons must be an array of 1-3 items' });
+        }
+        if (interactive_type === 'list' && (!sections || !Array.isArray(sections) || sections.length === 0)) {
+            return res.status(400).json({ error: 'sections must be a non-empty array for list type' });
         }
 
-        const reqPhoneId = req.body.phone_number_id || phoneNumberId;
-        const reqToken = req.body.access_token || accessToken;
+        // Get credentials
+        const credentials = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: req.body.phone_number_id,
+            accessTokenOverride: req.body.access_token,
+        });
+
+        const { tenant, phoneNumberId, accessToken } = credentials;
+
+        const reqPhoneId = phoneNumberId;
+        const reqToken = accessToken;
 
         if (!reqPhoneId || !reqToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
         }
 
-        // Build interactive payload
-        const interactive = {
-            type: interactive_type,
-            body: { text: body_text }
-        };
-
-        if (header_text) {
-            interactive.header = { type: 'text', text: header_text };
-        }
-        if (footer_text) {
-            interactive.footer = { text: footer_text };
-        }
-
-        if (interactive_type === 'button') {
-            if (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3) {
-                return res.status(400).json({ error: 'buttons must be an array of 1-3 items' });
-            }
-            interactive.action = {
-                buttons: buttons.map((btn, i) => ({
-                    type: 'reply',
-                    reply: {
-                        id: btn.id || `btn_${i}`,
-                        title: btn.title
-                    }
-                }))
-            };
-        } else if (interactive_type === 'list') {
-            if (!sections || !Array.isArray(sections) || sections.length === 0) {
-                return res.status(400).json({ error: 'sections must be a non-empty array for list type' });
-            }
-            interactive.action = {
-                button: list_button_text || 'عرض الخيارات',
-                sections: sections.map(section => ({
-                    title: section.title,
-                    rows: (section.rows || []).map(row => ({
-                        id: row.id,
-                        title: row.title,
-                        description: row.description || ''
-                    }))
-                }))
-            };
-        }
+        // Build interactive payload using shared service
+        const interactive = buildInteractivePayload({
+            interactiveType: interactive_type,
+            bodyText: body_text,
+            headerText: header_text,
+            footerText: footer_text,
+            buttons: buttons,
+            sections: sections,
+            listButtonText: list_button_text,
+        });
 
         const payload = {
             messaging_product: 'whatsapp',
@@ -851,10 +807,11 @@ router.post('/send-interactive', async (req, res) => {
 
         // Save to database
         db.prepare(`
-            INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid, error_message)
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message)
             VALUES (?, 'outgoing', ?, 'interactive', ?, ?, ?, ?)
         `).run(
             tenant?.id || null,
+            reqPhoneId,
             recipient,
             JSON.stringify({ type: interactive_type, body: body_text, header: header_text }),
             response.ok ? 'sent' : 'failed',
@@ -899,14 +856,14 @@ router.post('/broadcast', async (req, res) => {
         }
 
         // Resolve credentials
-        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
-        let tenant = null;
+        const credentials = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: req.body.phone_number_id,
+            accessTokenOverride: req.body.access_token,
+        });
 
-        if (tenant_id) {
-            tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant) {
-                phoneNumberId = tenant.phone_number_id || phoneNumberId;
+        const { tenant, phoneNumberId, accessToken } = credentials;
+        const tenant_info = tenant;
                 accessToken = tenant.access_token || accessToken;
 
                 // Credit check
@@ -957,9 +914,9 @@ router.post('/broadcast', async (req, res) => {
                 if (response.ok) {
                     const messageId = data.messages?.[0]?.id;
                     db.prepare(`
-                        INSERT INTO messages (tenant_id, direction, recipient, message_type, content, status, wamid)
-                        VALUES (?, 'outgoing', ?, 'template', ?, 'sent', ?)
-                    `).run(tenant_id || null, recipient, `[قالب: ${template_name}]`, messageId);
+                        INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+                        VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
+                    `).run(tenant_id || null, phoneNumberId, recipient, `[قالب: ${template_name}]`, messageId);
                     results.push({ recipient, status: 'sent', message_id: messageId });
                     sent++;
                 } else {
