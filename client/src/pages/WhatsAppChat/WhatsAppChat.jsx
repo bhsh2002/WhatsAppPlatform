@@ -13,6 +13,7 @@ import ChatWindow from '../../components/WhatsApp/ChatWindow';
 const WhatsAppChat = () => {
     // State
     const [conversations, setConversations] = useState([]);
+    const [contacts, setContacts] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
     const [templates, setTemplates] = useState([]);
@@ -116,6 +117,31 @@ const WhatsAppChat = () => {
             console.error('Failed to fetch templates:', err);
             setTemplates([]);
         }
+    };
+
+    // Contacts handlers
+    const fetchContacts = async () => {
+        try {
+            const data = await api.getContacts();
+            setContacts(data.contacts || data || []);
+        } catch (err) {
+            console.error('Failed to fetch contacts:', err);
+        }
+    };
+
+    const handleAddContact = async (contactData) => {
+        await api.createContact(contactData);
+        await fetchContacts();
+    };
+
+    const handleEditContact = async (contactId, contactData) => {
+        await api.updateContact(contactId, contactData);
+        await fetchContacts();
+    };
+
+    const handleDeleteContact = async (contactId) => {
+        await api.deleteContact(contactId);
+        await fetchContacts();
     };
 
     // SSE: Real-time updates with polling fallback
@@ -426,6 +452,11 @@ const WhatsAppChat = () => {
                         setSearchTerm={setSearchTerm}
                         getDisplayName={getDisplayName}
                         formatDate={formatDate}
+                        contacts={contacts}
+                        onLoadContacts={fetchContacts}
+                        onAddContact={handleAddContact}
+                        onEditContact={handleEditContact}
+                        onDeleteContact={handleDeleteContact}
                     />
                 </Box>
             )}
