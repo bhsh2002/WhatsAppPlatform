@@ -34,6 +34,8 @@ import {
     Label as LabelIcon,
     Save as SaveIcon,
     Close as CloseIcon,
+    Add as AddIcon,
+    Delete as DeleteIcon,
     ContactPhone as ContactPhoneIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -63,6 +65,16 @@ const TenantContacts = () => {
     const [editContact, setEditContact] = useState(null);
     const [editForm, setEditForm] = useState({ label: '', notes: '' });
     const [saving, setSaving] = useState(false);
+
+    // Add dialog state
+    const [showAddDialog, setShowAddDialog] = useState(false);
+    const [addForm, setAddForm] = useState({ phone: '', profile_name: '', label: '', notes: '' });
+    const [addSaving, setAddSaving] = useState(false);
+    const [addError, setAddError] = useState(null);
+
+    // Delete confirmation
+    const [deleteContact, setDeleteContact] = useState(null);
+    const [deleting, setDeleting] = useState(false);
 
     const fetchContacts = useCallback(async () => {
         try {
@@ -108,6 +120,41 @@ const TenantContacts = () => {
         }
     };
 
+    const handleAddContact = async () => {
+        if (!addForm.phone?.trim()) return;
+        try {
+            setAddSaving(true);
+            setAddError(null);
+            await api.createPortalContact({
+                phone: addForm.phone.replace(/[^0-9+]/g, '').trim(),
+                profile_name: addForm.profile_name || null,
+                label: addForm.label || null,
+                notes: addForm.notes || null,
+            });
+            setShowAddDialog(false);
+            setAddForm({ phone: '', profile_name: '', label: '', notes: '' });
+            fetchContacts();
+        } catch (err) {
+            setAddError(err.message);
+        } finally {
+            setAddSaving(false);
+        }
+    };
+
+    const handleDeleteContact = async () => {
+        if (!deleteContact) return;
+        try {
+            setDeleting(true);
+            await api.deletePortalContact(deleteContact.id);
+            setDeleteContact(null);
+            fetchContacts();
+        } catch (err) {
+            alert('فشل حذف جهة الاتصال: ' + err.message);
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     const getLabelChip = (label) => {
         if (!label) return <Chip label="—" size="small" variant="outlined" />;
         const opt = LABEL_OPTIONS.find(o => o.value === label);
@@ -127,14 +174,24 @@ const TenantContacts = () => {
                         قائمة جهات الاتصال الخاصة بك مع إمكانية التصنيف والملاحظات
                     </Typography>
                 </Box>
-                <Button
-                    variant="outlined"
-                    startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
-                    onClick={fetchContacts}
-                    disabled={loading}
-                >
-                    تحديث
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                        variant="contained"
+                        color="secondary"
+                        startIcon={<AddIcon />}
+                        onClick={() => setShowAddDialog(true)}
+                    >
+                        إضافة جهة اتصال
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                        onClick={fetchContacts}
+                        disabled={loading}
+                    >
+                        تحديث
+                    </Button>
+                </Box>
             </Box>
 
             {/* Filters */}
@@ -228,6 +285,15 @@ const TenantContacts = () => {
                                                 <ChatIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
+                                        <Tooltip title="حذف">
+                                            <IconButton
+                                                size="small"
+                                                color="error"
+                                                onClick={() => setDeleteContact(contact)}
+                                            >
+                                                <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
                                     </TableCell>
                                 </TableRow>
                             ))
@@ -302,6 +368,104 @@ const TenantContacts = () => {
                         startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
                     >
                         {saving ? 'جاري الحفظ...' : 'حفظ'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Add Contact Dialog */}
+            <Dialog open={showAddDialog} onClose={() => !addSaving && setShowAddDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon color="secondary" />
+                        إضافة جهة اتصال جديدة
+                    </Box>
+                    <IconButton onClick={() => setShowAddDialog(false)} disabled={addSaving}>
+                        <CloseIcon />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers>
+                    {addError && (
+                        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setAddError(null)}>
+                            {addError}
+                        </Alert>
+                    )}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
+                        <TextField
+                            fullWidth
+                            label="رقم الهاتف"
+                            placeholder="218911234567"
+                            value={addForm.phone}
+                            onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
+                            required
+                            inputProps={{ dir: 'ltr', style: { fontFamily: 'monospace' } }}
+                        />
+                        <TextField
+                            fullWidth
+                            label="الاسم"
+                            placeholder="اسم جهة الاتصال"
+                            value={addForm.profile_name}
+                            onChange={(e) => setAddForm({ ...addForm, profile_name: e.target.value })}
+                        />
+                        <FormControl fullWidth>
+                            <Select
+                                value={addForm.label}
+                                onChange={(e) => setAddForm({ ...addForm, label: e.target.value })}
+                                displayEmpty
+                                renderValue={(v) => v || 'اختر تصنيف (اختياري)...'}
+                            >
+                                {LABEL_OPTIONS.map(o => (
+                                    <MenuItem key={o.value} value={o.value}>
+                                        <Chip label={o.label} size="small" color={o.color} sx={{ mr: 1 }} />
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <TextField
+                            fullWidth
+                            label="ملاحظات"
+                            value={addForm.notes}
+                            onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })}
+                            multiline
+                            rows={2}
+                            placeholder="ملاحظات اختيارية..."
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowAddDialog(false)} disabled={addSaving}>إلغاء</Button>
+                    <Button
+                        variant="contained"
+                        color="secondary"
+                        onClick={handleAddContact}
+                        disabled={addSaving || !addForm.phone?.trim()}
+                        startIcon={addSaving ? <CircularProgress size={16} /> : <AddIcon />}
+                    >
+                        {addSaving ? 'جاري الإضافة...' : 'إضافة'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={!!deleteContact} onClose={() => !deleting && setDeleteContact(null)}>
+                <DialogTitle>تأكيد الحذف</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        هل أنت متأكد من حذف جهة الاتصال <strong>{deleteContact?.profile_name || deleteContact?.phone}</strong>؟
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        هذا الإجراء لا يمكن التراجع عنه.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteContact(null)} disabled={deleting}>إلغاء</Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        onClick={handleDeleteContact}
+                        disabled={deleting}
+                        startIcon={deleting ? <CircularProgress size={16} /> : <DeleteIcon />}
+                    >
+                        {deleting ? 'جاري الحذف...' : 'حذف'}
                     </Button>
                 </DialogActions>
             </Dialog>

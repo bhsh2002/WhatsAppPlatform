@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Dialog,
     DialogTitle,
@@ -18,7 +18,9 @@ import {
     CircularProgress,
     Grid,
     Checkbox,
-    ListItemText
+    ListItemText,
+    Card,
+    CardContent
 } from '@mui/material';
 import {
     Close as CloseIcon,
@@ -26,6 +28,29 @@ import {
     Add as AddIcon,
     Delete as DeleteIcon
 } from '@mui/icons-material';
+
+/**
+ * Extract variable placeholders from template body text.
+ * Returns sorted unique variable numbers, e.g. [1, 2, 3]
+ */
+function extractVariables(bodyText) {
+    if (!bodyText) return [];
+    const matches = bodyText.match(/\{\{(\d+)\}\}/g);
+    if (!matches) return [];
+    const nums = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))];
+    return nums.sort((a, b) => a - b);
+}
+
+/**
+ * Replace {{N}} placeholders with actual values for preview.
+ */
+function previewBody(bodyText, variableValues) {
+    if (!bodyText) return '';
+    return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
+        const val = variableValues[parseInt(num)];
+        return val ? val : match;
+    });
+}
 
 const BroadcastDialog = ({ 
     open, 
@@ -35,13 +60,32 @@ const BroadcastDialog = ({
     templates = [],
     loading = false 
 }) => {
-    const [step, setStep] = useState(1); // 1: select recipients, 2: select template, 3: preview
+    const [step, setStep] = useState(1); // 1: select recipients, 2: select template & variables, 3: preview
     const [selectedContacts, setSelectedContacts] = useState([]);
     const [customNumbers, setCustomNumbers] = useState('');
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [templateLanguage, setTemplateLanguage] = useState('ar');
     const [searchTerm, setSearchTerm] = useState('');
     const [sending, setSending] = useState(false);
+    const [variableValues, setVariableValues] = useState({}); // { 1: 'value1', 2: 'value2', ... }
+
+    // Find the full template object
+    const templateObj = useMemo(() => 
+        templates.find(t => t.name === selectedTemplate),
+        [templates, selectedTemplate]
+    );
+
+    // Extract variables from the selected template body
+    const variables = useMemo(() => 
+        extractVariables(templateObj?.body),
+        [templateObj]
+    );
+
+    // Check if all variables are filled
+    const allVariablesFilled = useMemo(() => 
+        variables.length === 0 || variables.every(v => variableValues[v]?.trim()),
+        [variables, variableValues]
+    );
 
     useEffect(() => {
         if (open) {
@@ -52,8 +96,14 @@ const BroadcastDialog = ({
             setSearchTerm('');
             setStep(1);
             setSending(false);
+            setVariableValues({});
         }
     }, [open]);
+
+    // Reset variable values when template changes
+    useEffect(() => {
+        setVariableValues({});
+    }, [selectedTemplate]);
 
     const filteredContacts = contacts.filter(c => 
         c.phone?.includes(searchTerm) || 
@@ -84,6 +134,29 @@ const BroadcastDialog = ({
         }
     };
 
+    const handleVariableChange = (varNum, value) => {
+        setVariableValues(prev => ({
+            ...prev,
+            [varNum]: value
+        }));
+    };
+
+    /**
+     * Build the Meta API template_params (components array) from variable values.
+     */
+    const buildTemplateParams = () => {
+        if (variables.length === 0) return undefined;
+        return [
+            {
+                type: 'body',
+                parameters: variables.map(v => ({
+                    type: 'text',
+                    text: variableValues[v] || ''
+                }))
+            }
+        ];
+    };
+
     const handleSend = async () => {
         if (allRecipients.length === 0) {
             return;
@@ -94,11 +167,18 @@ const BroadcastDialog = ({
 
         setSending(true);
         try {
-            await onSend({
+            const payload = {
                 recipients: allRecipients,
                 template_name: selectedTemplate,
                 template_language: templateLanguage
-            });
+            };
+
+            const templateParams = buildTemplateParams();
+            if (templateParams) {
+                payload.template_params = templateParams;
+            }
+
+            await onSend(payload);
             onClose();
         } catch (err) {
             console.error('Broadcast error:', err);
@@ -230,7 +310,7 @@ const BroadcastDialog = ({
                     </Box>
                 )}
 
-                {/* Step 2: Select Template */}
+                {/* Step 2: Select Template + Fill Variables */}
                 {step === 2 && (
                     <Box>
                         <FormControl fullWidth sx={{ mb: 2 }}>
@@ -249,7 +329,7 @@ const BroadcastDialog = ({
                             </Select>
                         </FormControl>
 
-                        <FormControl fullWidth>
+                        <FormControl fullWidth sx={{ mb: 2 }}>
                             <InputLabel>اللغة</InputLabel>
                             <Select
                                 value={templateLanguage}
@@ -258,12 +338,84 @@ const BroadcastDialog = ({
                             >
                                 <MenuItem value="ar">العربية</MenuItem>
                                 <MenuItem value="en">English</MenuItem>
+                                <MenuItem value="en_US">English (US)</MenuItem>
                             </Select>
                         </FormControl>
 
-                        {selectedTemplate && (
+                        {/* Template body preview */}
+                        {templateObj && (
+                            <Card variant="outlined" sx={{ mb: 2 }}>
+                                <CardContent>
+                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                        محتوى القالب
+                                    </Typography>
+                                    <Typography 
+                                        variant="body2" 
+                                        sx={{ 
+                                            whiteSpace: 'pre-wrap', 
+                                            bgcolor: 'grey.50', 
+                                            p: 1.5, 
+                                            borderRadius: 1,
+                                            direction: 'auto'
+                                        }}
+                                    >
+                                        {templateObj.body || 'لا يوجد محتوى'}
+                                    </Typography>
+                                    {templateObj.footer && (
+                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                            {templateObj.footer}
+                                        </Typography>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Variable Inputs */}
+                        {variables.length > 0 && (
+                            <Box sx={{ mt: 1 }}>
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                    هذا القالب يحتوي على {variables.length} متغير(ات). يرجى تعبئة القيم أدناه.
+                                </Alert>
+                                
+                                {variables.map(varNum => (
+                                    <TextField
+                                        key={varNum}
+                                        label={`متغير {{${varNum}}}`}
+                                        placeholder={`أدخل قيمة المتغير {{${varNum}}}`}
+                                        value={variableValues[varNum] || ''}
+                                        onChange={(e) => handleVariableChange(varNum, e.target.value)}
+                                        fullWidth
+                                        size="small"
+                                        required
+                                        error={!variableValues[varNum]?.trim()}
+                                        helperText={!variableValues[varNum]?.trim() ? 'هذا الحقل مطلوب' : ''}
+                                        sx={{ mb: 1.5 }}
+                                    />
+                                ))}
+
+                                {/* Live preview with substituted variables */}
+                                <Card variant="outlined" sx={{ mt: 1, bgcolor: '#e8f5e9' }}>
+                                    <CardContent>
+                                        <Typography variant="subtitle2" color="success.dark" gutterBottom>
+                                            معاينة الرسالة بعد تعبئة المتغيرات
+                                        </Typography>
+                                        <Typography 
+                                            variant="body2" 
+                                            sx={{ 
+                                                whiteSpace: 'pre-wrap', 
+                                                direction: 'auto' 
+                                            }}
+                                        >
+                                            {previewBody(templateObj?.body, variableValues)}
+                                        </Typography>
+                                    </CardContent>
+                                </Card>
+                            </Box>
+                        )}
+
+                        {selectedTemplate && variables.length === 0 && (
                             <Alert severity="info" sx={{ mt: 2 }}>
-                                تأكد من أن القالب معتمد من WhatsApp قبل الإرسال
+                                هذا القالب لا يحتوي على متغيرات. تأكد من أنه معتمد من WhatsApp قبل الإرسال.
                             </Alert>
                         )}
                     </Box>
@@ -296,6 +448,49 @@ const BroadcastDialog = ({
                                 </Grid>
                             </Grid>
                         </Box>
+
+                        {/* Show final message preview with variables */}
+                        {templateObj && (
+                            <Card variant="outlined" sx={{ mb: 2 }}>
+                                <CardContent>
+                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                        الرسالة النهائية
+                                    </Typography>
+                                    <Typography 
+                                        variant="body2" 
+                                        sx={{ 
+                                            whiteSpace: 'pre-wrap', 
+                                            bgcolor: '#f0f4f0', 
+                                            p: 1.5, 
+                                            borderRadius: 1,
+                                            direction: 'auto'
+                                        }}
+                                    >
+                                        {previewBody(templateObj.body, variableValues)}
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Variable summary */}
+                        {variables.length > 0 && (
+                            <Box sx={{ mb: 2 }}>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                    المتغيرات:
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                    {variables.map(v => (
+                                        <Chip 
+                                            key={v}
+                                            label={`{{${v}}} = ${variableValues[v] || '—'}`}
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                        />
+                                    ))}
+                                </Box>
+                            </Box>
+                        )}
 
                         <Typography variant="body2" color="text.secondary" gutterBottom>
                             المستلمون:
@@ -331,7 +526,7 @@ const BroadcastDialog = ({
                             onClick={() => setStep(s => s + 1)}
                             disabled={
                                 (step === 1 && allRecipients.length === 0) ||
-                                (step === 2 && !selectedTemplate)
+                                (step === 2 && (!selectedTemplate || !allVariablesFilled))
                             }
                         >
                             التالي

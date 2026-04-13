@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Box,
     Paper,
@@ -36,6 +36,29 @@ import {
 } from '@mui/icons-material';
 import api from '../../api';
 
+/**
+ * Extract variable placeholders from template body text.
+ * Returns sorted unique variable numbers, e.g. [1, 2, 3]
+ */
+function extractVariables(bodyText) {
+    if (!bodyText) return [];
+    const matches = bodyText.match(/\{\{(\d+)\}\}/g);
+    if (!matches) return [];
+    const nums = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))];
+    return nums.sort((a, b) => a - b);
+}
+
+/**
+ * Replace {{N}} placeholders with actual values for preview.
+ */
+function previewBody(bodyText, variableValues) {
+    if (!bodyText) return '';
+    return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
+        const val = variableValues[parseInt(num)];
+        return val ? val : match;
+    });
+}
+
 const BroadcastManager = () => {
     const [activeStep, setActiveStep] = useState(0);
     const [tenants, setTenants] = useState([]);
@@ -44,10 +67,23 @@ const BroadcastManager = () => {
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [recipientsText, setRecipientsText] = useState('');
     const [templateLanguage, setTemplateLanguage] = useState('ar');
+    const [variableValues, setVariableValues] = useState({}); // { 1: 'value1', 2: 'value2', ... }
 
     const [sending, setSending] = useState(false);
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
+
+    // Extract variables from the selected template body
+    const variables = useMemo(() =>
+        extractVariables(selectedTemplate?.body),
+        [selectedTemplate]
+    );
+
+    // Check if all variables are filled
+    const allVariablesFilled = useMemo(() =>
+        variables.length === 0 || variables.every(v => variableValues[v]?.trim()),
+        [variables, variableValues]
+    );
 
     useEffect(() => {
         const loadTenants = async () => {
@@ -79,6 +115,11 @@ const BroadcastManager = () => {
         loadTemplates();
     }, [selectedTenantId]);
 
+    // Reset variable values when template changes
+    useEffect(() => {
+        setVariableValues({});
+    }, [selectedTemplate]);
+
     const recipients = recipientsText
         .split(/[\n,;]+/)
         .map(r => r.replace(/[^0-9+]/g, '').trim())
@@ -88,8 +129,31 @@ const BroadcastManager = () => {
 
     const selectedTenant = tenants.find(t => t.id === parseInt(selectedTenantId));
 
-    const canProceedStep0 = selectedTenantId && selectedTemplate;
+    const canProceedStep0 = selectedTenantId && selectedTemplate && allVariablesFilled;
     const canProceedStep1 = uniqueRecipients.length > 0 && uniqueRecipients.length <= 500;
+
+    const handleVariableChange = (varNum, value) => {
+        setVariableValues(prev => ({
+            ...prev,
+            [varNum]: value
+        }));
+    };
+
+    /**
+     * Build the Meta API template_params (components array) from variable values.
+     */
+    const buildTemplateParams = () => {
+        if (variables.length === 0) return undefined;
+        return [
+            {
+                type: 'body',
+                parameters: variables.map(v => ({
+                    type: 'text',
+                    text: variableValues[v] || ''
+                }))
+            }
+        ];
+    };
 
     const handleSend = async () => {
         if (!selectedTenantId || !selectedTemplate || uniqueRecipients.length === 0) return;
@@ -99,12 +163,19 @@ const BroadcastManager = () => {
             setError(null);
             setResults(null);
 
-            const data = await api.broadcastMessage({
+            const payload = {
                 tenant_id: parseInt(selectedTenantId),
                 recipients: uniqueRecipients,
                 template_name: selectedTemplate.name,
                 template_language: templateLanguage,
-            });
+            };
+
+            const templateParams = buildTemplateParams();
+            if (templateParams) {
+                payload.template_params = templateParams;
+            }
+
+            const data = await api.broadcastMessage(payload);
 
             setResults(data);
             setActiveStep(3);
@@ -122,6 +193,7 @@ const BroadcastManager = () => {
         setRecipientsText('');
         setResults(null);
         setError(null);
+        setVariableValues({});
     };
 
     const steps = ['اختيار القالب', 'إدخال المستلمين', 'مراجعة وإرسال', 'النتائج'];
@@ -156,7 +228,7 @@ const BroadcastManager = () => {
                 </Alert>
             )}
 
-            {/* Step 0: Select tenant & template */}
+            {/* Step 0: Select tenant & template + fill variables */}
             {activeStep === 0 && (
                 <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" fontWeight={600} gutterBottom>
@@ -172,6 +244,7 @@ const BroadcastManager = () => {
                                 onChange={(e) => {
                                     setSelectedTenantId(e.target.value);
                                     setSelectedTemplate(null);
+                                    setVariableValues({});
                                 }}
                             >
                                 {tenants.map(t => (
@@ -208,7 +281,7 @@ const BroadcastManager = () => {
                                     <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                                         معاينة القالب
                                     </Typography>
-                                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
+                                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'grey.50', p: 2, borderRadius: 1, direction: 'auto' }}>
                                         {selectedTemplate.body || 'لا يوجد محتوى'}
                                     </Typography>
                                     {selectedTemplate.footer && (
@@ -218,6 +291,43 @@ const BroadcastManager = () => {
                                     )}
                                 </CardContent>
                             </Card>
+                        )}
+
+                        {/* Variable Inputs */}
+                        {variables.length > 0 && (
+                            <Box>
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                    هذا القالب يحتوي على {variables.length} متغير(ات). يرجى تعبئة القيم أدناه — ستُطبَّق على جميع المستلمين.
+                                </Alert>
+
+                                {variables.map(varNum => (
+                                    <TextField
+                                        key={varNum}
+                                        label={`متغير {{${varNum}}}`}
+                                        placeholder={`أدخل قيمة المتغير {{${varNum}}}`}
+                                        value={variableValues[varNum] || ''}
+                                        onChange={(e) => handleVariableChange(varNum, e.target.value)}
+                                        fullWidth
+                                        size="small"
+                                        required
+                                        error={!variableValues[varNum]?.trim()}
+                                        helperText={!variableValues[varNum]?.trim() ? 'هذا الحقل مطلوب' : ''}
+                                        sx={{ mb: 1.5 }}
+                                    />
+                                ))}
+
+                                {/* Live preview with substituted variables */}
+                                <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
+                                    <CardContent>
+                                        <Typography variant="subtitle2" color="success.dark" gutterBottom>
+                                            معاينة الرسالة بعد تعبئة المتغيرات
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', direction: 'auto' }}>
+                                            {previewBody(selectedTemplate?.body, variableValues)}
+                                        </Typography>
+                                    </CardContent>
+                                </Card>
+                            </Box>
                         )}
 
                         <FormControl fullWidth size="small">
@@ -321,6 +431,40 @@ const BroadcastManager = () => {
                                 </CardContent>
                             </Card>
                         </Box>
+
+                        {/* Final message preview */}
+                        {selectedTemplate && (
+                            <Card variant="outlined">
+                                <CardContent>
+                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                        الرسالة النهائية
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', bgcolor: '#f0f4f0', p: 1.5, borderRadius: 1, direction: 'auto' }}>
+                                        {previewBody(selectedTemplate.body, variableValues)}
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Variable summary */}
+                        {variables.length > 0 && (
+                            <Box>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                    المتغيرات:
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                    {variables.map(v => (
+                                        <Chip
+                                            key={v}
+                                            label={`{{${v}}} = ${variableValues[v] || '—'}`}
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                        />
+                                    ))}
+                                </Box>
+                            </Box>
+                        )}
 
                         <Divider />
 

@@ -381,7 +381,7 @@ const TenantList = () => {
                                     <TableCell sx={{ fontWeight: 600 }}>{tenant.name}</TableCell>
                                     <TableCell sx={{ fontFamily: 'monospace' }}>{tenant.phone}</TableCell>
                                     <TableCell>{tenant.tier}</TableCell>
-                                    <TableCell>{tenant.credits?.toLocaleString()} SAR</TableCell>
+                                    <TableCell>{tenant.credits?.toLocaleString()} Credits</TableCell>
                                     <TableCell>
                                         <Typography
                                             variant="body2"

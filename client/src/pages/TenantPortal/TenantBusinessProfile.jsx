@@ -134,8 +134,7 @@ const TenantBusinessProfile = () => {
                     </Grid>
                     <Grid size={{ xs: 12, md: 6 }}>
                         <TextField fullWidth select label="قطاع النشاط" value={form.vertical} disabled={!editing}
-                            onChange={e => setForm({ ...form, vertical: e.target.value })}
-                            SelectProps={{ native: true }}>
+                            onChange={e => setForm({ ...form, vertical: e.target.value })}>
                             <option value="">اختر القطاع</option>
                             {verticalOptions.map(v => <option key={v} value={v}>{v.replace(/_/g, ' ')}</option>)}
                         </TextField>
