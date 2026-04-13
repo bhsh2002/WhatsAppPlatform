@@ -87,9 +87,9 @@ const TenantTemplates = () => {
             setSyncing(true);
             setError(null);
             const result = await api.syncPortalTemplates();
-            setMetaTemplates(result.templates || []);
-            setSuccess(`تم جلب ${result.templates?.length || 0} قوالب من WhatsApp`);
-            setTabValue(1); // Switch to Meta templates tab
+            // Refresh templates list after sync - they're now in database
+            fetchTemplates();
+            setSuccess(`تم مزامنة ${result.synced || 0} قالب (${result.created || 0} جديد، ${result.updated || 0} محدث)`);
         } catch (err) {
             console.error('Failed to sync from Meta:', err);
             setError(err.message);

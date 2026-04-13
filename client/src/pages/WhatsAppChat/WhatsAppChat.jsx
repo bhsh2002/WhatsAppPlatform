@@ -125,10 +125,23 @@ const WhatsAppChat = () => {
         const authToken = localStorage.getItem('auth_token');
         const baseUrl = import.meta.env.VITE_API_URL || '';
 
-        // Try SSE connection with polling fallback
-        let pollingInterval = setInterval(fetchConversations, 15000);
-        let sseConnected = false;
+        let pollingInterval = null;
         let evtSource = null;
+        let reconnectTimeout = null;
+        let sseConnected = false;
+
+        // Start with polling as backup (slower interval)
+        const startPolling = (interval = 60000) => {
+            if (pollingInterval) clearInterval(pollingInterval);
+            pollingInterval = setInterval(fetchConversations, interval);
+        };
+
+        const stopPolling = () => {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        };
 
         const connectSSE = async () => {
             try {
@@ -143,6 +156,7 @@ const WhatsAppChat = () => {
                 
                 if (!sseTokenRes.ok) {
                     console.warn('[SSE] Failed to get SSE token, using polling only');
+                    startPolling(15000);
                     return;
                 }
                 
@@ -152,16 +166,13 @@ const WhatsAppChat = () => {
                 evtSource.addEventListener('connected', () => {
                     sseConnected = true;
                     console.log('[SSE] Connected — real-time updates active');
-                    // Slow down polling when SSE is active
-                    clearInterval(pollingInterval);
-                    pollingInterval = setInterval(fetchConversations, 30000);
+                    // Stop polling when SSE is active
+                    stopPolling();
                 });
 
                 evtSource.addEventListener('message:new', (e) => {
                     const data = JSON.parse(e.data);
-                    // Refresh conversation list
                     fetchConversations();
-                    // If this message is for the currently selected chat, refresh messages
                     if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
                         fetchMessages(selectedChat.contact, selectedChat.tenant_id);
                     }
@@ -169,7 +180,6 @@ const WhatsAppChat = () => {
 
                 evtSource.addEventListener('message:status', (e) => {
                     const data = JSON.parse(e.data);
-                    // Update message status in-place without full refetch
                     setMessages(prev => prev.map(msg =>
                         msg.wamid === data.wamid ? { ...msg, status: data.status } : msg
                     ));
@@ -183,24 +193,28 @@ const WhatsAppChat = () => {
                     if (sseConnected) {
                         console.warn('[SSE] Connection lost — falling back to polling');
                         sseConnected = false;
-                        clearInterval(pollingInterval);
-                        pollingInterval = setInterval(fetchConversations, 10000);
+                        startPolling(10000);
                     }
                     // Reconnect after 5 seconds
-                    setTimeout(connectSSE, 5000);
+                    reconnectTimeout = setTimeout(connectSSE, 5000);
                 };
             } catch {
                 console.warn('[SSE] Failed to connect, using polling only');
+                startPolling(15000);
             }
         };
 
+        // Initial connection
         if (authToken) {
             connectSSE();
+        } else {
+            startPolling(15000);
         }
 
         return () => {
             if (evtSource) evtSource.close();
-            clearInterval(pollingInterval);
+            stopPolling();
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
         };
     }, []);
 

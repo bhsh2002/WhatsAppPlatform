@@ -586,6 +586,8 @@ router.post('/:id/templates/sync', async (req, res) => {
             created,
             updated,
             unchanged,
+            // Return updated templates so UI can refresh immediately
+            templates: db.prepare('SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId),
         });
     } catch (error) {
         console.error('Error syncing templates:', error);

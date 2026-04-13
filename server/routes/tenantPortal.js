@@ -1478,6 +1478,8 @@ router.post('/templates/sync', async (req, res) => {
             created,
             updated,
             unchanged,
+            // Return updated templates so UI can refresh immediately
+            templates: db.prepare('SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId),
         });
     } catch (error) {
         console.error('[TenantPortal] Sync templates error:', error);
