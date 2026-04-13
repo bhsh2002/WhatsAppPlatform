@@ -72,6 +72,7 @@ const Sidebar = () => {
         { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
         { label: 'المحادثات', path: '/portal/chat', icon: <ChatIcon /> },
         { label: 'جهات الاتصال', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
+        { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
         { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
         { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <StoreIcon /> },
         { label: 'التحليلات', path: '/portal/analytics', icon: <AnalyticsIcon /> },

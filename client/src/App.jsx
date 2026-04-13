@@ -29,6 +29,7 @@ import TenantAnalytics from './pages/TenantPortal/TenantAnalytics';
 import TenantQRCodes from './pages/TenantPortal/TenantQRCodes';
 import TenantConversions from './pages/TenantPortal/TenantConversions';
 import TenantContacts from './pages/TenantPortal/TenantContacts';
+import TenantBroadcast from './pages/TenantPortal/TenantBroadcast';
 
 // Admin Feature Pages
 import BusinessManager from './pages/Settings/BusinessManager';
@@ -284,6 +285,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantContacts /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/broadcast"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantBroadcast /></MainLayout>
           </ProtectedRoute>
         }
       />

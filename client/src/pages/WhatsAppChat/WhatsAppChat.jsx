@@ -1,21 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
-import { Box, useTheme, useMediaQuery, Typography, IconButton, Tooltip } from '@mui/material';
+import { Box, useTheme, useMediaQuery, Typography } from '@mui/material';
 import {
     Check as CheckIcon,
     DoneAll as DoneAllIcon,
     AccessTime as AccessTimeIcon,
-    Error as ErrorIcon,
-    Campaign as CampaignIcon
+    Error as ErrorIcon
 } from '@mui/icons-material';
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
-import BroadcastDialog from '../../components/WhatsApp/BroadcastDialog';
 
 const WhatsAppChat = () => {
     // State
     const [conversations, setConversations] = useState([]);
-    const [contacts, setContacts] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
     const [templates, setTemplates] = useState([]);
@@ -26,8 +23,6 @@ const WhatsAppChat = () => {
     const [sendingDoc, setSendingDoc] = useState(false);
     const [sendingInteractive, setSendingInteractive] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [showBroadcast, setShowBroadcast] = useState(false);
-    const [broadcasting, setBroadcasting] = useState(false);
 
     // Refs
     const messagesEndRef = useRef(null);
@@ -120,41 +115,6 @@ const WhatsAppChat = () => {
         } catch (err) {
             console.error('Failed to fetch templates:', err);
             setTemplates([]);
-        }
-    };
-
-    // Contacts handlers
-    const fetchContacts = async () => {
-        try {
-            const data = await api.getContacts();
-            setContacts(data.contacts || data || []);
-        } catch (err) {
-            console.error('Failed to fetch contacts:', err);
-        }
-    };
-
-    const handleAddContact = async (contactData) => {
-        await api.createContact(contactData);
-        await fetchContacts();
-    };
-
-    const handleEditContact = async (contactId, contactData) => {
-        await api.updateContact(contactId, contactData);
-        await fetchContacts();
-    };
-
-    const handleDeleteContact = async (contactId) => {
-        await api.deleteContact(contactId);
-        await fetchContacts();
-    };
-
-    const handleBroadcast = async (data) => {
-        setBroadcasting(true);
-        try {
-            await api.broadcastMessage(data);
-            await fetchConversations();
-        } finally {
-            setBroadcasting(false);
         }
     };
 
@@ -466,28 +426,8 @@ const WhatsAppChat = () => {
                         setSearchTerm={setSearchTerm}
                         getDisplayName={getDisplayName}
                         formatDate={formatDate}
-                        contacts={contacts}
-                        onLoadContacts={fetchContacts}
-                        onAddContact={handleAddContact}
-                        onEditContact={handleEditContact}
-                        onDeleteContact={handleDeleteContact}
-                        headerAction={
-                            <Tooltip title="إرسال جماعي">
-                                <IconButton
-                                    onClick={() => setShowBroadcast(true)}
-                                    size="small"
-                                    sx={{
-                                        bgcolor: 'secondary.main',
-                                        color: 'white',
-                                        '&:hover': { bgcolor: 'secondary.dark' },
-                                        width: 36,
-                                        height: 36
-                                    }}
-                                >
-                                    <CampaignIcon fontSize="small" />
-                                </IconButton>
-                            </Tooltip>
-                        }
+                        contactsPath="/contacts"
+                        broadcastPath="/broadcast"
                     />
                 </Box>
             )}
@@ -551,15 +491,6 @@ const WhatsAppChat = () => {
                     )}
                 </Box>
             )}
-
-            <BroadcastDialog
-                open={showBroadcast}
-                onClose={() => setShowBroadcast(false)}
-                onSend={handleBroadcast}
-                contacts={contacts}
-                templates={templates.filter(t => t.status?.toLowerCase() === 'approved')}
-                loading={broadcasting}
-            />
         </Box >
     );
 };

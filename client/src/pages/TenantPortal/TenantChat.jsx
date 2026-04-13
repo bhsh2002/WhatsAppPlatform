@@ -1,20 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, Typography, useTheme, useMediaQuery, IconButton, Tooltip } from '@mui/material';
+import { Box, Typography, useTheme, useMediaQuery } from '@mui/material';
 import {
     DoneAll as DoneAllIcon,
     Done as DoneIcon,
     Schedule as ScheduleIcon,
-    Error as ErrorIcon,
-    Campaign as CampaignIcon
+    Error as ErrorIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
-import BroadcastDialog from '../../components/WhatsApp/BroadcastDialog';
 
 const TenantChat = () => {
     const [conversations, setConversations] = useState([]);
-    const [contacts, setContacts] = useState([]);
     const [messages, setMessages] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [newMessage, setNewMessage] = useState('');
@@ -25,8 +22,6 @@ const TenantChat = () => {
     const [sendingInteractive, setSendingInteractive] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [windowStatus, setWindowStatus] = useState(null);
-    const [showBroadcast, setShowBroadcast] = useState(false);
-    const [broadcasting, setBroadcasting] = useState(false);
 
     // Template State
     const [templates, setTemplates] = useState([]);
@@ -182,40 +177,6 @@ const TenantChat = () => {
             setTemplates(data || []);
         } catch (err) {
             console.error('Failed to fetch templates:', err);
-        }
-    };
-
-    const fetchContacts = async () => {
-        try {
-            const data = await api.getPortalContacts();
-            setContacts(data.contacts || data || []);
-        } catch (err) {
-            console.error('Failed to fetch contacts:', err);
-        }
-    };
-
-    const handleAddContact = async (contactData) => {
-        await api.createPortalContact(contactData);
-        await fetchContacts();
-    };
-
-    const handleEditContact = async (contactId, contactData) => {
-        await api.updatePortalContact(contactId, contactData);
-        await fetchContacts();
-    };
-
-    const handleDeleteContact = async (contactId) => {
-        await api.deletePortalContact(contactId);
-        await fetchContacts();
-    };
-
-    const handleBroadcast = async (data) => {
-        setBroadcasting(true);
-        try {
-            await api.portalBroadcast(data);
-            await fetchConversations();
-        } finally {
-            setBroadcasting(false);
         }
     };
 
@@ -430,28 +391,8 @@ const TenantChat = () => {
                         setSearchTerm={setSearchQuery}
                         getDisplayName={getDisplayName}
                         formatDate={formatDate}
-                        contacts={contacts}
-                        onLoadContacts={fetchContacts}
-                        onAddContact={handleAddContact}
-                        onEditContact={handleEditContact}
-                        onDeleteContact={handleDeleteContact}
-                        headerAction={
-                            <Tooltip title="إرسال جماعي">
-                                <IconButton
-                                    onClick={() => setShowBroadcast(true)}
-                                    size="small"
-                                    sx={{
-                                        bgcolor: 'secondary.main',
-                                        color: 'white',
-                                        '&:hover': { bgcolor: 'secondary.dark' },
-                                        width: 36,
-                                        height: 36
-                                    }}
-                                >
-                                    <CampaignIcon fontSize="small" />
-                                </IconButton>
-                            </Tooltip>
-                        }
+                        contactsPath="/portal/contacts"
+                        broadcastPath="/portal/broadcast"
                     />
                 </Box>
             )}
@@ -502,16 +443,6 @@ const TenantChat = () => {
                     )}
                 </Box>
             )}
-
-            {/* Broadcast Dialog */}
-            <BroadcastDialog
-                open={showBroadcast}
-                onClose={() => setShowBroadcast(false)}
-                onSend={handleBroadcast}
-                contacts={contacts}
-                templates={templates.filter(t => t.status?.toLowerCase() === 'approved')}
-                loading={broadcasting}
-            />
         </Box>
     );
 };
