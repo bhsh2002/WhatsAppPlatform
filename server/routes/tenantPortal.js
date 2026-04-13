@@ -9,6 +9,7 @@ import { META_API_BASE } from '../config/index.js';
 import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
+import { sseAuth } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,13 +25,20 @@ const ensureTenant = (req, res, next) => {
     next();
 };
 
-// Apply tenant middleware to all routes
-router.use(ensureTenant);
+// Apply tenant middleware to all routes EXCEPT SSE (which uses sseAuth)
+router.use((req, res, next) => {
+    // Skip auth for SSE endpoint - it has its own auth
+    if (req.path === '/events') {
+        return next();
+    }
+    ensureTenant(req, res, next);
+});
 
 // ============================================
 // SSE: Real-time message events (tenant)
 // ============================================
-router.get('/events', (req, res) => {
+// Requires one-time SSE token from POST /auth/sse-token
+router.get('/events', sseAuth, (req, res) => {
     const tenantId = req.user.tenant_id;
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',

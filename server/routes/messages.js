@@ -9,6 +9,7 @@ import { generalUpload as upload, uploadDir, cleanupFile } from '../config/uploa
 import eventBus from '../services/eventBus.js';
 import { resolveCredentials } from '../services/credentials.js';
 import { substituteVariables, buildInteractivePayload } from '../services/messaging.js';
+import { sseAuth } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +19,8 @@ const router = express.Router();
 // ============================================
 // SSE: Real-time message events (admin)
 // ============================================
-router.get('/events', (req, res) => {
+// Requires one-time SSE token from POST /auth/sse-token
+router.get('/events', sseAuth, (req, res) => {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -29,8 +31,9 @@ router.get('/events', (req, res) => {
     // Send initial heartbeat
     res.write('event: connected\ndata: {"status":"ok"}\n\n');
 
-    // Register on admin channel
-    eventBus.addClient('admin', res);
+    // Register on admin channel (role-based)
+    const channel = req.user.role === 'admin' ? 'admin' : `tenant:${req.user.tenant_id}`;
+    eventBus.addClient(channel, res);
 
     // Heartbeat every 30s to keep connection alive
     const heartbeat = setInterval(() => {

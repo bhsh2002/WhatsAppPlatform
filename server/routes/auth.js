@@ -327,4 +327,80 @@ router.post('/register-tenant', async (req, res) => {
     }
 });
 
+// ============================================
+// SSE Token - Generate one-time token for SSE connections
+// ============================================
+// SSE (EventSource) cannot set Authorization headers, so we need
+// a one-time token that can be passed via query parameter.
+
+// In-memory store for SSE tokens (expires after 5 minutes)
+const sseTokens = new Map();
+
+// Clean up expired tokens every minute
+setInterval(() => {
+    const now = Date.now();
+    for (const [token, data] of sseTokens) {
+        if (data.expiresAt < now) {
+            sseTokens.delete(token);
+        }
+    }
+}, 60000);
+
+/**
+ * Generate a one-time SSE token
+ * POST /auth/sse-token
+ */
+router.post('/sse-token', authMiddleware, (req, res) => {
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('base64url');
+    
+    sseTokens.set(token, {
+        userId: req.user.id,
+        username: req.user.username,
+        role: req.user.role,
+        tenantId: req.user.tenant_id,
+        expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+    });
+    
+    res.json({ 
+        token,
+        expiresIn: 300, // seconds
+    });
+});
+
+/**
+ * Middleware to authenticate SSE connections using one-time token
+ */
+export function sseAuth(req, res, next) {
+    const token = req.query.token;
+    
+    if (!token) {
+        return res.status(401).json({ error: 'SSE token required' });
+    }
+    
+    const tokenData = sseTokens.get(token);
+    
+    if (!tokenData) {
+        return res.status(401).json({ error: 'Invalid or expired SSE token' });
+    }
+    
+    if (tokenData.expiresAt < Date.now()) {
+        sseTokens.delete(token);
+        return res.status(401).json({ error: 'SSE token expired' });
+    }
+    
+    // Token is valid - consume it (one-time use)
+    sseTokens.delete(token);
+    
+    // Attach user info to request
+    req.user = {
+        id: tokenData.userId,
+        username: tokenData.username,
+        role: tokenData.role,
+        tenant_id: tokenData.tenantId,
+    };
+    
+    next();
+}
+
 export default router;
