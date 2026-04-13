@@ -379,29 +379,63 @@ export function sseAuth(req, res, next) {
         return res.status(401).json({ error: 'SSE token required' });
     }
     
+    // First, check if it's a one-time SSE token
     const tokenData = sseTokens.get(token);
     
-    if (!tokenData) {
-        return res.status(401).json({ error: 'Invalid or expired SSE token' });
-    }
-    
-    if (tokenData.expiresAt < Date.now()) {
+    if (tokenData) {
+        if (tokenData.expiresAt < Date.now()) {
+            sseTokens.delete(token);
+            return res.status(401).json({ error: 'SSE token expired' });
+        }
+        
+        // Token is valid - consume it (one-time use)
         sseTokens.delete(token);
-        return res.status(401).json({ error: 'SSE token expired' });
+        
+        // Attach user info to request
+        req.user = {
+            id: tokenData.userId,
+            username: tokenData.username,
+            role: tokenData.role,
+            tenant_id: tokenData.tenantId,
+        };
+        
+        return next();
     }
     
-    // Token is valid - consume it (one-time use)
-    sseTokens.delete(token);
-    
-    // Attach user info to request
-    req.user = {
-        id: tokenData.userId,
-        username: tokenData.username,
-        role: tokenData.role,
-        tenant_id: tokenData.tenantId,
-    };
-    
-    next();
+    // Fallback: Check if it's a JWT token (backward compatibility, less secure)
+    // This allows existing clients to work, but logs a deprecation warning
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // Log deprecation warning
+        console.warn('[SSE] WARNING: Using JWT in query parameter is deprecated. Use POST /auth/sse-token instead.');
+        
+        // Check if user account is still active
+        const user = db.prepare('SELECT id, username, role, tenant_id, is_active FROM users WHERE id = ?').get(decoded.id);
+        
+        if (!user || !user.is_active) {
+            return res.status(401).json({ error: 'Account inactive' });
+        }
+        
+        // Check if tenant is active (if applicable)
+        if (user.tenant_id) {
+            const tenant = db.prepare('SELECT status FROM tenants WHERE id = ?').get(user.tenant_id);
+            if (tenant && tenant.status === 'Suspended') {
+                return res.status(403).json({ error: 'Account suspended' });
+            }
+        }
+        
+        req.user = {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            tenant_id: user.tenant_id,
+        };
+        
+        return next();
+    } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
 }
 
 export default router;
