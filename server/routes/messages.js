@@ -619,19 +619,26 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        form.append('file', fs.createReadStream(file.path), file.originalname);
+        form.append('file', fs.readFileSync(file.path), {
+            filename: file.originalname,
+            contentType: file.mimetype
+        });
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
 
         console.log(`[Messages] Uploading media to ${uploadUrl}`);
 
+        // Convert form-data to buffer for compatibility with native fetch
+        const formBuffer = form.getBuffer();
+        const formHeaders = form.getHeaders();
+
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                ...form.getHeaders()
+                ...formHeaders
             },
-            body: form
+            body: formBuffer
         });
 
         const uploadData = await uploadResponse.json();

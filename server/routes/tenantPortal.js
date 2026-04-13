@@ -611,18 +611,25 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        form.append('file', fs.createReadStream(file.path), file.originalname);
+        form.append('file', fs.readFileSync(file.path), {
+            filename: file.originalname,
+            contentType: file.mimetype
+        });
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
         console.log(`[TenantPortal] Uploading document: ${file.originalname}`);
+
+        // Convert form-data to buffer for compatibility with native fetch
+        const formBuffer = form.getBuffer();
+        const formHeaders = form.getHeaders();
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                ...form.getHeaders()
+                ...formHeaders
             },
-            body: form
+            body: formBuffer
         });
 
         const uploadData = await uploadResponse.json();
@@ -792,18 +799,25 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        form.append('file', fs.createReadStream(file.path), file.originalname);
+        form.append('file', fs.readFileSync(file.path), {
+            filename: file.originalname,
+            contentType: file.mimetype
+        });
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
         console.log(`[TenantPortal] Uploading ${mediaType}: ${file.originalname}`);
+
+        // Convert form-data to buffer for compatibility with native fetch
+        const formBuffer = form.getBuffer();
+        const formHeaders = form.getHeaders();
 
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                ...form.getHeaders()
+                ...formHeaders
             },
-            body: form
+            body: formBuffer
         });
 
         const uploadData = await uploadResponse.json();
