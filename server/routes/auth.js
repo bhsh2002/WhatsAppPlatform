@@ -352,7 +352,6 @@ setInterval(() => {
  * POST /auth/sse-token
  */
 router.post('/sse-token', authMiddleware, (req, res) => {
-    const crypto = require('crypto');
     const token = crypto.randomBytes(32).toString('base64url');
     
     sseTokens.set(token, {
