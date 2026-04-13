@@ -24,7 +24,7 @@ class ApiService {
             return this._mediaToken;
         }
         try {
-            const data = await this.request('/auth/media-token', { method: 'POST' });
+            const data = await this.request('/api/auth/media-token', { method: 'POST' });
             this._mediaToken = data.media_token;
             this._mediaTokenExpiry = now + (data.expires_in * 1000);
             return this._mediaToken;
