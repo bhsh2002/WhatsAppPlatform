@@ -864,18 +864,16 @@ router.post('/broadcast', async (req, res) => {
 
         const { tenant, phoneNumberId, accessToken } = credentials;
         const tenant_info = tenant;
-                accessToken = tenant.access_token || accessToken;
+        accessToken = tenant.access_token || accessToken;
 
-                // Credit check
-                if (tenant.credits !== null && tenant.credits < recipients.length) {
-                    return res.status(402).json({
-                        error: `رصيد غير كافٍ. مطلوب ${recipients.length}، متاح ${tenant.credits}`,
-                        code: 'INSUFFICIENT_CREDITS',
-                        required: recipients.length,
-                        available: tenant.credits,
-                    });
-                }
-            }
+        // Credit check
+        if (tenant.credits !== null && tenant.credits < recipients.length) {
+            return res.status(402).json({
+                error: `رصيد غير كافٍ. مطلوب ${recipients.length}، متاح ${tenant.credits}`,
+                code: 'INSUFFICIENT_CREDITS',
+                required: recipients.length,
+                available: tenant.credits,
+            });
         }
 
         if (!phoneNumberId || !accessToken) {
