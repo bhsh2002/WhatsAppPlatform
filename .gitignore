@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment files - NEVER commit secrets
+.env
+.env.*
+*.env
+!.env.example
+
+# Build outputs
+dist/
+build/
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Uploads and media
+uploads/
+media/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug files
+debug_*.js
