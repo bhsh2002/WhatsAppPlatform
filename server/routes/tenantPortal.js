@@ -1079,6 +1079,127 @@ router.post('/messages/send-interactive', async (req, res) => {
 });
 
 // ============================================
+// Broadcast (Tenant)
+// ============================================
+router.post('/broadcast', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { recipients, template_name, template_language, template_params } = req.body;
+
+        if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+            return res.status(400).json({ error: 'قائمة المستلمين مطلوبة' });
+        }
+        if (!template_name) {
+            return res.status(400).json({ error: 'اسم القالب مطلوب' });
+        }
+        if (recipients.length > 100) {
+            return res.status(400).json({ error: 'الحد الأقصى 100 مستلم للبث' });
+        }
+
+        // Get tenant
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const phoneNumberId = tenant.phone_number_id;
+        const accessToken = tenant.access_token;
+
+        if (!phoneNumberId || !accessToken) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        if (tenant.status === 'Suspended') {
+            return res.status(403).json({ error: 'حسابك معلّق. تواصل مع المدير.' });
+        }
+
+        // Check credits
+        if (tenant.credits < recipients.length) {
+            return res.status(400).json({ 
+                error: `رصيد غير كافي. متاح: ${tenant.credits}، مطلوب: ${recipients.length}` 
+            });
+        }
+
+        // Verify template exists
+        const template = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, template_name);
+        if (!template) {
+            return res.status(400).json({ error: 'القالب غير موجود' });
+        }
+
+        const results = [];
+        let sent = 0, failed = 0;
+
+        for (const recipient of recipients) {
+            try {
+                const formattedRecipient = recipient.replace(/\+/g, '').trim();
+
+                const payload = {
+                    messaging_product: 'whatsapp',
+                    to: formattedRecipient,
+                    type: 'template',
+                    template: {
+                        name: template_name,
+                        language: { code: template_language || 'ar' },
+                    },
+                };
+
+                if (template_params && template_params.length > 0) {
+                    payload.template.components = template_params;
+                }
+
+                const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const messageId = data.messages?.[0]?.id;
+                    db.prepare(`
+                        INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+                        VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
+                    `).run(tenantId, phoneNumberId, formattedRecipient, `[قالب: ${template_name}]`, messageId);
+                    results.push({ recipient: formattedRecipient, status: 'sent', message_id: messageId });
+                    sent++;
+                } else {
+                    results.push({ recipient: formattedRecipient, status: 'failed', error: data.error?.message });
+                    failed++;
+                }
+            } catch (err) {
+                results.push({ recipient, status: 'failed', error: err.message });
+                failed++;
+            }
+
+            // Rate limit: ~10 msg/sec
+            await new Promise(r => setTimeout(r, 100));
+        }
+
+        // Deduct credits
+        if (sent > 0) {
+            db.prepare('UPDATE tenants SET credits = credits - ? WHERE id = ?').run(sent, tenantId);
+        }
+
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'broadcast', ?, ?)
+        `).run(tenantId, tenant.name, 
+            `بث ${template_name} إلى ${recipients.length} مستلم (${sent} نجاح، ${failed} فشل)`,
+            failed === 0 ? 'success' : 'partial');
+
+        res.json({ success: true, total: recipients.length, sent, failed, results });
+    } catch (error) {
+        console.error('[TenantPortal] Broadcast error:', error);
+        res.status(500).json({ error: 'فشل البث' });
+    }
+});
+
+// ============================================
 // Templates
 // ============================================
 router.get('/templates', (req, res) => {
