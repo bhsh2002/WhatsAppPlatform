@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 
@@ -30,13 +31,54 @@ import db from './db/database.js';
 import { startMaintenanceScheduler } from './services/maintenance.js';
 import { uploadDir } from './config/upload.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { initEncryption } from './services/encryption.js';
 
 // ===========================================
-// Startup validation — fail fast on missing secrets
+// Startup validation — fail fast on missing/insecure secrets
 // ===========================================
 if (!process.env.JWT_SECRET) {
     console.error('❌ FATAL: JWT_SECRET environment variable is not set.');
     console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+}
+
+if (process.env.JWT_SECRET.length < 32) {
+    console.error('❌ FATAL: JWT_SECRET must be at least 32 characters.');
+    console.error('   Generate a secure one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+}
+
+// Warn about insecure default secrets
+const insecureSecrets = [
+    'whatsapp_platform_jwt_secret_key_2024_secure',
+    'secret',
+    'jwt_secret',
+    'your-secret-key',
+    'change-me',
+];
+if (insecureSecrets.some(s => process.env.JWT_SECRET.includes(s))) {
+    console.error('❌ FATAL: JWT_SECRET appears to be a placeholder or example value.');
+    console.error('   Generate a secure secret with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+}
+
+if (!process.env.CRYPTO_KEY) {
+    console.error('❌ FATAL: CRYPTO_KEY environment variable is not set.');
+    console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+}
+
+if (process.env.CRYPTO_KEY.length < 64) {
+    console.error('❌ FATAL: CRYPTO_KEY must be at least 64 characters (32 bytes hex).');
+    console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    process.exit(1);
+}
+
+// Initialize encryption service
+try {
+    initEncryption();
+} catch (err) {
+    console.error('❌ FATAL: Failed to initialize encryption:', err.message);
     process.exit(1);
 }
 
@@ -82,7 +124,28 @@ app.use(cors({
     origin: CORS_ORIGINS,
     credentials: true
 }));
+
+// Security headers
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+            imgSrc: ["'self'", 'data:', 'https:'],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'self'"],
+            frameSrc: ["'none'"],
+        },
+    },
+    crossOriginEmbedderPolicy: false, // Needed forSSE
+}));
+
+// Request body size limit
 app.use(express.json({
+    limit: '1mb',
     verify: (req, res, buf) => {
         req.rawBody = buf;
     }
@@ -160,37 +223,26 @@ const server = app.listen(PORT, () => {
 ╠══════════════════════════════════════════════════════════════╣
 ║  🚀 Server running on http://localhost:${PORT}                  ║
 ║  📡 Webhook URL: http://localhost:${PORT}/webhook               ║
-║  🔐 Auth enabled - Default: admin / admin123                 ║
 ║                                                              ║
 ║  Public Endpoints:                                           ║
 ║  • GET  /health              - Health check                  ║
 ║  • POST /auth/login          - Login                         ║
-║  • POST /auth/register       - Register                      ║
-║  • GET  /auth/me             - Current user                  ║
+║  • POST /auth/register       - Register (admin only)         ║
+║  • POST /auth/register-tenant- Tenant self-registration      ║
 ║  • GET  /webhook             - Meta verification             ║
-║  • POST /webhook             - Meta events                   ║
 ║                                                              ║
 ║  Admin Endpoints (require Bearer token):                     ║
 ║  • GET  /tenants             - List tenants                  ║
 ║  • POST /tenants             - Create tenant                 ║
-║  • POST /tenants/:id/create-account - Create tenant login    ║
 ║  • GET  /stats/dashboard     - Dashboard stats               ║
-║  • POST /messages/send       - Send WhatsApp message         ║
 ║                                                              ║
 ║  Tenant Portal (require tenant token):                       ║
 ║  • GET  /portal/dashboard    - Tenant dashboard              ║
 ║  • GET  /portal/conversations - Tenant conversations         ║
-║  • GET  /portal/templates    - Tenant templates              ║
-║  • GET  /portal/settings/api - API settings                  ║
 ║                                                              ║
-║  External API v1 (require X-API-Key header):                 ║
-║  • POST /api/v1/messages/send    - Send message              ║
-║  • POST /api/v1/messages/send-media - Send media via URL     ║
-║  • POST /api/v1/messages/send-document - Upload & send file  ║
-║  • GET  /api/v1/conversations     - List conversations       ║
-║  • GET  /api/v1/conversations/:phone/messages - Get messages║
-║  • GET  /api/v1/templates         - List templates           ║
-║  • GET  /api/v1/health            - API health check          ║
+║  External API v1 (X-API-Key header):                        ║
+║  • POST /v1/messages/send    - Send message                  ║
+║  • GET  /v1/conversations     - List conversations           ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 
