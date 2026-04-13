@@ -121,6 +121,7 @@ const WhatsAppChat = () => {
     // SSE: Real-time updates with polling fallback
     useEffect(() => {
         fetchConversations();
+        api.getMediaToken(); // Pre-fetch media token for image/doc URLs
 
         const authToken = localStorage.getItem('auth_token');
         const baseUrl = import.meta.env.VITE_API_URL || '';

@@ -1,21 +1,71 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { JWT_SECRET } from '../config/index.js';
 import db from '../db/database.js';
 
-// Middleware to verify JWT token (with revocation check)
+// ============================================
+// Short-lived media token (for <img>/<video> URLs)
+// ============================================
+const MEDIA_TOKEN_TTL = 300; // 5 minutes
+
+/**
+ * Generate a short-lived HMAC-signed token for media access.
+ * This avoids exposing the full JWT in URL query params.
+ */
+export function generateMediaToken(userId, tenantId = null) {
+    const payload = {
+        sub: userId,
+        tid: tenantId,
+        purpose: 'media',
+    };
+    return jwt.sign(payload, JWT_SECRET, { expiresIn: MEDIA_TOKEN_TTL });
+}
+
+/**
+ * Verify a media-specific token and return user info.
+ */
+function verifyMediaToken(token) {
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded.purpose !== 'media') return null;
+        return decoded;
+    } catch {
+        return null;
+    }
+}
+
+// ============================================
+// Main auth middleware (with media token fallback)
+// ============================================
 export const authMiddleware = (req, res, next) => {
     const authHeader = req.headers.authorization;
     let token;
+    let isMediaToken = false;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.split(' ')[1];
-    } else if (req.query && req.query.token) {
-        // Fallback for <img>/<video> tags that can't send Authorization headers
-        token = req.query.token;
+    } else if (req.query && req.query.media_token) {
+        // Short-lived media token for <img>/<video> src URLs
+        token = req.query.media_token;
+        isMediaToken = true;
     }
 
     if (!token) {
         return res.status(401).json({ error: 'غير مصرح - يرجى تسجيل الدخول' });
+    }
+
+    // Handle media token separately (simpler validation, no revocation check needed)
+    if (isMediaToken) {
+        const mediaUser = verifyMediaToken(token);
+        if (!mediaUser) {
+            return res.status(401).json({ error: 'رمز وسائط غير صالح أو منتهي' });
+        }
+        // Minimal user object for media routes
+        req.user = {
+            id: mediaUser.sub,
+            tenant_id: mediaUser.tid,
+        };
+        return next();
     }
 
     try {

@@ -38,6 +38,7 @@ const TenantChat = () => {
     useEffect(() => {
         fetchConversations();
         fetchTemplates();
+        api.getMediaToken(); // Pre-fetch media token for image/doc URLs
 
         const baseUrl = import.meta.env.VITE_API_URL || '';
         const authToken = localStorage.getItem('auth_token');

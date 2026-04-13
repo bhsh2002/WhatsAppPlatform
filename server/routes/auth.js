@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, generateMediaToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -326,6 +326,18 @@ router.post('/register-tenant', async (req, res) => {
         }
         res.status(500).json({ error: 'فشل التسجيل' });
     }
+});
+
+// ============================================
+// Media Token - Short-lived token for media downloads
+// ============================================
+// <img>/<video> tags cannot set Authorization headers, so we need
+// a short-lived token that can be passed via query parameter.
+// This avoids exposing the full JWT in URLs.
+
+router.post('/media-token', authMiddleware, (req, res) => {
+    const mediaToken = generateMediaToken(req.user.id, req.user.tenant_id || null);
+    res.json({ media_token: mediaToken, expires_in: 300 });
 });
 
 // ============================================

@@ -8,6 +8,30 @@ class ApiService {
 
     setAuthToken(token) {
         this.authToken = token;
+        // Reset media token when auth token changes
+        this._mediaToken = null;
+        this._mediaTokenExpiry = 0;
+    }
+
+    /**
+     * Get a short-lived media token for use in <img>/<video> src URLs.
+     * Cached and auto-refreshed when expired.
+     */
+    async getMediaToken() {
+        const now = Date.now();
+        // Refresh if expired or within 30 seconds of expiry
+        if (this._mediaToken && this._mediaTokenExpiry > now + 30000) {
+            return this._mediaToken;
+        }
+        try {
+            const data = await this.request('/auth/media-token', { method: 'POST' });
+            this._mediaToken = data.media_token;
+            this._mediaTokenExpiry = now + (data.expires_in * 1000);
+            return this._mediaToken;
+        } catch (err) {
+            console.error('[API] Failed to get media token:', err);
+            return null;
+        }
     }
 
     async request(endpoint, options = {}) {
@@ -164,7 +188,17 @@ class ApiService {
     getMediaDownloadUrl(mediaId, tenantId = null) {
         const params = new URLSearchParams();
         if (tenantId) params.append('tenant_id', tenantId);
-        if (this.authToken) params.append('token', this.authToken);
+        if (this._mediaToken) params.append('media_token', this._mediaToken);
+
+        const queryString = params.toString() ? `?${params.toString()}` : '';
+        return `${this.baseUrl}/api/messages/media/${mediaId}/download${queryString}`;
+    }
+
+    async getMediaDownloadUrlAsync(mediaId, tenantId = null) {
+        const mediaToken = await this.getMediaToken();
+        const params = new URLSearchParams();
+        if (tenantId) params.append('tenant_id', tenantId);
+        if (mediaToken) params.append('media_token', mediaToken);
 
         const queryString = params.toString() ? `?${params.toString()}` : '';
         return `${this.baseUrl}/api/messages/media/${mediaId}/download${queryString}`;
@@ -329,7 +363,15 @@ class ApiService {
 
     getPortalMediaDownloadUrl(mediaId) {
         const params = new URLSearchParams();
-        if (this.authToken) params.append('token', this.authToken);
+        if (this._mediaToken) params.append('media_token', this._mediaToken);
+        const queryString = params.toString() ? `?${params.toString()}` : '';
+        return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
+    }
+
+    async getPortalMediaDownloadUrlAsync(mediaId) {
+        const mediaToken = await this.getMediaToken();
+        const params = new URLSearchParams();
+        if (mediaToken) params.append('media_token', mediaToken);
         const queryString = params.toString() ? `?${params.toString()}` : '';
         return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
     }
