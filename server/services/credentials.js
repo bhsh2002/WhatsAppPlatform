@@ -1,4 +1,5 @@
 import db from '../db/database.js';
+import { decrypt, decryptIfEncrypted, isEncrypted } from './encryption.js';
 
 /**
  * Get access token from multiple sources with fallback:
@@ -9,8 +10,18 @@ import db from '../db/database.js';
 export const getAccessToken = (tenantId = null) => {
     // 1. Try specific tenant
     if (tenantId) {
-        const tenant = db.prepare('SELECT access_token FROM tenants WHERE id = ?').get(tenantId);
-        if (tenant?.access_token) return tenant.access_token;
+        const tenant = db.prepare('SELECT access_token, access_token_encrypted FROM tenants WHERE id = ?').get(tenantId);
+        if (tenant) {
+            // Prefer encrypted token if available
+            if (tenant.access_token_encrypted) {
+                const decrypted = decrypt(tenant.access_token_encrypted);
+                if (decrypted) return decrypted;
+            }
+            // Fall back to plaintext for migration compatibility
+            if (tenant.access_token) {
+                return tenant.access_token;
+            }
+        }
     }
 
     // 2. Try env var
@@ -19,8 +30,15 @@ export const getAccessToken = (tenantId = null) => {
     }
 
     // 3. Fallback: first active tenant with an access token
-    const fallback = db.prepare("SELECT access_token FROM tenants WHERE access_token IS NOT NULL AND access_token != '' AND status = 'Active' LIMIT 1").get();
-    return fallback?.access_token || null;
+    const fallback = db.prepare("SELECT access_token, access_token_encrypted FROM tenants WHERE status = 'Active' AND (access_token IS NOT NULL OR access_token_encrypted IS NOT NULL) LIMIT 1").get();
+    if (fallback) {
+        if (fallback.access_token_encrypted) {
+            const decrypted = decrypt(fallback.access_token_encrypted);
+            if (decrypted) return decrypted;
+        }
+        return fallback.access_token || null;
+    }
+    return null;
 };
 
 /**
@@ -33,7 +51,18 @@ export const getTenantCredentials = (tenantId = null) => {
         tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     }
 
-    const accessToken = tenant?.access_token || getAccessToken();
+    let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+    
+    if (tenant) {
+        // Prefer encrypted token
+        if (tenant.access_token_encrypted) {
+            const decrypted = decrypt(tenant.access_token_encrypted);
+            if (decrypted) accessToken = decrypted;
+        } else if (tenant.access_token) {
+            accessToken = tenant.access_token;
+        }
+    }
+
     const phoneNumberId = tenant?.phone_number_id || process.env.DEFAULT_PHONE_NUMBER_ID;
     const wabaId = tenant?.waba_id || null;
     const businessId = tenant?.business_id || null;
@@ -64,7 +93,13 @@ export const resolveCredentials = ({ tenantId, phoneNumberIdOverride, accessToke
                 return { tenant, phoneNumberId: null, accessToken: null, isSuspended: true };
             }
             phoneNumberId = tenant.phone_number_id || phoneNumberId;
-            accessToken = tenant.access_token || accessToken;
+            // Prefer encrypted token
+            if (tenant.access_token_encrypted) {
+                const decrypted = decrypt(tenant.access_token_encrypted);
+                if (decrypted) accessToken = decrypted;
+            } else if (tenant.access_token) {
+                accessToken = tenant.access_token;
+            }
         }
     }
 
