@@ -270,6 +270,61 @@ router.put('/contacts/:id', (req, res) => {
     }
 });
 
+// Create a new contact manually
+router.post('/contacts', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { phone, profile_name, label, notes } = req.body;
+
+        if (!phone) {
+            return res.status(400).json({ error: 'رقم الهاتف مطلوب' });
+        }
+
+        // Format phone number (remove + prefix)
+        const formattedPhone = phone.replace(/\+/g, '').trim();
+
+        // Check if contact already exists
+        const existing = db.prepare('SELECT * FROM contacts WHERE tenant_id = ? AND phone = ?')
+            .get(tenantId, formattedPhone);
+
+        if (existing) {
+            return res.status(409).json({ error: 'جهة الاتصال موجودة بالفعل' });
+        }
+
+        const result = db.prepare(`
+            INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).run(tenantId, formattedPhone, profile_name || null, label || null, notes || null);
+
+        const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
+
+        res.status(201).json(newContact);
+    } catch (error) {
+        console.error('[TenantPortal] Contact create error:', error);
+        res.status(500).json({ error: 'فشل إنشاء جهة الاتصال' });
+    }
+});
+
+// Delete a contact
+router.delete('/contacts/:id', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+
+        const contact = db.prepare('SELECT * FROM contacts WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+        if (!contact) {
+            return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
+        }
+
+        db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+
+        res.json({ success: true, message: 'تم حذف جهة الاتصال' });
+    } catch (error) {
+        console.error('[TenantPortal] Contact delete error:', error);
+        res.status(500).json({ error: 'فشل حذف جهة الاتصال' });
+    }
+});
+
 // ============================================
 // Conversation Window Status
 // ============================================
