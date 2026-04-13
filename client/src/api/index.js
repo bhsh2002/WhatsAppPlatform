@@ -78,6 +78,19 @@ class ApiService {
         });
     }
 
+    async getSseToken() {
+        return this.request('/api/auth/sse-token', {
+            method: 'POST',
+        });
+    }
+
+    // Get SSE connection URL with one-time token
+    async getSseUrl(endpoint) {
+        const { token } = await this.getSseToken();
+        const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3031';
+        return `${baseUrl}${endpoint}?token=${token}`;
+    }
+
     // Tenants
     async getTenants() {
         return this.request('/api/tenants');

@@ -40,48 +40,76 @@ const TenantChat = () => {
         fetchTemplates();
 
         const baseUrl = import.meta.env.VITE_API_URL || '';
+        const authToken = localStorage.getItem('auth_token');
         let pollingInterval = setInterval(fetchConversations, 15000);
         let sseConnected = false;
+        let evtSource = null;
 
-        try {
-            const token = localStorage.getItem('auth_token');
-            const evtSource = new EventSource(`${baseUrl}/api/portal/events${token ? '?token=' + token : ''}`);
-
-            evtSource.addEventListener('connected', () => {
-                sseConnected = true;
-                clearInterval(pollingInterval);
-                pollingInterval = setInterval(fetchConversations, 30000);
-            });
-
-            evtSource.addEventListener('message:new', (e) => {
-                const data = JSON.parse(e.data);
-                fetchConversations();
-                if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
-                    fetchMessages(selectedChat.contact);
+        const connectSSE = async () => {
+            try {
+                // Get a one-time SSE token
+                const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+                
+                if (!sseTokenRes.ok) {
+                    console.warn('[SSE] Failed to get SSE token, using polling only');
+                    return;
                 }
-            });
+                
+                const { token } = await sseTokenRes.json();
+                evtSource = new EventSource(`${baseUrl}/api/portal/events?token=${token}`);
 
-            evtSource.addEventListener('message:status', (e) => {
-                const data = JSON.parse(e.data);
-                setMessages(prev => prev.map(msg =>
-                    msg.wamid === data.wamid ? { ...msg, status: data.status } : msg
-                ));
-            });
-
-            evtSource.addEventListener('conversation:update', () => fetchConversations());
-
-            evtSource.onerror = () => {
-                if (sseConnected) {
-                    sseConnected = false;
+                evtSource.addEventListener('connected', () => {
+                    sseConnected = true;
+                    console.log('[SSE] Tenant connected — real-time updates active');
                     clearInterval(pollingInterval);
-                    pollingInterval = setInterval(fetchConversations, 10000);
-                }
-            };
+                    pollingInterval = setInterval(fetchConversations, 30000);
+                });
 
-            return () => { evtSource.close(); clearInterval(pollingInterval); };
-        } catch {
-            return () => clearInterval(pollingInterval);
+                evtSource.addEventListener('message:new', (e) => {
+                    const data = JSON.parse(e.data);
+                    fetchConversations();
+                    if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
+                        fetchMessages(selectedChat.contact);
+                    }
+                });
+
+                evtSource.addEventListener('message:status', (e) => {
+                    const data = JSON.parse(e.data);
+                    setMessages(prev => prev.map(msg =>
+                        msg.wamid === data.wamid ? { ...msg, status: data.status } : msg
+                    ));
+                });
+
+                evtSource.addEventListener('conversation:update', () => fetchConversations());
+
+                evtSource.onerror = () => {
+                    if (sseConnected) {
+                        sseConnected = false;
+                        clearInterval(pollingInterval);
+                        pollingInterval = setInterval(fetchConversations, 10000);
+                    }
+                    // Reconnect after 5 seconds
+                    setTimeout(connectSSE, 5000);
+                };
+            } catch {
+                console.warn('[SSE] Failed to connect, using polling only');
+            }
+        };
+
+        if (authToken) {
+            connectSSE();
         }
+
+        return () => {
+            if (evtSource) evtSource.close();
+            clearInterval(pollingInterval);
+        };
     }, []);
 
     useEffect(() => {
