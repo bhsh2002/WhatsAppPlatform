@@ -193,13 +193,13 @@ const WhatsAppChat = () => {
                         'Content-Type': 'application/json',
                     },
                 });
-                
+
                 if (!sseTokenRes.ok) {
                     console.warn('[SSE] Failed to get SSE token, using polling only');
                     startPolling(15000);
                     return;
                 }
-                
+
                 const { token } = await sseTokenRes.json();
                 evtSource = new EventSource(`${baseUrl}/api/messages/events?token=${token}`);
 
@@ -552,10 +552,8 @@ const WhatsAppChat = () => {
                         </Box>
                     )}
                 </Box>
-)}
-            </Box>
+            )}
 
-            {/* Broadcast Dialog */}
             <BroadcastDialog
                 open={showBroadcast}
                 onClose={() => setShowBroadcast(false)}
@@ -564,7 +562,7 @@ const WhatsAppChat = () => {
                 templates={templates.filter(t => t.status === 'APPROVED')}
                 loading={broadcasting}
             />
-        </Box>
+        </Box >
     );
 };
 
