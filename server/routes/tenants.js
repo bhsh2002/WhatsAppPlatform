@@ -848,6 +848,93 @@ router.get('/:id/webhook-subscriptions', async (req, res) => {
     }
 });
 
+// ============================================
+// Approve pending tenant
+// ============================================
+router.post('/:id/approve', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+        
+        if (tenant.status !== 'Pending') {
+            return res.status(400).json({ error: 'العميل ليس في حالة الانتظار' });
+        }
+        
+        // Update tenant status to Active
+        db.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run('Active', tenantId);
+        
+        // Activate the user account (if exists)
+        db.prepare('UPDATE users SET is_active = 1 WHERE tenant_id = ?').run(tenantId);
+        
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'tenant_approved', 'تم الموافقة على العميل', 'success')
+        `).run(tenantId, tenant.name);
+        
+        res.json({ success: true, message: 'تم الموافقة على العميل', tenant_id: tenantId });
+    } catch (error) {
+        console.error('Error approving tenant:', error);
+        res.status(500).json({ error: 'فشل الموافقة على العميل' });
+    }
+});
+
+// ============================================
+// Reject pending tenant
+// ============================================
+router.post('/:id/reject', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const { reason } = req.body;
+        
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+        
+        if (tenant.status !== 'Pending') {
+            return res.status(400).json({ error: 'العميل ليس في حالة الانتظار' });
+        }
+        
+        // Update tenant status to Rejected
+        db.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run('Rejected', tenantId);
+        
+        // Deactivate the user account (if exists)
+        db.prepare('UPDATE users SET is_active = 0 WHERE tenant_id = ?').run(tenantId);
+        
+        // Log activity
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'tenant_rejected', ?, 'error')
+        `).run(tenantId, tenant.name, reason ? `مرفوض: ${reason}` : 'تم رفض العميل');
+        
+        res.json({ success: true, message: 'تم رفض العميل', tenant_id: tenantId });
+    } catch (error) {
+        console.error('Error rejecting tenant:', error);
+        res.status(500).json({ error: 'فشل رفض العميل' });
+    }
+});
+
+// ============================================
+// Get pending tenants
+// ============================================
+router.get('/status/pending', (req, res) => {
+    try {
+        const tenants = db.prepare('SELECT * FROM tenants WHERE status = ? ORDER BY created_at DESC').all('Pending');
+        res.json(tenants);
+    } catch (error) {
+        console.error('Error fetching pending tenants:', error);
+        res.status(500).json({ error: 'فشل جلب العملاء المعلقين' });
+    }
+});
+
 export default router;
 
 
