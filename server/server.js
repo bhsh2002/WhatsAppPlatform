@@ -22,6 +22,9 @@ import pagesRouter from './routes/pages.js';
 import partnerSolutionsRouter from './routes/partnerSolutions.js';
 import conversionsRouter from './routes/conversions.js';
 
+// Import services
+import eventBus from './services/eventBus.js';
+
 // Import middleware
 import { authMiddleware, adminMiddleware } from './middleware/auth.js';
 import { apiKeyAuth } from './middleware/apiKeyAuth.js';
