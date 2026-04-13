@@ -24,11 +24,10 @@ function revokeToken(jti, userId) {
 
 // Helper: revoke ALL tokens for a user
 function revokeAllUserTokens(userId) {
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    // We can't enumerate all JTIs, but we record a user-level revocation
-    // The middleware checks both jti and user-level revocation
-    db.prepare('INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)')
-        .run(`user_revoke_${userId}_${Date.now()}`, userId, expiresAt);
+    // Set tokens_revoked_at to current time
+    // All tokens issued before this time will be considered invalid
+    db.prepare('UPDATE users SET tokens_revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(userId);
 }
 
 // Register new user (admin only — requires valid admin token)
