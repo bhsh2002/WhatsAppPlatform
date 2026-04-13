@@ -9,7 +9,6 @@ import { generalUpload as upload, uploadDir, cleanupFile } from '../config/uploa
 import eventBus from '../services/eventBus.js';
 import { resolveCredentials } from '../services/credentials.js';
 import { substituteVariables, buildInteractivePayload } from '../services/messaging.js';
-import { sseAuth } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,33 +16,8 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 // ============================================
-// SSE: Real-time message events (admin)
-// ============================================
-// Requires one-time SSE token from POST /auth/sse-token
-router.get('/events', sseAuth, (req, res) => {
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no', // Disable nginx buffering
-    });
-
-    // Send initial heartbeat
-    res.write('event: connected\ndata: {"status":"ok"}\n\n');
-
-    // Register on admin channel (role-based)
-    const channel = req.user.role === 'admin' ? 'admin' : `tenant:${req.user.tenant_id}`;
-    eventBus.addClient(channel, res);
-
-    // Heartbeat every 30s to keep connection alive
-    const heartbeat = setInterval(() => {
-        res.write(': heartbeat\n\n');
-    }, 30000);
-
-    req.on('close', () => clearInterval(heartbeat));
-});
-
 // Send message via Meta API
+// ============================================
 router.post('/send', async (req, res) => {
     try {
         const { tenant_id, recipient, type, message, templateName, templateLanguage, templateParams } = req.body;

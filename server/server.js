@@ -185,6 +185,37 @@ app.get('/health', (req, res) => {
 // Auth routes (public, with stricter rate limit on login/register)
 app.use('/auth', authLimiter, authRouter);
 
+// SSE endpoints (use one-time token auth, not session auth)
+// These must be mounted BEFORE the authMiddleware-protected routes
+import { sseAuth } from './routes/auth.js';
+app.get('/messages/events', sseAuth, (req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+    res.write('event: connected\ndata: {"status":"ok"}\n\n');
+    const channel = req.user.role === 'admin' ? 'admin' : `tenant:${req.user.tenant_id}`;
+    eventBus.addClient(channel, res);
+    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 30000);
+    req.on('close', () => clearInterval(heartbeat));
+});
+
+app.get('/portal/events', sseAuth, (req, res) => {
+    const tenantId = req.user.tenant_id;
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+    res.write('event: connected\ndata: {"status":"ok"}\n\n');
+    eventBus.addClient(`tenant:${tenantId}`, res);
+    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 30000);
+    req.on('close', () => clearInterval(heartbeat));
+});
+
 // Protected API Routes - Admin (require both auth + admin role)
 app.use('/tenants', authMiddleware, adminMiddleware, tenantsRouter);
 app.use('/stats', authMiddleware, adminMiddleware, statsRouter);

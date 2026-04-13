@@ -9,15 +9,15 @@ import { META_API_BASE } from '../config/index.js';
 import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
-import { sseAuth } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-
+// ============================================
 // Middleware to ensure user is a tenant (has tenant_id)
+// ============================================
 const ensureTenant = (req, res, next) => {
     if (!req.user || !req.user.tenant_id) {
         return res.status(403).json({ error: 'صلاحية الوصول مقتصرة على العملاء فقط' });
@@ -25,33 +25,7 @@ const ensureTenant = (req, res, next) => {
     next();
 };
 
-// Apply tenant middleware to all routes EXCEPT SSE (which uses sseAuth)
-router.use((req, res, next) => {
-    // Skip auth for SSE endpoint - it has its own auth
-    if (req.path === '/events') {
-        return next();
-    }
-    ensureTenant(req, res, next);
-});
-
-// ============================================
-// SSE: Real-time message events (tenant)
-// ============================================
-// Requires one-time SSE token from POST /auth/sse-token
-router.get('/events', sseAuth, (req, res) => {
-    const tenantId = req.user.tenant_id;
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
-    });
-    res.write('event: connected\ndata: {"status":"ok"}\n\n');
-    eventBus.addClient(`tenant:${tenantId}`, res);
-
-    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 30000);
-    req.on('close', () => clearInterval(heartbeat));
-});
+router.use(ensureTenant);
 
 // ============================================
 // Dashboard Stats
