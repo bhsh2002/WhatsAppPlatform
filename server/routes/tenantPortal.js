@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
 import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
+import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -415,16 +416,6 @@ router.post('/messages/send', async (req, res) => {
         });
 
         const data = await response.json();
-
-        const substituteVariables = (text, params) => {
-            if (!text || !params) return text;
-            let result = text;
-            params.forEach((param, index) => {
-                const val = typeof param === 'string' ? param : param.text;
-                result = result.replaceAll(`{{${index + 1}}}`, val || '');
-            });
-            return result;
-        };
 
         let storedContent = message;
         if (type === 'template' && templateId) {
@@ -892,6 +883,14 @@ router.post('/messages/send-interactive', async (req, res) => {
             return res.status(400).json({ error: 'نوع الرسالة التفاعلية يجب أن يكون "button" أو "list"' });
         }
 
+        // Validate buttons/sections based on type
+        if (interactive_type === 'button' && (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3)) {
+            return res.status(400).json({ error: 'يجب تقديم 1-3 أزرار' });
+        }
+        if (interactive_type === 'list' && (!sections || !Array.isArray(sections) || sections.length === 0)) {
+            return res.status(400).json({ error: 'يجب تقديم قسم واحد على الأقل' });
+        }
+
         // Get tenant credentials
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {
@@ -909,48 +908,16 @@ router.post('/messages/send-interactive', async (req, res) => {
             return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
         }
 
-        // Build interactive payload
-        const interactive = {
-            type: interactive_type,
-            body: { text: body_text }
-        };
-
-        if (header_text) {
-            interactive.header = { type: 'text', text: header_text };
-        }
-        if (footer_text) {
-            interactive.footer = { text: footer_text };
-        }
-
-        if (interactive_type === 'button') {
-            if (!buttons || !Array.isArray(buttons) || buttons.length === 0 || buttons.length > 3) {
-                return res.status(400).json({ error: 'يجب تقديم 1-3 أزرار' });
-            }
-            interactive.action = {
-                buttons: buttons.map((btn, i) => ({
-                    type: 'reply',
-                    reply: {
-                        id: btn.id || `btn_${i}`,
-                        title: btn.title
-                    }
-                }))
-            };
-        } else if (interactive_type === 'list') {
-            if (!sections || !Array.isArray(sections) || sections.length === 0) {
-                return res.status(400).json({ error: 'يجب تقديم قسم واحد على الأقل' });
-            }
-            interactive.action = {
-                button: list_button_text || 'عرض الخيارات',
-                sections: sections.map(section => ({
-                    title: section.title,
-                    rows: (section.rows || []).map(row => ({
-                        id: row.id,
-                        title: row.title,
-                        description: row.description || ''
-                    }))
-                }))
-            };
-        }
+        // Build interactive payload using shared service
+        const interactive = buildInteractivePayload({
+            interactiveType: interactive_type,
+            bodyText: body_text,
+            headerText: header_text,
+            footerText: footer_text,
+            buttons: buttons,
+            sections: sections,
+            listButtonText: list_button_text,
+        });
 
         const payload = {
             messaging_product: 'whatsapp',
