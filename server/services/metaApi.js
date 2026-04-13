@@ -125,6 +125,39 @@ export async function downloadMedia(accessToken, mediaUrl) {
     };
 }
 
+/**
+ * Mark a message as read
+ * Sends read receipt to Meta so the customer sees the blue ticks
+ * 
+ * @param {string} phoneNumberId - The phone number ID
+ * @param {string} accessToken - Access token
+ * @param {string} messageId - The WhatsApp message ID to mark as read
+ * @returns {Promise<{ok: boolean, status: number, data: object}>}
+ */
+export async function markMessageAsRead(phoneNumberId, accessToken, messageId) {
+    const payload = {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+    };
+    
+    const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+    
+    const data = await response.json();
+    return {
+        ok: response.ok,
+        status: response.status,
+        data,
+    };
+}
+
 // ============================================
 // Internal: Send payload to Meta API
 // ============================================
