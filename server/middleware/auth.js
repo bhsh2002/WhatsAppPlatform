@@ -5,12 +5,18 @@ import db from '../db/database.js';
 // Middleware to verify JWT token (with revocation check)
 export const authMiddleware = (req, res, next) => {
     const authHeader = req.headers.authorization;
+    let token;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'غير مصرح - يرجى تسجيل الدخول' });
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+    } else if (req.query && req.query.token) {
+        // Fallback for <img>/<video> tags that can't send Authorization headers
+        token = req.query.token;
     }
 
-    const token = authHeader.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ error: 'غير مصرح - يرجى تسجيل الدخول' });
+    }
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
