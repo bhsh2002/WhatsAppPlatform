@@ -211,6 +211,12 @@ router.post('/send', async (req, res) => {
                 type === 'template' ? `إرسال قالب: ${templateName}` : 'إرسال رسالة نصية',
                 response.ok ? 'success' : 'error'
             );
+            
+            // Deduct credit on successful send (if tenant specified)
+            if (response.ok && tenant_id) {
+                db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0')
+                    .run(tenant_id);
+            }
         }
 
         if (response.ok) {
@@ -583,6 +589,11 @@ router.post('/send-media', async (req, res) => {
             messageRecord.media_url
         );
 
+        // Deduct credit if tenant specified
+        if (tenant_id && response.ok) {
+            db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
+        }
+
         if (response.ok) {
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
@@ -728,6 +739,11 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             messageRecord.media_mime_type
         );
 
+        // Deduct credit if tenant specified
+        if (tenant_id && response.ok) {
+            db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
+        }
+
         res.json({ success: true, message_id: data.messages?.[0]?.id, data });
 
     } catch (error) {
@@ -825,6 +841,11 @@ router.post('/send-interactive', async (req, res) => {
                 INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                 VALUES (?, ?, 'interactive_sent', ?, ?)
             `).run(tenant.id, tenant.name, `إرسال رسالة تفاعلية (${interactive_type})`, response.ok ? 'success' : 'error');
+            
+            // Deduct credit if tenant specified
+            if (response.ok && tenant_id) {
+                db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
+            }
         }
 
         if (response.ok) {
