@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
