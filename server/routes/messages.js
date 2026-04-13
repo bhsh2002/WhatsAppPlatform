@@ -1043,5 +1043,54 @@ router.put('/contacts/:id', (req, res) => {
     }
 });
 
+// Create a new contact manually
+router.post('/contacts', (req, res) => {
+    try {
+        const { tenant_id, phone, profile_name, label, notes } = req.body;
+
+        if (!phone) {
+            return res.status(400).json({ error: 'Phone number is required' });
+        }
+
+        // Format phone number
+        const formattedPhone = phone.replace(/\+/g, '').trim();
+
+        // Check if contact already exists for this tenant
+        const existing = db.prepare('SELECT * FROM contacts WHERE tenant_id = ? AND phone = ?')
+            .get(tenant_id || null, formattedPhone);
+
+        if (existing) {
+            return res.status(409).json({ error: 'Contact already exists', contact: existing });
+        }
+
+        const result = db.prepare(`
+            INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).run(tenant_id || null, formattedPhone, profile_name || null, label || null, notes || null);
+
+        const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
+        res.status(201).json(newContact);
+    } catch (error) {
+        console.error('[Messages] Contact create error:', error);
+        res.status(500).json({ error: 'Failed to create contact' });
+    }
+});
+
+// Delete a contact
+router.delete('/contacts/:id', (req, res) => {
+    try {
+        const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
+        if (!contact) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+
+        db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+        res.json({ success: true, message: 'Contact deleted' });
+    } catch (error) {
+        console.error('[Messages] Contact delete error:', error);
+        res.status(500).json({ error: 'Failed to delete contact' });
+    }
+});
+
 export default router;
 

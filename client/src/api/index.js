@@ -642,10 +642,27 @@ class ApiService {
         return this.request(`/api/messages/contacts${query ? '?' + query : ''}`);
     }
 
+    async getContact(id) {
+        return this.request(`/api/messages/contacts/${id}`);
+    }
+
+    async createContact(data) {
+        return this.request('/api/messages/contacts', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     async updateContact(id, data) {
         return this.request(`/api/messages/contacts/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
+        });
+    }
+
+    async deleteContact(id) {
+        return this.request(`/api/messages/contacts/${id}`, {
+            method: 'DELETE',
         });
     }
 
@@ -657,10 +674,23 @@ class ApiService {
         return this.request(`/api/portal/contacts${query ? '?' + query : ''}`);
     }
 
+    async createPortalContact(data) {
+        return this.request('/api/portal/contacts', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     async updatePortalContact(id, data) {
         return this.request(`/api/portal/contacts/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
+        });
+    }
+
+    async deletePortalContact(id) {
+        return this.request(`/api/portal/contacts/${id}`, {
+            method: 'DELETE',
         });
     }
 
@@ -669,6 +699,13 @@ class ApiService {
     // ============================================
     async broadcastMessage(data) {
         return this.request('/api/messages/broadcast', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async portalBroadcast(data) {
+        return this.request('/api/portal/broadcast', {
             method: 'POST',
             body: JSON.stringify(data),
         });
