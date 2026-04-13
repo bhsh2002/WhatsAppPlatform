@@ -509,7 +509,7 @@ const TenantChat = () => {
                 onClose={() => setShowBroadcast(false)}
                 onSend={handleBroadcast}
                 contacts={contacts}
-                templates={templates.filter(t => t.status === 'APPROVED')}
+                templates={templates.filter(t => t.status?.toLowerCase() === 'approved')}
                 loading={broadcasting}
             />
         </Box>
