@@ -143,7 +143,11 @@ router.post('/', (req, res) => {
 
         const expectedSignature = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
         
-        if (signature !== expectedSignature) {
+        // Timing-safe comparison to prevent timing attacks
+        const sigBuffer = Buffer.from(signature, 'utf8');
+        const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+        
+        if (sigBuffer.length !== expectedBuffer.length ||!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
             console.error('[Webhook] Invalid signature — rejecting request');
             return res.sendStatus(403);
         }
