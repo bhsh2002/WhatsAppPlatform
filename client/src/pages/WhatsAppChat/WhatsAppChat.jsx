@@ -542,12 +542,10 @@ const WhatsAppChat = () => {
                                 />
                             </Box>
                             <Typography variant="h5" fontWeight={300} gutterBottom>
-                                WhatsApp for Business
+                                اختر محادثة للبدء
                             </Typography>
                             <Typography variant="body2" sx={{ maxWidth: 450, textAlign: 'center', lineHeight: 1.6 }}>
-                                أرسل واستقبل الرسائل دون إبقاء هاتفك متصلاً.
-                                <br />
-                                استخدم WhatsApp على ما يصل إلى 4 أجهزة مرتبطة وهاتف واحد في نفس الوقت.
+                                حدد جهة اتصال من القائمة لعرض المحادثة
                             </Typography>
                         </Box>
                     )}

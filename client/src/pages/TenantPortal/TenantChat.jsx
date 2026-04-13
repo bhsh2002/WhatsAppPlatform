@@ -188,7 +188,7 @@ const TenantChat = () => {
     const fetchContacts = async () => {
         try {
             const data = await api.getPortalContacts();
-            setContacts(data || []);
+            setContacts(data.contacts || data || []);
         } catch (err) {
             console.error('Failed to fetch contacts:', err);
         }
