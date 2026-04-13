@@ -41,7 +41,9 @@ const ChatSidebar = ({
     onLoadContacts,
     onAddContact,
     onEditContact,
-    onDeleteContact
+    onDeleteContact,
+    // Header action slot
+    headerAction
 }) => {
     const [showNewChatDialog, setShowNewChatDialog] = useState(false);
     const [showContactsDialog, setShowContactsDialog] = useState(false);
