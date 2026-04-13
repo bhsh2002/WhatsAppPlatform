@@ -1126,57 +1126,69 @@ router.post('/broadcast', async (req, res) => {
             return res.status(400).json({ error: 'القالب غير موجود' });
         }
 
+        // Send in batches of 5 with controlled concurrency
         const results = [];
         let sent = 0, failed = 0;
+        const batchSize = 5;
+        const batchDelay = 200; // ms between batches
 
-        for (const recipient of recipients) {
-            try {
-                const formattedRecipient = recipient.replace(/\+/g, '').trim();
+        for (let i = 0; i < recipients.length; i += batchSize) {
+            const batch = recipients.slice(i, i + batchSize);
+            
+            const batchPromises = batch.map(async (recipient) => {
+                try {
+                    const formattedRecipient = recipient.replace(/\+/g, '').trim();
 
-                const payload = {
-                    messaging_product: 'whatsapp',
-                    to: formattedRecipient,
-                    type: 'template',
-                    template: {
-                        name: template_name,
-                        language: { code: template_language || 'ar' },
-                    },
-                };
+                    const payload = {
+                        messaging_product: 'whatsapp',
+                        to: formattedRecipient,
+                        type: 'template',
+                        template: {
+                            name: template_name,
+                            language: { code: template_language || 'ar' },
+                        },
+                    };
 
-                if (template_params && template_params.length > 0) {
-                    payload.template.components = template_params;
+                    if (template_params && template_params.length > 0) {
+                        payload.template.components = template_params;
+                    }
+
+                    const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        const messageId = data.messages?.[0]?.id;
+                        db.prepare(`
+                            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+                            VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
+                        `).run(tenantId, phoneNumberId, formattedRecipient, `[قالب: ${template_name}]`, messageId);
+                        return { recipient: formattedRecipient, status: 'sent', message_id: messageId };
+                    } else {
+                        return { recipient: formattedRecipient, status: 'failed', error: data.error?.message };
+                    }
+                } catch (err) {
+                    return { recipient, status: 'failed', error: err.message };
                 }
+            });
 
-                const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(payload),
-                });
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
+            
+            sent += batchResults.filter(r => r.status === 'sent').length;
+            failed += batchResults.filter(r => r.status === 'failed').length;
 
-                const data = await response.json();
-
-                if (response.ok) {
-                    const messageId = data.messages?.[0]?.id;
-                    db.prepare(`
-                        INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
-                        VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
-                    `).run(tenantId, phoneNumberId, formattedRecipient, `[قالب: ${template_name}]`, messageId);
-                    results.push({ recipient: formattedRecipient, status: 'sent', message_id: messageId });
-                    sent++;
-                } else {
-                    results.push({ recipient: formattedRecipient, status: 'failed', error: data.error?.message });
-                    failed++;
-                }
-            } catch (err) {
-                results.push({ recipient, status: 'failed', error: err.message });
-                failed++;
+            // Delay between batches to respect rate limits
+            if (i + batchSize < recipients.length) {
+                await new Promise(r => setTimeout(r, batchDelay));
             }
-
-            // Rate limit: ~10 msg/sec
-            await new Promise(r => setTimeout(r, 100));
         }
 
         // Deduct credits

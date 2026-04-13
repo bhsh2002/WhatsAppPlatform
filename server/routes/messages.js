@@ -883,12 +883,11 @@ router.post('/broadcast', async (req, res) => {
             accessTokenOverride: req.body.access_token,
         });
 
-        const { tenant, phoneNumberId, accessToken } = credentials;
-        const tenant_info = tenant;
-        accessToken = tenant.access_token || accessToken;
+        const { tenant, phoneNumberId, accessToken: resolvedToken } = credentials;
+        const finalAccessToken = resolvedToken;
 
         // Credit check
-        if (tenant.credits !== null && tenant.credits < recipients.length) {
+        if (tenant && tenant.credits !== null && tenant.credits < recipients.length) {
             return res.status(402).json({
                 error: `رصيد غير كافٍ. مطلوب ${recipients.length}، متاح ${tenant.credits}`,
                 code: 'INSUFFICIENT_CREDITS',
@@ -897,58 +896,71 @@ router.post('/broadcast', async (req, res) => {
             });
         }
 
-        if (!phoneNumberId || !accessToken) {
+        if (!phoneNumberId || !finalAccessToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
         }
 
+        // Send in batches of 5 with controlled concurrency
         const results = [];
         let sent = 0, failed = 0;
+        const batchSize = 5;
+        const batchDelay = 200; // ms between batches
 
-        for (const recipient of recipients) {
-            try {
-                const payload = {
-                    messaging_product: 'whatsapp',
-                    to: recipient.replace(/\+/g, '').trim(),
-                    type: 'template',
-                    template: {
-                        name: template_name,
-                        language: { code: template_language || 'ar' },
-                    },
-                };
-                if (template_params && template_params.length > 0) {
-                    payload.template.components = template_params;
+        for (let i = 0; i < recipients.length; i += batchSize) {
+            const batch = recipients.slice(i, i + batchSize);
+            
+            const batchPromises = batch.map(async (recipient) => {
+                try {
+                    const formattedRecipient = recipient.replace(/\+/g, '').trim();
+                    const payload = {
+                        messaging_product: 'whatsapp',
+                        to: formattedRecipient,
+                        type: 'template',
+                        template: {
+                            name: template_name,
+                            language: { code: template_language || 'ar' },
+                        },
+                    };
+                    if (template_params && template_params.length > 0) {
+                        payload.template.components = template_params;
+                    }
+
+                    const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${finalAccessToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        const messageId = data.messages?.[0]?.id;
+                        db.prepare(`
+                            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+                            VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
+                        `).run(tenant_id || null, phoneNumberId, formattedRecipient, `[قالب: ${template_name}]`, messageId);
+                        return { recipient: formattedRecipient, status: 'sent', message_id: messageId };
+                    } else {
+                        return { recipient: formattedRecipient, status: 'failed', error: data.error?.message };
+                    }
+                } catch (err) {
+                    return { recipient, status: 'failed', error: err.message };
                 }
+            });
 
-                const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(payload),
-                });
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
+            
+            sent += batchResults.filter(r => r.status === 'sent').length;
+            failed += batchResults.filter(r => r.status === 'failed').length;
 
-                const data = await response.json();
-
-                if (response.ok) {
-                    const messageId = data.messages?.[0]?.id;
-                    db.prepare(`
-                        INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
-                        VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
-                    `).run(tenant_id || null, phoneNumberId, recipient, `[قالب: ${template_name}]`, messageId);
-                    results.push({ recipient, status: 'sent', message_id: messageId });
-                    sent++;
-                } else {
-                    results.push({ recipient, status: 'failed', error: data.error?.message });
-                    failed++;
-                }
-            } catch (err) {
-                results.push({ recipient, status: 'failed', error: err.message });
-                failed++;
+            // Delay between batches to respect rate limits
+            if (i + batchSize < recipients.length) {
+                await new Promise(r => setTimeout(r, batchDelay));
             }
-
-            // Rate limit: ~10 msg/sec to stay under Meta's limits
-            await new Promise(r => setTimeout(r, 100));
         }
 
         // Deduct credits for successful sends
