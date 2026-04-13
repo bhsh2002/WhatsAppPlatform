@@ -161,24 +161,24 @@ app.use((req, res, next) => {
 });
 
 // Rate limiters
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // 10 attempts per window
-    message: { error: 'محاولات كثيرة. حاول مرة أخرى بعد 15 دقيقة.' },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
+// const authLimiter = rateLimit({
+//     windowMs: 15 * 60 * 1000, // 15 minutes
+//     max: 10, // 10 attempts per window
+//     message: { error: 'محاولات كثيرة. حاول مرة أخرى بعد 15 دقيقة.' },
+//     standardHeaders: true,
+//     legacyHeaders: false,
+// });
 
-const apiLimiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute
-    max: 100, // 100 requests per minute
-    message: { error: 'طلبات كثيرة. حاول مرة أخرى.' },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
+// const apiLimiter = rateLimit({
+//     windowMs: 60 * 1000, // 1 minute
+//     max: 100, // 100 requests per minute
+//     message: { error: 'طلبات كثيرة. حاول مرة أخرى.' },
+//     standardHeaders: true,
+//     legacyHeaders: false,
+// });
 
 // Apply general rate limit to all routes
-app.use(apiLimiter);
+// app.use(apiLimiter);
 
 // Health check (public)
 app.get('/health', (req, res) => {
@@ -186,7 +186,8 @@ app.get('/health', (req, res) => {
 });
 
 // Auth routes (public, with stricter rate limit on login/register)
-app.use('/auth', authLimiter, authRouter);
+// app.use('/auth', authLimiter, authRouter);
+app.use('/auth', authRouter);
 
 // SSE endpoints (use one-time token auth, not session auth)
 // These must be mounted BEFORE the authMiddleware-protected routes
@@ -289,10 +290,10 @@ const server = app.listen(PORT, () => {
 // ============================================
 const shutdown = (signal) => {
     console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
-    
+
     server.close(() => {
         console.log('[Server] HTTP server closed');
-        
+
         // Close SQLite database
         try {
             db.close();
@@ -300,7 +301,7 @@ const shutdown = (signal) => {
         } catch (e) {
             // Already closed or error
         }
-        
+
         console.log('[Server] Shutdown complete');
         process.exit(0);
     });
