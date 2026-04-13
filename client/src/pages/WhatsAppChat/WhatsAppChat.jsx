@@ -28,6 +28,7 @@ const WhatsAppChat = () => {
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const isFirstLoad = useRef(true);
+    const selectedChatRef = useRef(null);
 
     // Helpers
     const getCredentials = () => ({
@@ -174,8 +175,9 @@ const WhatsAppChat = () => {
                 evtSource.addEventListener('message:new', (e) => {
                     const data = JSON.parse(e.data);
                     fetchConversations();
-                    if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
-                        fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+                    const current = selectedChatRef.current;
+                    if (current && (data.sender === current.contact || data.recipient === current.contact)) {
+                        fetchMessages(current.contact, current.tenant_id);
                     }
                 });
 
@@ -220,6 +222,7 @@ const WhatsAppChat = () => {
     }, []);
 
     useEffect(() => {
+        selectedChatRef.current = selectedChat;
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact, selectedChat.tenant_id);
@@ -278,6 +281,7 @@ const WhatsAppChat = () => {
             await api.sendMessage(payload);
             setNewMessage('');
             await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchConversations();
             scrollToBottom();
         } catch (error) {
             console.error('Failed to send:', error);
@@ -300,6 +304,7 @@ const WhatsAppChat = () => {
                 tenant_id: selectedChat.tenant_id
             });
             await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send template:', err);
@@ -330,6 +335,7 @@ const WhatsAppChat = () => {
 
             await api.sendMediaFile(formData);
             await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send document:', err);
@@ -360,6 +366,7 @@ const WhatsAppChat = () => {
 
             await api.sendMediaFile(formData);
             await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send image:', err);
@@ -383,6 +390,7 @@ const WhatsAppChat = () => {
                 ...data
             });
             await fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send interactive:', err);

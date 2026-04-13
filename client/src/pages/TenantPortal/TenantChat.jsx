@@ -29,6 +29,7 @@ const TenantChat = () => {
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const isFirstLoad = useRef(true);
+    const selectedChatRef = useRef(null);
 
     // Responsive
     const theme = useTheme();
@@ -88,8 +89,9 @@ const TenantChat = () => {
                 evtSource.addEventListener('message:new', (e) => {
                     const data = JSON.parse(e.data);
                     fetchConversations();
-                    if (selectedChat && (data.sender === selectedChat.contact || data.recipient === selectedChat.contact)) {
-                        fetchMessages(selectedChat.contact);
+                    const current = selectedChatRef.current;
+                    if (current && (data.sender === current.contact || data.recipient === current.contact)) {
+                        fetchMessages(current.contact);
                     }
                 });
 
@@ -132,6 +134,7 @@ const TenantChat = () => {
     }, []);
 
     useEffect(() => {
+        selectedChatRef.current = selectedChat;
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact);
@@ -221,6 +224,7 @@ const TenantChat = () => {
             });
             setNewMessage('');
             await fetchMessages(selectedChat.contact);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send message:', err);
@@ -241,6 +245,7 @@ const TenantChat = () => {
                 components: templateData.components
             });
             await fetchMessages(selectedChat.contact);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send template:', err);
@@ -265,6 +270,7 @@ const TenantChat = () => {
 
             await api.sendPortalDocument(formData);
             await fetchMessages(selectedChat.contact);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send document:', err);
@@ -288,6 +294,7 @@ const TenantChat = () => {
 
             await api.sendPortalImage(formData);
             await fetchMessages(selectedChat.contact);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send image:', err);
@@ -307,6 +314,7 @@ const TenantChat = () => {
                 ...data
             });
             await fetchMessages(selectedChat.contact);
+            fetchConversations();
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send interactive:', err);
