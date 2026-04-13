@@ -1131,7 +1131,29 @@ router.post('/broadcast', async (req, res) => {
                         },
                     };
 
-                    if (template_params && template_params.length > 0) {
+                    // Build per-recipient template_params from variable_mapping
+                    const variable_mapping = req.body.variable_mapping;
+                    if (variable_mapping && variable_mapping.length > 0) {
+                        // Lookup contact data for this recipient
+                        const contact = db.prepare(
+                            'SELECT phone, profile_name, label, notes FROM contacts WHERE phone = ? AND tenant_id = ? LIMIT 1'
+                        ).get(formattedRecipient, tenantId);
+
+                        const parameters = variable_mapping.map(varMap => {
+                            let value = '';
+                            if (varMap.source === 'static') {
+                                value = varMap.value || '';
+                            } else if (varMap.source === 'contact') {
+                                value = (contact && contact[varMap.field]) || varMap.fallback || formattedRecipient;
+                            }
+                            return { type: 'text', text: value };
+                        });
+
+                        payload.template.components = [{
+                            type: 'body',
+                            parameters
+                        }];
+                    } else if (template_params && template_params.length > 0) {
                         payload.template.components = template_params;
                     }
 

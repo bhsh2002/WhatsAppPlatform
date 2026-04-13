@@ -24,21 +24,32 @@ import {
     Card,
     CardContent,
     Divider,
-    LinearProgress
+    LinearProgress,
+    ToggleButton,
+    ToggleButtonGroup,
+    Tooltip
 } from '@mui/material';
 import {
     Campaign as CampaignIcon,
     Send as SendIcon,
     People as PeopleIcon,
-    Description as TemplateIcon,
     CheckCircle as SuccessIcon,
-    Error as ErrorIcon
+    Error as ErrorIcon,
+    TextFields as StaticIcon,
+    Person as ContactIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
+// Available contact fields that can be used as dynamic variables
+const CONTACT_FIELDS = [
+    { value: 'profile_name', label: 'اسم جهة الاتصال', icon: '👤' },
+    { value: 'phone', label: 'رقم الهاتف', icon: '📱' },
+    { value: 'label', label: 'التصنيف', icon: '🏷️' },
+    { value: 'notes', label: 'الملاحظات', icon: '📝' },
+];
+
 /**
  * Extract variable placeholders from template body text.
- * Returns sorted unique variable numbers, e.g. [1, 2, 3]
  */
 function extractVariables(bodyText) {
     if (!bodyText) return [];
@@ -49,13 +60,20 @@ function extractVariables(bodyText) {
 }
 
 /**
- * Replace {{N}} placeholders with actual values for preview.
+ * Replace {{N}} placeholders with actual values or field labels for preview.
  */
-function previewBody(bodyText, variableValues) {
+function previewBody(bodyText, variableConfigs) {
     if (!bodyText) return '';
     return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
-        const val = variableValues[parseInt(num)];
-        return val ? val : match;
+        const config = variableConfigs[parseInt(num)];
+        if (!config) return match;
+        if (config.source === 'static') {
+            return config.value || match;
+        } else if (config.source === 'contact') {
+            const field = CONTACT_FIELDS.find(f => f.value === config.field);
+            return `[${field?.label || config.field}]`;
+        }
+        return match;
     });
 }
 
@@ -67,23 +85,29 @@ const BroadcastManager = () => {
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [recipientsText, setRecipientsText] = useState('');
     const [templateLanguage, setTemplateLanguage] = useState('ar');
-    const [variableValues, setVariableValues] = useState({}); // { 1: 'value1', 2: 'value2', ... }
+
+    // Variable configs: { [varNum]: { source: 'static'|'contact', value: '', field: '', fallback: '' } }
+    const [variableConfigs, setVariableConfigs] = useState({});
 
     const [sending, setSending] = useState(false);
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
 
-    // Extract variables from the selected template body
     const variables = useMemo(() =>
         extractVariables(selectedTemplate?.body),
         [selectedTemplate]
     );
 
-    // Check if all variables are filled
-    const allVariablesFilled = useMemo(() =>
-        variables.length === 0 || variables.every(v => variableValues[v]?.trim()),
-        [variables, variableValues]
-    );
+    const allVariablesFilled = useMemo(() => {
+        if (variables.length === 0) return true;
+        return variables.every(v => {
+            const config = variableConfigs[v];
+            if (!config) return false;
+            if (config.source === 'static') return config.value?.trim();
+            if (config.source === 'contact') return !!config.field;
+            return false;
+        });
+    }, [variables, variableConfigs]);
 
     useEffect(() => {
         const loadTenants = async () => {
@@ -115,9 +139,13 @@ const BroadcastManager = () => {
         loadTemplates();
     }, [selectedTenantId]);
 
-    // Reset variable values when template changes
+    // Initialize variable configs when template changes
     useEffect(() => {
-        setVariableValues({});
+        const newConfigs = {};
+        variables.forEach(v => {
+            newConfigs[v] = { source: 'static', value: '', field: '', fallback: '' };
+        });
+        setVariableConfigs(newConfigs);
     }, [selectedTemplate]);
 
     const recipients = recipientsText
@@ -126,33 +154,59 @@ const BroadcastManager = () => {
         .filter(r => r.length >= 8);
 
     const uniqueRecipients = [...new Set(recipients)];
-
     const selectedTenant = tenants.find(t => t.id === parseInt(selectedTenantId));
 
     const canProceedStep0 = selectedTenantId && selectedTemplate && allVariablesFilled;
     const canProceedStep1 = uniqueRecipients.length > 0 && uniqueRecipients.length <= 500;
 
-    const handleVariableChange = (varNum, value) => {
-        setVariableValues(prev => ({
+    const handleConfigChange = (varNum, key, value) => {
+        setVariableConfigs(prev => ({
             ...prev,
-            [varNum]: value
+            [varNum]: { ...prev[varNum], [key]: value }
         }));
     };
 
     /**
-     * Build the Meta API template_params (components array) from variable values.
+     * Build the payload for the API.
+     * Uses variable_mapping for per-recipient resolution when any variable uses contact fields.
      */
-    const buildTemplateParams = () => {
-        if (variables.length === 0) return undefined;
-        return [
-            {
-                type: 'body',
-                parameters: variables.map(v => ({
-                    type: 'text',
-                    text: variableValues[v] || ''
-                }))
+    const buildPayload = () => {
+        const hasContactSource = variables.some(v => variableConfigs[v]?.source === 'contact');
+
+        const payload = {
+            tenant_id: parseInt(selectedTenantId),
+            recipients: uniqueRecipients,
+            template_name: selectedTemplate.name,
+            template_language: templateLanguage,
+        };
+
+        if (variables.length > 0) {
+            if (hasContactSource) {
+                // Use variable_mapping for per-recipient dynamic resolution
+                payload.variable_mapping = variables.map(v => {
+                    const config = variableConfigs[v];
+                    if (config.source === 'contact') {
+                        return {
+                            source: 'contact',
+                            field: config.field,
+                            fallback: config.fallback || ''
+                        };
+                    }
+                    return { source: 'static', value: config.value || '' };
+                });
+            } else {
+                // All static — use simple template_params
+                payload.template_params = [{
+                    type: 'body',
+                    parameters: variables.map(v => ({
+                        type: 'text',
+                        text: variableConfigs[v]?.value || ''
+                    }))
+                }];
             }
-        ];
+        }
+
+        return payload;
     };
 
     const handleSend = async () => {
@@ -163,18 +217,7 @@ const BroadcastManager = () => {
             setError(null);
             setResults(null);
 
-            const payload = {
-                tenant_id: parseInt(selectedTenantId),
-                recipients: uniqueRecipients,
-                template_name: selectedTemplate.name,
-                template_language: templateLanguage,
-            };
-
-            const templateParams = buildTemplateParams();
-            if (templateParams) {
-                payload.template_params = templateParams;
-            }
-
+            const payload = buildPayload();
             const data = await api.broadcastMessage(payload);
 
             setResults(data);
@@ -193,14 +236,13 @@ const BroadcastManager = () => {
         setRecipientsText('');
         setResults(null);
         setError(null);
-        setVariableValues({});
+        setVariableConfigs({});
     };
 
     const steps = ['اختيار القالب', 'إدخال المستلمين', 'مراجعة وإرسال', 'النتائج'];
 
     return (
         <Box sx={{ p: 3 }}>
-            {/* Header */}
             <Box sx={{ mb: 4 }}>
                 <Typography variant="h4" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <CampaignIcon fontSize="large" color="primary" />
@@ -211,7 +253,6 @@ const BroadcastManager = () => {
                 </Typography>
             </Box>
 
-            {/* Stepper */}
             <Paper sx={{ p: 3, mb: 3 }}>
                 <Stepper activeStep={activeStep} alternativeLabel>
                     {steps.map((label) => (
@@ -228,7 +269,7 @@ const BroadcastManager = () => {
                 </Alert>
             )}
 
-            {/* Step 0: Select tenant & template + fill variables */}
+            {/* Step 0: Select tenant & template + configure variables */}
             {activeStep === 0 && (
                 <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" fontWeight={600} gutterBottom>
@@ -244,7 +285,7 @@ const BroadcastManager = () => {
                                 onChange={(e) => {
                                     setSelectedTenantId(e.target.value);
                                     setSelectedTemplate(null);
-                                    setVariableValues({});
+                                    setVariableConfigs({});
                                 }}
                             >
                                 {tenants.map(t => (
@@ -284,47 +325,104 @@ const BroadcastManager = () => {
                                     <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'grey.50', p: 2, borderRadius: 1, direction: 'auto' }}>
                                         {selectedTemplate.body || 'لا يوجد محتوى'}
                                     </Typography>
-                                    {selectedTemplate.footer && (
-                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                                            {selectedTemplate.footer}
-                                        </Typography>
-                                    )}
                                 </CardContent>
                             </Card>
                         )}
 
-                        {/* Variable Inputs */}
+                        {/* Variable Configuration */}
                         {variables.length > 0 && (
                             <Box>
                                 <Alert severity="info" sx={{ mb: 2 }}>
-                                    هذا القالب يحتوي على {variables.length} متغير(ات). يرجى تعبئة القيم أدناه — ستُطبَّق على جميع المستلمين.
+                                    هذا القالب يحتوي على {variables.length} متغير(ات). حدد مصدر كل متغير — نص ثابت أو بيانات من جهة الاتصال.
                                 </Alert>
 
-                                {variables.map(varNum => (
-                                    <TextField
-                                        key={varNum}
-                                        label={`متغير {{${varNum}}}`}
-                                        placeholder={`أدخل قيمة المتغير {{${varNum}}}`}
-                                        value={variableValues[varNum] || ''}
-                                        onChange={(e) => handleVariableChange(varNum, e.target.value)}
-                                        fullWidth
-                                        size="small"
-                                        required
-                                        error={!variableValues[varNum]?.trim()}
-                                        helperText={!variableValues[varNum]?.trim() ? 'هذا الحقل مطلوب' : ''}
-                                        sx={{ mb: 1.5 }}
-                                    />
-                                ))}
+                                {variables.map(varNum => {
+                                    const config = variableConfigs[varNum] || { source: 'static', value: '', field: '', fallback: '' };
+                                    return (
+                                        <Card key={varNum} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                                                <Chip label={`{{${varNum}}}`} size="small" color="primary" />
+                                                <ToggleButtonGroup
+                                                    value={config.source}
+                                                    exclusive
+                                                    onChange={(_, val) => val && handleConfigChange(varNum, 'source', val)}
+                                                    size="small"
+                                                >
+                                                    <ToggleButton value="static">
+                                                        <Tooltip title="نص ثابت — نفس القيمة لجميع المستلمين">
+                                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                                <StaticIcon fontSize="small" />
+                                                                <span>نص ثابت</span>
+                                                            </Box>
+                                                        </Tooltip>
+                                                    </ToggleButton>
+                                                    <ToggleButton value="contact">
+                                                        <Tooltip title="بيانات جهة الاتصال — قيمة مختلفة لكل مستلم">
+                                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                                <ContactIcon fontSize="small" />
+                                                                <span>بيانات المستلم</span>
+                                                            </Box>
+                                                        </Tooltip>
+                                                    </ToggleButton>
+                                                </ToggleButtonGroup>
+                                            </Box>
 
-                                {/* Live preview with substituted variables */}
+                                            {config.source === 'static' ? (
+                                                <TextField
+                                                    label={`قيمة المتغير {{${varNum}}}`}
+                                                    placeholder="أدخل النص الثابت..."
+                                                    value={config.value}
+                                                    onChange={(e) => handleConfigChange(varNum, 'value', e.target.value)}
+                                                    fullWidth
+                                                    size="small"
+                                                    required
+                                                    error={!config.value?.trim()}
+                                                />
+                                            ) : (
+                                                <Box sx={{ display: 'flex', gap: 2 }}>
+                                                    <FormControl size="small" sx={{ flex: 1 }}>
+                                                        <InputLabel>حقل جهة الاتصال</InputLabel>
+                                                        <Select
+                                                            value={config.field}
+                                                            label="حقل جهة الاتصال"
+                                                            onChange={(e) => handleConfigChange(varNum, 'field', e.target.value)}
+                                                        >
+                                                            {CONTACT_FIELDS.map(f => (
+                                                                <MenuItem key={f.value} value={f.value}>
+                                                                    {f.icon} {f.label}
+                                                                </MenuItem>
+                                                            ))}
+                                                        </Select>
+                                                    </FormControl>
+                                                    <TextField
+                                                        label="قيمة بديلة"
+                                                        placeholder="إذا لم يتوفر الحقل..."
+                                                        value={config.fallback}
+                                                        onChange={(e) => handleConfigChange(varNum, 'fallback', e.target.value)}
+                                                        size="small"
+                                                        sx={{ flex: 1 }}
+                                                        helperText="تُستخدم إذا لم يكن لدى المستلم هذا الحقل"
+                                                    />
+                                                </Box>
+                                            )}
+                                        </Card>
+                                    );
+                                })}
+
+                                {/* Preview */}
                                 <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
                                     <CardContent>
                                         <Typography variant="subtitle2" color="success.dark" gutterBottom>
-                                            معاينة الرسالة بعد تعبئة المتغيرات
+                                            معاينة الرسالة
                                         </Typography>
                                         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', direction: 'auto' }}>
-                                            {previewBody(selectedTemplate?.body, variableValues)}
+                                            {previewBody(selectedTemplate?.body, variableConfigs)}
                                         </Typography>
+                                        {variables.some(v => variableConfigs[v]?.source === 'contact') && (
+                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                                * القيم بين أقواس مربعة [مثل هذه] ستُستبدل ببيانات كل مستلم تلقائياً
+                                            </Typography>
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Box>
@@ -341,11 +439,7 @@ const BroadcastManager = () => {
                     </Box>
 
                     <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                        <Button
-                            variant="contained"
-                            disabled={!canProceedStep0}
-                            onClick={() => setActiveStep(1)}
-                        >
+                        <Button variant="contained" disabled={!canProceedStep0} onClick={() => setActiveStep(1)}>
                             التالي
                         </Button>
                     </Box>
@@ -379,9 +473,7 @@ const BroadcastManager = () => {
                             color={uniqueRecipients.length > 500 ? 'error' : uniqueRecipients.length > 0 ? 'primary' : 'default'}
                         />
                         {uniqueRecipients.length > 500 && (
-                            <Alert severity="error" sx={{ flex: 1 }}>
-                                الحد الأقصى 500 مستلم لكل عملية بث
-                            </Alert>
+                            <Alert severity="error" sx={{ flex: 1 }}>الحد الأقصى 500 مستلم</Alert>
                         )}
                         {selectedTenant && selectedTenant.credits !== null && selectedTenant.credits < uniqueRecipients.length && (
                             <Alert severity="warning" sx={{ flex: 1 }}>
@@ -392,13 +484,7 @@ const BroadcastManager = () => {
 
                     <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between' }}>
                         <Button onClick={() => setActiveStep(0)}>السابق</Button>
-                        <Button
-                            variant="contained"
-                            disabled={!canProceedStep1}
-                            onClick={() => setActiveStep(2)}
-                        >
-                            التالي
-                        </Button>
+                        <Button variant="contained" disabled={!canProceedStep1} onClick={() => setActiveStep(2)}>التالي</Button>
                     </Box>
                 </Paper>
             )}
@@ -406,9 +492,7 @@ const BroadcastManager = () => {
             {/* Step 2: Review & Send */}
             {activeStep === 2 && (
                 <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>
-                        مراجعة وتأكيد الإرسال
-                    </Typography>
+                    <Typography variant="h6" fontWeight={600} gutterBottom>مراجعة وتأكيد الإرسال</Typography>
 
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
                         <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
@@ -432,44 +516,44 @@ const BroadcastManager = () => {
                             </Card>
                         </Box>
 
-                        {/* Final message preview */}
                         {selectedTemplate && (
                             <Card variant="outlined">
                                 <CardContent>
-                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                        الرسالة النهائية
-                                    </Typography>
+                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>الرسالة</Typography>
                                     <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', bgcolor: '#f0f4f0', p: 1.5, borderRadius: 1, direction: 'auto' }}>
-                                        {previewBody(selectedTemplate.body, variableValues)}
+                                        {previewBody(selectedTemplate.body, variableConfigs)}
                                     </Typography>
                                 </CardContent>
                             </Card>
                         )}
 
-                        {/* Variable summary */}
                         {variables.length > 0 && (
                             <Box>
-                                <Typography variant="body2" color="text.secondary" gutterBottom>
-                                    المتغيرات:
-                                </Typography>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>المتغيرات:</Typography>
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                    {variables.map(v => (
-                                        <Chip
-                                            key={v}
-                                            label={`{{${v}}} = ${variableValues[v] || '—'}`}
-                                            size="small"
-                                            color="primary"
-                                            variant="outlined"
-                                        />
-                                    ))}
+                                    {variables.map(v => {
+                                        const config = variableConfigs[v];
+                                        const label = config?.source === 'contact'
+                                            ? `${CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field}`
+                                            : config?.value || '—';
+                                        return (
+                                            <Chip
+                                                key={v}
+                                                label={`{{${v}}} = ${label}`}
+                                                size="small"
+                                                color={config?.source === 'contact' ? 'secondary' : 'primary'}
+                                                variant="outlined"
+                                                icon={config?.source === 'contact' ? <ContactIcon /> : <StaticIcon />}
+                                            />
+                                        );
+                                    })}
                                 </Box>
                             </Box>
                         )}
 
                         <Divider />
-
                         <Alert severity="info">
-                            سيتم إرسال الرسائل بمعدل ~10 رسائل/ثانية. الوقت المقدر: ~{Math.ceil(uniqueRecipients.length / 10)} ثانية.
+                            الوقت المقدر: ~{Math.ceil(uniqueRecipients.length / 10)} ثانية
                         </Alert>
                     </Box>
 
@@ -501,32 +585,24 @@ const BroadcastManager = () => {
             {/* Step 3: Results */}
             {activeStep === 3 && results && (
                 <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>
-                        نتائج البث
-                    </Typography>
+                    <Typography variant="h6" fontWeight={600} gutterBottom>نتائج البث</Typography>
 
                     <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
                         <Card variant="outlined" sx={{ flex: 1, minWidth: 150 }}>
                             <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h3" fontWeight={700} color="text.primary">
-                                    {results.total}
-                                </Typography>
+                                <Typography variant="h3" fontWeight={700}>{results.total}</Typography>
                                 <Typography variant="body2" color="text.secondary">إجمالي</Typography>
                             </CardContent>
                         </Card>
                         <Card variant="outlined" sx={{ flex: 1, minWidth: 150 }}>
                             <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h3" fontWeight={700} color="success.main">
-                                    {results.sent}
-                                </Typography>
+                                <Typography variant="h3" fontWeight={700} color="success.main">{results.sent}</Typography>
                                 <Typography variant="body2" color="text.secondary">نجاح</Typography>
                             </CardContent>
                         </Card>
                         <Card variant="outlined" sx={{ flex: 1, minWidth: 150 }}>
                             <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h3" fontWeight={700} color="error.main">
-                                    {results.failed}
-                                </Typography>
+                                <Typography variant="h3" fontWeight={700} color="error.main">{results.failed}</Typography>
                                 <Typography variant="body2" color="text.secondary">فشل</Typography>
                             </CardContent>
                         </Card>
@@ -553,9 +629,7 @@ const BroadcastManager = () => {
                                                     <Chip icon={<ErrorIcon />} label="فشل" color="error" size="small" />
                                                 )}
                                             </TableCell>
-                                            <TableCell>
-                                                {r.message_id || r.error || '—'}
-                                            </TableCell>
+                                            <TableCell>{r.message_id || r.error || '—'}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -564,9 +638,7 @@ const BroadcastManager = () => {
                     )}
 
                     <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-                        <Button variant="contained" onClick={handleReset}>
-                            بث جديد
-                        </Button>
+                        <Button variant="contained" onClick={handleReset}>بث جديد</Button>
                     </Box>
                 </Paper>
             )}
