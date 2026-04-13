@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
-import { Box, useTheme, useMediaQuery, Typography } from '@mui/material';
+import { Box, useTheme, useMediaQuery, Typography, IconButton, Tooltip } from '@mui/material';
 import {
     Check as CheckIcon,
     DoneAll as DoneAllIcon,
     AccessTime as AccessTimeIcon,
-    Error as ErrorIcon
+    Error as ErrorIcon,
+    Campaign as CampaignIcon
 } from '@mui/icons-material';
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
+import BroadcastDialog from '../../components/WhatsApp/BroadcastDialog';
 
 const WhatsAppChat = () => {
     // State
@@ -24,6 +26,8 @@ const WhatsAppChat = () => {
     const [sendingDoc, setSendingDoc] = useState(false);
     const [sendingInteractive, setSendingInteractive] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [showBroadcast, setShowBroadcast] = useState(false);
+    const [broadcasting, setBroadcasting] = useState(false);
 
     // Refs
     const messagesEndRef = useRef(null);
@@ -142,6 +146,16 @@ const WhatsAppChat = () => {
     const handleDeleteContact = async (contactId) => {
         await api.deleteContact(contactId);
         await fetchContacts();
+    };
+
+    const handleBroadcast = async (data) => {
+        setBroadcasting(true);
+        try {
+            await api.broadcastMessage(data);
+            await fetchConversations();
+        } finally {
+            setBroadcasting(false);
+        }
     };
 
     // SSE: Real-time updates with polling fallback
@@ -457,6 +471,23 @@ const WhatsAppChat = () => {
                         onAddContact={handleAddContact}
                         onEditContact={handleEditContact}
                         onDeleteContact={handleDeleteContact}
+                        headerAction={
+                            <Tooltip title="إرسال جماعي">
+                                <IconButton
+                                    onClick={() => setShowBroadcast(true)}
+                                    size="small"
+                                    sx={{
+                                        bgcolor: 'secondary.main',
+                                        color: 'white',
+                                        '&:hover': { bgcolor: 'secondary.dark' },
+                                        width: 36,
+                                        height: 36
+                                    }}
+                                >
+                                    <CampaignIcon fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                        }
                     />
                 </Box>
             )}
@@ -521,7 +552,18 @@ const WhatsAppChat = () => {
                         </Box>
                     )}
                 </Box>
-            )}
+)}
+            </Box>
+
+            {/* Broadcast Dialog */}
+            <BroadcastDialog
+                open={showBroadcast}
+                onClose={() => setShowBroadcast(false)}
+                onSend={handleBroadcast}
+                contacts={contacts}
+                templates={templates.filter(t => t.status === 'APPROVED')}
+                loading={broadcasting}
+            />
         </Box>
     );
 };

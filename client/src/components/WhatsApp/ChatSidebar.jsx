@@ -150,6 +150,7 @@ const ChatSidebar = ({
                         المحادثات
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 1 }}>
+                        {headerAction}
                         {onLoadContacts && (
                             <Tooltip title="جهات الاتصال">
                                 <IconButton
