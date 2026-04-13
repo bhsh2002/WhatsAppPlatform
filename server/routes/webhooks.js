@@ -12,6 +12,20 @@ if (!VERIFY_TOKEN) console.warn('⚠️ WARNING: WEBHOOK_VERIFY_TOKEN is missing
 if (!APP_SECRET) console.warn('⚠️ WARNING: META_APP_SECRET is missing. Incoming webhooks cannot be securely verified.');
 
 // ============================================
+// Helper: Log webhook failure to dead-letter queue
+// ============================================
+const logWebhookFailure = (tenantId, eventType, payload, errorMessage) => {
+    try {
+        db.prepare(`
+            INSERT INTO webhook_failures (tenant_id, event_type, payload, error_message)
+            VALUES (?, ?, ?, ?)
+        `).run(tenantId, eventType, JSON.stringify(payload), errorMessage);
+    } catch (e) {
+        console.error('[Webhook] Failed to log webhook failure:', e.message);
+    }
+};
+
+// ============================================
 // Helper: Forward webhook to tenant's URL
 // ============================================
 const forwardToTenantWebhook = async (tenantId, event, data) => {
@@ -45,6 +59,7 @@ const forwardToTenantWebhook = async (tenantId, event, data) => {
 
         // Retry with exponential backoff (3 attempts)
         const maxRetries = 3;
+        let lastError = null;
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 const response = await fetch(settings.webhook_url, {
@@ -54,18 +69,31 @@ const forwardToTenantWebhook = async (tenantId, event, data) => {
                     signal: AbortSignal.timeout(10000), // 10s timeout
                 });
                 if (response.ok) return; // Success
-                if (response.status >= 400 && response.status < 500) return; // Client error, don't retry
+                if (response.status >= 400 && response.status < 500) {
+                    // Client error - don't retry but log failure
+                    logWebhookFailure(tenantId, event, payload, `Client error: ${response.status}`);
+                    return;
+                }
+                lastError = `HTTP ${response.status}`;
             } catch (err) {
+                lastError = err.message;
                 if (attempt === maxRetries) {
                     console.error(`[Webhook] Forward to tenant ${tenantId} failed after ${maxRetries} attempts:`, err.message);
+                    logWebhookFailure(tenantId, event, payload, lastError);
                     return;
                 }
             }
             // Wait before retry: 1s, 2s, 4s
             await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
         }
+        
+        // All retries exhausted
+        if (lastError) {
+            logWebhookFailure(tenantId, event, payload, lastError);
+        }
     } catch (error) {
         console.error('[Webhook] Forward error:', error.message);
+        logWebhookFailure(tenantId, event, { tenant_id: tenantId, data }, error.message);
     }
 };
 
