@@ -504,6 +504,20 @@ router.post('/messages/send', async (req, res) => {
             // Deduct 1 credit on successful send
             db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0')
                 .run(tenantId);
+            
+            // Emit SSE events for real-time UI update
+            eventBus.emitNewMessage({
+                tenant_id: tenantId,
+                direction: 'outgoing',
+                sender: phoneNumberId,
+                recipient: messageRecord.recipient,
+                message_type: messageRecord.message_type,
+                content: messageRecord.content,
+                wamid: data.messages?.[0]?.id,
+                created_at: new Date().toISOString(),
+            });
+            eventBus.emitConversationUpdate(tenantId);
+            
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
             res.status(response.status).json({ success: false, error: data.error?.message, data });
@@ -660,6 +674,19 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
             VALUES (?, ?, 'document_sent', 'إرسال مستند', 'success')
         `).run(tenantId, tenant.name);
 
+        // Emit SSE events for real-time UI update
+        eventBus.emitNewMessage({
+            tenant_id: tenantId,
+            direction: 'outgoing',
+            sender: phoneNumberId,
+            recipient: formattedRecipient,
+            message_type: 'document',
+            content: displayContent,
+            wamid: data.messages?.[0]?.id,
+            created_at: new Date().toISOString(),
+        });
+        eventBus.emitConversationUpdate(tenantId);
+
         res.json({
             success: true,
             message_id: data.messages?.[0]?.id,
@@ -805,6 +832,19 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
             INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
             VALUES (?, ?, 'media_sent', ?, 'success')
         `).run(tenantId, tenant.name, `إرسال ${mediaType === 'image' ? 'صورة' : mediaType}`);
+
+        // Emit SSE events for real-time UI update
+        eventBus.emitNewMessage({
+            tenant_id: tenantId,
+            direction: 'outgoing',
+            sender: phoneNumberId,
+            recipient: formattedRecipient,
+            message_type: mediaType,
+            content: caption || `[${mediaType}]`,
+            wamid: data.messages?.[0]?.id,
+            created_at: new Date().toISOString(),
+        });
+        eventBus.emitConversationUpdate(tenantId);
 
         res.json({
             success: true,
@@ -960,6 +1000,19 @@ router.post('/messages/send-interactive', async (req, res) => {
         `).run(tenantId, tenant.name, `إرسال رسالة تفاعلية (${interactive_type})`, response.ok ? 'success' : 'error');
 
         if (response.ok) {
+            // Emit SSE events for real-time UI update
+            eventBus.emitNewMessage({
+                tenant_id: tenantId,
+                direction: 'outgoing',
+                sender: phoneNumberId,
+                recipient: recipient,
+                message_type: 'interactive',
+                content: JSON.stringify({ type: interactive_type, body: body_text }),
+                wamid: data.messages?.[0]?.id,
+                created_at: new Date().toISOString(),
+            });
+            eventBus.emitConversationUpdate(tenantId);
+            
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
             res.status(response.status).json({ success: false, error: data.error?.message, data });
