@@ -342,31 +342,33 @@ const TenantTemplates = () => {
                                                 {new Date(template.created_at).toLocaleDateString('ar-LY')}
                                             </TableCell>
                                             <TableCell align="center">
-                                                <Tooltip title="نسخ المحتوى">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => copyToClipboard(template.body)}
-                                                    >
-                                                        <CopyIcon fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                <Tooltip title="تعديل">
-                                                    <IconButton
-                                                        size="small"
-                                                        onClick={() => handleOpenDialog(template)}
-                                                    >
-                                                        <EditIcon fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                <Tooltip title="حذف">
-                                                    <IconButton
-                                                        size="small"
-                                                        color="error"
-                                                        onClick={() => openDeleteDialog(template)}
-                                                    >
-                                                        <DeleteIcon fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
+                                                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                                                    <Tooltip title="نسخ المحتوى">
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => copyToClipboard(template.body)}
+                                                        >
+                                                            <CopyIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                    <Tooltip title="تعديل">
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => handleOpenDialog(template)}
+                                                        >
+                                                            <EditIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                    <Tooltip title="حذف">
+                                                        <IconButton
+                                                            size="small"
+                                                            color="error"
+                                                            onClick={() => openDeleteDialog(template)}
+                                                        >
+                                                            <DeleteIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                </Box>
                                             </TableCell>
                                         </TableRow>
                                     ))}

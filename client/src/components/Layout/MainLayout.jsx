@@ -22,7 +22,7 @@ const MainLayout = ({ children }) => {
                     color: 'text.primary',
                     zIndex: 1200
                 }}>
-                    <Toolbar sx={{ minHeight: '48px !important' }}>
+                    <Toolbar sx={{ height: 48, minHeight: 48, py: 0 }}>
                         <IconButton
                             color="primary"
                             edge="start"

@@ -366,6 +366,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                             borderColor: 'divider',
                             cursor: 'pointer',
                             minWidth: 0,
+                            width: '100%',
                             '&:hover': { bgcolor: 'rgba(0,0,0,0.08)' }
                         }}
                         onClick={() => {
