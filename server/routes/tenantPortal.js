@@ -149,7 +149,7 @@ router.get('/conversations', (req, res) => {
                 FROM messages
                 WHERE tenant_id = ?
             ) t
-            LEFT JOIN contacts c ON c.phone = t.contact
+            LEFT JOIN contacts c ON c.phone = t.contact AND c.tenant_id = t.tenant_id
             WHERE rn = 1
             ORDER BY last_interaction DESC
         `).all(tenantId, tenantId);
