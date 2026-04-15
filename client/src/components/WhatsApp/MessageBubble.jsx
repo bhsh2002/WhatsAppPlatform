@@ -242,7 +242,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
 
             if (templateData && typeof templateData === 'object') {
                 return (
-<Box sx={{ minWidth: { xs: 0, md: 200 } }}>
+                    <Box sx={{ minWidth: { xs: 0, md: 200 } }}>
                         {templateData.header && (
                             <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
                                 {templateData.header.type === 'IMAGE' ? '[صورة]' :
@@ -354,7 +354,16 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             const caption = contentLines.length > 1 ? contentLines.slice(1).join('\n\n') : '';
 
             return (
-                <Box sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+                <Box sx={{
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    bgcolor: 'rgba(0,0,0,0.05)',
+                    borderRadius: 1,
+                    gap: 1
+                }}>
                     <Paper
                         variant="outlined"
                         sx={{
