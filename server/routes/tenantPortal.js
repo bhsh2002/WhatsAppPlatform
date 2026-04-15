@@ -253,21 +253,37 @@ router.put('/contacts/:id', (req, res) => {
 });
 
 // Create a new contact manually
-router.post('/contacts', async (req, res) => {
+router.post('/contacts', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const { phone, label, notes } = req.body;
+        const { phone, profile_name, label, notes } = req.body;
 
         if (!phone) {
             return res.status(400).json({ error: 'رقم الهاتف مطلوب' });
         }
 
-        const formattedPhone = phone.replace(/[^0-9]/g, '').trim();
+        // Normalize Libyan phone number to international format: 2189XXXXXXXX
+        let formattedPhone = phone.replace(/[^0-9]/g, '').trim();
 
-        if (formattedPhone.length < 7) {
-            return res.status(400).json({ error: 'رقم الهاتف غير صالح' });
+        // 00218... → 218...
+        if (formattedPhone.startsWith('00218')) {
+            formattedPhone = formattedPhone.slice(2);
+        }
+        // 09... → 2189...
+        else if (formattedPhone.startsWith('09')) {
+            formattedPhone = '218' + formattedPhone.slice(1);
+        }
+        // 9... (without leading 0) → 2189...
+        else if (formattedPhone.startsWith('9') && !formattedPhone.startsWith('218')) {
+            formattedPhone = '218' + formattedPhone;
         }
 
+        // Validate: must be 2189[1-5] followed by 7 digits (12 digits total)
+        if (!/^2189[1-5]\d{7}$/.test(formattedPhone)) {
+            return res.status(400).json({ error: 'رقم الهاتف غير صالح. يجب أن يكون رقم ليبي (2189X...)' });
+        }
+
+        // Check if contact already exists
         const existing = db.prepare('SELECT * FROM contacts WHERE tenant_id = ? AND phone = ?')
             .get(tenantId, formattedPhone);
 
@@ -275,114 +291,14 @@ router.post('/contacts', async (req, res) => {
             return res.status(409).json({ error: 'جهة الاتصال موجودة بالفعل' });
         }
 
-        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-        if (!tenant) {
-            return res.status(404).json({ error: 'العميل غير موجود' });
-        }
-
-        const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token;
-
-        if (!phoneNumberId || !accessToken) {
-            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
-        }
-
-        if (tenant.status === 'Suspended') {
-            return res.status(403).json({ error: 'حسابك معلّق. تواصل مع المدير.' });
-        }
-
-        if (tenant.credits !== null && tenant.credits <= 0) {
-            return res.status(402).json({ error: 'رصيد الرسائل غير كافٍ', code: 'INSUFFICIENT_CREDITS' });
-        }
-
-        const template = db.prepare(
-            "SELECT * FROM templates WHERE tenant_id = ? AND status = 'approved' ORDER BY id ASC LIMIT 1"
-        ).get(tenantId);
-
-        if (!template) {
-            return res.status(400).json({ error: 'لا يوجد قالب معتمد. أضف قالبًا معتمدًا أولاً للتحقق من جهات الاتصال.' });
-        }
-
-        const payload = {
-            messaging_product: 'whatsapp',
-            to: formattedPhone,
-            type: 'template',
-            template: {
-                name: template.name,
-                language: { code: template.language || 'ar' },
-            },
-        };
-
-        console.log('[TenantPortal] Verifying contact via template:', formattedPhone);
-
-        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            const errorMsg = data.error?.message || data.error?.error_string || 'Unknown error';
-            const isNotFound = data.error?.code === 131026 || errorMsg.includes('not found') || errorMsg.includes('not a valid');
-            console.error('[TenantPortal] Contact verification failed:', errorMsg);
-            return res.status(400).json({
-                error: isNotFound ? 'الرقم غير موجود على واتساب' : 'فشل التحقق من الرقم',
-                details: errorMsg,
-                code: data.error?.code,
-            });
-        }
-
-        const waId = data.contacts?.[0]?.wa_id || formattedPhone;
-        const messageId = data.messages?.[0]?.id || null;
-
         const result = db.prepare(`
             INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `).run(tenantId, waId, label || null, label || null, notes || null);
+        `).run(tenantId, formattedPhone, profile_name || null, label || null, notes || null);
 
         const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
 
-        let storedContent = `[قالب ترحيب: ${template.name}]`;
-        try {
-            const richContent = {
-                header: template.header_content ? { type: template.header_type, text: template.header_content } : null,
-                body: template.body || '',
-                footer: template.footer,
-                buttons: template.buttons ? JSON.parse(template.buttons) : null,
-            };
-            storedContent = JSON.stringify(richContent);
-        } catch (_) {}
-
-        db.prepare(`
-            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(tenantId, 'outgoing', phoneNumberId, waId, 'template', storedContent, 'sent', messageId);
-
-        db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenantId);
-
-        db.prepare(`
-            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-            VALUES (?, ?, ?, ?, ?)
-        `).run(tenantId, tenant.name, 'contact_verified', `تحقق من رقم ${waId}`, 'success');
-
-        eventBus.emitNewMessage({
-            tenant_id: tenantId,
-            direction: 'outgoing',
-            sender: phoneNumberId,
-            recipient: waId,
-            message_type: 'template',
-            content: storedContent,
-            wamid: messageId,
-            created_at: new Date().toISOString(),
-        });
-        eventBus.emitConversationUpdate(tenantId);
-
-        res.status(201).json({ contact: newContact, template_sent: true });
+        res.status(201).json(newContact);
     } catch (error) {
         console.error('[TenantPortal] Contact create error:', error);
         res.status(500).json({ error: 'فشل إنشاء جهة الاتصال' });
