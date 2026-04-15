@@ -229,14 +229,14 @@ const TenantTemplates = () => {
                         إدارة قوالب الرسائل الخاصة بك
                     </Typography>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ display: 'flex', gap: { xs: 1, md: 2 }, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
                     <Button
                         variant="outlined"
                         startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
                         onClick={syncFromMeta}
                         disabled={syncing}
                     >
-                        مزامنة من WhatsApp
+                        <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>مزامنة من WhatsApp</Box>
                     </Button>
                     <Button
                         variant="outlined"
@@ -251,7 +251,7 @@ const TenantTemplates = () => {
                         startIcon={<AddIcon />}
                         onClick={() => handleOpenDialog()}
                     >
-                        قالب جديد
+                        <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>قالب جديد</Box>
                     </Button>
                 </Box>
             </Box>
@@ -308,7 +308,7 @@ const TenantTemplates = () => {
                             </Box>
                         </Box>
                     ) : (
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table>
                                 <TableHead>
                                     <TableRow>
@@ -397,7 +397,7 @@ const TenantTemplates = () => {
                             </Button>
                         </Box>
                     ) : (
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table>
                                 <TableHead>
                                     <TableRow>

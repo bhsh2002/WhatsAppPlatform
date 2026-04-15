@@ -81,7 +81,7 @@ const PartnerSolutions = () => {
                     </Box>
 
                     <Paper>
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table>
                                 <TableHead>
                                     <TableRow>

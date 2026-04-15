@@ -418,7 +418,7 @@ const WhatsAppChat = () => {
     };
 
     return (
-        <Box sx={{ height: '100vh', display: 'flex', bgcolor: 'background.default', overflow: 'hidden' }}>
+        <Box sx={{ height: { xs: 'calc(100vh - 48px)', md: '100vh' }, display: 'flex', bgcolor: 'background.default', overflow: 'hidden' }}>
             {/* Sidebar */}
             {(!isMobile || !selectedChat) && (
                 <Box sx={{

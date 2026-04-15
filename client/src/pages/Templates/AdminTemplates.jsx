@@ -251,7 +251,7 @@ const AdminTemplates = () => {
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 2 }}>
-                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <FormControl size="small" sx={{ minWidth: { xs: 140, md: 200 } }}>
                         <InputLabel>اختر العميل</InputLabel>
                         <Select
                             value={selectedTenantId}
@@ -331,7 +331,7 @@ const AdminTemplates = () => {
                             </Typography>
                         </Box>
                     ) : (
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table>
                                 <TableHead>
                                     <TableRow>
@@ -403,7 +403,7 @@ const AdminTemplates = () => {
                             </Typography>
                         </Box>
                     ) : (
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table>
                                 <TableHead>
                                     <TableRow>

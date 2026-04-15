@@ -92,7 +92,7 @@ const TenantConversions = () => {
                         <Typography variant="body2" color="text.secondary">تسجيل وتتبع أحداث الأعمال (Conversions API)</Typography>
                     </Box>
                 </Box>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setLogOpen(true)}>تسجيل حدث</Button>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setLogOpen(true)}><Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>تسجيل حدث</Box></Button>
             </Box>
 
             <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -120,7 +120,7 @@ const TenantConversions = () => {
             )}
 
             <Paper>
-                <TableContainer>
+                <TableContainer sx={{ overflowX: 'auto' }}>
                     <Table>
                         <TableHead>
                             <TableRow>

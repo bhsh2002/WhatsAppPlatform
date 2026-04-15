@@ -196,7 +196,7 @@ const Dashboard = () => {
                         لا توجد أنشطة حتى الآن
                     </Box>
                 ) : (
-                    <TableContainer>
+                    <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table>
                             <TableHead>
                                 <TableRow>

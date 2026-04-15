@@ -56,7 +56,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
         const interactiveType = data.type || 'button';
 
         return (
-            <Box sx={{ minWidth: 200 }}>
+            <Box sx={{ minWidth: { xs: 0, md: 200 } }}>
                 {/* Header */}
                 {data.header && (
                     <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
@@ -191,13 +191,13 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                         />
                     )}
                     {message.caption && (
-                        <Typography variant="body1" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
+                        <Typography variant="body1" sx={{ mt: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                             {message.caption}
                         </Typography>
                     )}
                     {/* Also check content for caption if it's not a placeholder */}
                     {!message.caption && content && !content.startsWith('[') && (
-                        <Typography variant="body1" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
+                        <Typography variant="body1" sx={{ mt: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                             {content}
                         </Typography>
                     )}
@@ -242,7 +242,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
 
             if (templateData && typeof templateData === 'object') {
                 return (
-                    <Box sx={{ minWidth: 200 }}>
+<Box sx={{ minWidth: { xs: 0, md: 200 } }}>
                         {templateData.header && (
                             <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
                                 {templateData.header.type === 'IMAGE' ? '[صورة]' :
@@ -354,7 +354,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             const caption = contentLines.length > 1 ? contentLines.slice(1).join('\n\n') : '';
 
             return (
-                <Box>
+                <Box sx={{ minWidth: 0, maxWidth: '100%' }}>
                     <Paper
                         variant="outlined"
                         sx={{
@@ -365,6 +365,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                             gap: 1.5,
                             borderColor: 'divider',
                             cursor: 'pointer',
+                            minWidth: 0,
                             '&:hover': { bgcolor: 'rgba(0,0,0,0.08)' }
                         }}
                         onClick={() => {
@@ -373,7 +374,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                             }
                         }}
                     >
-                        <FileIcon color="action" />
+                        <Box component="span" sx={{ flexShrink: 0 }}><FileIcon color="action" /></Box>
                         <Box sx={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
                             <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
                                 {filename}
@@ -389,7 +390,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                                 </Typography>
                             )}
                         </Box>
-                        <DownloadIcon fontSize="small" color="action" />
+                        <Box component="span" sx={{ flexShrink: 0 }}><DownloadIcon fontSize="small" color="action" /></Box>
                     </Paper>
                 </Box>
             );

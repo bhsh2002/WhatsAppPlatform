@@ -309,7 +309,7 @@ const TenantList = () => {
                     startIcon={<AddIcon />}
                     onClick={openCreateModal}
                 >
-                    إضافة عميل جديد
+                    <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>إضافة عميل جديد</Box>
                 </Button>
             </Box>
 
@@ -349,7 +349,7 @@ const TenantList = () => {
                 </Alert>
             )}
 
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
                 <Table>
                     <TableHead>
                         <TableRow>

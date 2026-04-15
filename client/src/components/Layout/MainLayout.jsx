@@ -2,19 +2,13 @@ import React, { useState } from 'react';
 import { Box, AppBar, Toolbar, IconButton, Typography, Drawer, useMediaQuery, useTheme } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import Sidebar from './Sidebar';
-import { useLocation } from 'react-router-dom';
 
 const drawerWidth = 280;
-
-const chatPaths = ['/chat', '/portal/chat'];
 
 const MainLayout = ({ children }) => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [mobileOpen, setMobileOpen] = useState(false);
-    const location = useLocation();
-
-    const isChatPage = chatPaths.some(path => location.pathname === path);
 
     const handleDrawerToggle = () => {
         setMobileOpen(!mobileOpen);
@@ -22,12 +16,11 @@ const MainLayout = ({ children }) => {
 
     return (
         <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
-            {isMobile && !isChatPage && (
+            {isMobile && (
                 <AppBar position="fixed" elevation={1} sx={{
                     bgcolor: 'background.paper',
                     color: 'text.primary',
-                    zIndex: 1200,
-                    display: { xs: 'flex', md: 'none' }
+                    zIndex: 1200
                 }}>
                     <Toolbar sx={{ minHeight: '48px !important' }}>
                         <IconButton
@@ -39,7 +32,7 @@ const MainLayout = ({ children }) => {
                             <MenuIcon />
                         </IconButton>
                         <Typography variant="subtitle1" fontWeight={600} sx={{ ml: 1 }}>
-                            Wa Savana
+                            واتساب
                         </Typography>
                     </Toolbar>
                 </AppBar>
@@ -83,7 +76,7 @@ const MainLayout = ({ children }) => {
                     minHeight: '100vh',
                     position: 'relative',
                     overflowX: 'hidden',
-                    ...(isMobile && !isChatPage ? { pt: '48px' } : {})
+                    pt: { xs: '48px', md: 0 }
                 }}
             >
                 {children}

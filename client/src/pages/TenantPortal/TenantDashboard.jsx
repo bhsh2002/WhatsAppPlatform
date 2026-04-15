@@ -246,7 +246,7 @@ const TenantDashboard = () => {
                         لا توجد أنشطة حتى الآن
                     </Box>
                 ) : (
-                    <TableContainer>
+                    <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table>
                             <TableHead>
                                 <TableRow>

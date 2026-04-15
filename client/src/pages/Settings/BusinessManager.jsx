@@ -91,7 +91,7 @@ const BusinessManager = () => {
 
                     {activeTab === 'ads' && (
                         <Paper>
-                            <TableContainer>
+                            <TableContainer sx={{ overflowX: 'auto' }}>
                                 <Table>
                                     <TableHead>
                                         <TableRow>

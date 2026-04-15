@@ -85,27 +85,29 @@ const TenantQRCodes = () => {
                         <Typography variant="body2" color="text.secondary">إنشاء وإدارة رموز QR لبدء المحادثات</Typography>
                     </Box>
                 </Box>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>إنشاء رمز QR</Button>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}><Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>إنشاء رمز QR</Box></Button>
             </Box>
 
             <Paper>
-                <TableContainer>
-                    <Table>
+                <TableContainer sx={{ overflowX: 'auto' }}>
+                    <Table sx={{ '& .MuiTableCell-root': { px: { xs: 1, md: 2 }, fontSize: { xs: '0.8rem', md: '0.875rem' } } }}>
                         <TableHead>
                             <TableRow>
-                                <TableCell>الرسالة المعبأة مسبقاً</TableCell>
-                                <TableCell>الرابط المختصر</TableCell>
-                                <TableCell>الحالة</TableCell>
-                                <TableCell align="center">إجراءات</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>الرسالة المعبأة مسبقاً</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>الرابط المختصر</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>الحالة</TableCell>
+                                <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>إجراءات</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {qrCodes.map((qr) => (
                                 <TableRow key={qr.id || qr.code}>
-                                    <TableCell>{qr.prefilled_message || '-'}</TableCell>
+                                    <TableCell sx={{ maxWidth: { xs: 120, md: 300 }, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {qr.prefilled_message || '-'}
+                                    </TableCell>
                                     <TableCell>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                            <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            <Typography variant="body2" sx={{ maxWidth: { xs: 120, md: 200 }, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {qr.deep_link_url || '-'}
                                             </Typography>
                                             {qr.deep_link_url && (

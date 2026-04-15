@@ -38,7 +38,7 @@ const FacebookPages = () => {
                 </Box>
                 <Button variant="contained" startIcon={loading ? <CircularProgress size={18} /> : <RefreshIcon />}
                     onClick={loadPages} disabled={loading} sx={{ bgcolor: '#1877f2' }}>
-                    {loaded ? 'تحديث' : 'جلب الصفحات'}
+                    {loaded ? 'تحديث' : <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>جلب الصفحات</Box>}
                 </Button>
             </Box>
 
@@ -52,7 +52,7 @@ const FacebookPages = () => {
 
             {loaded && (
                 <Paper>
-                    <TableContainer>
+                    <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table>
                             <TableHead>
                                 <TableRow>

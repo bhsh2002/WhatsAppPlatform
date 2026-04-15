@@ -174,14 +174,14 @@ const TenantContacts = () => {
                         قائمة جهات الاتصال الخاصة بك مع إمكانية التصنيف والملاحظات
                     </Typography>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
                     <Button
                         variant="contained"
                         color="secondary"
                         startIcon={<AddIcon />}
                         onClick={() => setShowAddDialog(true)}
                     >
-                        إضافة جهة اتصال
+                        <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>إضافة جهة اتصال</Box>
                     </Button>
                     <Button
                         variant="outlined"
@@ -233,7 +233,7 @@ const TenantContacts = () => {
             )}
 
             {/* Table */}
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
                 <Table>
                     <TableHead>
                         <TableRow>

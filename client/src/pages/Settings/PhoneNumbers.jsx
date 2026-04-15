@@ -232,7 +232,7 @@ const PhoneNumbers = () => {
                             لا توجد أرقام. اختر عميل واضغط "جلب الأرقام".
                         </Alert>
                     ) : (
-                        <TableContainer component={Paper} variant="outlined">
+                        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>

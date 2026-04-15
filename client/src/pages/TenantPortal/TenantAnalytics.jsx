@@ -68,7 +68,7 @@ const TenantAnalytics = () => {
                 <Grid size={{ xs: 12, md: 7 }}>
                     <Paper sx={{ p: 3 }}>
                         <Typography variant="h6" gutterBottom fontWeight={600}>النشاط اليومي (آخر 30 يوم)</Typography>
-                        <TableContainer>
+                        <TableContainer sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
