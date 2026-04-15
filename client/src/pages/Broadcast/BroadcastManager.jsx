@@ -303,7 +303,7 @@ const BroadcastManager = () => {
     const steps = ['اختيار القالب', 'اختيار المستلمين', 'مراجعة وإرسال', 'النتائج'];
 
     return (
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             <Box sx={{ mb: 4 }}>
                 <Typography variant="h4" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <CampaignIcon fontSize="large" color="primary" />

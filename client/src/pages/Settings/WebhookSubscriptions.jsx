@@ -95,7 +95,7 @@ const WebhookSubscriptions = () => {
     const selectedTenantData = tenants.find(t => t.id === selectedTenant);
 
     return (
-        <Box sx={{ p: 3, maxWidth: 1000, mx: 'auto' }}>
+        <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1000, mx: 'auto' }}>
             <Box sx={{ mb: 4 }}>
                 <Typography variant="h4" fontWeight={700} gutterBottom>
                     اشتراكات Webhook

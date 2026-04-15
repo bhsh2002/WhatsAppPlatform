@@ -80,7 +80,7 @@ const ChatSidebar = ({
             bgcolor: 'background.paper'
         }}>
             {/* Search Header */}
-            <Box sx={{ p: 2, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+            <Box sx={{ p: { xs: 1, md: 2 }, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                     <Typography variant="h6" fontWeight={700}>
                         المحادثات

@@ -15,7 +15,13 @@ import {
     DialogActions,
     Button,
     Alert,
-    Chip
+    Chip,
+    Menu,
+    MenuItem,
+    ListItemIcon,
+    ListItemText,
+    useMediaQuery,
+    useTheme
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -29,7 +35,8 @@ import {
     Close as CloseIcon,
     PictureAsPdf as PdfIcon,
     InsertDriveFile as FileIcon,
-    SmartButton as InteractiveIcon
+    SmartButton as InteractiveIcon,
+    AddCircleOutline as MoreActionsIcon
 } from '@mui/icons-material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TemplatePicker from './TemplatePicker';
@@ -63,6 +70,10 @@ const ChatWindow = ({
 }) => {
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
     const [showInteractiveDialog, setShowInteractiveDialog] = useState(false);
+    const [attachMenuAnchor, setAttachMenuAnchor] = useState(null);
+
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     // Document/Image state
     const [selectedFile, setSelectedFile] = useState(null);
@@ -177,6 +188,26 @@ const ChatWindow = ({
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     };
 
+    const handleOpenTemplatePicker = () => {
+        setShowTemplatePicker(true);
+        setAttachMenuAnchor(null);
+    };
+
+    const handleOpenFilePicker = () => {
+        fileInputRef.current?.click();
+        setAttachMenuAnchor(null);
+    };
+
+    const handleOpenImagePicker = () => {
+        imageInputRef.current?.click();
+        setAttachMenuAnchor(null);
+    };
+
+    const handleOpenInteractiveDialog = () => {
+        setShowInteractiveDialog(true);
+        setAttachMenuAnchor(null);
+    };
+
     return (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
             {/* Chat Header */}
@@ -217,7 +248,7 @@ const ChatWindow = ({
                 sx={{
                     flex: 1,
                     overflowY: 'auto',
-                    p: 2,
+                    p: { xs: 1, md: 2 },
                     backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")',
                     backgroundRepeat: 'repeat',
                     backgroundSize: '400px',
@@ -282,9 +313,9 @@ const ChatWindow = ({
 
             {/* Input Area */}
             <Paper elevation={0} sx={{
-                p: 1.5,
-                mx: 1,
-                mb: 1,
+                p: { xs: 1, md: 1.5 },
+                mx: { xs: 0.5, md: 1 },
+                mb: { xs: 0.5, md: 1 },
                 bgcolor: 'background.paper',
                 borderRadius: 3,
                 display: 'flex',
@@ -292,39 +323,68 @@ const ChatWindow = ({
                 gap: 1,
                 boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
             }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {isMobile ? (
+                    <>
+                        <IconButton
+                            size="small"
+                            onClick={(e) => setAttachMenuAnchor(e.currentTarget)}
+                        >
+                            <MoreActionsIcon />
+                        </IconButton>
+                        <Menu
+                            anchorEl={attachMenuAnchor}
+                            open={Boolean(attachMenuAnchor)}
+                            onClose={() => setAttachMenuAnchor(null)}
+                            anchorOrigin={{ vertical: 'top', horizontal: theme.direction === 'rtl' ? 'left' : 'right' }}
+                            transformOrigin={{ vertical: 'bottom', horizontal: theme.direction === 'rtl' ? 'left' : 'right' }}
+                        >
+                            <MenuItem onClick={handleOpenTemplatePicker}>
+                                <ListItemIcon><TemplateIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText>قوالب الرسائل</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={handleOpenFilePicker}>
+                                <ListItemIcon><AttachFileIcon fontSize="small" sx={{ transform: 'rotate(45deg)' }} /></ListItemIcon>
+                                <ListItemText>إرسال ملف</ListItemText>
+                            </MenuItem>
+                            {onSendImage && (
+                                <MenuItem onClick={handleOpenImagePicker}>
+                                    <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>إرسال صورة</ListItemText>
+                                </MenuItem>
+                            )}
+                            {onSendInteractive && (
+                                <MenuItem onClick={handleOpenInteractiveDialog}>
+                                    <ListItemIcon><InteractiveIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>رسالة تفاعلية</ListItemText>
+                                </MenuItem>
+                            )}
+                        </Menu>
+                    </>
+                ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton size="small"><EmojiIcon /></IconButton>
+                        <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title="قوالب الرسائل">
+                            <TemplateIcon />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => fileInputRef.current?.click()} title="إرسال ملف">
+                            <AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />
+                        </IconButton>
+                        {onSendImage && (
+                            <IconButton size="small" onClick={() => imageInputRef.current?.click()} title="إرسال صورة">
+                                <ImageIcon />
+                            </IconButton>
+                        )}
+                        {onSendInteractive && (
+                            <IconButton size="small" onClick={() => setShowInteractiveDialog(true)} title="رسالة تفاعلية">
+                                <InteractiveIcon />
+                            </IconButton>
+                        )}
+                    </Box>
+                )}
+
+                {isMobile && (
                     <IconButton size="small"><EmojiIcon /></IconButton>
-                    <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title="قوالب الرسائل">
-                        <TemplateIcon />
-                    </IconButton>
-                    <IconButton size="small" onClick={() => fileInputRef.current?.click()} title="إرسال ملف">
-                        <AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />
-                    </IconButton>
-                    {onSendImage && (
-                        <IconButton size="small" onClick={() => imageInputRef.current?.click()} title="إرسال صورة">
-                            <ImageIcon />
-                        </IconButton>
-                    )}
-                    {onSendInteractive && (
-                        <IconButton size="small" onClick={() => setShowInteractiveDialog(true)} title="رسالة تفاعلية">
-                            <InteractiveIcon />
-                        </IconButton>
-                    )}
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        style={{ display: 'none' }}
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
-                        onChange={handleDocumentSelect}
-                    />
-                    <input
-                        type="file"
-                        ref={imageInputRef}
-                        style={{ display: 'none' }}
-                        accept="image/jpeg,image/png,image/webp"
-                        onChange={handleImageSelect}
-                    />
-                </Box>
+                )}
 
                 <TextField
                     fullWidth
@@ -355,6 +415,21 @@ const ChatWindow = ({
                 >
                     {sending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
                 </IconButton>
+
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: 'none' }}
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                    onChange={handleDocumentSelect}
+                />
+                <input
+                    type="file"
+                    ref={imageInputRef}
+                    style={{ display: 'none' }}
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleImageSelect}
+                />
             </Paper>
 
             {/* File/Image Preview Dialog */}

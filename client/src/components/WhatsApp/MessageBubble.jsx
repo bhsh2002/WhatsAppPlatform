@@ -179,7 +179,9 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                             alt="صورة"
                             sx={{
                                 maxWidth: '100%',
-                                maxHeight: 300,
+                                width: '100%',
+                                maxHeight: { xs: 200, sm: 250, md: 300 },
+                                objectFit: 'contain',
                                 borderRadius: 1,
                                 display: 'block',
                                 cursor: 'pointer'
@@ -334,7 +336,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                         component="img"
                         src={mediaUrl}
                         alt="ملصق"
-                        sx={{ width: 150, height: 150, display: 'block' }}
+                        sx={{ width: { xs: 120, md: 150 }, height: { xs: 120, md: 150 }, display: 'block', objectFit: 'contain' }}
                         onError={(e) => { e.target.style.display = 'none'; }}
                     />
                 </Box>
@@ -416,7 +418,8 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                 borderTopRightRadius: isOutgoing ? 0 : 2,
                 borderTopLeftRadius: !isOutgoing ? 0 : 2,
                 position: 'relative',
-                minWidth: '80px'
+                minWidth: '80px',
+                overflow: 'hidden'
             }}>
                 {renderContent()}
 

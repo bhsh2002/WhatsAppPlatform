@@ -27,8 +27,8 @@ const FacebookPages = () => {
     };
 
     return (
-        <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+        <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: { xs: 'flex-start', md: 'center' }, justifyContent: 'space-between', mb: 3, gap: { xs: 1, md: 0 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
                     <Box>

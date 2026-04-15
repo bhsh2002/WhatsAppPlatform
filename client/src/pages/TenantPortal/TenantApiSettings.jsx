@@ -121,7 +121,7 @@ const TenantApiSettings = () => {
     const apiBaseUrl = window.location.origin;
 
     return (
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             {/* Header */}
             <Box sx={{ mb: 4 }}>
                 <Typography variant="h4" fontWeight={700} gutterBottom>
