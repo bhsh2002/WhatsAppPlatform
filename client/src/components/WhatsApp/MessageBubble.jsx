@@ -354,7 +354,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             const caption = contentLines.length > 1 ? contentLines.slice(1).join('\n\n') : '';
 
             return (
-                <Box sx={{ minWidth: 0, maxWidth: '100%' }}>
+                <Box sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
                     <Paper
                         variant="outlined"
                         sx={{
@@ -366,7 +366,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                             borderColor: 'divider',
                             cursor: 'pointer',
                             minWidth: 0,
-                            width: '100%',
+                            overflow: 'hidden',
                             '&:hover': { bgcolor: 'rgba(0,0,0,0.08)' }
                         }}
                         onClick={() => {
@@ -377,7 +377,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                     >
                         <Box component="span" sx={{ flexShrink: 0 }}><FileIcon color="action" /></Box>
                         <Box sx={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
-                            <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {filename}
                             </Typography>
                             {caption && (
@@ -410,7 +410,8 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             display: 'flex',
             justifyContent: isOutgoing ? 'flex-end' : 'flex-start',
             mb: 0.5,
-            px: { xs: 1, md: 4 }
+            px: { xs: 1, md: 4 },
+            minWidth: 0
         }}>
             <Paper elevation={1} sx={{
                 p: '6px 10px',
@@ -421,7 +422,8 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
                 borderTopLeftRadius: !isOutgoing ? 0 : 2,
                 position: 'relative',
                 minWidth: '80px',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                wordBreak: 'break-word'
             }}>
                 {renderContent()}
 
