@@ -354,16 +354,7 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             const caption = contentLines.length > 1 ? contentLines.slice(1).join('\n\n') : '';
 
             return (
-                <Box sx={{
-                    width: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'rgba(0,0,0,0.05)',
-                    borderRadius: 1,
-                    gap: 1
-                }}>
+                <Box sx={{ minWidth: 0, maxWidth: 200, overflow: 'hidden' }}>
                     <Paper
                         variant="outlined"
                         sx={{
