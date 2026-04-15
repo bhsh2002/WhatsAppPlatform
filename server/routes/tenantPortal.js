@@ -262,25 +262,11 @@ router.post('/contacts', (req, res) => {
             return res.status(400).json({ error: 'رقم الهاتف مطلوب' });
         }
 
-        // Normalize Libyan phone number to international format: 2189XXXXXXXX
-        let formattedPhone = phone.replace(/[^0-9]/g, '').trim();
+        // Format phone number (remove +, spaces, dashes — keep digits only)
+        const formattedPhone = phone.replace(/[^0-9]/g, '').trim();
 
-        // 00218... → 218...
-        if (formattedPhone.startsWith('00218')) {
-            formattedPhone = formattedPhone.slice(2);
-        }
-        // 09... → 2189...
-        else if (formattedPhone.startsWith('09')) {
-            formattedPhone = '218' + formattedPhone.slice(1);
-        }
-        // 9... (without leading 0) → 2189...
-        else if (formattedPhone.startsWith('9') && !formattedPhone.startsWith('218')) {
-            formattedPhone = '218' + formattedPhone;
-        }
-
-        // Validate: must be 2189[1-5] followed by 7 digits (12 digits total)
-        if (!/^2189[1-5]\d{7}$/.test(formattedPhone)) {
-            return res.status(400).json({ error: 'رقم الهاتف غير صالح. يجب أن يكون رقم ليبي (2189X...)' });
+        if (formattedPhone.length < 7) {
+            return res.status(400).json({ error: 'رقم الهاتف غير صالح' });
         }
 
         // Check if contact already exists

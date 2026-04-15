@@ -68,10 +68,9 @@ const TenantContacts = () => {
 
     // Add dialog state
     const [showAddDialog, setShowAddDialog] = useState(false);
-    const [addForm, setAddForm] = useState({ phone: '', label: '', notes: '' });
+    const [addForm, setAddForm] = useState({ phone: '', profile_name: '', label: '', notes: '' });
     const [addSaving, setAddSaving] = useState(false);
     const [addError, setAddError] = useState(null);
-    const [addSuccess, setAddSuccess] = useState(null);
 
     // Delete confirmation
     const [deleteContact, setDeleteContact] = useState(null);
@@ -126,18 +125,14 @@ const TenantContacts = () => {
         try {
             setAddSaving(true);
             setAddError(null);
-            setAddSuccess(null);
-            const result = await api.createPortalContact({
+            await api.createPortalContact({
                 phone: addForm.phone.replace(/[^0-9+]/g, '').trim(),
+                profile_name: addForm.profile_name || null,
                 label: addForm.label || null,
                 notes: addForm.notes || null,
             });
-            if (result.template_sent) {
-                setAddSuccess('تم التحقق من الرقم وإرسال رسالة ترحيب');
-            } else {
-                setAddSuccess('تمت إضافة جهة الاتصال');
-            }
-            setAddForm({ phone: '', label: '', notes: '' });
+            setShowAddDialog(false);
+            setAddForm({ phone: '', profile_name: '', label: '', notes: '' });
             fetchContacts();
         } catch (err) {
             setAddError(err.message);
@@ -394,23 +389,22 @@ const TenantContacts = () => {
                             {addError}
                         </Alert>
                     )}
-                    {addSuccess && (
-                        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setAddSuccess(null)}>
-                            {addSuccess}
-                        </Alert>
-                    )}
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        سيتم التحقق من الرقم على واتساب وإرسال رسالة ترحيب تلقائيًا.
-                    </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
                         <TextField
                             fullWidth
                             label="رقم الهاتف"
-                            placeholder="966501234567"
+                            placeholder="218911234567"
                             value={addForm.phone}
                             onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
                             required
                             inputProps={{ dir: 'ltr', style: { fontFamily: 'monospace' } }}
+                        />
+                        <TextField
+                            fullWidth
+                            label="الاسم"
+                            placeholder="اسم جهة الاتصال"
+                            value={addForm.profile_name}
+                            onChange={(e) => setAddForm({ ...addForm, profile_name: e.target.value })}
                         />
                         <FormControl fullWidth>
                             <Select
@@ -446,7 +440,7 @@ const TenantContacts = () => {
                         disabled={addSaving || !addForm.phone?.trim()}
                         startIcon={addSaving ? <CircularProgress size={16} /> : <AddIcon />}
                     >
-                        {addSaving ? 'جاري التحقق من الرقم على واتساب...' : 'تحقق وأضف'}
+                        {addSaving ? 'جاري الإضافة...' : 'إضافة'}
                     </Button>
                 </DialogActions>
             </Dialog>
