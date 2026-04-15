@@ -1074,32 +1074,147 @@ router.put('/contacts/:id', (req, res) => {
 });
 
 // Create a new contact manually
-router.post('/contacts', (req, res) => {
+router.post('/contacts', async (req, res) => {
     try {
-        const { tenant_id, phone, profile_name, label, notes } = req.body;
+        const { tenant_id, phone, profile_name, label, notes, verify } = req.body;
 
         if (!phone) {
             return res.status(400).json({ error: 'Phone number is required' });
         }
 
-        // Format phone number
-        const formattedPhone = phone.replace(/\+/g, '').trim();
+        const formattedPhone = phone.replace(/[^0-9]/g, '').trim();
 
-        // Check if contact already exists for this tenant
+        if (formattedPhone.length < 7) {
+            return res.status(400).json({ error: 'Invalid phone number' });
+        }
+
+        if (!tenant_id) {
+            const existing = db.prepare('SELECT * FROM contacts WHERE tenant_id IS NULL AND phone = ?')
+                .get(formattedPhone);
+
+            if (existing) {
+                return res.status(409).json({ error: 'Contact already exists', contact: existing });
+            }
+
+            const result = db.prepare(`
+                INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
+                VALUES (NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `).run(formattedPhone, profile_name || null, label || null, notes || null);
+
+            const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
+            return res.status(201).json(newContact);
+        }
+
         const existing = db.prepare('SELECT * FROM contacts WHERE tenant_id = ? AND phone = ?')
-            .get(tenant_id || null, formattedPhone);
+            .get(tenant_id, formattedPhone);
 
         if (existing) {
             return res.status(409).json({ error: 'Contact already exists', contact: existing });
         }
 
+        if (!verify) {
+            const result = db.prepare(`
+                INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `).run(tenant_id, formattedPhone, profile_name || null, label || null, notes || null);
+
+            const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
+            return res.status(201).json(newContact);
+        }
+
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
+        if (!tenant) {
+            return res.status(404).json({ error: 'Tenant not found' });
+        }
+
+        const creds = await resolveCredentials(tenant_id);
+        if (!creds || !creds.accessToken || !creds.phoneNumberId) {
+            return res.status(400).json({ error: 'WhatsApp API credentials not configured for this tenant' });
+        }
+
+        const template = db.prepare(
+            "SELECT * FROM templates WHERE tenant_id = ? AND status = 'approved' ORDER BY id ASC LIMIT 1"
+        ).get(tenant_id);
+
+        if (!template) {
+            return res.status(400).json({ error: 'No approved template found. Add an approved template first to verify contacts.' });
+        }
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: formattedPhone,
+            type: 'template',
+            template: {
+                name: template.name,
+                language: { code: template.language || 'ar' },
+            },
+        };
+
+        console.log('[Messages] Verifying contact via template:', formattedPhone);
+
+        const response = await fetch(`${META_API_BASE}/${creds.phoneNumberId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${creds.accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            const errorMsg = data.error?.message || data.error?.error_string || 'Unknown error';
+            const isNotFound = data.error?.code === 131026 || errorMsg.includes('not found') || errorMsg.includes('not a valid');
+            console.error('[Messages] Contact verification failed:', errorMsg);
+            return res.status(400).json({
+                error: isNotFound ? 'Number not found on WhatsApp' : 'Failed to verify number',
+                details: errorMsg,
+                code: data.error?.code,
+            });
+        }
+
+        const waId = data.contacts?.[0]?.wa_id || formattedPhone;
+        const messageId = data.messages?.[0]?.id || null;
+
         const result = db.prepare(`
             INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `).run(tenant_id || null, formattedPhone, profile_name || null, label || null, notes || null);
+        `).run(tenant_id, waId, profile_name || label || null, label || null, notes || null);
 
         const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
-        res.status(201).json(newContact);
+
+        let storedContent = `[Greeting template: ${template.name}]`;
+        try {
+            const richContent = {
+                header: template.header_content ? { type: template.header_type, text: template.header_content } : null,
+                body: template.body || '',
+                footer: template.footer,
+                buttons: template.buttons ? JSON.parse(template.buttons) : null,
+            };
+            storedContent = JSON.stringify(richContent);
+        } catch (_) {}
+
+        db.prepare(`
+            INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(tenant_id, 'outgoing', creds.phoneNumberId, waId, 'template', storedContent, 'sent', messageId);
+
+        db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
+
+        eventBus.emitNewMessage({
+            tenant_id: tenant_id,
+            direction: 'outgoing',
+            sender: creds.phoneNumberId,
+            recipient: waId,
+            message_type: 'template',
+            content: storedContent,
+            wamid: messageId,
+            created_at: new Date().toISOString(),
+        });
+        eventBus.emitConversationUpdate(tenant_id);
+
+        res.status(201).json({ contact: newContact, template_sent: true });
     } catch (error) {
         console.error('[Messages] Contact create error:', error);
         res.status(500).json({ error: 'Failed to create contact' });

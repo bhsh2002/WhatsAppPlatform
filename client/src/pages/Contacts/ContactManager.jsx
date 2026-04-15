@@ -24,7 +24,9 @@ import {
     DialogContent,
     DialogActions,
     TablePagination,
-    Tooltip
+    Tooltip,
+    FormControlLabel,
+    Checkbox
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -70,9 +72,10 @@ const ContactManager = () => {
 
     // Add dialog state
     const [showAddDialog, setShowAddDialog] = useState(false);
-    const [addForm, setAddForm] = useState({ phone: '', profile_name: '', tenant_id: '', label: '', notes: '' });
+    const [addForm, setAddForm] = useState({ phone: '', tenant_id: '', label: '', notes: '', verify: true });
     const [addSaving, setAddSaving] = useState(false);
     const [addError, setAddError] = useState(null);
+    const [addSuccess, setAddSuccess] = useState(null);
 
     // Delete confirmation
     const [deleteContact, setDeleteContact] = useState(null);
@@ -147,15 +150,20 @@ const ContactManager = () => {
         try {
             setAddSaving(true);
             setAddError(null);
-            await api.createContact({
+            setAddSuccess(null);
+            const result = await api.createContact({
                 phone: addForm.phone.replace(/[^0-9+]/g, '').trim(),
-                profile_name: addForm.profile_name || null,
                 tenant_id: addForm.tenant_id || null,
                 label: addForm.label || null,
                 notes: addForm.notes || null,
+                verify: addForm.verify && !!addForm.tenant_id,
             });
-            setShowAddDialog(false);
-            setAddForm({ phone: '', profile_name: '', tenant_id: '', label: '', notes: '' });
+            if (result.template_sent) {
+                setAddSuccess('Number verified on WhatsApp and greeting template sent');
+            } else {
+                setAddSuccess('Contact added successfully');
+            }
+            setAddForm({ phone: '', tenant_id: '', label: '', notes: '', verify: true });
             fetchContacts();
         } catch (err) {
             setAddError(err.message);
@@ -444,22 +452,20 @@ const ContactManager = () => {
                             {addError}
                         </Alert>
                     )}
+                    {addSuccess && (
+                        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setAddSuccess(null)}>
+                            {addSuccess}
+                        </Alert>
+                    )}
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
                         <TextField
                             fullWidth
                             label="رقم الهاتف"
-                            placeholder="218911234567"
+                            placeholder="966501234567"
                             value={addForm.phone}
                             onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
                             required
                             inputProps={{ dir: 'ltr', style: { fontFamily: 'monospace' } }}
-                        />
-                        <TextField
-                            fullWidth
-                            label="الاسم"
-                            placeholder="اسم جهة الاتصال"
-                            value={addForm.profile_name}
-                            onChange={(e) => setAddForm({ ...addForm, profile_name: e.target.value })}
                         />
                         <FormControl fullWidth>
                             <Select
@@ -467,7 +473,7 @@ const ContactManager = () => {
                                 onChange={(e) => setAddForm({ ...addForm, tenant_id: e.target.value })}
                                 displayEmpty
                                 renderValue={(v) => {
-                                    if (!v) return 'اختر العميل (اختياري)...';
+                                    if (!v) return 'اختر العميل (مطلوب للتحقق)...';
                                     const t = tenants.find(t => t.id === v);
                                     return t?.name || v;
                                 }}
@@ -478,6 +484,17 @@ const ContactManager = () => {
                                 ))}
                             </Select>
                         </FormControl>
+                        {addForm.tenant_id && (
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        checked={addForm.verify}
+                                        onChange={(e) => setAddForm({ ...addForm, verify: e.target.checked })}
+                                    />
+                                }
+                                label="التحقق من الرقم على واتساب وإرسال رسالة ترحيب"
+                            />
+                        )}
                         <FormControl fullWidth>
                             <Select
                                 value={addForm.label}
@@ -511,7 +528,7 @@ const ContactManager = () => {
                         disabled={addSaving || !addForm.phone?.trim()}
                         startIcon={addSaving ? <CircularProgress size={16} /> : <AddIcon />}
                     >
-                        {addSaving ? 'جاري الإضافة...' : 'إضافة'}
+                        {addSaving ? 'جاري التحقق...' : (addForm.verify && addForm.tenant_id ? 'تحقق وأضف' : 'إضافة')}
                     </Button>
                 </DialogActions>
             </Dialog>
