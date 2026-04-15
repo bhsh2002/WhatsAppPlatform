@@ -39,7 +39,7 @@ const MainLayout = ({ children }) => {
                             <MenuIcon />
                         </IconButton>
                         <Typography variant="subtitle1" fontWeight={600} sx={{ ml: 1 }}>
-                            واتساب
+                            Wa Savana
                         </Typography>
                     </Toolbar>
                 </AppBar>

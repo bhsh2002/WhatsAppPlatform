@@ -114,7 +114,7 @@ const Sidebar = () => {
                 </Box>
                 <Box>
                     <Typography variant="h6" fontWeight={700} lineHeight={1.2}>
-                        {isTenant ? (tenant?.name || 'بوابة العميل') : 'مراقب واتساب'}
+                        {isTenant ? (tenant?.name || 'Wa Savana') : 'Wa Savana'}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                         {isTenant ? 'بوابة العميل' : 'لوحة الإدارة المركزية'}

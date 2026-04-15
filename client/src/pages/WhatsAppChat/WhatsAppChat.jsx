@@ -483,13 +483,6 @@ const WhatsAppChat = () => {
                             borderColor: 'success.main',
                             p: 3
                         }}>
-                            <Box sx={{ mb: 4 }}>
-                                <img
-                                    src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/512px-WhatsApp.svg.png"
-                                    alt="WhatsApp"
-                                    style={{ width: 80, height: 80, opacity: 0.6, filter: 'grayscale(100%)' }}
-                                />
-                            </Box>
                             <Typography variant="h5" fontWeight={300} gutterBottom>
                                 اختر محادثة للبدء
                             </Typography>

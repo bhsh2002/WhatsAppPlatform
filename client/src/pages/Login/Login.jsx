@@ -135,7 +135,7 @@ const Login = () => {
                         <Typography variant="h3">⚡</Typography>
                     </Box>
                     <Typography variant="h5" fontWeight={700}>
-                        مراقب واتساب
+                        Wa Savana
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
                         لوحة الإدارة المركزية
@@ -167,176 +167,176 @@ const Login = () => {
                         )}
 
                         {tabValue === 0 ? (
-                        <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <TextField
-                                fullWidth
-                                label="اسم المستخدم"
-                                name="username"
-                                value={formData.username}
-                                onChange={handleChange}
-                                required
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <PersonIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
+                            <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <TextField
+                                    fullWidth
+                                    label="اسم المستخدم"
+                                    name="username"
+                                    value={formData.username}
+                                    onChange={handleChange}
+                                    required
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <PersonIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
 
-                            <TextField
-                                fullWidth
-                                label="كلمة المرور"
-                                name="password"
-                                type={showPassword ? 'text' : 'password'}
-                                value={formData.password}
-                                onChange={handleChange}
-                                required
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <LockIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                    endAdornment: (
-                                        <InputAdornment position="end">
-                                            <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
-                                                {showPassword ? <VisibilityOff /> : <Visibility />}
-                                            </IconButton>
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
+                                <TextField
+                                    fullWidth
+                                    label="كلمة المرور"
+                                    name="password"
+                                    type={showPassword ? 'text' : 'password'}
+                                    value={formData.password}
+                                    onChange={handleChange}
+                                    required
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <LockIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                        endAdornment: (
+                                            <InputAdornment position="end">
+                                                <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                                                </IconButton>
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
 
-                            <Button
-                                type="submit"
-                                variant="contained"
-                                size="large"
-                                disabled={loading}
-                                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
-                                sx={{
-                                    mt: 1,
-                                    py: 1.5,
-                                    bgcolor: 'primary.main',
-                                    '&:hover': { bgcolor: 'primary.dark' }
-                                }}
-                            >
-                                {loading ? 'جاري التحميل...' : 'دخول'}
-                            </Button>
-                        </Box>
+                                <Button
+                                    type="submit"
+                                    variant="contained"
+                                    size="large"
+                                    disabled={loading}
+                                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
+                                    sx={{
+                                        mt: 1,
+                                        py: 1.5,
+                                        bgcolor: 'primary.main',
+                                        '&:hover': { bgcolor: 'primary.dark' }
+                                    }}
+                                >
+                                    {loading ? 'جاري التحميل...' : 'دخول'}
+                                </Button>
+                            </Box>
                         ) : (
-                        <Box component="form" onSubmit={handleTenantRegister} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <TextField
-                                fullWidth
-                                label="اسم النشاط التجاري *"
-                                value={tenantFormData.business_name}
-                                onChange={(e) => setTenantFormData({ ...tenantFormData, business_name: e.target.value })}
-                                required
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <BusinessIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
-                            <TextField
-                                fullWidth
-                                label="رقم الهاتف *"
-                                value={tenantFormData.phone}
-                                onChange={(e) => setTenantFormData({ ...tenantFormData, phone: e.target.value })}
-                                required
-                                placeholder="+218911234567"
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <PhoneIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
-                            <TextField
-                                fullWidth
-                                label="اسم جهة الاتصال"
-                                value={tenantFormData.contact_name}
-                                onChange={(e) => setTenantFormData({ ...tenantFormData, contact_name: e.target.value })}
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <BadgeIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
-                            <TextField
-                                fullWidth
-                                label="اسم المستخدم *"
-                                value={tenantFormData.username}
-                                onChange={(e) => setTenantFormData({ ...tenantFormData, username: e.target.value })}
-                                required
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <PersonIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
-                            <TextField
-                                fullWidth
-                                label="البريد الإلكتروني"
-                                type="email"
-                                value={tenantFormData.email}
-                                onChange={(e) => setTenantFormData({ ...tenantFormData, email: e.target.value })}
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <EmailIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
-                            <TextField
-                                fullWidth
-                                label="كلمة المرور * (8 أحرف على الأقل)"
-                                type={showPassword ? 'text' : 'password'}
-                                value={tenantFormData.password}
-                                onChange={(e) => setTenantFormData({ ...tenantFormData, password: e.target.value })}
-                                required
-                                InputProps={{
-                                    startAdornment: (
-                                        <InputAdornment position="start">
-                                            <LockIcon color="action" />
-                                        </InputAdornment>
-                                    ),
-                                    endAdornment: (
-                                        <InputAdornment position="end">
-                                            <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
-                                                {showPassword ? <VisibilityOff /> : <Visibility />}
-                                            </IconButton>
-                                        </InputAdornment>
-                                    ),
-                                }}
-                            />
-                            <Button
-                                type="submit"
-                                variant="contained"
-                                size="large"
-                                disabled={tenantLoading}
-                                startIcon={tenantLoading ? <CircularProgress size={20} color="inherit" /> : <BusinessIcon />}
-                                sx={{
-                                    mt: 1,
-                                    py: 1.5,
-                                    bgcolor: 'secondary.main',
-                                    '&:hover': { bgcolor: 'secondary.dark' }
-                                }}
-                            >
-                                {tenantLoading ? 'جاري التسجيل...' : 'تسجيل النشاط التجاري'}
-                            </Button>
-                            <Alert severity="info" sx={{ borderRadius: 2 }}>
-                                بعد التسجيل، سيتم مراجعة طلبك من قبل المدير. ستتمكن من الدخول بعد الموافقة.
-                            </Alert>
-                        </Box>
+                            <Box component="form" onSubmit={handleTenantRegister} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <TextField
+                                    fullWidth
+                                    label="اسم النشاط التجاري *"
+                                    value={tenantFormData.business_name}
+                                    onChange={(e) => setTenantFormData({ ...tenantFormData, business_name: e.target.value })}
+                                    required
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <BusinessIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="رقم الهاتف *"
+                                    value={tenantFormData.phone}
+                                    onChange={(e) => setTenantFormData({ ...tenantFormData, phone: e.target.value })}
+                                    required
+                                    placeholder="+218911234567"
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <PhoneIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="اسم جهة الاتصال"
+                                    value={tenantFormData.contact_name}
+                                    onChange={(e) => setTenantFormData({ ...tenantFormData, contact_name: e.target.value })}
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <BadgeIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="اسم المستخدم *"
+                                    value={tenantFormData.username}
+                                    onChange={(e) => setTenantFormData({ ...tenantFormData, username: e.target.value })}
+                                    required
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <PersonIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="البريد الإلكتروني"
+                                    type="email"
+                                    value={tenantFormData.email}
+                                    onChange={(e) => setTenantFormData({ ...tenantFormData, email: e.target.value })}
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <EmailIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="كلمة المرور * (8 أحرف على الأقل)"
+                                    type={showPassword ? 'text' : 'password'}
+                                    value={tenantFormData.password}
+                                    onChange={(e) => setTenantFormData({ ...tenantFormData, password: e.target.value })}
+                                    required
+                                    InputProps={{
+                                        startAdornment: (
+                                            <InputAdornment position="start">
+                                                <LockIcon color="action" />
+                                            </InputAdornment>
+                                        ),
+                                        endAdornment: (
+                                            <InputAdornment position="end">
+                                                <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                                                </IconButton>
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                                <Button
+                                    type="submit"
+                                    variant="contained"
+                                    size="large"
+                                    disabled={tenantLoading}
+                                    startIcon={tenantLoading ? <CircularProgress size={20} color="inherit" /> : <BusinessIcon />}
+                                    sx={{
+                                        mt: 1,
+                                        py: 1.5,
+                                        bgcolor: 'secondary.main',
+                                        '&:hover': { bgcolor: 'secondary.dark' }
+                                    }}
+                                >
+                                    {tenantLoading ? 'جاري التسجيل...' : 'تسجيل النشاط التجاري'}
+                                </Button>
+                                <Alert severity="info" sx={{ borderRadius: 2 }}>
+                                    بعد التسجيل، سيتم مراجعة طلبك من قبل المدير. ستتمكن من الدخول بعد الموافقة.
+                                </Alert>
+                            </Box>
                         )}
 
                         {/* Privacy Policy Link */}
