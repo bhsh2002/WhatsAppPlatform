@@ -53,18 +53,62 @@ const CONTACT_FIELDS = [
     { value: 'notes', label: 'الملاحظات', icon: '📝' },
 ];
 
-function extractVariables(bodyText) {
-    if (!bodyText) return [];
-    const matches = bodyText.match(/\{\{(\d+)\}\}/g);
-    if (!matches) return [];
-    const nums = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))];
-    return nums.sort((a, b) => a - b);
+function extractAllVariables(template) {
+    const result = { header: [], body: [], buttons: [] };
+    if (!template) return result;
+
+    if (template.body) {
+        const matches = template.body.match(/\{\{(\d+)\}\}/g);
+        if (matches) {
+            result.body = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
+        }
+    }
+
+    if (template.header_type === 'text' && template.header_content) {
+        const matches = template.header_content.match(/\{\{(\d+)\}\}/g);
+        if (matches) {
+            result.header = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
+        }
+    }
+
+    if (template.buttons) {
+        try {
+            const buttons = typeof template.buttons === 'string' ? JSON.parse(template.buttons) : template.buttons;
+            if (Array.isArray(buttons)) {
+                buttons.forEach((btn, index) => {
+                    if (btn.type === 'URL' && btn.url) {
+                        const matches = btn.url.match(/\{\{(\d+)\}\}/g);
+                        if (matches) {
+                            result.buttons.push({
+                                index: String(index),
+                                sub_type: 'url',
+                                text: btn.text,
+                                url: btn.url,
+                                variables: [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b),
+                            });
+                        }
+                    }
+                    if (btn.type === 'OTP' || btn.type === 'COPY_CODE' || btn.type === 'otp') {
+                        result.buttons.push({
+                            index: String(index),
+                            sub_type: 'url',
+                            text: btn.text || 'Copy Code',
+                            isOtp: true,
+                            variables: [1],
+                        });
+                    }
+                });
+            }
+        } catch (_) { /* ignored */ }
+    }
+
+    return result;
 }
 
 function previewBody(bodyText, variableConfigs) {
     if (!bodyText) return '';
     return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
-        const config = variableConfigs[parseInt(num)];
+        const config = variableConfigs[`body_${num}`];
         if (!config) return match;
         if (config.source === 'static') return config.value || match;
         if (config.source === 'contact') {
@@ -82,7 +126,6 @@ const TenantBroadcast = () => {
     const [templateLanguage, setTemplateLanguage] = useState('ar');
     const [variableConfigs, setVariableConfigs] = useState({});
 
-    // Recipients
     const [recipientsTab, setRecipientsTab] = useState(0);
     const [recipientsText, setRecipientsText] = useState('');
     const [contacts, setContacts] = useState([]);
@@ -95,18 +138,25 @@ const TenantBroadcast = () => {
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
 
-    const variables = useMemo(() => extractVariables(selectedTemplate?.body), [selectedTemplate]);
+    const allVars = useMemo(() => extractAllVariables(selectedTemplate), [selectedTemplate]);
+
+    const hasAnyVariables = allVars.body.length > 0 || allVars.header.length > 0 || allVars.buttons.length > 0;
 
     const allVariablesFilled = useMemo(() => {
-        if (variables.length === 0) return true;
-        return variables.every(v => {
-            const config = variableConfigs[v];
+        if (!hasAnyVariables) return true;
+        const required = [
+            ...allVars.header.map(v => `header_${v}`),
+            ...allVars.body.map(v => `body_${v}`),
+            ...allVars.buttons.flatMap(btn => btn.variables.map(v => `button_${btn.index}_${v}`)),
+        ];
+        return required.every(key => {
+            const config = variableConfigs[key];
             if (!config) return false;
             if (config.source === 'static') return config.value?.trim();
             if (config.source === 'contact') return !!config.field;
             return false;
         });
-    }, [variables, variableConfigs]);
+    }, [allVars, hasAnyVariables, variableConfigs]);
 
     const uniqueLabels = useMemo(() => {
         const labels = contacts.map(c => c.label).filter(Boolean);
@@ -136,23 +186,22 @@ const TenantBroadcast = () => {
         return [...new Set([...selectedContactPhones, ...manualRecipients])];
     }, [selectedContactIds, contacts, recipientsText]);
 
-    const canProceedStep0 = selectedTemplate && allVariablesFilled;
+    const canProceedStep0 = selectedTemplate && (!hasAnyVariables || allVariablesFilled);
     const canProceedStep1 = uniqueRecipients.length > 0 && uniqueRecipients.length <= 100;
 
-    // Load templates & contacts
     useEffect(() => {
         const load = async () => {
             try {
                 const data = await api.getPortalTemplates();
                 setTemplates(data || []);
-            } catch (err) {
+            } catch (_) {
                 setTemplates([]);
             }
             try {
                 setContactsLoading(true);
                 const data = await api.getPortalContacts();
                 setContacts(data.contacts || data || []);
-            } catch (err) {
+            } catch (_) {
                 setContacts([]);
             } finally {
                 setContactsLoading(false);
@@ -163,8 +212,16 @@ const TenantBroadcast = () => {
 
     useEffect(() => {
         const newConfigs = {};
-        variables.forEach(v => {
-            newConfigs[v] = { source: 'static', value: '', field: '', fallback: '' };
+        allVars.header.forEach(v => {
+            newConfigs[`header_${v}`] = { source: 'static', value: '', field: '', fallback: '' };
+        });
+        allVars.body.forEach(v => {
+            newConfigs[`body_${v}`] = { source: 'static', value: '', field: '', fallback: '' };
+        });
+        allVars.buttons.forEach(btn => {
+            btn.variables.forEach(v => {
+                newConfigs[`button_${btn.index}_${v}`] = { source: 'static', value: '', field: '', fallback: '' };
+            });
         });
         setVariableConfigs(newConfigs);
     }, [selectedTemplate]);
@@ -207,35 +264,86 @@ const TenantBroadcast = () => {
 
     const allFilteredSelected = filteredContacts.length > 0 && filteredContacts.every(c => selectedContactIds.has(c.id));
 
-    const handleConfigChange = (varNum, key, value) => {
+    const handleConfigChange = (varKey, key, value) => {
         setVariableConfigs(prev => ({
             ...prev,
-            [varNum]: { ...prev[varNum], [key]: value }
+            [varKey]: { ...prev[varKey], [key]: value }
         }));
     };
 
     const buildPayload = () => {
-        const hasContactSource = variables.some(v => variableConfigs[v]?.source === 'contact');
+        const hasContactSource = Object.values(variableConfigs).some(c => c?.source === 'contact');
         const payload = {
             recipients: uniqueRecipients,
             template_name: selectedTemplate.name,
             template_language: templateLanguage,
         };
 
-        if (variables.length > 0) {
+        if (hasAnyVariables) {
             if (hasContactSource) {
-                payload.variable_mapping = variables.map(v => {
-                    const config = variableConfigs[v];
-                    if (config.source === 'contact') {
-                        return { source: 'contact', field: config.field, fallback: config.fallback || '' };
-                    }
-                    return { source: 'static', value: config.value || '' };
-                });
+                payload.variable_mapping = [
+                    ...allVars.header.map(v => {
+                        const config = variableConfigs[`header_${v}`];
+                        if (config?.source === 'contact') {
+                            return { source: 'contact', field: config.field, fallback: config.fallback || '', section: 'header', index: v };
+                        }
+                        return { source: 'static', value: config?.value || '', section: 'header', index: v };
+                    }),
+                    ...allVars.body.map(v => {
+                        const config = variableConfigs[`body_${v}`];
+                        if (config?.source === 'contact') {
+                            return { source: 'contact', field: config.field, fallback: config.fallback || '', section: 'body', index: v };
+                        }
+                        return { source: 'static', value: config?.value || '', section: 'body', index: v };
+                    }),
+                    ...allVars.buttons.flatMap(btn =>
+                        btn.variables.map(v => {
+                            const config = variableConfigs[`button_${btn.index}_${v}`];
+                            if (config?.source === 'contact') {
+                                return { source: 'contact', field: config.field, fallback: config.fallback || '', section: 'button', btn_index: btn.index, index: v };
+                            }
+                            return { source: 'static', value: config?.value || '', section: 'button', btn_index: btn.index, index: v };
+                        })
+                    ),
+                ];
             } else {
-                payload.template_params = [{
-                    type: 'body',
-                    parameters: variables.map(v => ({ type: 'text', text: variableConfigs[v]?.value || '' }))
-                }];
+                const components = [];
+
+                if (allVars.header.length > 0) {
+                    components.push({
+                        type: 'header',
+                        parameters: allVars.header.map(v => ({
+                            type: 'text',
+                            text: variableConfigs[`header_${v}`]?.value || '',
+                        })),
+                    });
+                }
+
+                if (allVars.body.length > 0) {
+                    components.push({
+                        type: 'body',
+                        parameters: allVars.body.map(v => ({
+                            type: 'text',
+                            text: variableConfigs[`body_${v}`]?.value || '',
+                        })),
+                    });
+                }
+
+                allVars.buttons.forEach(btn => {
+                    components.push({
+                        type: 'button',
+                        sub_type: 'url',
+                        index: btn.index,
+                        parameters: btn.variables.map(v => ({
+                            type: 'text',
+                            text: variableConfigs[`button_${btn.index}_${v}`]?.value || '',
+                        })),
+                    });
+                });
+
+                if (components.length > 0) {
+                    payload.template_params = components;
+                }
             }
         }
         return payload;
@@ -271,6 +379,42 @@ const TenantBroadcast = () => {
 
     const steps = ['اختيار القالب', 'اختيار المستلمين', 'مراجعة وإرسال', 'النتائج'];
 
+    const renderVariableInput = (varKey, label) => {
+        const config = variableConfigs[varKey] || { source: 'static', value: '', field: '', fallback: '' };
+        return (
+            <Card key={varKey} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Chip label={label} size="small" color="secondary" />
+                    <ToggleButtonGroup value={config.source} exclusive onChange={(_, val) => val && handleConfigChange(varKey, 'source', val)} size="small">
+                        <ToggleButton value="static">
+                            <Tooltip title="نص ثابت — نفس القيمة لجميع المستلمين">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><StaticIcon fontSize="small" /><span>نص ثابت</span></Box>
+                            </Tooltip>
+                        </ToggleButton>
+                        <ToggleButton value="contact">
+                            <Tooltip title="بيانات جهة الاتصال — قيمة مختلفة لكل مستلم">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><ContactIcon fontSize="small" /><span>بيانات المستلم</span></Box>
+                            </Tooltip>
+                        </ToggleButton>
+                    </ToggleButtonGroup>
+                </Box>
+                {config.source === 'static' ? (
+                    <TextField label={`قيمة ${label}`} value={config.value} onChange={(e) => handleConfigChange(varKey, 'value', e.target.value)} fullWidth size="small" required error={!config.value?.trim()} />
+                ) : (
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                        <FormControl size="small" sx={{ flex: 1 }}>
+                            <InputLabel>حقل جهة الاتصال</InputLabel>
+                            <Select value={config.field} label="حقل جهة الاتصال" onChange={(e) => handleConfigChange(varKey, 'field', e.target.value)}>
+                                {CONTACT_FIELDS.map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                            </Select>
+                        </FormControl>
+                        <TextField label="قيمة بديلة" value={config.fallback} onChange={(e) => handleConfigChange(varKey, 'fallback', e.target.value)} size="small" sx={{ flex: 1 }} helperText="تُستخدم إذا لم يكن لدى المستلم هذا الحقل" />
+                    </Box>
+                )}
+            </Card>
+        );
+    };
+
     return (
         <Box sx={{ p: 3 }}>
             <Box sx={{ mb: 4 }}>
@@ -303,7 +447,7 @@ const TenantBroadcast = () => {
                             <Select value={selectedTemplate?.id || ''} label="القالب" onChange={(e) => {
                                 setSelectedTemplate(templates.find(t => t.id === e.target.value));
                             }}>
-                                {templates.filter(t => t.status === 'approved' || t.status === 'APPROVED').map(t => (
+                                {templates.filter(t => t.status?.toLowerCase() === 'approved').map(t => (
                                     <MenuItem key={t.id} value={t.id}>{t.name} ({t.language || 'ar'})</MenuItem>
                                 ))}
                             </Select>
@@ -313,58 +457,53 @@ const TenantBroadcast = () => {
                             <Card variant="outlined">
                                 <CardContent>
                                     <Typography variant="subtitle2" color="text.secondary" gutterBottom>معاينة القالب</Typography>
+                                    {selectedTemplate.header_type === 'text' && selectedTemplate.header_content && (
+                                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 1, direction: 'auto' }}>
+                                            {selectedTemplate.header_content}
+                                        </Typography>
+                                    )}
                                     <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'grey.50', p: 2, borderRadius: 1, direction: 'auto' }}>
                                         {selectedTemplate.body || 'لا يوجد محتوى'}
                                     </Typography>
+                                    {selectedTemplate.footer && (
+                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                            {selectedTemplate.footer}
+                                        </Typography>
+                                    )}
                                 </CardContent>
                             </Card>
                         )}
 
-                        {variables.length > 0 && (
+                        {hasAnyVariables && (
                             <Box>
                                 <Alert severity="info" sx={{ mb: 2 }}>
-                                    هذا القالب يحتوي على {variables.length} متغير(ات). حدد مصدر كل متغير.
+                                    هذا القالب يحتوي على متغيرات. حدد مصدر كل متغير.
                                 </Alert>
-                                {variables.map(varNum => {
-                                    const config = variableConfigs[varNum] || { source: 'static', value: '', field: '', fallback: '' };
-                                    return (
-                                        <Card key={varNum} variant="outlined" sx={{ mb: 2, p: 2 }}>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                                                <Chip label={`{{${varNum}}}`} size="small" color="secondary" />
-                                                <ToggleButtonGroup value={config.source} exclusive onChange={(_, val) => val && handleConfigChange(varNum, 'source', val)} size="small">
-                                                    <ToggleButton value="static">
-                                                        <Tooltip title="نص ثابت — نفس القيمة لجميع المستلمين">
-                                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><StaticIcon fontSize="small" /><span>نص ثابت</span></Box>
-                                                        </Tooltip>
-                                                    </ToggleButton>
-                                                    <ToggleButton value="contact">
-                                                        <Tooltip title="بيانات جهة الاتصال — قيمة مختلفة لكل مستلم">
-                                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><ContactIcon fontSize="small" /><span>بيانات المستلم</span></Box>
-                                                        </Tooltip>
-                                                    </ToggleButton>
-                                                </ToggleButtonGroup>
-                                            </Box>
-                                            {config.source === 'static' ? (
-                                                <TextField label={`قيمة المتغير {{${varNum}}}`} value={config.value} onChange={(e) => handleConfigChange(varNum, 'value', e.target.value)} fullWidth size="small" required error={!config.value?.trim()} />
-                                            ) : (
-                                                <Box sx={{ display: 'flex', gap: 2 }}>
-                                                    <FormControl size="small" sx={{ flex: 1 }}>
-                                                        <InputLabel>حقل جهة الاتصال</InputLabel>
-                                                        <Select value={config.field} label="حقل جهة الاتصال" onChange={(e) => handleConfigChange(varNum, 'field', e.target.value)}>
-                                                            {CONTACT_FIELDS.map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
-                                                        </Select>
-                                                    </FormControl>
-                                                    <TextField label="قيمة بديلة" value={config.fallback} onChange={(e) => handleConfigChange(varNum, 'fallback', e.target.value)} size="small" sx={{ flex: 1 }} helperText="تُستخدم إذا لم يكن لدى المستلم هذا الحقل" />
-                                                </Box>
-                                            )}
-                                        </Card>
-                                    );
-                                })}
+                                {allVars.header.length > 0 && (
+                                    <Box sx={{ mb: 2 }}>
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات العنوان</Typography>
+                                        {allVars.header.map(v => renderVariableInput(`header_${v}`, `عنوان {{${v}}}`))}
+                                    </Box>
+                                )}
+                                {allVars.body.length > 0 && (
+                                    <Box sx={{ mb: 2 }}>
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات النص</Typography>
+                                        {allVars.body.map(v => renderVariableInput(`body_${v}`, `نص {{${v}}}`))}
+                                    </Box>
+                                )}
+                                {allVars.buttons.length > 0 && (
+                                    <Box sx={{ mb: 2 }}>
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات الأزرار</Typography>
+                                        {allVars.buttons.map(btn =>
+                                            btn.variables.map(v => renderVariableInput(`button_${btn.index}_${v}`, `زر "${btn.text}" {{${v}}}`))
+                                        )}
+                                    </Box>
+                                )}
                                 <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
                                     <CardContent>
                                         <Typography variant="subtitle2" color="success.dark" gutterBottom>معاينة الرسالة</Typography>
                                         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', direction: 'auto' }}>{previewBody(selectedTemplate?.body, variableConfigs)}</Typography>
-                                        {variables.some(v => variableConfigs[v]?.source === 'contact') && (
+                                        {Object.values(variableConfigs).some(c => c?.source === 'contact') && (
                                             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>* القيم بين أقواس مربعة ستُستبدل ببيانات كل مستلم تلقائياً</Typography>
                                         )}
                                     </CardContent>
@@ -397,7 +536,6 @@ const TenantBroadcast = () => {
                         <Tab icon={<StaticIcon />} iconPosition="start" label="إدخال يدوي" />
                     </Tabs>
 
-                    {/* Tab 0: Select from contacts */}
                     {recipientsTab === 0 && (
                         <Box>
                             {contactsLoading ? (
@@ -406,7 +544,6 @@ const TenantBroadcast = () => {
                                 <Alert severity="info" sx={{ mb: 2 }}>لا توجد جهات اتصال. يمكنك إضافتها من صفحة جهات الاتصال أو الإدخال يدوياً.</Alert>
                             ) : (
                                 <>
-                                    {/* Search & Filter */}
                                     <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                                         <TextField
                                             size="small"
@@ -427,7 +564,6 @@ const TenantBroadcast = () => {
                                         </FormControl>
                                     </Box>
 
-                                    {/* Action Buttons */}
                                     <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
                                         <Button size="small" variant="outlined" startIcon={<SelectAllIcon />} onClick={handleSelectAll}>
                                             تحديد الكل ({filteredContacts.length})
@@ -446,7 +582,6 @@ const TenantBroadcast = () => {
                                         )}
                                     </Box>
 
-                                    {/* Contacts Table */}
                                     <TableContainer sx={{ maxHeight: 400, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                                         <Table stickyHeader size="small">
                                             <TableHead>
@@ -490,7 +625,6 @@ const TenantBroadcast = () => {
                         </Box>
                     )}
 
-                    {/* Tab 1: Manual entry */}
                     {recipientsTab === 1 && (
                         <Box>
                             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -508,7 +642,6 @@ const TenantBroadcast = () => {
                         </Box>
                     )}
 
-                    {/* Summary */}
                     <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                         {selectedContactIds.size > 0 && (
                             <Chip icon={<PeopleIcon />} label={`${selectedContactIds.size} من جهات الاتصال`} color="secondary" size="small" />
@@ -562,17 +695,33 @@ const TenantBroadcast = () => {
                             </Card>
                         )}
 
-                        {variables.length > 0 && (
+                        {hasAnyVariables && (
                             <Box>
                                 <Typography variant="body2" color="text.secondary" gutterBottom>المتغيرات:</Typography>
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                    {variables.map(v => {
-                                        const config = variableConfigs[v];
+                                    {allVars.header.map(v => {
+                                        const config = variableConfigs[`header_${v}`];
                                         const label = config?.source === 'contact'
                                             ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
                                             : config?.value || '—';
-                                        return <Chip key={v} label={`{{${v}}} = ${label}`} size="small" color={config?.source === 'contact' ? 'secondary' : 'primary'} variant="outlined" icon={config?.source === 'contact' ? <ContactIcon /> : <StaticIcon />} />;
+                                        return <Chip key={`h${v}`} label={`عنوان {{${v}}} = ${label}`} size="small" color="secondary" variant="outlined" />;
                                     })}
+                                    {allVars.body.map(v => {
+                                        const config = variableConfigs[`body_${v}`];
+                                        const label = config?.source === 'contact'
+                                            ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
+                                            : config?.value || '—';
+                                        return <Chip key={`b${v}`} label={`نص {{${v}}} = ${label}`} size="small" color="primary" variant="outlined" icon={config?.source === 'contact' ? <ContactIcon /> : <StaticIcon />} />;
+                                    })}
+                                    {allVars.buttons.flatMap(btn =>
+                                        btn.variables.map(v => {
+                                            const config = variableConfigs[`button_${btn.index}_${v}`];
+                                            const label = config?.source === 'contact'
+                                                ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
+                                                : config?.value || '—';
+                                            return <Chip key={`btn${btn.index}_${v}`} label={`زر {{${v}}} = ${label}`} size="small" color="default" variant="outlined" />;
+                                        })
+                                    )}
                                 </Box>
                             </Box>
                         )}

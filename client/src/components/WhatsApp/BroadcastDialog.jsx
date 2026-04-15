@@ -20,71 +20,112 @@ import {
     Checkbox,
     ListItemText,
     Card,
-    CardContent
+    CardContent,
+    ToggleButton,
+    ToggleButtonGroup,
+    Tooltip
 } from '@mui/material';
 import {
     Close as CloseIcon,
     Send as SendIcon,
-    Add as AddIcon,
-    Delete as DeleteIcon
+    TextFields as StaticIcon,
+    Person as ContactIcon
 } from '@mui/icons-material';
 
-/**
- * Extract variable placeholders from template body text.
- * Returns sorted unique variable numbers, e.g. [1, 2, 3]
- */
-function extractVariables(bodyText) {
-    if (!bodyText) return [];
-    const matches = bodyText.match(/\{\{(\d+)\}\}/g);
-    if (!matches) return [];
-    const nums = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))];
-    return nums.sort((a, b) => a - b);
+function extractAllVariables(template) {
+    const result = { header: [], body: [], buttons: [] };
+    if (!template) return result;
+
+    if (template.body) {
+        const matches = template.body.match(/\{\{(\d+)\}\}/g);
+        if (matches) {
+            result.body = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
+        }
+    }
+
+    if (template.header_type === 'text' && template.header_content) {
+        const matches = template.header_content.match(/\{\{(\d+)\}\}/g);
+        if (matches) {
+            result.header = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
+        }
+    }
+
+    if (template.buttons) {
+        try {
+            const buttons = typeof template.buttons === 'string' ? JSON.parse(template.buttons) : template.buttons;
+            if (Array.isArray(buttons)) {
+                buttons.forEach((btn, index) => {
+                    if (btn.type === 'URL' && btn.url) {
+                        const matches = btn.url.match(/\{\{(\d+)\}\}/g);
+                        if (matches) {
+                            result.buttons.push({
+                                index: String(index),
+                                sub_type: 'url',
+                                text: btn.text,
+                                url: btn.url,
+                                variables: [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b),
+                            });
+                        }
+                    }
+                    if (btn.type === 'OTP' || btn.type === 'COPY_CODE' || btn.type === 'otp') {
+                        result.buttons.push({
+                            index: String(index),
+                            sub_type: 'url',
+                            text: btn.text || 'Copy Code',
+                            isOtp: true,
+                            variables: [1],
+                        });
+                    }
+                });
+            }
+        } catch (_) { /* ignored */ }
+    }
+
+    return result;
 }
 
-/**
- * Replace {{N}} placeholders with actual values for preview.
- */
 function previewBody(bodyText, variableValues) {
     if (!bodyText) return '';
     return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
-        const val = variableValues[parseInt(num)];
+        const val = variableValues[`body_${num}`];
         return val ? val : match;
     });
 }
 
-const BroadcastDialog = ({ 
-    open, 
-    onClose, 
-    onSend, 
-    contacts = [], 
+const BroadcastDialog = ({
+    open,
+    onClose,
+    onSend,
+    contacts = [],
     templates = [],
-    loading = false 
 }) => {
-    const [step, setStep] = useState(1); // 1: select recipients, 2: select template & variables, 3: preview
+    const [step, setStep] = useState(1);
     const [selectedContacts, setSelectedContacts] = useState([]);
     const [customNumbers, setCustomNumbers] = useState('');
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [templateLanguage, setTemplateLanguage] = useState('ar');
     const [searchTerm, setSearchTerm] = useState('');
     const [sending, setSending] = useState(false);
-    const [variableValues, setVariableValues] = useState({}); // { 1: 'value1', 2: 'value2', ... }
+    const [variableValues, setVariableValues] = useState({});
 
-    // Find the full template object
-    const templateObj = useMemo(() => 
+    const templateObj = useMemo(() =>
         templates.find(t => t.name === selectedTemplate),
         [templates, selectedTemplate]
     );
 
-    // Extract variables from the selected template body
-    const variables = useMemo(() => 
-        extractVariables(templateObj?.body),
-        [templateObj]
-    );
+    const allVars = useMemo(() => extractAllVariables(templateObj), [templateObj]);
 
-    // Check if all variables are filled
-    const allVariablesFilled = useMemo(() => 
-        variables.length === 0 || variables.every(v => variableValues[v]?.trim()),
-        [variables, variableValues]
+    const allVariableKeys = useMemo(() => {
+        const keys = [];
+        allVars.header.forEach(v => keys.push(`header_${v}`));
+        allVars.body.forEach(v => keys.push(`body_${v}`));
+        allVars.buttons.forEach(btn => btn.variables.forEach(v => keys.push(`button_${btn.index}_${v}`)));
+        return keys;
+    }, [allVars]);
+
+    const allVariablesFilled = useMemo(() =>
+        allVariableKeys.length === 0 || allVariableKeys.every(key => variableValues[key]?.trim()),
+        [allVariableKeys, variableValues]
     );
 
     useEffect(() => {
@@ -100,13 +141,22 @@ const BroadcastDialog = ({
         }
     }, [open]);
 
-    // Reset variable values when template changes
     useEffect(() => {
-        setVariableValues({});
+        const defaults = {};
+        allVariableKeys.forEach(key => {
+            if (!(key in defaults)) defaults[key] = '';
+        });
+        setVariableValues(prev => {
+            const next = {};
+            allVariableKeys.forEach(key => {
+                next[key] = prev[key] !== undefined ? prev[key] : '';
+            });
+            return next;
+        });
     }, [selectedTemplate]);
 
-    const filteredContacts = contacts.filter(c => 
-        c.phone?.includes(searchTerm) || 
+    const filteredContacts = contacts.filter(c =>
+        c.phone?.includes(searchTerm) ||
         c.profile_name?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -119,8 +169,8 @@ const BroadcastDialog = ({
     ];
 
     const handleToggleContact = (phone) => {
-        setSelectedContacts(prev => 
-            prev.includes(phone) 
+        setSelectedContacts(prev =>
+            prev.includes(phone)
                 ? prev.filter(p => p !== phone)
                 : [...prev, phone]
         );
@@ -134,36 +184,53 @@ const BroadcastDialog = ({
         }
     };
 
-    const handleVariableChange = (varNum, value) => {
+    const handleVariableChange = (key, value) => {
         setVariableValues(prev => ({
             ...prev,
-            [varNum]: value
+            [key]: value
         }));
     };
 
-    /**
-     * Build the Meta API template_params (components array) from variable values.
-     */
     const buildTemplateParams = () => {
-        if (variables.length === 0) return undefined;
-        return [
-            {
-                type: 'body',
-                parameters: variables.map(v => ({
+        const components = [];
+
+        if (allVars.header.length > 0) {
+            components.push({
+                type: 'header',
+                parameters: allVars.header.map(v => ({
                     type: 'text',
-                    text: variableValues[v] || ''
-                }))
-            }
-        ];
+                    text: variableValues[`header_${v}`] || '',
+                })),
+            });
+        }
+
+        if (allVars.body.length > 0) {
+            components.push({
+                type: 'body',
+                parameters: allVars.body.map(v => ({
+                    type: 'text',
+                    text: variableValues[`body_${v}`] || '',
+                })),
+            });
+        }
+
+        allVars.buttons.forEach(btn => {
+            components.push({
+                type: 'button',
+                sub_type: 'url',
+                index: btn.index,
+                parameters: btn.variables.map(v => ({
+                    type: 'text',
+                    text: variableValues[`button_${btn.index}_${v}`] || '',
+                })),
+            });
+        });
+
+        return components.length > 0 ? components : undefined;
     };
 
     const handleSend = async () => {
-        if (allRecipients.length === 0) {
-            return;
-        }
-        if (!selectedTemplate) {
-            return;
-        }
+        if (allRecipients.length === 0 || !selectedTemplate) return;
 
         setSending(true);
         try {
@@ -193,12 +260,25 @@ const BroadcastDialog = ({
         }
     };
 
+    const renderVariableInput = (key, label) => (
+        <TextField
+            key={key}
+            label={label}
+            placeholder={`أدخل قيمة ${label}`}
+            value={variableValues[key] || ''}
+            onChange={(e) => handleVariableChange(key, e.target.value)}
+            fullWidth
+            size="small"
+            required
+            error={!(variableValues[key]?.trim())}
+            sx={{ mb: 1.5 }}
+        />
+    );
+
     return (
         <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
             <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6">
-                    إرسال جماعي
-                </Typography>
+                <Typography variant="h6">إرسال جماعي</Typography>
                 <IconButton onClick={handleClose} disabled={sending}>
                     <CloseIcon />
                 </IconButton>
@@ -208,11 +288,11 @@ const BroadcastDialog = ({
                 {/* Step indicator */}
                 <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
                     {[1, 2, 3].map(s => (
-                        <Box 
+                        <Box
                             key={s}
-                            sx={{ 
-                                flex: 1, 
-                                p: 1, 
+                            sx={{
+                                flex: 1,
+                                p: 1,
                                 borderRadius: 1,
                                 bgcolor: step >= s ? 'primary.main' : 'grey.200',
                                 color: step >= s ? 'white' : 'text.secondary',
@@ -249,14 +329,7 @@ const BroadcastDialog = ({
                             </Button>
                         </Box>
 
-                        <Box sx={{ 
-                            maxHeight: 300, 
-                            overflow: 'auto', 
-                            border: 1, 
-                            borderColor: 'divider', 
-                            borderRadius: 1,
-                            mb: 2 
-                        }}>
+                        <Box sx={{ maxHeight: 300, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, mb: 2 }}>
                             {filteredContacts.map(contact => (
                                 <Box
                                     key={contact.phone}
@@ -272,24 +345,15 @@ const BroadcastDialog = ({
                                     }}
                                     onClick={() => handleToggleContact(contact.phone)}
                                 >
-                                    <Checkbox
-                                        checked={selectedContacts.includes(contact.phone)}
-                                        size="small"
-                                    />
+                                    <Checkbox checked={selectedContacts.includes(contact.phone)} size="small" />
                                     <Box sx={{ ml: 1, flex: 1 }}>
-                                        <Typography variant="body2">
-                                            {contact.profile_name || contact.phone}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary">
-                                            {contact.phone}
-                                        </Typography>
+                                        <Typography variant="body2">{contact.profile_name || contact.phone}</Typography>
+                                        <Typography variant="caption" color="text.secondary">{contact.phone}</Typography>
                                     </Box>
                                 </Box>
                             ))}
                             {filteredContacts.length === 0 && (
-                                <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
-                                    لا توجد جهات اتصال
-                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>لا توجد جهات اتصال</Typography>
                             )}
                         </Box>
 
@@ -304,9 +368,7 @@ const BroadcastDialog = ({
                             helperText="أدخل أرقام إضافية مفصولة بفاصلة أو سطر جديد"
                         />
 
-                        <Typography variant="body2" sx={{ mt: 2 }}>
-                            المستلمون المحددون: {allRecipients.length}
-                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 2 }}>المستلمون المحددون: {allRecipients.length}</Typography>
                     </Box>
                 )}
 
@@ -322,7 +384,7 @@ const BroadcastDialog = ({
                             >
                                 {templates.map(template => (
                                     <MenuItem key={template.id || template.name} value={template.name}>
-                                        {template.name} 
+                                        {template.name}
                                         {template.status && ` (${template.status})`}
                                     </MenuItem>
                                 ))}
@@ -338,27 +400,19 @@ const BroadcastDialog = ({
                             >
                                 <MenuItem value="ar">العربية</MenuItem>
                                 <MenuItem value="en">English</MenuItem>
-                                <MenuItem value="en_US">English (US)</MenuItem>
                             </Select>
                         </FormControl>
 
-                        {/* Template body preview */}
                         {templateObj && (
                             <Card variant="outlined" sx={{ mb: 2 }}>
                                 <CardContent>
-                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                        محتوى القالب
-                                    </Typography>
-                                    <Typography 
-                                        variant="body2" 
-                                        sx={{ 
-                                            whiteSpace: 'pre-wrap', 
-                                            bgcolor: 'grey.50', 
-                                            p: 1.5, 
-                                            borderRadius: 1,
-                                            direction: 'auto'
-                                        }}
-                                    >
+                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>محتوى القالب</Typography>
+                                    {templateObj.header_type === 'text' && templateObj.header_content && (
+                                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 1, direction: 'auto' }}>
+                                            {templateObj.header_content}
+                                        </Typography>
+                                    )}
+                                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'grey.50', p: 1.5, borderRadius: 1, direction: 'auto' }}>
                                         {templateObj.body || 'لا يوجد محتوى'}
                                     </Typography>
                                     {templateObj.footer && (
@@ -371,41 +425,32 @@ const BroadcastDialog = ({
                         )}
 
                         {/* Variable Inputs */}
-                        {variables.length > 0 && (
+                        {allVariableKeys.length > 0 && (
                             <Box sx={{ mt: 1 }}>
                                 <Alert severity="info" sx={{ mb: 2 }}>
-                                    هذا القالب يحتوي على {variables.length} متغير(ات). يرجى تعبئة القيم أدناه.
+                                    هذا القالب يحتوي على {allVariableKeys.length} متغير(ات). يرجى تعبئة القيم أدناه.
                                 </Alert>
-                                
-                                {variables.map(varNum => (
-                                    <TextField
-                                        key={varNum}
-                                        label={`متغير {{${varNum}}}`}
-                                        placeholder={`أدخل قيمة المتغير {{${varNum}}}`}
-                                        value={variableValues[varNum] || ''}
-                                        onChange={(e) => handleVariableChange(varNum, e.target.value)}
-                                        fullWidth
-                                        size="small"
-                                        required
-                                        error={!variableValues[varNum]?.trim()}
-                                        helperText={!variableValues[varNum]?.trim() ? 'هذا الحقل مطلوب' : ''}
-                                        sx={{ mb: 1.5 }}
-                                    />
-                                ))}
 
-                                {/* Live preview with substituted variables */}
+                                {allVars.header.length > 0 && (
+                                    <Box sx={{ mb: 2 }}>
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات العنوان</Typography>
+                                        {allVars.header.map(v => renderVariableInput(`header_${v}`, `عنوان {{${v}}}`))}
+                                    </Box>
+                                )}
+                                {allVars.body.map(v => renderVariableInput(`body_${v}`, `متغير {{${v}}}`))}
+                                {allVars.buttons.length > 0 && (
+                                    <Box sx={{ mt: 2 }}>
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات الأزرار</Typography>
+                                        {allVars.buttons.map(btn =>
+                                            btn.variables.map(v => renderVariableInput(`button_${btn.index}_${v}`, `زر "${btn.text}" {{${v}}}`))
+                                        )}
+                                    </Box>
+                                )}
+
                                 <Card variant="outlined" sx={{ mt: 1, bgcolor: '#e8f5e9' }}>
                                     <CardContent>
-                                        <Typography variant="subtitle2" color="success.dark" gutterBottom>
-                                            معاينة الرسالة بعد تعبئة المتغيرات
-                                        </Typography>
-                                        <Typography 
-                                            variant="body2" 
-                                            sx={{ 
-                                                whiteSpace: 'pre-wrap', 
-                                                direction: 'auto' 
-                                            }}
-                                        >
+                                        <Typography variant="subtitle2" color="success.dark" gutterBottom>معاينة الرسالة</Typography>
+                                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', direction: 'auto' }}>
                                             {previewBody(templateObj?.body, variableValues)}
                                         </Typography>
                                     </CardContent>
@@ -413,7 +458,7 @@ const BroadcastDialog = ({
                             </Box>
                         )}
 
-                        {selectedTemplate && variables.length === 0 && (
+                        {selectedTemplate && allVariableKeys.length === 0 && (
                             <Alert severity="info" sx={{ mt: 2 }}>
                                 هذا القالب لا يحتوي على متغيرات. تأكد من أنه معتمد من WhatsApp قبل الإرسال.
                             </Alert>
@@ -424,77 +469,44 @@ const BroadcastDialog = ({
                 {/* Step 3: Preview */}
                 {step === 3 && (
                     <Box>
-                        <Typography variant="subtitle1" gutterBottom>
-                            ملخص الإرسال
-                        </Typography>
+                        <Typography variant="subtitle1" gutterBottom>ملخص الإرسال</Typography>
 
                         <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1, mb: 2 }}>
                             <Grid container spacing={2}>
                                 <Grid item xs={6}>
-                                    <Typography variant="body2" color="text.secondary">
-                                        عدد المستلمين:
-                                    </Typography>
-                                    <Typography variant="h5">
-                                        {allRecipients.length}
-                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">عدد المستلمين:</Typography>
+                                    <Typography variant="h5">{allRecipients.length}</Typography>
                                 </Grid>
                                 <Grid item xs={6}>
-                                    <Typography variant="body2" color="text.secondary">
-                                        القالب:
-                                    </Typography>
-                                    <Typography variant="body1">
-                                        {selectedTemplate}
-                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">القالب:</Typography>
+                                    <Typography variant="body1">{selectedTemplate}</Typography>
                                 </Grid>
                             </Grid>
                         </Box>
 
-                        {/* Show final message preview with variables */}
                         {templateObj && (
                             <Card variant="outlined" sx={{ mb: 2 }}>
                                 <CardContent>
-                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                        الرسالة النهائية
-                                    </Typography>
-                                    <Typography 
-                                        variant="body2" 
-                                        sx={{ 
-                                            whiteSpace: 'pre-wrap', 
-                                            bgcolor: '#f0f4f0', 
-                                            p: 1.5, 
-                                            borderRadius: 1,
-                                            direction: 'auto'
-                                        }}
-                                    >
+                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>الرسالة النهائية</Typography>
+                                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', bgcolor: '#f0f4f0', p: 1.5, borderRadius: 1, direction: 'auto' }}>
                                         {previewBody(templateObj.body, variableValues)}
                                     </Typography>
                                 </CardContent>
                             </Card>
                         )}
 
-                        {/* Variable summary */}
-                        {variables.length > 0 && (
+                        {allVariableKeys.length > 0 && (
                             <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary" gutterBottom>
-                                    المتغيرات:
-                                </Typography>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>المتغيرات:</Typography>
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                    {variables.map(v => (
-                                        <Chip 
-                                            key={v}
-                                            label={`{{${v}}} = ${variableValues[v] || '—'}`}
-                                            size="small"
-                                            color="primary"
-                                            variant="outlined"
-                                        />
+                                    {allVariableKeys.map(key => (
+                                        <Chip key={key} label={`${key} = ${variableValues[key] || '—'}`} size="small" color="primary" variant="outlined" />
                                     ))}
                                 </Box>
                             </Box>
                         )}
 
-                        <Typography variant="body2" color="text.secondary" gutterBottom>
-                            المستلمون:
-                        </Typography>
+                        <Typography variant="body2" color="text.secondary" gutterBottom>المستلمون:</Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 100, overflow: 'auto' }}>
                             {allRecipients.slice(0, 20).map(phone => (
                                 <Chip key={phone} label={phone} size="small" />
@@ -504,18 +516,13 @@ const BroadcastDialog = ({
                             )}
                         </Box>
 
-                        <Alert severity="warning" sx={{ mt: 2 }}>
-                            سيتم خصم {allRecipients.length} رصيد من حسابك
-                        </Alert>
+                        <Alert severity="warning" sx={{ mt: 2 }}>سيتم خصم {allRecipients.length} رصيد من حسابك</Alert>
                     </Box>
                 )}
             </DialogContent>
 
             <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
-                <Button
-                    onClick={() => setStep(s => Math.max(1, s - 1))}
-                    disabled={step === 1 || sending}
-                >
+                <Button onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1 || sending}>
                     السابق
                 </Button>
 

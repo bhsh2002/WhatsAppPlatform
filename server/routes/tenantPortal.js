@@ -1265,10 +1265,17 @@ router.post('/broadcast', async (req, res) => {
                             return { type: 'text', text: value };
                         });
 
-                        payload.template.components = [{
-                            type: 'body',
-                            parameters
-                        }];
+                        const components = [{ type: 'body', parameters }];
+
+                        if (template_params && Array.isArray(template_params)) {
+                            template_params.forEach(comp => {
+                                if (comp.type !== 'body') {
+                                    components.push(comp);
+                                }
+                            });
+                        }
+
+                        payload.template.components = components;
                     } else if (template_params && template_params.length > 0) {
                         payload.template.components = template_params;
                     }
