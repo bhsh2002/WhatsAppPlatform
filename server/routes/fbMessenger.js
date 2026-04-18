@@ -219,6 +219,14 @@ router.post('/:linkedPageId/sync', async (req, res) => {
             const userPsid = userParticipant.id;
             const userName = userParticipant.name || null;
 
+            // Find the most recent message text for preview
+            const messages = conv.messages?.data || [];
+            const lastMsg = messages.length > 0
+                ? messages.reduce((a, b) => (a.created_time > b.created_time ? a : b))
+                : null;
+            const lastMsgText = lastMsg ? (lastMsg.message || '[مرفق]').substring(0, 100) : '';
+            const lastMsgTime = conv.updated_time || (lastMsg ? lastMsg.created_time : null) || new Date().toISOString();
+
             // Upsert conversation
             let dbConv = db.prepare(
                 'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
@@ -226,31 +234,41 @@ router.post('/:linkedPageId/sync', async (req, res) => {
 
             if (!dbConv) {
                 db.prepare(`
-                    INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, last_message, last_message_time, unread_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-                `).run(page.tenant_id, linkedPageId, page.page_id, userPsid, userName, '', conv.updated_time || new Date().toISOString());
+                    INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                `).run(page.tenant_id, linkedPageId, page.page_id, userPsid, userName, null, lastMsgText, lastMsgTime);
 
                 dbConv = db.prepare(
                     'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
                 ).get(linkedPageId, userPsid);
                 syncedConversations++;
             } else {
-                db.prepare(`
-                    UPDATE fb_conversations SET last_message_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
-                `).run(conv.updated_time || new Date().toISOString(), dbConv.id);
+                // Only update if the conversation has newer activity
+                const existingTime = dbConv.last_message_time ? new Date(dbConv.last_message_time).getTime() : 0;
+                const newTime = new Date(lastMsgTime).getTime();
+                if (newTime > existingTime) {
+                    db.prepare(`
+                        UPDATE fb_conversations SET
+                            last_message = ?, last_message_time = ?,
+                            user_name = COALESCE(?, user_name),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    `).run(lastMsgText, lastMsgTime, userName, dbConv.id);
+                }
             }
 
-            // Insert messages
-            const messages = conv.messages?.data || [];
+            // Insert messages (dedup by mid)
             for (const msg of messages) {
-                const existing = db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(msg.mid);
+                // Guard against null mid — generate a deterministic fallback
+                const mid = msg.mid || `${dbConv.id}_${msg.from?.id || 'unknown'}_${msg.created_time || Date.now()}`;
+                const existing = db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid);
                 if (existing) continue;
 
                 const direction = msg.from?.id === page.page_id ? 'outgoing' : 'incoming';
                 db.prepare(`
                     INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(dbConv.id, page.tenant_id, msg.mid, direction, msg.from?.id, msg.from?.name, msg.message || '', msg.created_time || new Date().toISOString());
+                `).run(dbConv.id, page.tenant_id, mid, direction, msg.from?.id, msg.from?.name, msg.message || '', msg.created_time || new Date().toISOString());
 
                 syncedMessages++;
             }
