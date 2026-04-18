@@ -116,16 +116,7 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
 
         if (channel === 'whatsapp') {
             let query = `
-                SELECT
-                    id, 'whatsapp' as channel, direction,
-                    CASE WHEN direction = 'incoming' THEN sender ELSE recipient END as sender_name,
-                    content as message_text,
-                    message_type,
-                    media_url,
-                    status,
-                    created_at,
-                    wamid
-                FROM messages
+                SELECT * FROM messages
                 WHERE (sender = ? OR recipient = ?)
             `;
             const params = [contactId, contactId];
@@ -254,10 +245,9 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
             if (result.error) return res.status(result.status).json({ error: result.error });
             const { page, accessToken } = result;
 
-            const conv = db.prepare('SELECT * FROM fb_conversations WHERE id = ?').get(
-                db.prepare('SELECT id FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1')
-                    .get(contactId, linked_pageId)?.id || 0
-            );
+            const conv = db.prepare(
+                'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1'
+            ).get(contactId, linked_page_id);
 
             const userPsid = contactId;
 
@@ -279,35 +269,31 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
             if (sendResponse.ok) {
                 const mid = sendData.message_id;
 
-                const conversation = db.prepare(
-                    'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1'
-                ).get(userPsid, linked_page_id);
-
-                if (conversation) {
+                if (conv) {
                     db.prepare(`
                         INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
                         VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
-                    `).run(conversation.id, conversation.tenant_id, mid, page.page_id, page.page_name, message.trim());
+                    `).run(conv.id, conv.tenant_id, mid, page.page_id, page.page_name, message.trim());
 
                     db.prepare(`
                         UPDATE fb_conversations
                         SET last_message = ?, last_message_time = datetime('now')
                         WHERE id = ?
-                    `).run(message.trim().substring(0, 100), conversation.id);
+                    `).run(message.trim().substring(0, 100), conv.id);
 
                     eventBus.broadcast('admin', 'fb_message:new', {
-                        tenant_id: conversation.tenant_id,
+                        tenant_id: conv.tenant_id,
                         page_id: page.page_id,
-                        conversation_id: conversation.id,
+                        conversation_id: conv.id,
                         direction: 'outgoing',
                         sender_id: page.page_id,
                         sender_name: page.page_name,
                         message: message.trim(),
                     });
-                    eventBus.broadcast(`tenant:${conversation.tenant_id}`, 'fb_message:new', {
-                        tenant_id: conversation.tenant_id,
+                    eventBus.broadcast(`tenant:${conv.tenant_id}`, 'fb_message:new', {
+                        tenant_id: conv.tenant_id,
                         page_id: page.page_id,
-                        conversation_id: conversation.id,
+                        conversation_id: conv.id,
                         direction: 'outgoing',
                         sender_id: page.page_id,
                         sender_name: page.page_name,

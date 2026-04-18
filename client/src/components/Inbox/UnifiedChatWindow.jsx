@@ -16,9 +16,14 @@ import {
     Send as SendIcon,
     WhatsApp as WhatsAppIcon,
     Facebook as FacebookIcon,
-    ArrowBack as ArrowBackIcon
+    ArrowBack as ArrowBackIcon,
+    Check as CheckIcon,
+    DoneAll as DoneAllIcon,
+    AccessTime as AccessTimeIcon,
+    Error as ErrorIcon
 } from '@mui/icons-material';
 import MessageBubble from '../WhatsApp/MessageBubble';
+import api from '../../api';
 
 const formatTime = (dateStr) => {
     if (!dateStr) return '';
@@ -31,16 +36,23 @@ const getDateKey = (dateStr) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const getStatusIcon = (status) => {
+const defaultGetStatusIcon = (status, direction) => {
+    if (direction !== 'outgoing') return null;
+    const props = { fontSize: 'inherit' };
     switch (status) {
-        case 'read': return '✓✓';
-        case 'delivered': return '✓✓';
-        case 'sent': return '✓';
-        default: return '';
+        case 'read': return <DoneAllIcon {...props} sx={{ color: '#53bdeb', fontSize: 'inherit' }} />;
+        case 'delivered': return <DoneAllIcon {...props} />;
+        case 'sent': return <CheckIcon {...props} />;
+        case 'pending': return <AccessTimeIcon {...props} sx={{ opacity: 0.5 }} />;
+        case 'failed': return <ErrorIcon {...props} color="error" />;
+        default: return <AccessTimeIcon {...props} />;
     }
 };
 
-const getMediaDownloadUrl = (url) => url || null;
+const defaultGetMediaDownloadUrl = (mediaId, tenantId) => {
+    if (!mediaId) return null;
+    return api.getMediaDownloadUrl(mediaId, tenantId);
+};
 
 const MessengerBubble = ({ msg }) => {
     const isOutgoing = msg?.direction === 'outgoing';
@@ -139,8 +151,8 @@ const UnifiedChatWindow = ({
     const displayName = selectedChat.display_name || selectedChat.contact_id || 'غير معروف';
     const fTime = formatTimeProp || formatTime;
     const fGetDateKey = getDateKeyProp || getDateKey;
-    const fGetStatusIcon = getStatusIconProp || getStatusIcon;
-    const fGetMediaUrl = getMediaDownloadUrlProp || getMediaDownloadUrl;
+    const fGetStatusIcon = getStatusIconProp || defaultGetStatusIcon;
+    const fGetMediaUrl = getMediaDownloadUrlProp || defaultGetMediaDownloadUrl;
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
