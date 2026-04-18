@@ -463,8 +463,8 @@ const FacebookPageManager = () => {
                                         )}
 
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1.5, flexWrap: 'wrap' }}>
-                                            {post.likes?.summary?.total_count !== undefined && (
-                                                <Chip icon={<LikeIcon />} label={post.likes.summary.total_count} size="small" variant="outlined" />
+                                            {post.reactions?.summary?.total_count !== undefined && (
+                                                <Chip icon={<LikeIcon />} label={post.reactions.summary.total_count} size="small" variant="outlined" />
                                             )}
                                             {post.comments?.summary?.total_count !== undefined && (
                                                 <Chip
