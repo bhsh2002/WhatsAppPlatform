@@ -944,6 +944,85 @@ class ApiService {
             body: JSON.stringify({ amount }),
         });
     }
+
+    // ============================================
+    // Token Health (Admin)
+    // ============================================
+    async getTokenHealthSummary() {
+        return this.request('/api/tenants/token-health');
+    }
+
+    async checkTokenHealth(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/check-token`, {
+            method: 'POST',
+        });
+    }
+
+    // ============================================
+    // Webhook Failures (Admin)
+    // ============================================
+    async getWebhookFailures(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/webhook-admin/failures${query ? '?' + query : ''}`);
+    }
+
+    async retryWebhookFailure(id) {
+        return this.request(`/api/webhook-admin/failures/${id}/retry`, {
+            method: 'POST',
+        });
+    }
+
+    async deleteWebhookFailure(id) {
+        return this.request(`/api/webhook-admin/failures/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async clearResolvedFailures() {
+        return this.request('/api/webhook-admin/failures', {
+            method: 'DELETE',
+        });
+    }
+
+    async getWebhookFailureStats() {
+        return this.request('/api/webhook-admin/stats');
+    }
+
+    // ============================================
+    // Read Receipts
+    // ============================================
+    async markAsRead(data) {
+        return this.request('/api/messages/mark-read', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async markAsReadPortal(data) {
+        return this.request('/api/portal/mark-read', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Broadcast Jobs
+    // ============================================
+    async getBroadcastJobs() {
+        return this.request('/api/messages/broadcast-jobs');
+    }
+
+    async getBroadcastJob(id) {
+        return this.request(`/api/messages/broadcast-jobs/${id}`);
+    }
+
+    async getPortalBroadcastJobs() {
+        return this.request('/api/portal/broadcast-jobs');
+    }
+
+    async getPortalBroadcastJob(id) {
+        return this.request(`/api/portal/broadcast-jobs/${id}`);
+    }
 }
 
 const api = new ApiService();

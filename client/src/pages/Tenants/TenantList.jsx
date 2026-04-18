@@ -45,7 +45,11 @@ import {
     Facebook as FacebookIcon,
     Link as LinkIcon,
     Cancel as CancelIcon,
-    Refresh as RefreshIcon
+    Refresh as RefreshIcon,
+    VerifiedUser as VerifiedUserIcon,
+    WarningAmber as WarningAmberIcon,
+    Cancel as CancelIconR,
+    RemoveCircleOutline as UncheckedIcon
 } from '@mui/icons-material';
 
 const TenantList = () => {
@@ -94,6 +98,7 @@ const TenantList = () => {
     const [fbLinking, setFbLinking] = useState(false);
     const [fbLinkForm, setFbLinkForm] = useState({ page_id: '', page_access_token: '' });
     const [fbLinkId, setFbLinkId] = useState(null);
+    const [checkingToken, setCheckingToken] = useState(false);
 
     const filteredTenants = tenants.filter(tenant => {
         const matchesSearch = tenant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -109,6 +114,29 @@ const TenantList = () => {
         if (status === 'Suspended' || quality === 'Low') return <Chip label="موقوف/حرج" color="error" size="small" />;
         if (status === 'Warning' || quality === 'Medium') return <Chip label="تحذير" color="warning" size="small" />;
         return <Chip label="نشط" color="success" size="small" />;
+    };
+
+    const getTokenStatusChip = (tokenStatus) => {
+        switch (tokenStatus) {
+            case 'valid': return <Chip icon={<CheckCircleIcon />} label="صالح" color="success" size="small" />;
+            case 'expiring': return <Chip icon={<WarningAmberIcon />} label="ينتهي قريباً" color="warning" size="small" />;
+            case 'expired': return <Chip icon={<CancelIconR />} label="منتهي" color="error" size="small" />;
+            case 'invalid': return <Chip icon={<CancelIconR />} label="غير صالح" color="error" size="small" />;
+            default: return <Chip icon={<UncheckedIcon />} label="غير مختبر" size="small" variant="outlined" />;
+        }
+    };
+
+    const handleCheckToken = async () => {
+        if (!selectedTenantId) return;
+        setCheckingToken(true);
+        try {
+            await api.checkTokenHealth(selectedTenantId);
+            window.location.reload();
+        } catch (err) {
+            console.error('Token check failed:', err);
+        } finally {
+            setCheckingToken(false);
+        }
     };
 
     const handleMenuOpen = (event, tenantId) => {
@@ -479,19 +507,20 @@ const TenantList = () => {
                             <TableCell>الرصيد</TableCell>
                             <TableCell>جودة الرقم</TableCell>
                             <TableCell>الحالة</TableCell>
+                            <TableCell>الرمز</TableCell>
                             <TableCell align="right">إجراءات</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                                     <CircularProgress />
                                 </TableCell>
                             </TableRow>
                         ) : filteredTenants.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                                     <Typography color="text.secondary">لا يوجد عملاء</Typography>
                                 </TableCell>
                             </TableRow>
@@ -515,6 +544,7 @@ const TenantList = () => {
                                         </Typography>
                                     </TableCell>
                                     <TableCell>{getStatusChip(tenant.status, tenant.quality)}</TableCell>
+                                    <TableCell>{getTokenStatusChip(tenant.token_status)}</TableCell>
                                     <TableCell align="right">
                                         <IconButton size="small" onClick={(e) => handleMenuOpen(e, tenant.id)}>
                                             <MoreVertIcon />
@@ -555,6 +585,12 @@ const TenantList = () => {
                         <FacebookIcon fontSize="small" sx={{ color: '#1877f2' }} />
                     </ListItemIcon>
                     صفحات فيسبوك
+                </MenuItem>
+                <MenuItem onClick={handleCheckToken} disabled={checkingToken}>
+                    <ListItemIcon>
+                        <VerifiedUserIcon fontSize="small" color={checkingToken ? 'disabled' : 'primary'} />
+                    </ListItemIcon>
+                    {checkingToken ? 'جاري الفحص...' : 'فحص الرمز'}
                 </MenuItem>
                 <Divider />
                 <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>

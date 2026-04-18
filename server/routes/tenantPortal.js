@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
 import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
+import { decryptIfEncrypted } from '../services/encryption.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1079,7 +1080,7 @@ router.post('/messages/send-interactive', async (req, res) => {
 });
 
 // ============================================
-// Broadcast (Tenant)
+// Broadcast (Tenant) — Async with job tracking
 // ============================================
 router.post('/broadcast', async (req, res) => {
     try {
@@ -1096,14 +1097,16 @@ router.post('/broadcast', async (req, res) => {
             return res.status(400).json({ error: 'الحد الأقصى 100 مستلم للبث' });
         }
 
-        // Get tenant
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token;
+        // decryptIfEncrypted is imported at the top of the file
+        const accessToken = tenant.access_token_encrypted
+            ? decryptIfEncrypted(tenant.access_token_encrypted)
+            : tenant.access_token;
 
         if (!phoneNumberId || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
@@ -1113,28 +1116,88 @@ router.post('/broadcast', async (req, res) => {
             return res.status(403).json({ error: 'حسابك معلّق. تواصل مع المدير.' });
         }
 
-        // Check credits
         if (tenant.credits < recipients.length) {
             return res.status(400).json({ 
                 error: `رصيد غير كافي. متاح: ${tenant.credits}، مطلوب: ${recipients.length}` 
             });
         }
 
-        // Verify template exists
         const template = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, template_name);
         if (!template) {
             return res.status(400).json({ error: 'القالب غير موجود' });
         }
 
-        // Send in batches of 5 with controlled concurrency
+        // Create broadcast job
+        const jobResult = db.prepare(`
+            INSERT INTO broadcast_jobs (tenant_id, status, template_name, template_language, total_recipients)
+            VALUES (?, 'pending', ?, ?, ?)
+        `).run(tenantId, template_name, template_language || 'ar', recipients.length);
+
+        const jobId = jobResult.lastInsertRowid;
+
+        // Respond immediately
+        res.status(202).json({ job_id: jobId, status: 'pending', total: recipients.length });
+
+        // Process in background
+        setImmediate(() => processTenantBroadcastJob(jobId, {
+            tenantId, recipients, template_name, template_language, template_params,
+            variable_mapping: req.body.variable_mapping,
+            phoneNumberId, accessToken, tenant,
+        }));
+
+    } catch (error) {
+        console.error('[TenantPortal] Broadcast error:', error);
+        res.status(500).json({ error: 'فشل البث' });
+    }
+});
+
+// Broadcast job statuses (Tenant)
+router.get('/broadcast-jobs', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { limit = 20, offset = 0 } = req.query;
+        const jobs = db.prepare(
+            'SELECT * FROM broadcast_jobs WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        ).all(tenantId, parseInt(limit), parseInt(offset));
+        const total = db.prepare('SELECT COUNT(*) as count FROM broadcast_jobs WHERE tenant_id = ?').get(tenantId).count;
+        res.json({ jobs, total });
+    } catch (error) {
+        console.error('[TenantPortal] Broadcast jobs fetch error:', error);
+        res.status(500).json({ error: 'فشل جلب وظائف البث' });
+    }
+});
+
+router.get('/broadcast-jobs/:id', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const job = db.prepare('SELECT * FROM broadcast_jobs WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+        if (!job) {
+            return res.status(404).json({ error: 'الوظيفة غير موجودة' });
+        }
+        res.json(job);
+    } catch (error) {
+        console.error('[TenantPortal] Broadcast job fetch error:', error);
+        res.status(500).json({ error: 'فشل جلب وظيفة البث' });
+    }
+});
+
+// Background tenant broadcast processor
+async function processTenantBroadcastJob(jobId, params) {
+    const { tenantId, recipients, template_name, template_language, template_params,
+            variable_mapping, phoneNumberId, accessToken, tenant } = params;
+
+    try {
+        db.prepare("UPDATE broadcast_jobs SET status = 'running' WHERE id = ?").run(jobId);
+
         const results = [];
         let sent = 0, failed = 0;
         const batchSize = 5;
-        const batchDelay = 200; // ms between batches
+        const batchDelay = 200;
+        const total = recipients.length;
 
-        for (let i = 0; i < recipients.length; i += batchSize) {
+        for (let i = 0; i < total; i += batchSize) {
             const batch = recipients.slice(i, i + batchSize);
-            
+
             const batchPromises = batch.map(async (recipient) => {
                 try {
                     const formattedRecipient = recipient.replace(/\+/g, '').trim();
@@ -1149,10 +1212,7 @@ router.post('/broadcast', async (req, res) => {
                         },
                     };
 
-                    // Build per-recipient template_params from variable_mapping
-                    const variable_mapping = req.body.variable_mapping;
                     if (variable_mapping && variable_mapping.length > 0) {
-                        // Lookup contact data for this recipient
                         const contact = db.prepare(
                             'SELECT phone, profile_name, label, notes FROM contacts WHERE phone = ? AND tenant_id = ? LIMIT 1'
                         ).get(formattedRecipient, tenantId);
@@ -1210,35 +1270,48 @@ router.post('/broadcast', async (req, res) => {
 
             const batchResults = await Promise.all(batchPromises);
             results.push(...batchResults);
-            
+
             sent += batchResults.filter(r => r.status === 'sent').length;
             failed += batchResults.filter(r => r.status === 'failed').length;
 
-            // Delay between batches to respect rate limits
-            if (i + batchSize < recipients.length) {
+            const progress = Math.round(((i + batch.length) / total) * 100);
+            db.prepare(
+                'UPDATE broadcast_jobs SET sent_count = ?, failed_count = ?, progress_pct = ? WHERE id = ?'
+            ).run(sent, failed, progress, jobId);
+
+            eventBus.broadcast(`tenant:${tenantId}`, 'broadcast:progress', { job_id: jobId, progress_pct: progress, sent_count: sent, failed_count: failed });
+
+            if (i + batchSize < total) {
                 await new Promise(r => setTimeout(r, batchDelay));
             }
         }
 
-        // Deduct credits
         if (sent > 0) {
             db.prepare('UPDATE tenants SET credits = credits - ? WHERE id = ?').run(sent, tenantId);
         }
 
-        // Log activity
         db.prepare(`
             INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
             VALUES (?, ?, 'broadcast', ?, ?)
-        `).run(tenantId, tenant.name, 
-            `بث ${template_name} إلى ${recipients.length} مستلم (${sent} نجاح، ${failed} فشل)`,
+        `).run(tenantId, tenant.name,
+            `بث ${template_name} إلى ${total} مستلم (${sent} نجاح، ${failed} فشل)`,
             failed === 0 ? 'success' : 'partial');
 
-        res.json({ success: true, total: recipients.length, sent, failed, results });
+        db.prepare(`
+            UPDATE broadcast_jobs SET status = 'completed', sent_count = ?, failed_count = ?,
+                progress_pct = 100, results = ?, completed_at = datetime('now') WHERE id = ?
+        `).run(sent, failed, JSON.stringify(results), jobId);
+
+        eventBus.broadcast(`tenant:${tenantId}`, 'broadcast:complete', { job_id: jobId, sent, failed });
+
     } catch (error) {
-        console.error('[TenantPortal] Broadcast error:', error);
-        res.status(500).json({ error: 'فشل البث' });
+        console.error('[TenantPortal] Broadcast job error:', error);
+        db.prepare(`
+            UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE id = ?
+        `).run(error.message, jobId);
+        eventBus.broadcast(`tenant:${tenantId}`, 'broadcast:complete', { job_id: jobId, sent: 0, failed: 0, error: error.message });
     }
-});
+}
 
 // ============================================
 // Templates
@@ -2038,6 +2111,62 @@ router.post('/conversions/log-event', async (req, res) => {
     } catch (error) {
         console.error('[TenantPortal] Log event error:', error);
         res.status(500).json({ error: 'فشل تسجيل الحدث' });
+    }
+});
+
+// ============================================
+// Mark message as read (Tenant)
+// ============================================
+router.post('/mark-read', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { message_id } = req.body;
+
+        if (!message_id) {
+            return res.status(400).json({ error: 'message_id is required' });
+        }
+
+        const tenant = db.prepare('SELECT phone_number_id, access_token, access_token_encrypted, status FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+        if (tenant.status === 'Suspended') {
+            return res.status(403).json({ error: 'الحساب موقوف' });
+        }
+
+        // decryptIfEncrypted is imported at the top of the file
+        const accessToken = tenant.access_token_encrypted
+            ? decryptIfEncrypted(tenant.access_token_encrypted)
+            : tenant.access_token;
+
+        if (!tenant.phone_number_id || !accessToken) {
+            return res.status(400).json({ error: 'بيانات الاعتماد غير مكتملة' });
+        }
+
+        const response = await fetch(`${META_API_BASE}/${tenant.phone_number_id}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                messaging_product: 'whatsapp',
+                status: 'read',
+                message_id: message_id,
+            }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            res.json({ success: true });
+        } else {
+            console.error('[TenantPortal] Mark read failed:', data.error);
+            res.status(response.status).json({ success: false, error: data.error?.message || 'فشل تحديد كمقروء' });
+        }
+    } catch (error) {
+        console.error('[TenantPortal] Mark read error:', error);
+        res.status(500).json({ error: 'فشل تحديد الرسالة كمقروءة' });
     }
 });
 

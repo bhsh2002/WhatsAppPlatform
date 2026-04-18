@@ -137,7 +137,9 @@ const TenantChat = () => {
         selectedChatRef.current = selectedChat;
         if (selectedChat) {
             isFirstLoad.current = true;
-            fetchMessages(selectedChat.contact);
+            fetchMessages(selectedChat.contact).then(() => {
+                markAsRead(messages);
+            });
             fetchWindowStatus(selectedChat.contact);
             const interval = setInterval(() => fetchMessages(selectedChat.contact), 15000);
             return () => clearInterval(interval);
@@ -191,6 +193,19 @@ const TenantChat = () => {
         } catch (err) {
             console.error('Failed to fetch window status:', err);
             setWindowStatus(null);
+        }
+    };
+
+    const markAsRead = async (msgs) => {
+        try {
+            const lastIncoming = msgs.filter(m => m.direction === 'incoming').pop();
+            if (lastIncoming?.wamid) {
+                await api.markAsReadPortal({
+                    message_id: lastIncoming.wamid,
+                });
+            }
+        } catch {
+            // Best-effort, don't block UI
         }
     };
 

@@ -42,6 +42,7 @@ import PhoneNumbers from './pages/Settings/PhoneNumbers';
 import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
 import ContactManager from './pages/Contacts/ContactManager';
 import BroadcastManager from './pages/Broadcast/BroadcastManager';
+import WebhookFailures from './pages/Admin/WebhookFailures';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -156,6 +157,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><Logs /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/webhook-failures"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><WebhookFailures /></MainLayout>
           </ProtectedRoute>
         }
       />

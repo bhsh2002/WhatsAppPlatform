@@ -98,10 +98,25 @@ const WhatsAppChat = () => {
             if (isFirstLoad.current) setLoadingMessages(true);
             const data = await api.getThreadMessages(contact, 50, tenantId);
             setMessages(data);
+
         } catch (error) {
             console.error('Failed to fetch messages:', error);
         } finally {
             setLoadingMessages(false);
+        }
+    };
+
+    const markAsRead = async (messages, tenantId) => {
+        try {
+            const lastIncoming = messages.filter(m => m.direction === 'incoming').pop();
+            if (lastIncoming?.wamid) {
+                await api.markAsRead({
+                    message_id: lastIncoming.wamid,
+                    tenant_id: tenantId,
+                });
+            }
+        } catch {
+            // Best-effort, don't block UI
         }
     };
 
@@ -224,7 +239,9 @@ const WhatsAppChat = () => {
         selectedChatRef.current = selectedChat;
         if (selectedChat) {
             isFirstLoad.current = true;
-            fetchMessages(selectedChat.contact, selectedChat.tenant_id);
+            fetchMessages(selectedChat.contact, selectedChat.tenant_id).then(() => {
+                markAsRead(messages, selectedChat.tenant_id);
+            });
             fetchTemplates(selectedChat.tenant_id);
             // Keep a slower poll for messages as backup
             const interval = setInterval(() => fetchMessages(selectedChat.contact, selectedChat.tenant_id), 15000);

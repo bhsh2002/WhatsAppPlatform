@@ -25,6 +25,7 @@ import facebookPagesRouter from './routes/facebookPages.js';
 import fbContentRouter from './routes/fbContent.js';
 import fbMessengerRouter from './routes/fbMessenger.js';
 import fbInsightsRouter from './routes/fbInsights.js';
+import webhookAdminRouter from './routes/webhookAdmin.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -37,6 +38,7 @@ import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 import db from './db/database.js';
 import { startMaintenanceScheduler } from './services/maintenance.js';
 import { uploadDir } from './config/upload.js';
+import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initEncryption } from './services/encryption.js';
 
@@ -165,24 +167,26 @@ app.use((req, res, next) => {
 });
 
 // Rate limiters
-// const authLimiter = rateLimit({
-//     windowMs: 15 * 60 * 1000, // 15 minutes
-//     max: 10, // 10 attempts per window
-//     message: { error: 'محاولات كثيرة. حاول مرة أخرى بعد 15 دقيقة.' },
-//     standardHeaders: true,
-//     legacyHeaders: false,
-// });
+const authLimiter = rateLimit({
+    windowMs: AUTH_RATE_LIMIT.windowMs,
+    max: AUTH_RATE_LIMIT.max,
+    message: { error: AUTH_RATE_LIMIT.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+});
 
-// const apiLimiter = rateLimit({
-//     windowMs: 60 * 1000, // 1 minute
-//     max: 100, // 100 requests per minute
-//     message: { error: 'طلبات كثيرة. حاول مرة أخرى.' },
-//     standardHeaders: true,
-//     legacyHeaders: false,
-// });
+const apiLimiter = rateLimit({
+    windowMs: GLOBAL_RATE_LIMIT.windowMs,
+    max: GLOBAL_RATE_LIMIT.max,
+    message: { error: GLOBAL_RATE_LIMIT.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path.startsWith('/webhook'),
+});
 
 // Apply general rate limit to all routes
-// app.use(apiLimiter);
+app.use(apiLimiter);
 
 // Health check (public)
 app.get('/health', (req, res) => {
@@ -190,8 +194,7 @@ app.get('/health', (req, res) => {
 });
 
 // Auth routes (public, with stricter rate limit on login/register)
-// app.use('/auth', authLimiter, authRouter);
-app.use('/auth', authRouter);
+app.use('/auth', authLimiter, authRouter);
 
 // SSE endpoints (use one-time token auth, not session auth)
 // These must be mounted BEFORE the authMiddleware-protected routes
@@ -240,6 +243,7 @@ app.use('/facebook-pages', authMiddleware, adminMiddleware, facebookPagesRouter)
 app.use('/fb-content', authMiddleware, adminMiddleware, fbContentRouter);
 app.use('/fb-messenger', authMiddleware, adminMiddleware, fbMessengerRouter);
 app.use('/fb-insights', authMiddleware, adminMiddleware, fbInsightsRouter);
+app.use('/webhook-admin', authMiddleware, adminMiddleware, webhookAdminRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);

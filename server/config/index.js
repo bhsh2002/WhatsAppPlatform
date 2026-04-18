@@ -45,11 +45,17 @@ export const ALLOWED_MEDIA_MIMES = [
 
 // Rate limiting
 export const GLOBAL_RATE_LIMIT = {
-    windowMs: 15 * 60 * 1000,  // 15 minutes
-    max: 100,
+    windowMs: 60 * 1000,            // 1 minute
+    max: 120,                        // 120 requests per minute (2/sec avg)
+    message: 'طلبات كثيرة. حاول مرة أخرى.',
 };
 
 export const AUTH_RATE_LIMIT = {
-    windowMs: 15 * 60 * 1000,
-    max: 20,
+    windowMs: 15 * 60 * 1000,       // 15 minutes
+    max: 10,                         // 10 login attempts per 15 min
+    message: 'محاولات كثيرة. حاول مرة أخرى بعد 15 دقيقة.',
 };
+
+// Meta App credentials (for token health monitoring)
+export const META_APP_ID = process.env.META_APP_ID || '';
+export const META_APP_SECRET = process.env.META_APP_SECRET || '';

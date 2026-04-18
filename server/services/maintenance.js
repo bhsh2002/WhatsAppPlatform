@@ -1,6 +1,7 @@
 import db from '../db/database.js';
 import fs from 'fs';
 import path from 'path';
+import { startTokenHealthScheduler } from './tokenMonitor.js';
 
 // ============================================
 // Maintenance Service — Data Retention & Cleanup
@@ -90,6 +91,9 @@ export function startMaintenanceScheduler(uploadDir) {
 
     // Don't prevent process exit
     interval.unref();
+
+    // Start token health monitoring (6-hour interval)
+    startTokenHealthScheduler();
 
     return interval;
 }

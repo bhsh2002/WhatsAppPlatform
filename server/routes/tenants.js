@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
+import { checkSingleTenant } from '../services/tokenMonitor.js';
 
 const router = express.Router();
 
@@ -934,6 +935,49 @@ router.get('/status/pending', (req, res) => {
     } catch (error) {
         console.error('Error fetching pending tenants:', error);
         res.status(500).json({ error: 'فشل جلب العملاء المعلقين' });
+    }
+});
+
+// ============================================
+// Token Health Endpoints
+// ============================================
+
+router.get('/token-health', (req, res) => {
+    try {
+        const tenants = db.prepare(
+            `SELECT id, name, status, token_status, token_expires_at, token_checked_at FROM tenants ORDER BY token_checked_at DESC NULLS LAST`
+        ).all();
+
+        const pages = db.prepare(
+            `SELECT tp.id, tp.tenant_id, tp.page_id, tp.page_name, tp.token_status, tp.token_expires_at, tp.token_checked_at,
+                    t.name as tenant_name
+             FROM tenant_pages tp
+             LEFT JOIN tenants t ON tp.tenant_id = t.id
+             ORDER BY tp.token_checked_at DESC NULLS LAST`
+        ).all();
+
+        const summary = {
+            valid: tenants.filter(t => t.token_status === 'valid').length,
+            expiring: tenants.filter(t => t.token_status === 'expiring').length,
+            expired: tenants.filter(t => t.token_status === 'expired').length,
+            invalid: tenants.filter(t => t.token_status === 'invalid').length,
+            unchecked: tenants.filter(t => t.token_status === 'unchecked' || !t.token_status).length,
+        };
+
+        res.json({ tenants, pages, summary });
+    } catch (error) {
+        console.error('Error fetching token health:', error);
+        res.status(500).json({ error: 'فشل جلب حالة الرموز' });
+    }
+});
+
+router.post('/:id/check-token', async (req, res) => {
+    try {
+        const result = await checkSingleTenant(req.params.id);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error checking token:', error);
+        res.status(500).json({ error: error.message || 'فشل فحص الرمز' });
     }
 });
 

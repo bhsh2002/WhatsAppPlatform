@@ -844,7 +844,7 @@ router.post('/send-interactive', async (req, res) => {
 });
 
 // ============================================
-// Broadcast (Admin)
+// Broadcast (Admin) — Async with job tracking
 // ============================================
 router.post('/broadcast', async (req, res) => {
     try {
@@ -860,7 +860,6 @@ router.post('/broadcast', async (req, res) => {
             return res.status(400).json({ error: 'Maximum 500 recipients per broadcast' });
         }
 
-        // Resolve credentials
         const credentials = resolveCredentials({
             tenantId: tenant_id,
             phoneNumberIdOverride: req.body.phone_number_id,
@@ -870,7 +869,6 @@ router.post('/broadcast', async (req, res) => {
         const { tenant, phoneNumberId, accessToken: resolvedToken } = credentials;
         const finalAccessToken = resolvedToken;
 
-        // Credit check
         if (tenant && tenant.credits !== null && tenant.credits < recipients.length) {
             return res.status(402).json({
                 error: `رصيد غير كافٍ. مطلوب ${recipients.length}، متاح ${tenant.credits}`,
@@ -884,15 +882,75 @@ router.post('/broadcast', async (req, res) => {
             return res.status(400).json({ error: 'Missing API credentials' });
         }
 
-        // Send in batches of 5 with controlled concurrency
+        // Create broadcast job
+        const jobResult = db.prepare(`
+            INSERT INTO broadcast_jobs (tenant_id, status, template_name, template_language, total_recipients)
+            VALUES (?, 'pending', ?, ?, ?)
+        `).run(tenant_id || null, template_name, template_language || 'ar', recipients.length);
+
+        const jobId = jobResult.lastInsertRowid;
+
+        // Respond immediately
+        res.status(202).json({ job_id: jobId, status: 'pending', total: recipients.length });
+
+        // Process in background
+        setImmediate(() => processBroadcastJob(jobId, {
+            tenant_id, recipients, template_name, template_language, template_params,
+            variable_mapping: req.body.variable_mapping,
+            phoneNumberId, finalAccessToken, tenant,
+        }));
+
+    } catch (error) {
+        console.error('[Messages] Broadcast error:', error);
+        res.status(500).json({ error: 'Failed to broadcast' });
+    }
+});
+
+// Broadcast job statuses
+router.get('/broadcast-jobs', (req, res) => {
+    try {
+        const { limit = 20, offset = 0 } = req.query;
+        const jobs = db.prepare(
+            'SELECT * FROM broadcast_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        ).all(parseInt(limit), parseInt(offset));
+        const total = db.prepare('SELECT COUNT(*) as count FROM broadcast_jobs').get().count;
+        res.json({ jobs, total });
+    } catch (error) {
+        console.error('[Messages] Broadcast jobs fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch broadcast jobs' });
+    }
+});
+
+router.get('/broadcast-jobs/:id', (req, res) => {
+    try {
+        const job = db.prepare('SELECT * FROM broadcast_jobs WHERE id = ?').get(req.params.id);
+        if (!job) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+        res.json(job);
+    } catch (error) {
+        console.error('[Messages] Broadcast job fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch broadcast job' });
+    }
+});
+
+// Background broadcast processor
+async function processBroadcastJob(jobId, params) {
+    const { tenant_id, recipients, template_name, template_language, template_params,
+            variable_mapping, phoneNumberId, finalAccessToken, tenant } = params;
+
+    try {
+        db.prepare("UPDATE broadcast_jobs SET status = 'running' WHERE id = ?").run(jobId);
+
         const results = [];
         let sent = 0, failed = 0;
         const batchSize = 5;
-        const batchDelay = 200; // ms between batches
+        const batchDelay = 200;
+        const total = recipients.length;
 
-        for (let i = 0; i < recipients.length; i += batchSize) {
+        for (let i = 0; i < total; i += batchSize) {
             const batch = recipients.slice(i, i + batchSize);
-            
+
             const batchPromises = batch.map(async (recipient) => {
                 try {
                     const formattedRecipient = recipient.replace(/\+/g, '').trim();
@@ -906,10 +964,7 @@ router.post('/broadcast', async (req, res) => {
                         },
                     };
 
-                    // Build per-recipient template_params from variable_mapping
-                    const variable_mapping = req.body.variable_mapping;
                     if (variable_mapping && variable_mapping.length > 0) {
-                        // Lookup contact data for this recipient
                         const contact = db.prepare(
                             'SELECT phone, profile_name, label, notes FROM contacts WHERE phone = ? AND (tenant_id = ? OR tenant_id IS NULL) ORDER BY tenant_id DESC LIMIT 1'
                         ).get(formattedRecipient, tenant_id || null);
@@ -967,17 +1022,23 @@ router.post('/broadcast', async (req, res) => {
 
             const batchResults = await Promise.all(batchPromises);
             results.push(...batchResults);
-            
+
             sent += batchResults.filter(r => r.status === 'sent').length;
             failed += batchResults.filter(r => r.status === 'failed').length;
 
-            // Delay between batches to respect rate limits
-            if (i + batchSize < recipients.length) {
+            const progress = Math.round(((i + batch.length) / total) * 100);
+            db.prepare(
+                'UPDATE broadcast_jobs SET sent_count = ?, failed_count = ?, progress_pct = ? WHERE id = ?'
+            ).run(sent, failed, progress, jobId);
+
+            eventBus.broadcast('admin', 'broadcast:progress', { job_id: jobId, progress_pct: progress, sent_count: sent, failed_count: failed });
+
+            if (i + batchSize < total) {
                 await new Promise(r => setTimeout(r, batchDelay));
             }
         }
 
-        // Deduct credits for successful sends
+        // Deduct credits
         if (tenant_id && sent > 0) {
             db.prepare('UPDATE tenants SET credits = credits - ? WHERE id = ? AND credits >= ?')
                 .run(sent, tenant_id, sent);
@@ -989,16 +1050,25 @@ router.post('/broadcast', async (req, res) => {
                 INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                 VALUES (?, ?, 'broadcast', ?, ?)
             `).run(tenant_id, tenant.name,
-                `بث ${template_name} إلى ${recipients.length} مستلم (${sent} نجاح، ${failed} فشل)`,
+                `بث ${template_name} إلى ${total} مستلم (${sent} نجاح، ${failed} فشل)`,
                 failed === 0 ? 'success' : 'partial');
         }
 
-        res.json({ success: true, total: recipients.length, sent, failed, results });
+        db.prepare(`
+            UPDATE broadcast_jobs SET status = 'completed', sent_count = ?, failed_count = ?,
+                progress_pct = 100, results = ?, completed_at = datetime('now') WHERE id = ?
+        `).run(sent, failed, JSON.stringify(results), jobId);
+
+        eventBus.broadcast('admin', 'broadcast:complete', { job_id: jobId, sent, failed });
+
     } catch (error) {
-        console.error('[Messages] Broadcast error:', error);
-        res.status(500).json({ error: 'Failed to broadcast' });
+        console.error('[Messages] Broadcast job error:', error);
+        db.prepare(`
+            UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE id = ?
+        `).run(error.message, jobId);
+        eventBus.broadcast('admin', 'broadcast:complete', { job_id: jobId, sent: 0, failed: 0, error: error.message });
     }
-});
+}
 
 // ============================================
 // Contact Management (Admin)
@@ -1241,6 +1311,58 @@ router.delete('/contacts/:id', (req, res) => {
     } catch (error) {
         console.error('[Messages] Contact delete error:', error);
         res.status(500).json({ error: 'Failed to delete contact' });
+    }
+});
+
+// ============================================
+// Mark message as read (Admin)
+// ============================================
+router.post('/mark-read', async (req, res) => {
+    try {
+        const { message_id, tenant_id, phone_number_id, access_token } = req.body;
+
+        if (!message_id) {
+            return res.status(400).json({ error: 'message_id is required' });
+        }
+
+        const { phoneNumberId, accessToken, isSuspended } = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: phone_number_id,
+            accessTokenOverride: access_token,
+        });
+
+        if (isSuspended) {
+            return res.status(403).json({ error: 'Tenant is suspended' });
+        }
+
+        if (!phoneNumberId || !accessToken) {
+            return res.status(400).json({ error: 'Missing phone_number_id or access_token' });
+        }
+
+        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                messaging_product: 'whatsapp',
+                status: 'read',
+                message_id: message_id,
+            }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            res.json({ success: true });
+        } else {
+            console.error('[Messages] Mark read failed:', data.error);
+            res.status(response.status).json({ success: false, error: data.error?.message || 'Failed to mark as read' });
+        }
+    } catch (error) {
+        console.error('[Messages] Mark read error:', error);
+        res.status(500).json({ error: 'Failed to mark message as read' });
     }
 });
 

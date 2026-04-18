@@ -96,6 +96,8 @@ const BroadcastManager = () => {
     const [sending, setSending] = useState(false);
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
+    const [jobId, setJobId] = useState(null);
+    const [progressPct, setProgressPct] = useState(0);
 
     const variables = useMemo(() => extractVariables(selectedTemplate?.body), [selectedTemplate]);
 
@@ -277,14 +279,45 @@ const BroadcastManager = () => {
             setSending(true);
             setError(null);
             setResults(null);
+            setProgressPct(0);
             const data = await api.broadcastMessage(buildPayload());
-            setResults(data);
-            setActiveStep(3);
+
+            if (data.job_id) {
+                setJobId(data.job_id);
+                pollJobStatus(data.job_id);
+            } else {
+                setResults(data);
+                setActiveStep(3);
+                setSending(false);
+            }
         } catch (err) {
             setError(err.message);
-        } finally {
             setSending(false);
         }
+    };
+
+    const pollJobStatus = (id) => {
+        const interval = setInterval(async () => {
+            try {
+                const job = await api.getBroadcastJob(id);
+                setProgressPct(job.progress_pct || 0);
+                if (job.status === 'completed') {
+                    clearInterval(interval);
+                    const parsedResults = job.results ? (typeof job.results === 'string' ? JSON.parse(job.results) : job.results) : [];
+                    setResults({ total: job.total_recipients, sent: job.sent_count, failed: job.failed_count, results: parsedResults });
+                    setActiveStep(3);
+                    setSending(false);
+                    setJobId(null);
+                } else if (job.status === 'failed') {
+                    clearInterval(interval);
+                    setError(job.error || 'فشل البث');
+                    setSending(false);
+                    setJobId(null);
+                }
+            } catch {
+                // Continue polling on transient errors
+            }
+        }, 1500);
     };
 
     const handleReset = () => {
@@ -298,6 +331,8 @@ const BroadcastManager = () => {
         setSelectedContactIds(new Set());
         setContactSearch('');
         setLabelFilter('');
+        setJobId(null);
+        setProgressPct(0);
     };
 
     const steps = ['اختيار القالب', 'اختيار المستلمين', 'مراجعة وإرسال', 'النتائج'];
@@ -644,8 +679,10 @@ const BroadcastManager = () => {
 
                     {sending && (
                         <Box sx={{ mt: 3 }}>
-                            <LinearProgress />
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>جاري إرسال الرسائل...</Typography>
+                            <LinearProgress variant="determinate" value={progressPct} sx={{ height: 8, borderRadius: 4 }} />
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+                                {progressPct > 0 ? `${progressPct}% جاري الإرسال...` : 'جاري إرسال الرسائل...'}
+                            </Typography>
                         </Box>
                     )}
 
@@ -661,7 +698,9 @@ const BroadcastManager = () => {
             {/* ========== Step 3: Results ========== */}
             {activeStep === 3 && results && (
                 <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>نتائج البث</Typography>
+                    <Typography variant="h6" fontWeight={600} gutterBottom>
+                        ✅ اكتمل: {results.sent} نجاح{results.failed > 0 ? `، ${results.failed} فشل` : ''}
+                    </Typography>
                     <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
                         <Card variant="outlined" sx={{ flex: 1, minWidth: 150 }}>
                             <CardContent sx={{ textAlign: 'center' }}>
