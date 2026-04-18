@@ -22,6 +22,8 @@ const POST_TABS = [
     { value: 'schedule', label: 'جدولة', icon: <ScheduleIcon /> },
 ];
 
+const POST_TRUNCATE_LENGTH = 200;
+
 const FacebookPageManager = () => {
     const [allPages, setAllPages] = useState([]);
     const [selectedPageId, setSelectedPageId] = useState('');
@@ -44,6 +46,7 @@ const FacebookPageManager = () => {
     const [publishing, setPublishing] = useState(false);
 
     const [expandedComments, setExpandedComments] = useState({});
+    const [expandedPosts, setExpandedPosts] = useState({});
     const [commentsData, setCommentsData] = useState({});
     const [commentsLoading, setCommentsLoading] = useState({});
     const [replyTexts, setReplyTexts] = useState({});
@@ -448,9 +451,26 @@ const FacebookPageManager = () => {
                                                 </Box>
                                             </Box>
                                         ) : (
-                                            <Typography sx={{ whiteSpace: 'pre-wrap', mb: post.full_picture ? 1 : 0 }}>
-                                                {post.message || '(منشور بدون نص)'}
-                                            </Typography>
+                                            (() => {
+                                                const msg = post.message || '(منشور بدون نص)';
+                                                const isLong = msg.length > POST_TRUNCATE_LENGTH;
+                                                const isExpanded = expandedPosts[post.id];
+                                                return (
+                                                    <Box>
+                                                        <Typography sx={{ whiteSpace: 'pre-wrap', mb: post.full_picture ? 1 : 0 }}>
+                                                            {isLong && !isExpanded
+                                                                ? msg.substring(0, POST_TRUNCATE_LENGTH) + '...'
+                                                                : msg
+                                                            }
+                                                        </Typography>
+                                                        {isLong && (
+                                                            <Button size="small" onClick={() => setExpandedPosts(prev => ({ ...prev, [post.id]: !prev[post.id] }))}>
+                                                                {isExpanded ? 'عرض أقل' : 'عرض المزيد'}
+                                                            </Button>
+                                                        )}
+                                                    </Box>
+                                                );
+                                            })()
                                         )}
 
                                         {post.full_picture && (
