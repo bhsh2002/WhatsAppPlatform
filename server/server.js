@@ -168,15 +168,14 @@ app.use((req, res, next) => {
 });
 
 // Rate limiters
-const authLimiter = rateLimit({
-    windowMs: AUTH_RATE_LIMIT.windowMs,
-    max: AUTH_RATE_LIMIT.max,
-    message: { error: AUTH_RATE_LIMIT.message },
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
-    skip: (req) => req.path.startsWith('/api/auth/me'),
-});
+// const authLimiter = rateLimit({
+//     windowMs: AUTH_RATE_LIMIT.windowMs,
+//     max: AUTH_RATE_LIMIT.max,
+//     message: { error: AUTH_RATE_LIMIT.message },
+//     standardHeaders: true,
+//     legacyHeaders: false,
+//     keyGenerator: (req) => req.ip,
+// });
 
 const apiLimiter = rateLimit({
     windowMs: GLOBAL_RATE_LIMIT.windowMs,
