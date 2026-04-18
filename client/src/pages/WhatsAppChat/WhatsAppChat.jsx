@@ -167,7 +167,6 @@ const WhatsAppChat = () => {
 
                 evtSource.addEventListener('connected', () => {
                     sseConnected = true;
-                    console.log('[SSE] Connected — real-time updates active');
                     // Stop polling when SSE is active
                     stopPolling();
                 });
