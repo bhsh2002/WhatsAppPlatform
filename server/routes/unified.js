@@ -41,11 +41,10 @@ router.get('/conversations', (req, res) => {
                      AND (m2.tenant_id = t.tenant_id OR (m2.tenant_id IS NULL AND t.tenant_id IS NULL))
                     ) as unread_count,
                     NULL as linked_page_id,
-                    NULL as page_name,
-                    t.phone_number_id
+                    NULL as page_name
                 FROM (
                     SELECT
-                        id, content, created_at, message_type, tenant_id, phone_number_id,
+                        id, content, created_at, message_type, tenant_id,
                         CASE WHEN direction = 'incoming' THEN sender ELSE recipient END as contact,
                         ROW_NUMBER() OVER (
                             PARTITION BY (
