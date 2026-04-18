@@ -161,7 +161,7 @@ router.get('/', (req, res) => {
 });
 
 // Webhook events handler (POST request from Meta)
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
     // Validate signature if APP_SECRET is provided
     if (APP_SECRET) {
         const signature = req.headers['x-hub-signature-256'];
@@ -490,10 +490,10 @@ router.post('/', (req, res) => {
                                     }
                                 }
 
-                                db.prepare(\`
+                                db.prepare(`
                                     INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-                                \`).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic,
+                                `).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic,
                                     (messageText || '[مرفق]').substring(0, 100),
                                     msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString());
 
@@ -501,12 +501,12 @@ router.post('/', (req, res) => {
                                     'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
                                 ).get(linkedPage.id, senderId);
                             } else {
-                                db.prepare(\`
+                                db.prepare(`
                                     UPDATE fb_conversations SET 
                                         last_message = ?, last_message_time = ?,
                                         unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP
                                     WHERE id = ?
-                                \`).run(
+                                `).run(
                                     (messageText || '[مرفق]').substring(0, 100),
                                     msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString(),
                                     conv.id
@@ -523,10 +523,10 @@ router.post('/', (req, res) => {
 
                             // Insert message
                             if (conv) {
-                                db.prepare(\`
+                                db.prepare(`
                                     INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, attachment_type, attachment_url, sticker_url, created_at)
                                     VALUES (?, ?, ?, 'incoming', ?, ?, ?, ?, ?, ?, ?)
-                                \`).run(
+                                `).run(
                                     conv.id, linkedPage.tenant_id, mid, senderId, conv.user_name,
                                     messageText, attachmentType, attachmentUrl, stickerUrl,
                                     msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString()
@@ -542,7 +542,7 @@ router.post('/', (req, res) => {
                                 sender_name: conv?.user_name,
                                 message: messageText,
                             });
-                            eventBus.broadcast(\`tenant:\${linkedPage.tenant_id}\`, 'fb_message:new', {
+                            eventBus.broadcast(`tenant:\${linkedPage.tenant_id}`, 'fb_message:new', {
                                 tenant_id: linkedPage.tenant_id,
                                 page_id: pageId,
                                 conversation_id: conv?.id,
@@ -554,12 +554,12 @@ router.post('/', (req, res) => {
                             // Log activity
                             const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(linkedPage.tenant_id);
                             if (tenant) {
-                                db.prepare(\`
+                                db.prepare(`
                                     INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                                     VALUES (?, ?, 'fb_message_received', ?, 'info')
-                                \`).run(
+                                `).run(
                                     linkedPage.tenant_id, tenant.name,
-                                    \`رسالة ماسنجر جديدة من \${conv?.user_name || senderId}\`
+                                    `رسالة ماسنجر جديدة من \${conv?.user_name || senderId}`
                                 );
                             }
 
@@ -575,7 +575,7 @@ router.post('/', (req, res) => {
 
                         // Handle message read receipts from user
                         if (msgEvent.read) {
-                            console.log(\`[Webhook/FB] User \${senderId} read messages up to \${msgEvent.read.watermark}\`);
+                            console.log(`[Webhook/FB] User \${senderId} read messages up to \${msgEvent.read.watermark}`);
                         }
                     }
                 }
