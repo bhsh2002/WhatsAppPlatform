@@ -36,6 +36,7 @@ import BusinessManager from './pages/Settings/BusinessManager';
 import FacebookPages from './pages/Settings/FacebookPages';
 import FacebookPageManager from './pages/Facebook/FacebookPageManager';
 import MessengerInbox from './pages/Facebook/MessengerInbox';
+import FacebookInsights from './pages/Facebook/FacebookInsights';
 import PartnerSolutions from './pages/Settings/PartnerSolutions';
 import PhoneNumbers from './pages/Settings/PhoneNumbers';
 import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
@@ -203,6 +204,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><MessengerInbox /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/fb-insights"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><FacebookInsights /></MainLayout>
           </ProtectedRoute>
         }
       />

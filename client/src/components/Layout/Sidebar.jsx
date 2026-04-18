@@ -63,6 +63,7 @@ const Sidebar = () => {
         { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
         { label: 'إدارة فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
         { label: 'صندوق ماسنجر', path: '/messenger', icon: <QuestionAnswerIcon /> },
+        { label: 'تحليلات فيسبوك', path: '/fb-insights', icon: <BarChartIcon /> },
         { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
         { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
         { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },

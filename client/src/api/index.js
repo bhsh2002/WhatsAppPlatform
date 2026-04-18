@@ -754,6 +754,22 @@ class ApiService {
             method: 'POST',
         });
     }
+    // ============================================
+    // Facebook Insights (Admin)
+    // ============================================
+    async getFbPageOverview(linkedPageId) {
+        return this.request(`/api/fb-insights/${linkedPageId}/overview`);
+    }
+
+    async getFbPageDaily(linkedPageId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/fb-insights/${linkedPageId}/daily${query ? '?' + query : ''}`);
+    }
+
+    async getFbPostInsights(linkedPageId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/fb-insights/${linkedPageId}/posts${query ? '?' + query : ''}`);
+    }
 
     // ============================================
     // Partner Solutions APIs

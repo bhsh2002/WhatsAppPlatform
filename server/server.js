@@ -24,6 +24,7 @@ import conversionsRouter from './routes/conversions.js';
 import facebookPagesRouter from './routes/facebookPages.js';
 import fbContentRouter from './routes/fbContent.js';
 import fbMessengerRouter from './routes/fbMessenger.js';
+import fbInsightsRouter from './routes/fbInsights.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -238,6 +239,7 @@ app.use('/conversions', authMiddleware, adminMiddleware, conversionsRouter);
 app.use('/facebook-pages', authMiddleware, adminMiddleware, facebookPagesRouter);
 app.use('/fb-content', authMiddleware, adminMiddleware, fbContentRouter);
 app.use('/fb-messenger', authMiddleware, adminMiddleware, fbMessengerRouter);
+app.use('/fb-insights', authMiddleware, adminMiddleware, fbInsightsRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);
