@@ -284,7 +284,7 @@ const AutomationManager = () => {
                         { label: 'كلمات مفتاحية', value: summary.keywords, icon: <KeywordIcon />, color: '#f59e0b' },
                         { label: 'تشغيلات (الإجمالي)', value: summary.totalTriggers, icon: <TestIcon />, color: '#06b6d4' },
                     ].map((stat, i) => (
-                        <Grid item xs={6} md={3} key={i}>
+                        <Grid size={{ xs: 6, md: 3 }} key={i}>
                             <Card sx={{ textAlign: 'center' }}>
                                 <CardContent sx={{ py: 2 }}>
                                     <Box sx={{ color: stat.color, mb: 0.5 }}>{stat.icon}</Box>
