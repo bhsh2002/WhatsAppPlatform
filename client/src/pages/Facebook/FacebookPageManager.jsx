@@ -10,8 +10,8 @@ import {
     Edit as EditIcon, Visibility as ViewIcon, VisibilityOff as HideIcon,
     Link as LinkIcon, Image as ImageIcon, Schedule as ScheduleIcon,
     TextSnippet as TextIcon, Refresh as RefreshIcon, ExpandMore as ExpandMoreIcon,
-    ExpandLess as ExpandLessIcon, ThumbUp as LikeIcon, ChatBubble as CommentIcon,
-    Share as ShareIcon, OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon
+    ExpandLess as ExpandLessIcon, ChatBubble as CommentIcon,
+    OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -463,22 +463,6 @@ const FacebookPageManager = () => {
                                         )}
 
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1.5, flexWrap: 'wrap' }}>
-                                            {post.reactions?.summary?.total_count !== undefined && (
-                                                <Chip icon={<LikeIcon />} label={post.reactions.summary.total_count} size="small" variant="outlined" />
-                                            )}
-                                            {post.comments?.summary?.total_count !== undefined && (
-                                                <Chip
-                                                    icon={<CommentIcon />}
-                                                    label={post.comments.summary.total_count}
-                                                    size="small"
-                                                    variant="outlined"
-                                                    onClick={() => toggleComments(post.id)}
-                                                    sx={{ cursor: 'pointer' }}
-                                                />
-                                            )}
-                                            {post.shares?.count !== undefined && (
-                                                <Chip icon={<ShareIcon />} label={post.shares.count} size="small" variant="outlined" />
-                                            )}
                                             <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
                                                 {formatTime(post.created_time)}
                                             </Typography>
@@ -493,7 +477,7 @@ const FacebookPageManager = () => {
                                     <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1 }}>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                                             <Button size="small" startIcon={<CommentIcon />} onClick={() => toggleComments(post.id)}>
-                                                {expandedComments[post.id] ? 'إخفاء التعليقات' : `التعليقات (${post.comments?.summary?.total_count || 0})`}
+                                                {expandedComments[post.id] ? 'إخفاء التعليقات' : 'التعليقات'}
                                                 {expandedComments[post.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                                             </Button>
                                         </Box>

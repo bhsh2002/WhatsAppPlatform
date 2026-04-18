@@ -26,7 +26,11 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         if (error) return res.status(status).json({ error });
 
         const { limit = 25, after } = req.query;
-        let url = `${META_API_BASE}/${page.page_id}/feed?fields=id,message,created_time,full_picture,permalink_url,type,status_type,is_published,scheduled_publish_time,reactions.summary(true),comments.summary(true),shares&limit=${limit}`;
+        const fields = [
+            'id', 'message', 'created_time', 'full_picture', 'permalink_url',
+            'type', 'status_type', 'is_published', 'scheduled_publish_time',
+        ].join(',');
+        let url = `${META_API_BASE}/${page.page_id}/posts?fields=${fields}&limit=${limit}`;
         if (after) url += `&after=${after}`;
 
         const response = await fetch(url, {
