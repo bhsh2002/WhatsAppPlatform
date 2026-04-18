@@ -25,7 +25,11 @@ import {
     Warning as WarningIcon,
     Error as ErrorIcon,
     Refresh as RefreshIcon,
-    History as HistoryIcon
+    History as HistoryIcon,
+    WhatsApp as WhatsAppIcon,
+    Facebook as FacebookIcon,
+    Mail as MailIcon,
+    Link as LinkIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -132,7 +136,7 @@ const Dashboard = () => {
                 </Button>
             </Box>
 
-            {/* Stats Grid */}
+            {/* Tenant Stats Grid */}
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
@@ -171,6 +175,97 @@ const Dashboard = () => {
                     />
                 </Grid>
             </Grid>
+
+            {/* Message Stats */}
+            <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+                إحصائيات الرسائل
+            </Typography>
+            <Grid container spacing={3} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="اليوم (الإجمالي)"
+                        value={(stats.total_messages_today || 0).toLocaleString()}
+                        icon={<MailIcon />}
+                        color="info"
+                        description="واتساب + ماسنجر"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="واتساب اليوم"
+                        value={(stats.wa_today || 0).toLocaleString()}
+                        icon={<WhatsAppIcon />}
+                        color="success"
+                        description="رسائل واتساب اليوم"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="ماسنجر اليوم"
+                        value={(stats.fb_today || 0).toLocaleString()}
+                        icon={<FacebookIcon />}
+                        color="primary"
+                        description="رسائل ماسنجر اليوم"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="صفحات مربوطة"
+                        value={stats.linked_pages || 0}
+                        icon={<LinkIcon />}
+                        color="secondary"
+                        description="صفحات فيسبوك نشطة"
+                    />
+                </Grid>
+            </Grid>
+
+            {/* Channel Distribution */}
+            {(stats.wa_week > 0 || stats.fb_week > 0) && (
+                <Card elevation={2} sx={{ mb: 3 }}>
+                    <CardContent>
+                        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                            توزيع القنوات (هذا الأسبوع)
+                        </Typography>
+                        {(() => {
+                            const waWeek = stats.wa_week || 0;
+                            const fbWeek = stats.fb_week || 0;
+                            const total = waWeek + fbWeek || 1;
+                            const waPct = Math.round((waWeek / total) * 100);
+                            const fbPct = 100 - waPct;
+                            return (
+                                <Box>
+                                    <Box sx={{ mb: 1.5 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                            <Typography variant="body2" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <WhatsAppIcon sx={{ fontSize: 16, color: '#25D366' }} /> واتساب
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {waWeek.toLocaleString()} رسالة ({waPct}%)
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ width: '100%', height: 8, bgcolor: 'grey.200', borderRadius: 1 }}>
+                                            <Box sx={{ width: `${waPct}%`, height: '100%', bgcolor: '#25D366', borderRadius: 1 }} />
+                                        </Box>
+                                    </Box>
+                                    <Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                            <Typography variant="body2" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <FacebookIcon sx={{ fontSize: 16, color: '#0084ff' }} /> ماسنجر
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {fbWeek.toLocaleString()} رسالة ({fbPct}%)
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ width: '100%', height: 8, bgcolor: 'grey.200', borderRadius: 1 }}>
+                                            <Box sx={{ width: `${fbPct}%`, height: '100%', bgcolor: '#0084ff', borderRadius: 1 }} />
+                                        </Box>
+                                    </Box>
+                                </Box>
+                            );
+                        })()}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Recent Activity */}
             <Card elevation={2}>

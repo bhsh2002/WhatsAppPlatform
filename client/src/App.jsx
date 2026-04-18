@@ -43,6 +43,7 @@ import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
 import ContactManager from './pages/Contacts/ContactManager';
 import BroadcastManager from './pages/Broadcast/BroadcastManager';
 import WebhookFailures from './pages/Admin/WebhookFailures';
+import UnifiedInbox from './pages/Inbox/UnifiedInbox';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -165,6 +166,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><WebhookFailures /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/inbox"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><UnifiedInbox /></MainLayout>
           </ProtectedRoute>
         }
       />

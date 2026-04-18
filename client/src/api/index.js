@@ -1023,6 +1023,36 @@ class ApiService {
     async getPortalBroadcastJob(id) {
         return this.request(`/api/portal/broadcast-jobs/${id}`);
     }
+
+    // ============================================
+    // Unified Inbox (Admin)
+    // ============================================
+    async getUnifiedConversations(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/unified/conversations${query ? '?' + query : ''}`);
+    }
+
+    async getUnifiedMessages(channel, contactId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const encodedId = encodeURIComponent(contactId);
+        return this.request(`/api/unified/conversations/${channel}/${encodedId}/messages${query ? '?' + query : ''}`);
+    }
+
+    async sendUnifiedMessage(channel, contactId, payload) {
+        const encodedId = encodeURIComponent(contactId);
+        return this.request(`/api/unified/conversations/${channel}/${encodedId}/send`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async markUnifiedRead(channel, contactId, payload = {}) {
+        const encodedId = encodeURIComponent(contactId);
+        return this.request(`/api/unified/conversations/${channel}/${encodedId}/read`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
 }
 
 const api = new ApiService();

@@ -15,6 +15,9 @@ export const TenantProvider = ({ children }) => {
         active: 0,
         warning: 0,
         critical: 0,
+        wa_today: 0, wa_week: 0, fb_today: 0, fb_week: 0,
+        wa_sent_today: 0, wa_received_today: 0, fb_conversations: 0,
+        linked_pages: 0, total_messages_today: 0, total_messages_week: 0,
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -49,6 +52,9 @@ export const TenantProvider = ({ children }) => {
                 active: tenants.filter(t => t.status === 'Active').length,
                 warning: tenants.filter(t => t.quality === 'Medium' || t.status === 'Warning').length,
                 critical: tenants.filter(t => t.quality === 'Low' || t.status === 'Suspended').length,
+                wa_today: 0, wa_week: 0, fb_today: 0, fb_week: 0,
+                wa_sent_today: 0, wa_received_today: 0, fb_conversations: 0,
+                linked_pages: 0, total_messages_today: 0, total_messages_week: 0,
             });
         }
     }, [isAdmin, tenants]);

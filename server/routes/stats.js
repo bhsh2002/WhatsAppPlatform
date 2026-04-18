@@ -11,9 +11,19 @@ router.get('/dashboard', (req, res) => {
             active: db.prepare("SELECT COUNT(*) as count FROM tenants WHERE status = 'Active'").get().count,
             warning: db.prepare("SELECT COUNT(*) as count FROM tenants WHERE quality = 'Medium' OR status = 'Warning'").get().count,
             critical: db.prepare("SELECT COUNT(*) as count FROM tenants WHERE quality = 'Low' OR status = 'Suspended'").get().count,
-            todayMessages: db.prepare("SELECT COUNT(*) as count FROM messages WHERE date(created_at) = date('now')").get().count,
-            weekMessages: db.prepare("SELECT COUNT(*) as count FROM messages WHERE created_at >= datetime('now', '-7 days')").get().count,
+            wa_today: db.prepare("SELECT COUNT(*) as count FROM messages WHERE date(created_at) = date('now')").get().count,
+            wa_week: db.prepare("SELECT COUNT(*) as count FROM messages WHERE created_at >= datetime('now', '-7 days')").get().count,
+            wa_sent_today: db.prepare("SELECT COUNT(*) as count FROM messages WHERE date(created_at) = date('now') AND direction = 'outgoing'").get().count,
+            wa_received_today: db.prepare("SELECT COUNT(*) as count FROM messages WHERE date(created_at) = date('now') AND direction = 'incoming'").get().count,
+            fb_today: db.prepare("SELECT COUNT(*) as count FROM fb_messages WHERE date(created_at) = date('now')").get().count,
+            fb_week: db.prepare("SELECT COUNT(*) as count FROM fb_messages WHERE created_at >= datetime('now', '-7 days')").get().count,
+            fb_conversations: db.prepare("SELECT COUNT(*) as count FROM fb_conversations WHERE is_active = 1").get().count,
+            linked_pages: db.prepare("SELECT COUNT(*) as count FROM tenant_pages WHERE is_active = 1").get().count,
         };
+        stats.todayMessages = stats.wa_today;
+        stats.weekMessages = stats.wa_week;
+        stats.total_messages_today = stats.wa_today + stats.fb_today;
+        stats.total_messages_week = stats.wa_week + stats.fb_week;
         res.json(stats);
     } catch (error) {
         console.error('Error fetching stats:', error);
