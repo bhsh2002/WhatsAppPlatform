@@ -233,7 +233,7 @@ const UnifiedChatWindow = ({
                                 )}
                                 {isWhatsApp ? (
                                     <MessageBubble
-                                        msg={msg}
+                                        message={msg}
                                         isOutgoing={msg?.direction === 'outgoing'}
                                         getDisplayName={getDisplayName}
                                         formatTime={fTime}
