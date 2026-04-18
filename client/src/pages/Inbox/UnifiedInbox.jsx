@@ -214,8 +214,8 @@ const UnifiedInbox = () => {
                     fetchConversations();
                 });
 
-                evtSource.addEventListener('broadcast:progress', () => {});
-                evtSource.addEventListener('broadcast:complete', () => {});
+                evtSource.addEventListener('broadcast:progress', () => { });
+                evtSource.addEventListener('broadcast:complete', () => { });
 
                 evtSource.onerror = () => {
                     if (evtSource) evtSource.close();
@@ -245,7 +245,7 @@ const UnifiedInbox = () => {
     }, []);
 
     return (
-        <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
             {/* Sidebar */}
             <Box sx={{
                 width: isMobile ? (selectedChat ? 0 : '100%') : 350,

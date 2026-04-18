@@ -139,6 +139,7 @@ const UnifiedChatWindow = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 height: '100%',
+                width: '100%',
                 bgcolor: 'grey.50',
                 borderBottom: '4px solid #25D366',
             }}>
@@ -164,7 +165,7 @@ const UnifiedChatWindow = ({
     let lastDateKey = null;
 
     return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
             {/* Header */}
             <Box sx={{
                 display: 'flex',
