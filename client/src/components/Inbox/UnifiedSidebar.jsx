@@ -91,7 +91,7 @@ const UnifiedSidebar = ({
                     <FormControl size="small" sx={{ minWidth: 120 }}>
                         <InputLabel>القناة</InputLabel>
                         <Select
-                            value={channelFilter}
+                            value={channelFilter ?? ''}
                             label="القناة"
                             onChange={e => setChannelFilter(e.target.value)}
                         >

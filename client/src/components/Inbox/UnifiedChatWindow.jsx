@@ -127,9 +127,9 @@ const UnifiedChatWindow = ({
                 justifyContent: 'center',
                 height: '100%',
                 bgcolor: 'grey.50',
-                borderBottom: `4px solid ${isWhatsApp ? '#25D366' : '#0084ff'}`,
+                borderBottom: '4px solid #25D366',
             }}>
-                <ChannelIcon sx={{ fontSize: 80, color: 'grey.300', mb: 2 }} />
+                <WhatsAppIcon sx={{ fontSize: 80, color: 'grey.300', mb: 2 }} />
                 <Typography variant="h6" color="text.secondary">اختر محادثة للبدء</Typography>
             </Box>
         );
