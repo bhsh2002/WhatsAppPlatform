@@ -39,7 +39,8 @@ import {
     Campaign as CampaignIcon,
     QuestionAnswer as QuestionAnswerIcon,
     BarChart as BarChartIcon,
-    ReportProblem as ReportProblemIcon
+    ReportProblem as ReportProblemIcon,
+    SmartToy as SmartToyIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -60,6 +61,7 @@ const Sidebar = () => {
         { label: 'صندوق الوارد', path: '/inbox', icon: <InboxIcon /> },
         { label: 'جهات الاتصال', path: '/contacts', icon: <ContactPhoneIcon /> },
         { label: 'البث الجماعي', path: '/broadcast', icon: <CampaignIcon /> },
+        { label: 'الأتمتة', path: '/automation', icon: <SmartToyIcon /> },
         { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
         { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },

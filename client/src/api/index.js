@@ -1053,6 +1053,56 @@ class ApiService {
             body: JSON.stringify(payload),
         });
     }
+
+    // ============================================
+    // Automation Rules
+    // ============================================
+
+    async getAutomationRules(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/automation/rules${query ? '?' + query : ''}`);
+    }
+
+    async getAutomationRule(id) {
+        return this.request(`/api/automation/rules/${id}`);
+    }
+
+    async createAutomationRule(data) {
+        return this.request('/api/automation/rules', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateAutomationRule(id, data) {
+        return this.request(`/api/automation/rules/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async toggleAutomationRule(id) {
+        return this.request(`/api/automation/rules/${id}/toggle`, {
+            method: 'PATCH',
+        });
+    }
+
+    async deleteAutomationRule(id) {
+        return this.request(`/api/automation/rules/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async testAutomationRule(data) {
+        return this.request('/api/automation/test', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getAutomationSummary() {
+        return this.request('/api/automation/summary');
+    }
 }
 
 const api = new ApiService();

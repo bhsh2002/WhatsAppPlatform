@@ -27,6 +27,7 @@ import fbMessengerRouter from './routes/fbMessenger.js';
 import fbInsightsRouter from './routes/fbInsights.js';
 import webhookAdminRouter from './routes/webhookAdmin.js';
 import unifiedRouter from './routes/unified.js';
+import automationRouter from './routes/automation.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -247,6 +248,7 @@ app.use('/fb-messenger', authMiddleware, adminMiddleware, fbMessengerRouter);
 app.use('/fb-insights', authMiddleware, adminMiddleware, fbInsightsRouter);
 app.use('/webhook-admin', authMiddleware, adminMiddleware, webhookAdminRouter);
 app.use('/unified', authMiddleware, adminMiddleware, unifiedRouter);
+app.use('/automation', authMiddleware, adminMiddleware, automationRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);

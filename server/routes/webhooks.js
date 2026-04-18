@@ -4,6 +4,7 @@ import db from '../db/database.js';
 import eventBus from '../services/eventBus.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
+import { processIncomingMessage } from '../services/autoResponder.js';
 
 const router = express.Router();
 
@@ -308,6 +309,23 @@ router.post('/', async (req, res) => {
                                 created_at: new Date().toISOString(),
                             });
                             eventBus.emitConversationUpdate(tenant?.id || null);
+
+                            // Auto-responder (fire-and-forget)
+                            const existingMsgCount = db.prepare(
+                                'SELECT COUNT(*) as count FROM messages WHERE sender = ? AND direction = \'incoming\' AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))'
+                            ).get(message.from, tenant?.id || null, tenant?.id || null);
+                            const isFirstMessage = (existingMsgCount?.count || 0) <= 1;
+
+                            processIncomingMessage({
+                                channel: 'whatsapp',
+                                tenant_id: tenant?.id || null,
+                                contact_id: message.from,
+                                message_text: extractMessageContent(message),
+                                message_type: message.type,
+                                is_new_contact: isFirstMessage,
+                                phone_number_id: phoneNumberId,
+                                access_token: tenant?.access_token,
+                            }).catch(err => console.error('[AutoResponder] WA error:', err.message));
                         });
                     }
 
@@ -571,6 +589,24 @@ router.post('/', async (req, res) => {
                                 attachments,
                                 timestamp: msgEvent.timestamp,
                             });
+
+                            // Auto-responder (fire-and-forget)
+                            const fbMsgCount = conv ? db.prepare(
+                                'SELECT COUNT(*) as count FROM fb_messages WHERE conversation_id = ? AND direction = \'incoming\''
+                            ).get(conv.id) : null;
+                            const fbIsFirstMessage = (fbMsgCount?.count || 0) <= 1;
+
+                            processIncomingMessage({
+                                channel: 'messenger',
+                                tenant_id: linkedPage.tenant_id,
+                                contact_id: senderId,
+                                message_text: messageText || '',
+                                message_type: attachments.length > 0 ? (attachments[0].type || 'attachment') : 'text',
+                                is_new_contact: fbIsFirstMessage,
+                                page_id: pageId,
+                                page_access_token: pageToken,
+                                linked_page_id: linkedPage.id,
+                            }).catch(err => console.error('[AutoResponder] Messenger error:', err.message));
                         }
 
                         // Handle message read receipts from user
