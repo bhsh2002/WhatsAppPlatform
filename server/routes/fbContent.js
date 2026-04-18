@@ -28,7 +28,8 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         const { limit = 25, after } = req.query;
         const fields = [
             'id', 'message', 'created_time', 'full_picture', 'permalink_url',
-            'type', 'status_type', 'is_published', 'scheduled_publish_time',
+            'is_published', 'scheduled_publish_time',
+            'attachments{title,url,description,media,type}',
         ].join(',');
         let url = `${META_API_BASE}/${page.page_id}/posts?fields=${fields}&limit=${limit}`;
         if (after) url += `&after=${after}`;
