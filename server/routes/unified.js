@@ -152,7 +152,7 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
                         WHEN sticker_url IS NOT NULL THEN 'sticker'
                         ELSE 'text'
                     END as message_type,
-                    attachment_url as media_url,
+                    attachment_url,
                     sticker_url,
                     is_read,
                     created_at

@@ -129,6 +129,11 @@ const UnifiedInbox = () => {
         }
     }, [isMobile]);
 
+    // Auto-scroll to bottom when messages load/update
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
     const handleSendMessage = useCallback(async (text) => {
         if (!text?.trim() || !selectedChat) return;
         try {
@@ -239,15 +244,6 @@ const UnifiedInbox = () => {
         return new Date(dateStr).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
     }, []);
 
-    const getStatusIcon = useCallback((status) => {
-        switch (status) {
-            case 'read': return '✓✓';
-            case 'delivered': return '✓✓';
-            case 'sent': return '✓';
-            default: return '';
-        }
-    }, []);
-
     return (
         <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
             {/* Sidebar */}
@@ -291,7 +287,6 @@ const UnifiedInbox = () => {
                     messagesContainerRef={messagesContainerRef}
                     getDisplayName={getDisplayName}
                     formatTime={formatTime}
-                    getStatusIcon={getStatusIcon}
                     templates={templates}
                 />
             </Box>
