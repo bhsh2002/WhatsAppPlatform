@@ -196,6 +196,7 @@ app.get('/health', (req, res) => {
 
 // Auth routes (public, with stricter rate limit on login/register)
 // app.use('/auth', authLimiter, authRouter);
+app.use('/auth', authRouter);
 
 // SSE endpoints (use one-time token auth, not session auth)
 // These must be mounted BEFORE the authMiddleware-protected routes
