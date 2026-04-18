@@ -21,6 +21,8 @@ import businessManagerRouter from './routes/businessManager.js';
 import pagesRouter from './routes/pages.js';
 import partnerSolutionsRouter from './routes/partnerSolutions.js';
 import conversionsRouter from './routes/conversions.js';
+import facebookPagesRouter from './routes/facebookPages.js';
+import fbContentRouter from './routes/fbContent.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -232,6 +234,8 @@ app.use('/business-manager', authMiddleware, adminMiddleware, businessManagerRou
 app.use('/pages', authMiddleware, adminMiddleware, pagesRouter);
 app.use('/partner', authMiddleware, adminMiddleware, partnerSolutionsRouter);
 app.use('/conversions', authMiddleware, adminMiddleware, conversionsRouter);
+app.use('/facebook-pages', authMiddleware, adminMiddleware, facebookPagesRouter);
+app.use('/fb-content', authMiddleware, adminMiddleware, fbContentRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal', authMiddleware, tenantPortalRouter);

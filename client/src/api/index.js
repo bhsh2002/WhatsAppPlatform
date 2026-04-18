@@ -607,6 +607,126 @@ class ApiService {
     }
 
     // ============================================
+    // Facebook Page Linkage (Admin)
+    // ============================================
+    async getFbAllPages() {
+        return this.request('/api/facebook-pages');
+    }
+
+    async getTenantPages(tenantId) {
+        return this.request(`/api/facebook-pages/tenant/${tenantId}`);
+    }
+
+    async linkTenantPage(tenantId, data) {
+        return this.request(`/api/facebook-pages/tenant/${tenantId}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateTenantPage(pageId, data) {
+        return this.request(`/api/facebook-pages/${pageId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async unlinkTenantPage(pageId) {
+        return this.request(`/api/facebook-pages/${pageId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async verifyTenantPage(pageId) {
+        return this.request(`/api/facebook-pages/${pageId}/verify`, {
+            method: 'POST',
+        });
+    }
+
+    async subscribeTenantPage(pageId) {
+        return this.request(`/api/facebook-pages/${pageId}/subscribe`, {
+            method: 'POST',
+        });
+    }
+
+    // ============================================
+    // Facebook Content Management (Admin)
+    // ============================================
+    async getFacebookPosts(linkedPageId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/fb-content/${linkedPageId}/posts${query ? '?' + query : ''}`);
+    }
+
+    async createFacebookPost(linkedPageId, data) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async createFacebookPhotoPostUrl(linkedPageId, data) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts/photo`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async createFacebookPhotoPostFile(linkedPageId, formData) {
+        const headers = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+        const response = await fetch(`${this.baseUrl}/api/fb-content/${linkedPageId}/posts/photo`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || `HTTP ${response.status}`);
+        }
+        return result;
+    }
+
+    async editFacebookPost(linkedPageId, postId, data) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deleteFacebookPost(linkedPageId, postId) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async getFacebookComments(linkedPageId, postId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}/comments${query ? '?' + query : ''}`);
+    }
+
+    async replyToFacebookComment(linkedPageId, commentId, message) {
+        return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}/reply`, {
+            method: 'POST',
+            body: JSON.stringify({ message }),
+        });
+    }
+
+    async hideFacebookComment(linkedPageId, commentId, isHidden = true) {
+        return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}/hide`, {
+            method: 'POST',
+            body: JSON.stringify({ is_hidden: isHidden }),
+        });
+    }
+
+    async deleteFacebookComment(linkedPageId, commentId) {
+        return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // ============================================
     // Partner Solutions APIs
     // ============================================
     async getPartnerClients(businessId, tenantId = null) {
@@ -763,8 +883,8 @@ class ApiService {
         });
     }
 
-    // ============================================
-    // 24h Window Status (Tenant)
+// ============================================
+    // 24h Window status (Tenant)
     // ============================================
     async getWindowStatus(phone) {
         return this.request(`/api/portal/messages/window/${encodeURIComponent(phone)}`);

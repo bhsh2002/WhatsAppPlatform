@@ -375,6 +375,83 @@ router.post('/', (req, res) => {
                 });
             });
         }
+
+        // ============================================
+        // Facebook Page Events
+        // ============================================
+        if (body.object === 'page') {
+            const entries = body.entry || [];
+
+            for (const entry of entries) {
+                const pageId = entry.id;
+
+                // Look up which tenant owns this page
+                const linkedPage = db.prepare(
+                    'SELECT * FROM tenant_pages WHERE page_id = ? AND is_active = 1'
+                ).get(pageId);
+
+                if (!linkedPage) {
+                    console.warn(`[Webhook] Received page event for unlinked page: ${pageId}`);
+                    continue;
+                }
+
+                // Associate webhook log with the tenant
+                db.prepare('UPDATE webhook_logs SET tenant_id = ? WHERE id = ?')
+                    .run(linkedPage.tenant_id, webhookLogId);
+
+                // Handle feed changes (posts, comments)
+                if (entry.changes) {
+                    for (const change of entry.changes) {
+                        if (change.field === 'feed') {
+                            const value = change.value;
+                            const item = value.item;
+                            const verb = value.verb;
+
+                            console.log(`[Webhook/FB] Page ${pageId} | ${item} ${verb}`);
+
+                            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?')
+                                .get(linkedPage.tenant_id);
+
+                            const fbEventData = {
+                                tenant_id: linkedPage.tenant_id,
+                                page_id: pageId,
+                                item,
+                                verb,
+                                post_id: value.post_id,
+                                comment_id: value.comment_id,
+                                from: value.from,
+                                message: value.message,
+                                created_time: value.created_time,
+                            };
+
+                            eventBus.broadcast('admin', 'fb_page_event', fbEventData);
+                            eventBus.broadcast(`tenant:${linkedPage.tenant_id}`, 'fb_page_event', fbEventData);
+
+                            if (item === 'comment' && verb === 'add') {
+                                db.prepare(`
+                                    INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                                    VALUES (?, ?, 'fb_new_comment', ?, 'info')
+                                `).run(
+                                    linkedPage.tenant_id,
+                                    tenant?.name || 'Unknown',
+                                    `تعليق جديد على صفحة ${linkedPage.page_name || pageId}: "${(value.message || '').substring(0, 50)}"`
+                                );
+                            }
+
+                            forwardToTenantWebhook(linkedPage.tenant_id, `fb_${item}_${verb}`, value);
+                        }
+                    }
+                }
+
+                // Handle messaging (Messenger inbox)
+                if (entry.messaging) {
+                    for (const event of entry.messaging) {
+                        console.log(`[Webhook] Page ${pageId} messaging event:`, event.sender?.id);
+                        // TODO: Process Messenger messages in Phase 2
+                    }
+                }
+            }
+        }
     } catch (error) {
         console.error('[Webhook] Processing error:', error);
     }

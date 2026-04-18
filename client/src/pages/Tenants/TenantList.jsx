@@ -41,7 +41,11 @@ import {
     PersonAdd as PersonAddIcon,
     Key as KeyIcon,
     CheckCircle as CheckCircleIcon,
-    AccountBalanceWallet as CreditsIcon
+    AccountBalanceWallet as CreditsIcon,
+    Facebook as FacebookIcon,
+    Link as LinkIcon,
+    Cancel as CancelIcon,
+    Refresh as RefreshIcon
 } from '@mui/icons-material';
 
 const TenantList = () => {
@@ -80,6 +84,16 @@ const TenantList = () => {
     const [showCreditsModal, setShowCreditsModal] = useState(false);
     const [creditsAmount, setCreditsAmount] = useState(100);
     const [creditsLoading, setCreditsLoading] = useState(false);
+
+    // Facebook Pages state
+    const [showFbPagesModal, setShowFbPagesModal] = useState(false);
+    const [fbPages, setFbPages] = useState([]);
+    const [fbPagesLoading, setFbPagesLoading] = useState(false);
+    const [fbPagesError, setFbPagesError] = useState(null);
+    const [fbLinkMode, setFbLinkMode] = useState(false);
+    const [fbLinking, setFbLinking] = useState(false);
+    const [fbLinkForm, setFbLinkForm] = useState({ page_id: '', page_access_token: '' });
+    const [fbLinkId, setFbLinkId] = useState(null);
 
     const filteredTenants = tenants.filter(tenant => {
         const matchesSearch = tenant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -293,6 +307,112 @@ const TenantList = () => {
         }
     };
 
+    const openFbPagesModal = async () => {
+        const tenantId = selectedTenantId;
+        if (!tenantId) return;
+        setAnchorEl(null);
+        setFbPagesError(null);
+        setFbLinkMode(false);
+        setFbLinkForm({ page_id: '', page_access_token: '' });
+        setShowFbPagesModal(true);
+        await loadFbPages(tenantId);
+    };
+
+    const loadFbPages = async (tenantId) => {
+        try {
+            setFbPagesLoading(true);
+            const data = await api.getTenantPages(tenantId || selectedTenantId);
+            setFbPages(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setFbPagesError(err.message || 'فشل جلب صفحات فيسبوك');
+            setFbPages([]);
+        } finally {
+            setFbPagesLoading(false);
+        }
+    };
+
+    const handleLinkFbPage = async () => {
+        if (!fbLinkForm.page_id || !fbLinkForm.page_access_token) {
+            setFbPagesError('معرف الصفحة ورمز الوصول مطلوبان');
+            return;
+        }
+        try {
+            setFbLinking(true);
+            setFbPagesError(null);
+            const result = await api.linkTenantPage(selectedTenantId, fbLinkForm);
+            if (result._webhook_warning) {
+                setFbPagesError(`تم ربط الصفحة لكن فشل اشتراك Webhook: ${result._webhook_warning}`);
+            }
+            setFbLinkForm({ page_id: '', page_access_token: '' });
+            setFbLinkMode(false);
+            await loadFbPages();
+        } catch (err) {
+            setFbPagesError(err.message || 'فشل ربط الصفحة');
+        } finally {
+            setFbLinking(false);
+        }
+    };
+
+    const handleUnlinkFbPage = async (pageId) => {
+        if (!window.confirm('هل أنت متأكد من فك ربط هذه الصفحة؟')) return;
+        try {
+            await api.unlinkTenantPage(pageId);
+            await loadFbPages();
+        } catch (err) {
+            setFbPagesError(err.message || 'فشل فك ربط الصفحة');
+        }
+    };
+
+    const handleToggleFbPageActive = async (pageDbId, currentActive) => {
+        try {
+            await api.updateTenantPage(pageDbId, { is_active: !currentActive });
+            await loadFbPages();
+        } catch (err) {
+            setFbPagesError(err.message || 'فشل تحديث حالة الصفحة');
+        }
+    };
+
+    const handleSubscribeFbPage = async (pageDbId) => {
+        try {
+            await api.subscribeTenantPage(pageDbId);
+            await loadFbPages();
+        } catch (err) {
+            setFbPagesError(err.message || 'فشل اشتراك Webhook');
+        }
+    };
+
+    const handleVerifyFbPage = async (pageDbId) => {
+        try {
+            const result = await api.verifyTenantPage(pageDbId);
+            if (result.valid) {
+                alert('رمز الوصول صالح ✓');
+                await loadFbPages();
+            } else {
+                alert('رمز الوصول غير صالح: ' + (result.error || ''));
+            }
+        } catch (err) {
+            alert('فشل التحقق: ' + (err.message || ''));
+        }
+    };
+
+    const openFbPagesFromEdit = async (tenantId) => {
+        setFbPagesError(null);
+        setFbLinkMode(false);
+        setFbLinkForm({ page_id: '', page_access_token: '' });
+        setShowFbPagesModal(true);
+        setFbLinkId(tenantId);
+        try {
+            setFbPagesLoading(true);
+            const data = await api.getTenantPages(tenantId);
+            setFbPages(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setFbPagesError(err.message || 'فشل جلب صفحات فيسبوك');
+            setFbPages([]);
+        } finally {
+            setFbPagesLoading(false);
+        }
+    };
+
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
@@ -430,6 +550,12 @@ const TenantList = () => {
                     </ListItemIcon>
                     إضافة رصيد
                 </MenuItem>
+                <MenuItem onClick={openFbPagesModal}>
+                    <ListItemIcon>
+                        <FacebookIcon fontSize="small" sx={{ color: '#1877f2' }} />
+                    </ListItemIcon>
+                    صفحات فيسبوك
+                </MenuItem>
                 <Divider />
                 <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
                     <ListItemIcon>
@@ -557,6 +683,25 @@ const TenantList = () => {
                                     placeholder="EAA..."
                                 />
                             </Grid>
+
+                            {editingTenant && (
+                                <Grid size={{ xs: 12 }}>
+                                    <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <FacebookIcon fontSize="small" sx={{ color: '#1877f2' }} /> صفحات فيسبوك المربوطة
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                startIcon={<LinkIcon />}
+                                                onClick={() => openFbPagesFromEdit(editingTenant.id)}
+                                            >
+                                                إدارة الصفحات
+                                            </Button>
+                                        </Box>
+                                    </Box>
+                                </Grid>
+                            )}
                         </Grid>
                     </DialogContent>
                     <DialogActions>
@@ -756,6 +901,146 @@ const TenantList = () => {
                     >
                         {creditsLoading ? 'جاري الإضافة...' : `إضافة ${creditsAmount} رصيد`}
                     </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Facebook Pages Management Dialog */}
+            <Dialog open={showFbPagesModal} onClose={() => setShowFbPagesModal(false)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <FacebookIcon sx={{ color: '#1877f2' }} />
+                    صفحات فيسبوك المربوطة
+                    {fbPagesLoading && <CircularProgress size={18} sx={{ ml: 1 }} />}
+                </DialogTitle>
+                <DialogContent dividers>
+                    {fbPagesError && (
+                        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setFbPagesError(null)}>
+                            {fbPagesError}
+                        </Alert>
+                    )}
+
+                    {!fbLinkMode ? (
+                        <Box>
+                            {fbPages.length === 0 && !fbPagesLoading ? (
+                                <Box sx={{ textAlign: 'center', py: 4 }}>
+                                    <FacebookIcon sx={{ fontSize: 48, color: '#1877f2', opacity: 0.4, mb: 1 }} />
+                                    <Typography color="text.secondary">لا توجد صفحات مربوطة</Typography>
+                                    <Typography variant="body2" color="text.secondary">اضغط "ربط صفحة جديدة" لربط صفحة فيسبوك</Typography>
+                                </Box>
+                            ) : (
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    {fbPages.map((page) => (
+                                        <Paper key={page.id} variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+                                                {page.page_picture_url ? (
+                                                    <Box
+                                                        component="img"
+                                                        src={page.page_picture_url}
+                                                        sx={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }}
+                                                        alt={page.page_name}
+                                                    />
+                                                ) : (
+                                                    <FacebookIcon sx={{ fontSize: 40, color: '#1877f2' }} />
+                                                )}
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography fontWeight={600}>{page.page_name || page.page_id}</Typography>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {page.page_category || '—'}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">•</Typography>
+                                                        <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                                                            {page.page_id}
+                                                        </Typography>
+                                                    </Box>
+                                                </Box>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
+                                                <Chip
+                                                    label={page.webhook_subscribed ? 'Webhook ✓' : 'Webhook ✗'}
+                                                    size="small"
+                                                    color={page.webhook_subscribed ? 'success' : 'default'}
+                                                    variant={page.webhook_subscribed ? 'filled' : 'outlined'}
+                                                />
+                                                <Chip
+                                                    label={page.is_active ? 'نشطة' : 'معطلة'}
+                                                    size="small"
+                                                    color={page.is_active ? 'success' : 'error'}
+                                                />
+                                                <Button size="small" onClick={() => handleVerifyFbPage(page.id)} variant="outlined">
+                                                    تحقق
+                                                </Button>
+                                                {!page.webhook_subscribed && (
+                                                    <Button size="small" onClick={() => handleSubscribeFbPage(page.id)} variant="outlined">
+                                                        اشتراك
+                                                    </Button>
+                                                )}
+                                                <Button size="small" onClick={() => handleToggleFbPageActive(page.id, page.is_active)} variant="outlined" color={page.is_active ? 'warning' : 'success'}>
+                                                    {page.is_active ? 'تعطيل' : 'تفعيل'}
+                                                </Button>
+                                                <Button size="small" onClick={() => handleUnlinkFbPage(page.id)} variant="outlined" color="error">
+                                                    فك الربط
+                                                </Button>
+                                            </Box>
+                                        </Paper>
+                                    ))}
+                                </Box>
+                            )}
+
+                            <Box sx={{ mt: 3 }}>
+                                <Button
+                                    variant="contained"
+                                    startIcon={<AddIcon />}
+                                    onClick={() => setFbLinkMode(true)}
+                                    sx={{ bgcolor: '#1877f2', '&:hover': { bgcolor: '#1565c0' } }}
+                                >
+                                    ربط صفحة جديدة
+                                </Button>
+                            </Box>
+                        </Box>
+                    ) : (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <Typography variant="subtitle2">ربط صفحة فيسبوك جديدة</Typography>
+                            <TextField
+                                fullWidth
+                                label="معرف الصفحة (Page ID)"
+                                value={fbLinkForm.page_id}
+                                onChange={(e) => setFbLinkForm({ ...fbLinkForm, page_id: e.target.value })}
+                                placeholder="1234567890"
+                                helperText="معرف صفحة فيسبوك من الإعدادات"
+                            />
+                            <TextField
+                                fullWidth
+                                type="password"
+                                label="رمز الوصول (Page Access Token)"
+                                value={fbLinkForm.page_access_token}
+                                onChange={(e) => setFbLinkForm({ ...fbLinkForm, page_access_token: e.target.value })}
+                                placeholder="EAA..."
+                                helperText="رمز وصول الصفحة مع صلاحيات pages_manage_engagement و pages_messaging"
+                            />
+                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                                <Button onClick={() => { setFbLinkMode(false); setFbLinkForm({ page_id: '', page_access_token: '' }); }} disabled={fbLinking}>
+                                    إلغاء
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    onClick={handleLinkFbPage}
+                                    disabled={fbLinking || !fbLinkForm.page_id || !fbLinkForm.page_access_token}
+                                    startIcon={fbLinking ? <CircularProgress size={18} /> : <LinkIcon />}
+                                    sx={{ bgcolor: '#1877f2', '&:hover': { bgcolor: '#1565c0' } }}
+                                >
+                                    {fbLinking ? 'جاري الربط...' : 'ربط الصفحة'}
+                                </Button>
+                            </Box>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowFbPagesModal(false)}>إغلاق</Button>
+                    {!fbLinkMode && fbPages.length > 0 && (
+                        <Button startIcon={<RefreshIcon />} onClick={() => loadFbPages(fbLinkId || selectedTenantId)} disabled={fbPagesLoading}>
+                            تحديث
+                        </Button>
+                    )}
                 </DialogActions>
             </Dialog>
         </Box>

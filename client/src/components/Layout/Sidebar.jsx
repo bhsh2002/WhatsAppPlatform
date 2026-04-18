@@ -60,7 +60,7 @@ const Sidebar = () => {
         { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
         { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
-        { label: 'صفحات فيسبوك', path: '/facebook-pages', icon: <FacebookIcon /> },
+        { label: 'إدارة فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
         { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
         { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
         { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
