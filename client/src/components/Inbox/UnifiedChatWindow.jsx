@@ -9,7 +9,8 @@ import {
     Chip,
     Divider,
     Tooltip,
-    CircularProgress
+    CircularProgress,
+    Alert
 } from '@mui/material';
 import {
     Send as SendIcon,
@@ -42,8 +43,8 @@ const getStatusIcon = (status) => {
 const getMediaDownloadUrl = (url) => url || null;
 
 const MessengerBubble = ({ msg }) => {
-    const isOutgoing = msg.direction === 'outgoing';
-    const content = msg.message_text || '';
+    const isOutgoing = msg?.direction === 'outgoing';
+    const content = msg?.message_text || '';
 
     return (
         <Box sx={{ display: 'flex', justifyContent: isOutgoing ? 'flex-end' : 'flex-start', mb: 1 }}>
@@ -54,9 +55,9 @@ const MessengerBubble = ({ msg }) => {
                 color: isOutgoing ? 'white' : 'text.primary',
                 borderRadius: 2,
             }}>
-                {msg.attachment_url && (
+                {msg?.attachment_url && (
                     <Box sx={{ mb: content ? 0.5 : 0 }}>
-                        {msg.message_type === 'image' || (msg.attachment_url && msg.message_type !== 'file') ? (
+                        {msg?.message_type === 'image' || (msg?.attachment_url && msg?.message_type !== 'file') ? (
                             <img src={msg.attachment_url} alt="" style={{ maxWidth: '100%', borderRadius: 4 }} />
                         ) : (
                             <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer"
@@ -66,7 +67,7 @@ const MessengerBubble = ({ msg }) => {
                         )}
                     </Box>
                 )}
-                {msg.sticker_url && (
+                {msg?.sticker_url && (
                     <img src={msg.sticker_url} alt="sticker" style={{ maxWidth: 120 }} />
                 )}
                 {content && (
@@ -81,7 +82,7 @@ const MessengerBubble = ({ msg }) => {
                     opacity: 0.7,
                     fontSize: 10,
                 }}>
-                    {formatTime(msg.created_at)}
+                    {formatTime(msg?.created_at || '')}
                 </Typography>
             </Paper>
         </Box>
@@ -211,29 +212,29 @@ const UnifiedChatWindow = ({
                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
                         <CircularProgress />
                     </Box>
-                ) : messages.length === 0 ? (
+                ) : !messages || messages.length === 0 ? (
                     <Typography textAlign="center" color="text.secondary" sx={{ mt: 4 }}>
                         لا توجد رسائل
                     </Typography>
                 ) : (
                     messages.map((msg, idx) => {
-                        const dateKey = fGetDateKey(msg.created_at);
+                        const dateKey = fGetDateKey(msg?.created_at || '');
                         const showDate = dateKey !== lastDateKey;
                         lastDateKey = dateKey;
 
                         return (
-                            <React.Fragment key={msg.id || idx}>
+                            <React.Fragment key={msg?.id || idx}>
                                 {showDate && (
                                     <Box sx={{ textAlign: 'center', my: 2 }}>
                                         <Typography variant="caption" sx={{ bgcolor: 'background.paper', px: 2, py: 0.5, borderRadius: 1 }}>
-                                            {new Date(msg.created_at).toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })}
+                                            {msg?.created_at ? new Date(msg.created_at).toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
                                         </Typography>
                                     </Box>
                                 )}
                                 {isWhatsApp ? (
                                     <MessageBubble
                                         msg={msg}
-                                        isOutgoing={msg.direction === 'outgoing'}
+                                        isOutgoing={msg?.direction === 'outgoing'}
                                         getDisplayName={getDisplayName}
                                         formatTime={fTime}
                                         getStatusIcon={fGetStatusIcon}
