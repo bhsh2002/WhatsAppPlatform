@@ -165,7 +165,7 @@ const WebhookFailures = () => {
 
             {stats && (
                 <Grid container spacing={2} sx={{ mb: 3 }}>
-                    <Grid item xs={4}>
+                    <Grid size={{ xs: 4 }}>
                         <Card>
                             <CardContent sx={{ textAlign: 'center', py: 1 }}>
                                 <ErrorIcon color="error" sx={{ fontSize: 30 }} />
@@ -176,7 +176,7 @@ const WebhookFailures = () => {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid item xs={4}>
+                    <Grid size={{ xs: 4 }}>
                         <Card>
                             <CardContent sx={{ textAlign: 'center', py: 1 }}>
                                 <HourglassEmptyIcon color="warning" sx={{ fontSize: 30 }} />
@@ -187,7 +187,7 @@ const WebhookFailures = () => {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid item xs={4}>
+                    <Grid size={{ xs: 4 }}>
                         <Card>
                             <CardContent sx={{ textAlign: 'center', py: 1 }}>
                                 <CheckCircleIcon color="success" sx={{ fontSize: 30 }} />

@@ -473,11 +473,11 @@ const BroadcastDialog = ({
 
                         <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1, mb: 2 }}>
                             <Grid container spacing={2}>
-                                <Grid item xs={6}>
+                                <Grid size={{ xs: 6 }}>
                                     <Typography variant="body2" color="text.secondary">عدد المستلمين:</Typography>
                                     <Typography variant="h5">{allRecipients.length}</Typography>
                                 </Grid>
-                                <Grid item xs={6}>
+                                <Grid size={{ xs: 6 }}>
                                     <Typography variant="body2" color="text.secondary">القالب:</Typography>
                                     <Typography variant="body1">{selectedTemplate}</Typography>
                                 </Grid>
