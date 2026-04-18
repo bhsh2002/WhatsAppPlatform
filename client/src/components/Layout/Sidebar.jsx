@@ -36,7 +36,8 @@ import {
     Webhook as WebhookSubIcon,
     ContactPhone as ContactPhoneIcon,
     Campaign as CampaignIcon,
-    QuestionAnswer as QuestionAnswerIcon
+    QuestionAnswer as QuestionAnswerIcon,
+    BarChart as BarChartIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
