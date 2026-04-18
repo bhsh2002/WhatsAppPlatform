@@ -146,14 +146,31 @@ const MessengerInbox = () => {
 
     // SSE listener
     useEffect(() => {
-        const token = localStorage.getItem('auth_token');
-        if (!token) return;
+        const authToken = localStorage.getItem('auth_token');
+        if (!authToken) return;
 
-        let evtSource;
-        const connectSSE = () => {
+        const baseUrl = import.meta.env.VITE_API_URL || '';
+        let evtSource = null;
+        let reconnectTimeout = null;
+
+        const connectSSE = async () => {
             try {
-                const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3031';
-                evtSource = new EventSource(`${baseUrl}/messages/events?token=${encodeURIComponent(token)}`);
+                const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!sseTokenRes.ok) {
+                    console.warn('[SSE/Messenger] Failed to get SSE token');
+                    reconnectTimeout = setTimeout(connectSSE, 5000);
+                    return;
+                }
+
+                const { token } = await sseTokenRes.json();
+                evtSource = new EventSource(`${baseUrl}/api/messages/events?token=${token}`);
 
                 evtSource.addEventListener('fb_message:new', (e) => {
                     try {
@@ -163,20 +180,23 @@ const MessengerInbox = () => {
                         if (current && data.conversation_id === current.id) {
                             loadMessages();
                         }
-                    } catch (err) { /* ignore parse errors */ }
+                    } catch (err) { /* ignore */ }
                 });
 
                 evtSource.onerror = () => {
                     evtSource?.close();
-                    setTimeout(connectSSE, 5000);
+                    reconnectTimeout = setTimeout(connectSSE, 5000);
                 };
             } catch {
-                setTimeout(connectSSE, 5000);
+                reconnectTimeout = setTimeout(connectSSE, 5000);
             }
         };
 
         connectSSE();
-        return () => evtSource?.close();
+        return () => {
+            evtSource?.close();
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        };
     }, [loadConversations, loadMessages]);
 
     const filteredConversations = conversations.filter(conv => {
