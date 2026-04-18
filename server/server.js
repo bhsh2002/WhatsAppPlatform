@@ -175,6 +175,7 @@ const authLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.ip,
+    skip: (req) => req.path.startsWith('/api/auth/me'),
 });
 
 const apiLimiter = rateLimit({
