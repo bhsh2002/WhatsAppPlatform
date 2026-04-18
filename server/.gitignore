@@ -38,4 +38,7 @@ coverage
 .eslintcache
 
 # Database
-server/db/*.db
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
