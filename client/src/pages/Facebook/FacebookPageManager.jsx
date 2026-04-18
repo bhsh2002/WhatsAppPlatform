@@ -323,7 +323,7 @@ const FacebookPageManager = () => {
             </Paper>
 
             {selectedPageId && (
-                <>
+                <Box sx={{ maxWidth: 680, mx: 'auto' }}>
                     {/* Post Composer */}
                     <Paper sx={{ p: 2, mb: 3 }}>
                         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
@@ -462,7 +462,16 @@ const FacebookPageManager = () => {
                                             />
                                         )}
 
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1.5, flexWrap: 'wrap' }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
+                                            {post.likes?.summary?.total_count !== undefined && (
+                                                <Chip icon={<LikeIcon fontSize="small" />} label={post.likes.summary.total_count} size="small" variant="outlined" sx={{ height: 24 }} />
+                                            )}
+                                            {post.comments?.summary?.total_count !== undefined && (
+                                                <Chip icon={<CommentIcon fontSize="small" />} label={post.comments.summary.total_count} size="small" variant="outlined" sx={{ height: 24 }} />
+                                            )}
+                                            {post.shares?.count !== undefined && (
+                                                <Chip icon={<ShareIcon fontSize="small" />} label={post.shares.count} size="small" variant="outlined" sx={{ height: 24 }} />
+                                            )}
                                             <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
                                                 {formatTime(post.created_time)}
                                             </Typography>
@@ -557,7 +566,7 @@ const FacebookPageManager = () => {
                             )}
                         </>
                     )}
-                </>
+                </Box>
             )}
 
             {/* Delete Confirmation Dialog */}
