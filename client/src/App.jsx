@@ -35,6 +35,7 @@ import TenantBroadcast from './pages/TenantPortal/TenantBroadcast';
 import BusinessManager from './pages/Settings/BusinessManager';
 import FacebookPages from './pages/Settings/FacebookPages';
 import FacebookPageManager from './pages/Facebook/FacebookPageManager';
+import MessengerInbox from './pages/Facebook/MessengerInbox';
 import PartnerSolutions from './pages/Settings/PartnerSolutions';
 import PhoneNumbers from './pages/Settings/PhoneNumbers';
 import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
@@ -194,6 +195,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <MainLayout><FacebookPageManager /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/messenger"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><MessengerInbox /></MainLayout>
           </ProtectedRoute>
         }
       />

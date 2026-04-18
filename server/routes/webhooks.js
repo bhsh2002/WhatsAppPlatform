@@ -2,6 +2,8 @@ import express from 'express';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import eventBus from '../services/eventBus.js';
+import { META_API_BASE } from '../config/index.js';
+import { decrypt } from '../services/encryption.js';
 
 const router = express.Router();
 
@@ -445,9 +447,136 @@ router.post('/', (req, res) => {
 
                 // Handle messaging (Messenger inbox)
                 if (entry.messaging) {
-                    for (const event of entry.messaging) {
-                        console.log(`[Webhook] Page ${pageId} messaging event:`, event.sender?.id);
-                        // TODO: Process Messenger messages in Phase 2
+                    const pageToken = decrypt(linkedPage.page_access_token_encrypted);
+
+                    for (const msgEvent of entry.messaging) {
+                        const senderId = msgEvent.sender?.id;
+                        const recipientId = msgEvent.recipient?.id;
+
+                        // Skip echo events (messages sent BY the page)
+                        if (msgEvent.message?.is_echo) {
+                            console.log(`[Webhook/FB] Echo for page ${pageId}, skipping`);
+                            continue;
+                        }
+
+                        if (msgEvent.message) {
+                            const mid = msgEvent.message.mid;
+                            const messageText = msgEvent.message.text || null;
+                            const attachments = msgEvent.message.attachments || [];
+                            const stickerUrl = msgEvent.message.sticker_url || null;
+
+                            // Deduplicate by mid
+                            const existingMsg = db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid);
+                            if (existingMsg) continue;
+
+                            // Upsert conversation
+                            let conv = db.prepare(
+                                'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
+                            ).get(linkedPage.id, senderId);
+
+                            if (!conv) {
+                                // Fetch user profile from Meta API (best-effort)
+                                let userName = null, userPic = null;
+                                if (pageToken) {
+                                    try {
+                                        const profileRes = await fetch(
+                                            `${META_API_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
+                                        );
+                                        const profileData = await profileRes.json();
+                                        userName = profileData.name || null;
+                                        userPic = profileData.profile_pic || null;
+                                    } catch (e) {
+                                        console.warn('[Webhook/FB] Failed to fetch user profile:', e.message);
+                                    }
+                                }
+
+                                db.prepare(\`
+                                    INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                                \`).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic,
+                                    (messageText || '[مرفق]').substring(0, 100),
+                                    msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString());
+
+                                conv = db.prepare(
+                                    'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
+                                ).get(linkedPage.id, senderId);
+                            } else {
+                                db.prepare(\`
+                                    UPDATE fb_conversations SET 
+                                        last_message = ?, last_message_time = ?,
+                                        unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                \`).run(
+                                    (messageText || '[مرفق]').substring(0, 100),
+                                    msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString(),
+                                    conv.id
+                                );
+                            }
+
+                            // Determine attachment info
+                            let attachmentType = null, attachmentUrl = null;
+                            if (attachments.length > 0) {
+                                const att = attachments[0];
+                                attachmentType = att.type;
+                                attachmentUrl = att.payload?.url || null;
+                            }
+
+                            // Insert message
+                            if (conv) {
+                                db.prepare(\`
+                                    INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, attachment_type, attachment_url, sticker_url, created_at)
+                                    VALUES (?, ?, ?, 'incoming', ?, ?, ?, ?, ?, ?, ?)
+                                \`).run(
+                                    conv.id, linkedPage.tenant_id, mid, senderId, conv.user_name,
+                                    messageText, attachmentType, attachmentUrl, stickerUrl,
+                                    msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString()
+                                );
+                            }
+
+                            // Emit SSE for real-time UI update
+                            eventBus.broadcast('admin', 'fb_message:new', {
+                                tenant_id: linkedPage.tenant_id,
+                                page_id: pageId,
+                                conversation_id: conv?.id,
+                                sender: senderId,
+                                sender_name: conv?.user_name,
+                                message: messageText,
+                            });
+                            eventBus.broadcast(\`tenant:\${linkedPage.tenant_id}\`, 'fb_message:new', {
+                                tenant_id: linkedPage.tenant_id,
+                                page_id: pageId,
+                                conversation_id: conv?.id,
+                                sender: senderId,
+                                sender_name: conv?.user_name,
+                                message: messageText,
+                            });
+
+                            // Log activity
+                            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(linkedPage.tenant_id);
+                            if (tenant) {
+                                db.prepare(\`
+                                    INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                                    VALUES (?, ?, 'fb_message_received', ?, 'info')
+                                \`).run(
+                                    linkedPage.tenant_id, tenant.name,
+                                    \`رسالة ماسنجر جديدة من \${conv?.user_name || senderId}\`
+                                );
+                            }
+
+                            // Forward to tenant webhook
+                            forwardToTenantWebhook(linkedPage.tenant_id, 'fb_message_received', {
+                                page_id: pageId,
+                                sender: senderId,
+                                message: messageText,
+                                attachments,
+                                timestamp: msgEvent.timestamp,
+                            });
+                        }
+
+                        // Handle message read receipts from user
+                        if (msgEvent.read) {
+                            console.log(\`[Webhook/FB] User \${senderId} read messages up to \${msgEvent.read.watermark}\`);
+                        }
                     }
                 }
             }

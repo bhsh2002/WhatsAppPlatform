@@ -35,7 +35,8 @@ import {
     PhoneCallback as PhoneCallbackIcon,
     Webhook as WebhookSubIcon,
     ContactPhone as ContactPhoneIcon,
-    Campaign as CampaignIcon
+    Campaign as CampaignIcon,
+    QuestionAnswer as QuestionAnswerIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -61,6 +62,7 @@ const Sidebar = () => {
         { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
         { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
         { label: 'إدارة فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
+        { label: 'صندوق ماسنجر', path: '/messenger', icon: <QuestionAnswerIcon /> },
         { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
         { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
         { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },

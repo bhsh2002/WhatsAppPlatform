@@ -725,6 +725,35 @@ class ApiService {
             method: 'DELETE',
         });
     }
+    // ============================================
+    // Facebook Messenger (Admin)
+    // ============================================
+    async getMessengerConversations(linkedPageId) {
+        return this.request(`/api/fb-messenger/${linkedPageId}/conversations`);
+    }
+
+    async getMessengerMessages(linkedPageId, conversationId, limit = 50) {
+        return this.request(`/api/fb-messenger/${linkedPageId}/conversations/${conversationId}/messages?limit=${limit}`);
+    }
+
+    async sendMessengerReply(linkedPageId, conversationId, message) {
+        return this.request(`/api/fb-messenger/${linkedPageId}/conversations/${conversationId}/send`, {
+            method: 'POST',
+            body: JSON.stringify({ message }),
+        });
+    }
+
+    async markMessengerRead(linkedPageId, conversationId) {
+        return this.request(`/api/fb-messenger/${linkedPageId}/conversations/${conversationId}/read`, {
+            method: 'POST',
+        });
+    }
+
+    async syncMessengerConversations(linkedPageId) {
+        return this.request(`/api/fb-messenger/${linkedPageId}/sync`, {
+            method: 'POST',
+        });
+    }
 
     // ============================================
     // Partner Solutions APIs
