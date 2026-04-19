@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Box,
-    Paper,
-    CircularProgress,
+    Typography,
     useMediaQuery,
     useTheme
 } from '@mui/material';
+import {
+    DoneAll as DoneAllIcon,
+    Done as DoneIcon,
+    Schedule as ScheduleIcon,
+    Error as ErrorIcon
+} from '@mui/icons-material';
 import api from '../../api';
 import UnifiedSidebar from '../../components/Inbox/UnifiedSidebar';
 import UnifiedChatWindow from '../../components/Inbox/UnifiedChatWindow';
+import ChatWindow from '../../components/WhatsApp/ChatWindow';
 
 const UnifiedInbox = () => {
     const theme = useTheme();
@@ -31,10 +37,15 @@ const UnifiedInbox = () => {
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const selectedChatRef = useRef(null);
+    const isFirstLoad = useRef(true);
 
     useEffect(() => {
         selectedChatRef.current = selectedChat;
     }, [selectedChat]);
+
+    // ============================================
+    // Data Fetching
+    // ============================================
 
     const fetchConversations = useCallback(async () => {
         try {
@@ -57,7 +68,7 @@ const UnifiedInbox = () => {
 
     const fetchMessages = useCallback(async (conv) => {
         try {
-            setLoadingMessages(true);
+            if (isFirstLoad.current) setLoadingMessages(true);
             const params = {};
             if (conv.channel === 'whatsapp') {
                 params.tenant_id = conv.tenant_id;
@@ -89,8 +100,8 @@ const UnifiedInbox = () => {
         }
     }, []);
 
-    const fetchWindowStatus = useCallback(async (contactId, tenantId) => {
-        if (!contactId || !tenantId) {
+    const fetchWindowStatus = useCallback(async (contactId) => {
+        if (!contactId) {
             setWindowStatus(null);
             return;
         }
@@ -123,63 +134,86 @@ const UnifiedInbox = () => {
         }
     }, []);
 
+    // ============================================
+    // Chat Selection & Auto-refresh
+    // ============================================
+
     useEffect(() => {
         if (selectedChat) {
+            isFirstLoad.current = true;
             fetchMessages(selectedChat).then(() => {
                 markAsRead(messages, selectedChat);
             });
             if (selectedChat.channel === 'whatsapp') {
                 fetchTemplates(selectedChat.tenant_id);
-                fetchWindowStatus(selectedChat.contact_id, selectedChat.tenant_id);
+                fetchWindowStatus(selectedChat.contact_id);
             } else {
                 setTemplates([]);
                 setWindowStatus(null);
             }
             const interval = setInterval(() => fetchMessages(selectedChat), 15000);
             return () => clearInterval(interval);
+        } else {
+            setWindowStatus(null);
         }
     }, [selectedChat]);
 
     const handleSelectChat = useCallback((conv) => {
         setSelectedChat(conv);
         setNewMessage('');
-        if (isMobile) {
-            // On mobile, the chat window takes over
-        }
-    }, [isMobile]);
+    }, []);
 
-    // Auto-scroll to bottom when messages load/update
+    // Smart scroll (matching TenantChat behavior)
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (messages.length === 0) return;
+
+        if (isFirstLoad.current) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            isFirstLoad.current = false;
+            return;
+        }
+
+        const container = messagesContainerRef.current;
+        if (!container) return;
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom < 300) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
     }, [messages]);
 
-    const handleSendMessage = useCallback(async (text) => {
-        if (!text?.trim() || !selectedChat) return;
+    const scrollToBottom = () => {
+        setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+        }, 50);
+    };
+
+    // ============================================
+    // WhatsApp Send Handlers (matching admin API)
+    // ============================================
+
+    // ChatWindow calls onSendMessage() with NO arguments — it manages newMessage state internally
+    const handleSendWAMessage = useCallback(async () => {
+        if (!newMessage.trim() || !selectedChat || sending) return;
         try {
             setSending(true);
-
-            if (selectedChat.channel === 'whatsapp') {
-                await api.sendUnifiedMessage('whatsapp', selectedChat.contact_id, {
-                    message: text.trim(),
-                    tenant_id: selectedChat.tenant_id,
-                });
-            } else if (selectedChat.channel === 'messenger') {
-                await api.sendUnifiedMessage('messenger', selectedChat.contact_id, {
-                    message: text.trim(),
-                    linked_page_id: selectedChat.linked_page_id,
-                });
-            }
-
+            await api.sendMessage({
+                recipient: selectedChat.contact_id,
+                type: 'text',
+                message: newMessage.trim(),
+                tenant_id: selectedChat.tenant_id,
+            });
             setNewMessage('');
             await fetchMessages(selectedChat);
             fetchConversations();
+            scrollToBottom();
         } catch (err) {
-            console.error('Failed to send message:', err);
+            console.error('Failed to send:', err);
         } finally {
             setSending(false);
         }
-    }, [selectedChat, fetchMessages, fetchConversations]);
+    }, [newMessage, selectedChat, sending, fetchMessages, fetchConversations]);
 
+    // ChatWindow TemplatePicker calls onSelect(templateData) where templateData = { name, language, components }
     const handleSendTemplate = useCallback(async (templateData) => {
         if (!selectedChat || sending) return;
         try {
@@ -194,6 +228,7 @@ const UnifiedInbox = () => {
             });
             await fetchMessages(selectedChat);
             fetchConversations();
+            scrollToBottom();
         } catch (err) {
             console.error('Failed to send template:', err);
             alert('فشل إرسال القالب');
@@ -202,6 +237,7 @@ const UnifiedInbox = () => {
         }
     }, [selectedChat, sending, fetchMessages, fetchConversations]);
 
+    // ChatWindow calls onSendDocument(file, caption)
     const handleSendDocument = useCallback(async (file, caption) => {
         if (!file || !selectedChat) return;
         try {
@@ -211,18 +247,22 @@ const UnifiedInbox = () => {
             formData.append('recipient', selectedChat.contact_id);
             formData.append('caption', caption || '');
             formData.append('type', 'document');
-            formData.append('tenant_id', selectedChat.tenant_id);
+            if (selectedChat.tenant_id) {
+                formData.append('tenant_id', selectedChat.tenant_id);
+            }
             await api.sendMediaFile(formData);
             await fetchMessages(selectedChat);
             fetchConversations();
+            scrollToBottom();
         } catch (err) {
             console.error('Failed to send document:', err);
-            alert('فشل إرسال الملف');
+            alert('فشل إرسال الملف: ' + (err.message || 'خطأ غير متوقع'));
         } finally {
             setSendingDoc(false);
         }
     }, [selectedChat, fetchMessages, fetchConversations]);
 
+    // ChatWindow calls onSendImage(file, caption)
     const handleSendImage = useCallback(async (file, caption) => {
         if (!file || !selectedChat) return;
         try {
@@ -232,18 +272,22 @@ const UnifiedInbox = () => {
             formData.append('recipient', selectedChat.contact_id);
             formData.append('caption', caption || '');
             formData.append('type', 'image');
-            formData.append('tenant_id', selectedChat.tenant_id);
+            if (selectedChat.tenant_id) {
+                formData.append('tenant_id', selectedChat.tenant_id);
+            }
             await api.sendMediaFile(formData);
             await fetchMessages(selectedChat);
             fetchConversations();
+            scrollToBottom();
         } catch (err) {
             console.error('Failed to send image:', err);
-            alert('فشل إرسال الصورة');
+            alert('فشل إرسال الصورة: ' + (err.message || 'خطأ غير متوقع'));
         } finally {
             setSendingDoc(false);
         }
     }, [selectedChat, fetchMessages, fetchConversations]);
 
+    // ChatWindow calls onSendInteractive(data)
     const handleSendInteractive = useCallback(async (data) => {
         if (!selectedChat) return;
         try {
@@ -255,15 +299,42 @@ const UnifiedInbox = () => {
             });
             await fetchMessages(selectedChat);
             fetchConversations();
+            scrollToBottom();
         } catch (err) {
             console.error('Failed to send interactive:', err);
-            alert('فشل إرسال الرسالة التفاعلية');
+            alert('فشل إرسال الرسالة التفاعلية: ' + (err.message || 'خطأ غير متوقع'));
         } finally {
             setSendingInteractive(false);
         }
     }, [selectedChat, fetchMessages, fetchConversations]);
 
-    // SSE integration
+    // ============================================
+    // Messenger Send Handler
+    // ============================================
+
+    const handleSendMessengerMessage = useCallback(async (text) => {
+        if (!text?.trim() || !selectedChat) return;
+        try {
+            setSending(true);
+            await api.sendUnifiedMessage('messenger', selectedChat.contact_id, {
+                message: text.trim(),
+                linked_page_id: selectedChat.linked_page_id,
+            });
+            setNewMessage('');
+            await fetchMessages(selectedChat);
+            fetchConversations();
+            scrollToBottom();
+        } catch (err) {
+            console.error('Failed to send:', err);
+        } finally {
+            setSending(false);
+        }
+    }, [selectedChat, fetchMessages, fetchConversations]);
+
+    // ============================================
+    // SSE Integration
+    // ============================================
+
     useEffect(() => {
         const authToken = localStorage.getItem('auth_token');
         if (!authToken) return;
@@ -301,6 +372,13 @@ const UnifiedInbox = () => {
                     }
                 });
 
+                evtSource.addEventListener('message:status', (e) => {
+                    const data = JSON.parse(e.data);
+                    setMessages(prev => prev.map(msg =>
+                        msg.wamid === data.wamid ? { ...msg, status: data.status } : msg
+                    ));
+                });
+
                 evtSource.addEventListener('fb_message:new', (e) => {
                     fetchConversations();
                     const current = selectedChatRef.current;
@@ -336,15 +414,58 @@ const UnifiedInbox = () => {
         };
     }, [fetchConversations, fetchMessages]);
 
-    const getDisplayName = useCallback((msg) => {
-        if (msg.direction === 'outgoing') return 'أنت';
-        return msg.sender_name || selectedChat?.display_name || msg.sender || '';
+    // ============================================
+    // Helper functions for ChatWindow
+    // ============================================
+
+    const getDisplayName = useCallback((chat) => {
+        // ChatWindow passes the selectedChat object for header, or a message for bubbles
+        if (chat?.direction === 'outgoing') return 'أنت';
+        return chat?.profile_name || chat?.sender_name || chat?.display_name || selectedChat?.display_name || chat?.sender || chat?.contact || 'مجهول';
     }, [selectedChat]);
 
     const formatTime = useCallback((dateStr) => {
         if (!dateStr) return '';
         return new Date(dateStr).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
     }, []);
+
+    const getDateKey = useCallback((dateStr) => {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleDateString('ar-SA');
+    }, []);
+
+    const getStatusIcon = useCallback((status, direction) => {
+        if (direction === 'incoming') return null;
+        switch (status) {
+            case 'read':
+                return <DoneAllIcon sx={{ fontSize: 14, color: '#53bdeb' }} />;
+            case 'delivered':
+                return <DoneAllIcon sx={{ fontSize: 14, color: 'text.secondary' }} />;
+            case 'sent':
+                return <DoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />;
+            case 'pending':
+                return <ScheduleIcon sx={{ fontSize: 14, color: 'text.secondary' }} />;
+            case 'failed':
+                return <ErrorIcon sx={{ fontSize: 14, color: 'error.main' }} />;
+            default:
+                return <DoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />;
+        }
+    }, []);
+
+    const getMediaDownloadUrl = useCallback((mediaId, tenantId) => {
+        return api.getMediaDownloadUrl(mediaId, tenantId || selectedChat?.tenant_id);
+    }, [selectedChat]);
+
+    // ============================================
+    // Render
+    // ============================================
+
+    // Map unified chat shape to ChatWindow's expected shape
+    const chatWindowChat = selectedChat?.channel === 'whatsapp' ? {
+        contact: selectedChat.contact_id,
+        profile_name: selectedChat.display_name,
+        tenant_id: selectedChat.tenant_id,
+    } : null;
 
     return (
         <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -376,28 +497,48 @@ const UnifiedInbox = () => {
                 display: isMobile && !selectedChat ? 'none' : 'flex',
                 overflow: 'hidden',
             }}>
-                <UnifiedChatWindow
-                    selectedChat={selectedChat}
-                    messages={messages}
-                    loadingMessages={loadingMessages}
-                    onBack={() => setSelectedChat(null)}
-                    onSendMessage={handleSendMessage}
-                    onSendTemplate={handleSendTemplate}
-                    onSendDocument={handleSendDocument}
-                    onSendImage={handleSendImage}
-                    onSendInteractive={handleSendInteractive}
-                    newMessage={newMessage}
-                    setNewMessage={setNewMessage}
-                    sending={sending}
-                    sendingDoc={sendingDoc}
-                    sendingInteractive={sendingInteractive}
-                    messagesEndRef={messagesEndRef}
-                    messagesContainerRef={messagesContainerRef}
-                    getDisplayName={getDisplayName}
-                    formatTime={formatTime}
-                    templates={templates}
-                    windowStatus={windowStatus}
-                />
+                {selectedChat?.channel === 'whatsapp' ? (
+                    <ChatWindow
+                        selectedChat={chatWindowChat}
+                        messages={messages}
+                        loadingMessages={loadingMessages}
+                        onSendMessage={handleSendWAMessage}
+                        onSendTemplate={handleSendTemplate}
+                        onSendDocument={handleSendDocument}
+                        onSendImage={handleSendImage}
+                        onSendInteractive={handleSendInteractive}
+                        onBack={() => setSelectedChat(null)}
+                        newMessage={newMessage}
+                        setNewMessage={setNewMessage}
+                        sending={sending}
+                        sendingDoc={sendingDoc}
+                        sendingInteractive={sendingInteractive}
+                        messagesEndRef={messagesEndRef}
+                        messagesContainerRef={messagesContainerRef}
+                        getDisplayName={getDisplayName}
+                        formatTime={formatTime}
+                        getStatusIcon={getStatusIcon}
+                        getMediaDownloadUrl={getMediaDownloadUrl}
+                        getDateKey={getDateKey}
+                        templates={templates}
+                        windowStatus={windowStatus}
+                    />
+                ) : (
+                    <UnifiedChatWindow
+                        selectedChat={selectedChat}
+                        messages={messages}
+                        loadingMessages={loadingMessages}
+                        onBack={() => setSelectedChat(null)}
+                        onSendMessage={handleSendMessengerMessage}
+                        newMessage={newMessage}
+                        setNewMessage={setNewMessage}
+                        sending={sending}
+                        messagesEndRef={messagesEndRef}
+                        messagesContainerRef={messagesContainerRef}
+                        getDisplayName={getDisplayName}
+                        formatTime={formatTime}
+                    />
+                )}
             </Box>
         </Box>
     );
