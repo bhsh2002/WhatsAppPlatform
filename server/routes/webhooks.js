@@ -163,6 +163,8 @@ router.get('/', (req, res) => {
 
 // Webhook events handler (POST request from Meta)
 router.post('/', async (req, res) => {
+    console.log(`[Webhook] ★ POST received — headers: x-hub-signature-256=${req.headers['x-hub-signature-256'] ? 'present' : 'MISSING'}, content-type=${req.headers['content-type']}, body.object=${req.body?.object || 'EMPTY'}`);
+
     // Validate signature if APP_SECRET is provided
     if (APP_SECRET) {
         const signature = req.headers['x-hub-signature-256'];
