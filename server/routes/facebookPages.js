@@ -111,17 +111,18 @@ router.post('/tenant/:tenantId', async (req, res) => {
         let webhookError = null;
         try {
             const subscribedFields = JSON.parse(newPage.subscribed_fields || '["feed","messages","messaging_postbacks"]');
+            const fieldsString = Array.isArray(subscribedFields) ? subscribedFields.join(',') : subscribedFields;
             const subscribeResponse = await fetch(
                 `${META_API_BASE}/${page_id}/subscribed_apps`,
                 {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded',
                     },
-                    body: JSON.stringify({
+                    body: new URLSearchParams({
                         access_token: page_access_token,
-                        subscribed_fields: subscribedFields,
-                    }),
+                        subscribed_fields: fieldsString,
+                    }).toString(),
                 }
             );
             const subscribeData = await subscribeResponse.json();
@@ -339,16 +340,17 @@ router.post('/:id/subscribe', async (req, res) => {
         }
 
         const subscribedFields = JSON.parse(existing.subscribed_fields || '["feed","messages","messaging_postbacks"]');
+        const fieldsString = Array.isArray(subscribedFields) ? subscribedFields.join(',') : subscribedFields;
 
         const response = await fetch(
             `${META_API_BASE}/${existing.page_id}/subscribed_apps`,
             {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
                     access_token: accessToken,
-                    subscribed_fields: subscribedFields,
-                }),
+                    subscribed_fields: fieldsString,
+                }).toString(),
             }
         );
         const data = await response.json();
@@ -371,6 +373,37 @@ router.post('/:id/subscribe', async (req, res) => {
     } catch (error) {
         console.error('[FacebookPages] Subscribe error:', error);
         res.status(500).json({ error: 'فشل اشتراك Webhook' });
+    }
+});
+
+// ============================================
+// GET /:id/subscription-status — Check webhook subscription status
+// ============================================
+router.get('/:id/subscription-status', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(id);
+        if (!page) return res.status(404).json({ error: 'الصفحة غير موجودة' });
+
+        const accessToken = decrypt(page.page_access_token_encrypted);
+        if (!accessToken) {
+            return res.status(400).json({ error: 'رمز الوصول غير متوفر' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${accessToken}`
+        );
+        const data = await response.json();
+
+        res.json({
+            page_id: page.page_id,
+            page_name: page.page_name,
+            webhook_subscribed_in_db: !!page.webhook_subscribed,
+            meta_response: data,
+        });
+    } catch (error) {
+        console.error('[FacebookPages] Subscription status error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
