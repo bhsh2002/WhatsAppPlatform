@@ -20,10 +20,13 @@ const UnifiedInbox = () => {
     const [loading, setLoading] = useState(true);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [sending, setSending] = useState(false);
+    const [sendingDoc, setSendingDoc] = useState(false);
+    const [sendingInteractive, setSendingInteractive] = useState(false);
     const [newMessage, setNewMessage] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [channelFilter, setChannelFilter] = useState('');
     const [templates, setTemplates] = useState([]);
+    const [windowStatus, setWindowStatus] = useState(null);
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -49,6 +52,7 @@ const UnifiedInbox = () => {
 
     useEffect(() => {
         fetchConversations();
+        api.getMediaToken(); // Pre-fetch media token for image/doc URLs
     }, [fetchConversations]);
 
     const fetchMessages = useCallback(async (conv) => {
@@ -85,6 +89,19 @@ const UnifiedInbox = () => {
         }
     }, []);
 
+    const fetchWindowStatus = useCallback(async (contactId, tenantId) => {
+        if (!contactId || !tenantId) {
+            setWindowStatus(null);
+            return;
+        }
+        try {
+            const data = await api.getWindowStatus(contactId);
+            setWindowStatus(data);
+        } catch {
+            setWindowStatus(null);
+        }
+    }, []);
+
     const markAsRead = useCallback(async (msgs, conv) => {
         try {
             if (conv.channel === 'whatsapp') {
@@ -113,8 +130,10 @@ const UnifiedInbox = () => {
             });
             if (selectedChat.channel === 'whatsapp') {
                 fetchTemplates(selectedChat.tenant_id);
+                fetchWindowStatus(selectedChat.contact_id, selectedChat.tenant_id);
             } else {
                 setTemplates([]);
+                setWindowStatus(null);
             }
             const interval = setInterval(() => fetchMessages(selectedChat), 15000);
             return () => clearInterval(interval);
@@ -158,6 +177,89 @@ const UnifiedInbox = () => {
             console.error('Failed to send message:', err);
         } finally {
             setSending(false);
+        }
+    }, [selectedChat, fetchMessages, fetchConversations]);
+
+    const handleSendTemplate = useCallback(async (templateData) => {
+        if (!selectedChat || sending) return;
+        try {
+            setSending(true);
+            await api.sendMessage({
+                recipient: selectedChat.contact_id,
+                type: 'template',
+                templateName: templateData.name,
+                templateLanguage: templateData.language,
+                templateParams: templateData.components,
+                tenant_id: selectedChat.tenant_id,
+            });
+            await fetchMessages(selectedChat);
+            fetchConversations();
+        } catch (err) {
+            console.error('Failed to send template:', err);
+            alert('فشل إرسال القالب');
+        } finally {
+            setSending(false);
+        }
+    }, [selectedChat, sending, fetchMessages, fetchConversations]);
+
+    const handleSendDocument = useCallback(async (file, caption) => {
+        if (!file || !selectedChat) return;
+        try {
+            setSendingDoc(true);
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('recipient', selectedChat.contact_id);
+            formData.append('caption', caption || '');
+            formData.append('type', 'document');
+            formData.append('tenant_id', selectedChat.tenant_id);
+            await api.sendMediaFile(formData);
+            await fetchMessages(selectedChat);
+            fetchConversations();
+        } catch (err) {
+            console.error('Failed to send document:', err);
+            alert('فشل إرسال الملف');
+        } finally {
+            setSendingDoc(false);
+        }
+    }, [selectedChat, fetchMessages, fetchConversations]);
+
+    const handleSendImage = useCallback(async (file, caption) => {
+        if (!file || !selectedChat) return;
+        try {
+            setSendingDoc(true);
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('recipient', selectedChat.contact_id);
+            formData.append('caption', caption || '');
+            formData.append('type', 'image');
+            formData.append('tenant_id', selectedChat.tenant_id);
+            await api.sendMediaFile(formData);
+            await fetchMessages(selectedChat);
+            fetchConversations();
+        } catch (err) {
+            console.error('Failed to send image:', err);
+            alert('فشل إرسال الصورة');
+        } finally {
+            setSendingDoc(false);
+        }
+    }, [selectedChat, fetchMessages, fetchConversations]);
+
+    const handleSendInteractive = useCallback(async (data) => {
+        if (!selectedChat) return;
+        try {
+            setSendingInteractive(true);
+            await api.sendInteractiveMessage({
+                recipient: selectedChat.contact_id,
+                tenant_id: selectedChat.tenant_id,
+                ...data,
+            });
+            await fetchMessages(selectedChat);
+            fetchConversations();
+        } catch (err) {
+            console.error('Failed to send interactive:', err);
+            alert('فشل إرسال الرسالة التفاعلية');
+        } finally {
+            setSendingInteractive(false);
         }
     }, [selectedChat, fetchMessages, fetchConversations]);
 
@@ -280,14 +382,21 @@ const UnifiedInbox = () => {
                     loadingMessages={loadingMessages}
                     onBack={() => setSelectedChat(null)}
                     onSendMessage={handleSendMessage}
+                    onSendTemplate={handleSendTemplate}
+                    onSendDocument={handleSendDocument}
+                    onSendImage={handleSendImage}
+                    onSendInteractive={handleSendInteractive}
                     newMessage={newMessage}
                     setNewMessage={setNewMessage}
                     sending={sending}
+                    sendingDoc={sendingDoc}
+                    sendingInteractive={sendingInteractive}
                     messagesEndRef={messagesEndRef}
                     messagesContainerRef={messagesContainerRef}
                     getDisplayName={getDisplayName}
                     formatTime={formatTime}
                     templates={templates}
+                    windowStatus={windowStatus}
                 />
             </Box>
         </Box>
