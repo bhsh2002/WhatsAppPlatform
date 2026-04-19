@@ -80,5 +80,45 @@ export function runMigrationsSync(db) {
     if (appliedCount > 0) {
         console.log(`[Migrator] Done: ${appliedCount} applied, ${skippedCount} skipped`);
     }
+
+    // Ensure columns exist (safe for re-runs — catches duplicate column errors)
+    ensureAutomationColumns(db);
+
     return { applied: appliedCount, skipped: skippedCount };
+}
+
+/**
+ * Safely add a column to a table, ignoring "duplicate column" errors.
+ */
+function safeAddColumn(db, table, column, definition) {
+    try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+        console.log(`[Migrator] Added column ${table}.${column}`);
+    } catch (err) {
+        if (err.message.includes('duplicate column')) {
+            // Column already exists — no action needed
+        } else {
+            throw err;
+        }
+    }
+}
+
+/**
+ * Ensure all automation_rules columns exist.
+ * Handles cases where migration 018 ran before new columns were added.
+ */
+function ensureAutomationColumns(db) {
+    // Check if automation_rules table exists
+    const tableExists = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='automation_rules'"
+    ).get();
+    if (!tableExists) return;
+
+    safeAddColumn(db, 'automation_rules', 'target_post_id', 'TEXT');
+    safeAddColumn(db, 'automation_rules', 'target_page_id', 'INTEGER');
+    safeAddColumn(db, 'automation_rules', 'response_action', "TEXT DEFAULT 'comment'");
+    safeAddColumn(db, 'automation_rules', 'dm_text', 'TEXT');
+    safeAddColumn(db, 'automation_rules', 'trigger_on', "TEXT DEFAULT 'comment'");
+    safeAddColumn(db, 'automation_rules', 'auto_like', 'INTEGER DEFAULT 0');
+    safeAddColumn(db, 'automation_rules', 'auto_like_type', "TEXT DEFAULT 'like'");
 }
