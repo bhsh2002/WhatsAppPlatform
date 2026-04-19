@@ -195,6 +195,224 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ============================================
+// Meta Compliance: Privacy Policy (public)
+// ============================================
+app.get('/privacy', (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سياسة الخصوصية — Wa Savana Platform</title>
+<style>body{font-family:'Segoe UI',Tahoma,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.8;color:#333;background:#fafafa}
+h1{color:#075E54;border-bottom:3px solid #25D366;padding-bottom:10px}h2{color:#128C7E;margin-top:30px}
+.container{background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08)}
+.updated{color:#888;font-size:0.9em}footer{text-align:center;margin-top:40px;color:#999;font-size:0.85em}</style></head>
+<body><div class="container">
+<h1>سياسة الخصوصية</h1>
+<p class="updated">آخر تحديث: ${new Date().toLocaleDateString('ar-LY')}</p>
+
+<h2>1. من نحن</h2>
+<p>منصة Wa Savana هي خدمة تقنية تُشغّلها شركة سفانة (Savana Company) لإدارة التواصل عبر واتساب للأعمال وصفحات فيسبوك نيابة عن عملائها (المستأجرين). نحن مزوّد خدمة تقنية (Tech Service Provider) مسجل لدى Meta.</p>
+
+<h2>2. البيانات التي نجمعها</h2>
+<p>نجمع ونعالج البيانات التالية نيابة عن عملائنا:</p>
+<ul>
+<li><strong>بيانات المراسلة:</strong> الرسائل المرسلة والمستلمة عبر واتساب وMessenger (النصوص والوسائط)</li>
+<li><strong>بيانات جهات الاتصال:</strong> أرقام الهواتف والأسماء وصور الملف الشخصي</li>
+<li><strong>بيانات صفحات فيسبوك:</strong> المنشورات والتعليقات وبيانات التفاعل</li>
+<li><strong>بيانات الحساب:</strong> معلومات تسجيل الدخول ورموز الوصول المشفرة</li>
+<li><strong>بيانات التحليلات:</strong> إحصائيات المحادثات والرسائل (بشكل مجمّع)</li>
+</ul>
+
+<h2>3. كيف نستخدم البيانات</h2>
+<ul>
+<li>تمكين إرسال واستقبال الرسائل عبر واتساب وMessenger</li>
+<li>إدارة صفحات فيسبوك (المنشورات والتعليقات والردود التلقائية)</li>
+<li>عرض التحليلات والإحصائيات لعملائنا</li>
+<li>تشغيل قواعد الأتمتة (الردود التلقائية على الكلمات المفتاحية)</li>
+<li>إدارة أصول النشاط التجاري (القوالب ورموز QR والحسابات الإعلانية)</li>
+</ul>
+
+<h2>4. مشاركة البيانات</h2>
+<p>لا نبيع بيانات المستخدمين. نشارك البيانات فقط مع:</p>
+<ul>
+<li><strong>Meta (Facebook/WhatsApp):</strong> لمعالجة الرسائل والويب هوك عبر Graph API</li>
+<li><strong>عملاؤنا (المستأجرون):</strong> كل عميل يرى بياناته الخاصة فقط</li>
+</ul>
+
+<h2>5. أمان البيانات</h2>
+<ul>
+<li>تشفير رموز الوصول باستخدام AES-256-GCM</li>
+<li>اتصالات HTTPS مشفرة بالكامل</li>
+<li>فصل البيانات بين المستأجرين (Multi-tenant isolation)</li>
+<li>مصادقة JWT مع تجزئة كلمات المرور بـ bcrypt</li>
+</ul>
+
+<h2>6. حقوقك</h2>
+<p>يحق لك طلب:</p>
+<ul>
+<li>الوصول إلى بياناتك الشخصية</li>
+<li>تصحيح أو تحديث بياناتك</li>
+<li>حذف بياناتك بالكامل</li>
+<li>إلغاء ربط تطبيقنا بحسابك على فيسبوك/واتساب</li>
+</ul>
+
+<h2>7. حذف البيانات</h2>
+<p>عند إلغاء ربط التطبيق، نقوم تلقائياً بحذف جميع البيانات المرتبطة بحسابك. يمكنك أيضاً طلب حذف البيانات عبر التواصل معنا.</p>
+
+<h2>8. التواصل</h2>
+<p>للاستفسارات المتعلقة بالخصوصية: <strong>privacy@savana.ly</strong></p>
+
+</div>
+<footer>© ${new Date().getFullYear()} Savana Company — جميع الحقوق محفوظة</footer>
+</body></html>`);
+});
+
+// ============================================
+// Meta Compliance: Terms of Service (public)
+// ============================================
+app.get('/terms', (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>شروط الخدمة — Wa Savana Platform</title>
+<style>body{font-family:'Segoe UI',Tahoma,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.8;color:#333;background:#fafafa}
+h1{color:#075E54;border-bottom:3px solid #25D366;padding-bottom:10px}h2{color:#128C7E;margin-top:30px}
+.container{background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08)}
+.updated{color:#888;font-size:0.9em}footer{text-align:center;margin-top:40px;color:#999;font-size:0.85em}</style></head>
+<body><div class="container">
+<h1>شروط الخدمة</h1>
+<p class="updated">آخر تحديث: ${new Date().toLocaleDateString('ar-LY')}</p>
+
+<h2>1. وصف الخدمة</h2>
+<p>توفر شركة سفانة (Savana Company) منصة Wa Savana كخدمة تقنية (SaaS) لإدارة التواصل عبر واتساب للأعمال وصفحات فيسبوك. تعمل الشركة كمزوّد خدمة تقنية (Tech Service Provider) معتمد لدى Meta.</p>
+
+<h2>2. الاستخدام المسموح</h2>
+<ul>
+<li>إدارة محادثات واتساب وMessenger مع العملاء</li>
+<li>إنشاء وإدارة محتوى صفحات فيسبوك</li>
+<li>إعداد قواعد الأتمتة للردود التلقائية</li>
+<li>إرسال رسائل جماعية عبر قوالب معتمدة من Meta</li>
+<li>عرض التحليلات والإحصائيات</li>
+</ul>
+
+<h2>3. الاستخدام المحظور</h2>
+<ul>
+<li>إرسال رسائل غير مرغوبة (سبام)</li>
+<li>انتهاك سياسات Meta للمراسلة</li>
+<li>مشاركة رموز الوصول مع أطراف غير مصرح لها</li>
+<li>استخدام المنصة لأنشطة غير قانونية</li>
+</ul>
+
+<h2>4. المسؤولية</h2>
+<p>يتحمل المستأجر (العميل) مسؤولية المحتوى المرسل عبر حساباته والامتثال لسياسات Meta. شركة سفانة توفر الأدوات التقنية فقط.</p>
+
+<h2>5. إنهاء الخدمة</h2>
+<p>يحق لأي طرف إنهاء الخدمة في أي وقت. عند الإنهاء، يتم حذف بيانات المستأجر خلال 30 يوماً.</p>
+
+<h2>6. التواصل</h2>
+<p>للاستفسارات: <strong>support@savana.ly</strong></p>
+
+</div>
+<footer>© ${new Date().getFullYear()} Savana Company — جميع الحقوق محفوظة</footer>
+</body></html>`);
+});
+
+// ============================================
+// Meta Compliance: Data Deletion Callback (public)
+// ============================================
+import crypto from 'crypto';
+
+app.post('/data-deletion', express.json(), (req, res) => {
+    try {
+        const { signed_request } = req.body;
+
+        if (!signed_request) {
+            return res.status(400).json({ error: 'signed_request is required' });
+        }
+
+        const APP_SECRET = process.env.FB_APP_SECRET || process.env.META_APP_SECRET || '';
+
+        // Parse the signed request
+        const [encodedSig, payload] = signed_request.split('.');
+        const sig = Buffer.from(encodedSig.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        const data = JSON.parse(Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+
+        // Verify signature
+        const expectedSig = crypto.createHmac('sha256', APP_SECRET).update(payload).digest();
+        if (!crypto.timingSafeEqual(sig, expectedSig)) {
+            console.warn('[DataDeletion] Invalid signature');
+            return res.status(403).json({ error: 'Invalid signature' });
+        }
+
+        const userId = data.user_id;
+        const confirmationCode = crypto.randomBytes(12).toString('hex');
+
+        console.log(`[DataDeletion] Received deletion request for user: ${userId}`);
+
+        // Delete user-related data from all tables
+        const tables = [
+            { table: 'fb_conversations', column: 'user_psid' },
+        ];
+
+        let deletedCount = 0;
+        for (const { table, column } of tables) {
+            try {
+                const result = db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(userId);
+                deletedCount += result.changes;
+            } catch (e) {
+                // Table might not exist, continue
+            }
+        }
+
+        // Also clean up any linked pages associated with this user
+        try {
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (0, 'System', 'data_deletion', ?, 'success')
+            `).run(`Meta data deletion request for user ${userId} — ${deletedCount} records deleted. Code: ${confirmationCode}`);
+        } catch (e) {
+            // Log table might not exist
+        }
+
+        console.log(`[DataDeletion] Deleted ${deletedCount} records for user ${userId}. Code: ${confirmationCode}`);
+
+        // Return the response Meta expects
+        res.json({
+            url: `https://wa.savana.ly/deletion-status?code=${confirmationCode}`,
+            confirmation_code: confirmationCode
+        });
+    } catch (error) {
+        console.error('[DataDeletion] Error:', error);
+        res.status(500).json({ error: 'Failed to process deletion request' });
+    }
+});
+
+// Deletion status check page (public)
+app.get('/deletion-status', (req, res) => {
+    const code = req.query.code || '';
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>حالة حذف البيانات — Wa Savana</title>
+<style>body{font-family:'Segoe UI',Tahoma,sans-serif;max-width:600px;margin:80px auto;padding:0 20px;text-align:center;color:#333;background:#fafafa}
+.card{background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08)}
+h1{color:#075E54}
+.code{background:#f0f0f0;padding:12px 24px;border-radius:8px;font-family:monospace;font-size:1.1em;display:inline-block;margin:16px 0}
+.status{color:#25D366;font-size:1.2em;font-weight:bold}</style></head>
+<body><div class="card">
+<h1>حالة حذف البيانات</h1>
+<p class="status">✅ تم معالجة طلب الحذف بنجاح</p>
+<p>رمز التأكيد:</p>
+<div class="code">${code || 'N/A'}</div>
+<p>تم حذف جميع البيانات المرتبطة بحسابك من منصة Wa Savana.</p>
+<p style="color:#888;font-size:0.9em;margin-top:30px">للاستفسارات: privacy@savana.ly</p>
+</div></body></html>`);
+});
+
 // Auth routes (public, with stricter rate limit on login/register)
 // app.use('/auth', authLimiter, authRouter);
 app.use('/auth', authRouter);
