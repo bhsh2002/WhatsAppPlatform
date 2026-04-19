@@ -76,6 +76,7 @@ router.post('/rules', (req, res) => {
             response_template_name, response_template_language,
             cooldown_seconds,
             target_post_id, target_page_id, response_action, dm_text, trigger_on,
+            auto_like, auto_like_type,
         } = req.body;
 
         if (!name || !rule_type) {
@@ -111,8 +112,9 @@ router.post('/rules', (req, res) => {
                 response_type, response_text,
                 response_template_name, response_template_language,
                 cooldown_seconds,
-                target_post_id, target_page_id, response_action, dm_text, trigger_on
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                target_post_id, target_page_id, response_action, dm_text, trigger_on,
+                auto_like, auto_like_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             tenant_id || null,
             name,
@@ -137,6 +139,8 @@ router.post('/rules', (req, res) => {
             response_action || 'comment',
             dm_text || null,
             trigger_on || 'comment',
+            auto_like ? 1 : 0,
+            auto_like_type || 'like',
         );
 
         const newRule = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(result.lastInsertRowid);
@@ -164,6 +168,7 @@ router.put('/rules/:id', (req, res) => {
             response_template_name, response_template_language,
             cooldown_seconds,
             target_post_id, target_page_id, response_action, dm_text, trigger_on,
+            auto_like, auto_like_type,
         } = req.body;
 
         db.prepare(`
@@ -191,6 +196,8 @@ router.put('/rules/:id', (req, res) => {
                 response_action = ?,
                 dm_text = ?,
                 trigger_on = ?,
+                auto_like = ?,
+                auto_like_type = ?,
                 updated_at = datetime('now')
             WHERE id = ?
         `).run(
@@ -219,6 +226,8 @@ router.put('/rules/:id', (req, res) => {
             response_action !== undefined ? response_action : existing.response_action,
             dm_text !== undefined ? (dm_text || null) : existing.dm_text,
             trigger_on !== undefined ? trigger_on : (existing.trigger_on || 'comment'),
+            auto_like !== undefined ? (auto_like ? 1 : 0) : (existing.auto_like || 0),
+            auto_like_type !== undefined ? auto_like_type : (existing.auto_like_type || 'like'),
             req.params.id,
         );
 

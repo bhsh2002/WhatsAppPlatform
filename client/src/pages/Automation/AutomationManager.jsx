@@ -92,6 +92,8 @@ const emptyRule = {
     response_action: 'comment',
     dm_text: '',
     trigger_on: 'comment',
+    auto_like: false,
+    auto_like_type: 'like',
 };
 
 const AutomationManager = () => {
@@ -221,6 +223,8 @@ const AutomationManager = () => {
             response_action: rule.response_action || 'comment',
             dm_text: rule.dm_text || '',
             trigger_on: rule.trigger_on || 'comment',
+            auto_like: !!rule.auto_like,
+            auto_like_type: rule.auto_like_type || 'like',
         });
         if (rule.target_page_id) fetchPostsForPage(rule.target_page_id);
         setDialogOpen(true);
@@ -244,6 +248,8 @@ const AutomationManager = () => {
                 response_action: isComment ? formData.response_action : 'comment',
                 dm_text: isComment ? (formData.dm_text || null) : null,
                 trigger_on: isComment ? formData.trigger_on : 'comment',
+                auto_like: isComment ? formData.auto_like : false,
+                auto_like_type: isComment ? formData.auto_like_type : 'like',
             };
 
             if (editingRule) {
@@ -811,6 +817,20 @@ const AutomationManager = () => {
                                         />
                                     ))}
                                 </RadioGroup>
+
+                                {/* Auto-like toggle */}
+                                {(formData.trigger_on === 'comment' || formData.trigger_on === 'both') && (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={formData.auto_like}
+                                                onChange={e => setFormData(p => ({ ...p, auto_like: e.target.checked }))}
+                                                color="primary"
+                                            />
+                                        }
+                                        label="إعجاب تلقائي على التعليق"
+                                    />
+                                )}
                             </>
                         )}
 

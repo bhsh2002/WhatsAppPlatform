@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS automation_rules_new (
     dm_text TEXT,
     trigger_on TEXT DEFAULT 'comment' CHECK(trigger_on IN ('comment', 'reaction', 'both')),
 
+    -- Auto-like/react to the comment
+    auto_like INTEGER DEFAULT 0,
+    auto_like_type TEXT DEFAULT 'like',
+
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

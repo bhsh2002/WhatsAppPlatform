@@ -72,6 +72,7 @@ const FacebookPageManager = () => {
     const [autoForm, setAutoForm] = useState({
         name: '', match_pattern: '', response_text: '', dm_text: '',
         response_action: 'comment', cooldown_seconds: 300, trigger_on: 'comment',
+        auto_like: false,
     });
     const [autoSaving, setAutoSaving] = useState(false);
 
@@ -298,6 +299,7 @@ const FacebookPageManager = () => {
             response_action: 'comment',
             cooldown_seconds: 300,
             trigger_on: 'comment',
+            auto_like: false,
         });
         setAutoDialogOpen(true);
         fetchAutoRules(post.id);
@@ -338,6 +340,7 @@ const FacebookPageManager = () => {
                 response_action: autoForm.response_action,
                 cooldown_seconds: autoForm.cooldown_seconds,
                 trigger_on: autoForm.trigger_on,
+                auto_like: autoForm.auto_like,
                 is_active: true,
                 priority: 100,
             });
@@ -795,6 +798,21 @@ const FacebookPageManager = () => {
                             <FormControlLabel value="dm" control={<Radio size="small" />} label="رسالة خاصة" />
                             <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" disabled={autoForm.trigger_on === 'reaction'} />
                         </RadioGroup>
+
+                        {/* Auto-like toggle */}
+                        {(autoForm.trigger_on === 'comment' || autoForm.trigger_on === 'both') && (
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={autoForm.auto_like}
+                                        onChange={e => setAutoForm(p => ({ ...p, auto_like: e.target.checked }))}
+                                        color="primary"
+                                        size="small"
+                                    />
+                                }
+                                label="إعجاب تلقائي على التعليق"
+                            />
+                        )}
 
                         {(autoForm.response_action === 'comment' || autoForm.response_action === 'both') && (
                             <TextField

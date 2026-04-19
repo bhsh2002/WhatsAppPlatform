@@ -697,7 +697,28 @@ async function sendCommentAutoReply(rule, {
         }
     }
 
-    return publicSent || dmSent;
+    // 3. Auto-like/react to the comment
+    if (rule.auto_like) {
+        try {
+            const likeResponse = await fetch(`${META_API_BASE}/${comment_id}/likes`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            });
+
+            if (likeResponse.ok) {
+                console.log(`[AutoResponder] Liked comment ${comment_id}`);
+            } else {
+                const likeData = await likeResponse.json();
+                console.error(`[AutoResponder] Like failed:`, likeData.error?.message);
+            }
+        } catch (err) {
+            console.error(`[AutoResponder] Like error:`, err.message);
+        }
+    }
+
+    return publicSent || dmSent || !!rule.auto_like;
 }
 
 // ============================================
