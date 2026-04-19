@@ -2169,4 +2169,409 @@ router.post('/mark-read', async (req, res) => {
     }
 });
 
+// ============================================
+// UNIFIED INBOX — Tenant-scoped (WhatsApp + Messenger)
+// ============================================
+
+/**
+ * GET /portal/unified/conversations
+ * Returns both WhatsApp and Messenger conversations for this tenant
+ */
+router.get('/unified/conversations', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { channel: channelFilter } = req.query;
+
+        const waConversations = [];
+        if (!channelFilter || channelFilter === 'whatsapp') {
+            const waQuery = `
+                SELECT
+                    'whatsapp' as channel,
+                    t.contact as contact_id,
+                    t.tenant_id,
+                    tenants.name as tenant_name,
+                    t.created_at as last_message_time,
+                    t.content as last_message,
+                    t.message_type as last_message_type,
+                    c.profile_name as display_name,
+                    c.profile_picture_url as avatar_url,
+                    (SELECT COUNT(*) FROM messages m2
+                     WHERE m2.sender = t.contact
+                     AND m2.direction = 'incoming'
+                     AND m2.status = 'received'
+                     AND m2.tenant_id = ?
+                    ) as unread_count,
+                    NULL as linked_page_id,
+                    NULL as page_name
+                FROM (
+                    SELECT
+                        id, content, created_at, message_type, tenant_id,
+                        CASE WHEN direction = 'incoming' THEN sender ELSE recipient END as contact,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY (
+                                CASE WHEN direction = 'incoming' THEN sender ELSE recipient END
+                            )
+                            ORDER BY created_at DESC, id DESC
+                        ) as rn
+                    FROM messages
+                    WHERE tenant_id = ?
+                ) t
+                LEFT JOIN contacts c ON c.phone = t.contact AND c.tenant_id = ?
+                LEFT JOIN tenants ON tenants.id = t.tenant_id
+                WHERE rn = 1
+            `;
+            waConversations.push(...db.prepare(waQuery).all(tenantId, tenantId, tenantId));
+        }
+
+        const fbConversations = [];
+        if (!channelFilter || channelFilter === 'messenger') {
+            const fbQuery = `
+                SELECT
+                    'messenger' as channel,
+                    fc.user_psid as contact_id,
+                    fc.tenant_id,
+                    tenants.name as tenant_name,
+                    fc.last_message_time,
+                    fc.last_message,
+                    NULL as last_message_type,
+                    fc.user_name as display_name,
+                    fc.user_profile_pic as avatar_url,
+                    fc.unread_count,
+                    fc.linked_page_id,
+                    tp.page_name,
+                    fc.id as conversation_id,
+                    fc.page_id
+                FROM fb_conversations fc
+                LEFT JOIN tenants ON tenants.id = fc.tenant_id
+                LEFT JOIN tenant_pages tp ON tp.id = fc.linked_page_id
+                WHERE fc.is_active = 1 AND fc.tenant_id = ?
+                ORDER BY fc.last_message_time DESC NULLS LAST
+            `;
+            fbConversations.push(...db.prepare(fbQuery).all(tenantId));
+        }
+
+        const unified = [...waConversations, ...fbConversations]
+            .sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
+
+        res.json(unified);
+    } catch (error) {
+        console.error('[TenantPortal] Unified conversations error:', error);
+        res.status(500).json({ error: 'فشل جلب المحادثات' });
+    }
+});
+
+/**
+ * GET /portal/unified/:channel/:id/messages
+ * Fetch messages for a specific conversation (WhatsApp or Messenger)
+ */
+router.get('/unified/:channel/:id/messages', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { channel } = req.params;
+        const contactId = decodeURIComponent(req.params.id);
+        const { conversation_id } = req.query;
+
+        if (channel === 'whatsapp') {
+            const messages = db.prepare(`
+                SELECT * FROM messages
+                WHERE (sender = ? OR recipient = ?) AND tenant_id = ?
+                ORDER BY created_at ASC
+            `).all(contactId, contactId, tenantId);
+
+            // Mark as read
+            db.prepare(`
+                UPDATE messages SET status = 'read'
+                WHERE sender = ? AND direction = 'incoming' AND status = 'received' AND tenant_id = ?
+            `).run(contactId, tenantId);
+
+            res.json(messages);
+        } else if (channel === 'messenger') {
+            if (!conversation_id) {
+                return res.status(400).json({ error: 'conversation_id مطلوب' });
+            }
+
+            // Verify conversation belongs to this tenant
+            const conv = db.prepare('SELECT id FROM fb_conversations WHERE id = ? AND tenant_id = ?')
+                .get(parseInt(conversation_id), tenantId);
+            if (!conv) {
+                return res.status(404).json({ error: 'المحادثة غير موجودة' });
+            }
+
+            const messages = db.prepare(`
+                SELECT
+                    id, 'messenger' as channel, direction,
+                    sender_name,
+                    message_text,
+                    CASE
+                        WHEN attachment_type IS NOT NULL THEN attachment_type
+                        WHEN sticker_url IS NOT NULL THEN 'sticker'
+                        ELSE 'text'
+                    END as message_type,
+                    attachment_url,
+                    sticker_url,
+                    is_read,
+                    created_at
+                FROM fb_messages
+                WHERE conversation_id = ? AND tenant_id = ?
+                ORDER BY created_at ASC
+            `).all(parseInt(conversation_id), tenantId);
+
+            res.json(messages);
+        } else {
+            res.status(400).json({ error: 'القناة غير صالحة' });
+        }
+    } catch (error) {
+        console.error('[TenantPortal] Unified messages error:', error);
+        res.status(500).json({ error: 'فشل جلب الرسائل' });
+    }
+});
+
+/**
+ * POST /portal/unified/:channel/:id/send
+ * Send a text message via WhatsApp or Messenger
+ */
+router.post('/unified/:channel/:id/send', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { channel } = req.params;
+        const contactId = decodeURIComponent(req.params.id);
+        const { message, linked_page_id } = req.body;
+
+        if (!message || !message.trim()) {
+            return res.status(400).json({ error: 'الرسالة مطلوبة' });
+        }
+
+        // Get tenant info
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+        if (tenant.status === 'Suspended') {
+            return res.status(403).json({ error: 'حسابك معلّق' });
+        }
+
+        if (channel === 'whatsapp') {
+            const accessToken = getAccessToken(tenantId);
+            const phoneNumberId = tenant.phone_number_id;
+
+            if (!phoneNumberId || !accessToken) {
+                return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+            }
+
+            const formattedNumber = contactId.replace(/\+/g, '').trim();
+
+            const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    messaging_product: 'whatsapp',
+                    to: formattedNumber,
+                    type: 'text',
+                    text: { body: message.trim() },
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                const messageId = data.messages?.[0]?.id;
+                db.prepare(`
+                    INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
+                    VALUES (?, 'outgoing', ?, ?, 'text', ?, 'sent', ?)
+                `).run(tenantId, phoneNumberId, formattedNumber, message.trim(), messageId);
+
+                eventBus.emitNewMessage({
+                    tenant_id: tenantId,
+                    tenant_name: tenant.name,
+                    direction: 'outgoing',
+                    sender: phoneNumberId,
+                    recipient: formattedNumber,
+                    content: message.trim(),
+                    wamid: messageId,
+                });
+                eventBus.emitConversationUpdate(tenantId);
+
+                res.json({ success: true, message_id: messageId });
+            } else {
+                res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرسالة' });
+            }
+        } else if (channel === 'messenger') {
+            if (!linked_page_id) {
+                return res.status(400).json({ error: 'linked_page_id مطلوب' });
+            }
+
+            // Verify page belongs to this tenant
+            const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND tenant_id = ? AND is_active = 1')
+                .get(linked_page_id, tenantId);
+            if (!page) {
+                return res.status(404).json({ error: 'الصفحة غير موجودة' });
+            }
+
+            const accessToken = page.page_access_token_encrypted
+                ? decryptIfEncrypted(page.page_access_token_encrypted)
+                : null;
+            if (!accessToken) {
+                return res.status(400).json({ error: 'رمز الوصول غير متوفر' });
+            }
+
+            const conv = db.prepare(
+                'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1'
+            ).get(contactId, linked_page_id, tenantId);
+
+            const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    recipient: { id: contactId },
+                    messaging_type: 'RESPONSE',
+                    message: { text: message.trim() },
+                }),
+            });
+
+            const sendData = await sendResponse.json();
+
+            if (sendResponse.ok) {
+                const mid = sendData.message_id;
+
+                if (conv) {
+                    db.prepare(`
+                        INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
+                        VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
+                    `).run(conv.id, tenantId, mid, page.page_id, page.page_name, message.trim());
+
+                    db.prepare(`
+                        UPDATE fb_conversations
+                        SET last_message = ?, last_message_time = datetime('now')
+                        WHERE id = ?
+                    `).run(message.trim().substring(0, 100), conv.id);
+
+                    eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
+                        tenant_id: tenantId,
+                        page_id: page.page_id,
+                        conversation_id: conv.id,
+                        direction: 'outgoing',
+                    });
+                }
+
+                res.json({ success: true, message_id: mid });
+            } else {
+                res.status(sendResponse.status).json({ error: sendData.error?.message || 'فشل إرسال الرسالة' });
+            }
+        } else {
+            res.status(400).json({ error: 'القناة غير صالحة' });
+        }
+    } catch (error) {
+        console.error('[TenantPortal] Unified send error:', error);
+        res.status(500).json({ error: 'فشل إرسال الرسالة' });
+    }
+});
+
+/**
+ * POST /portal/unified/messenger/sync
+ * Sync Messenger conversations for all tenant's linked pages
+ */
+router.post('/unified/messenger/sync', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+
+        // Get all active pages for this tenant
+        const pages = db.prepare('SELECT * FROM tenant_pages WHERE tenant_id = ? AND is_active = 1').all(tenantId);
+        if (pages.length === 0) {
+            return res.json({ success: true, synced_conversations: 0, synced_messages: 0, message: 'لا توجد صفحات مرتبطة' });
+        }
+
+        let totalConversations = 0;
+        let totalMessages = 0;
+
+        for (const page of pages) {
+            const accessToken = page.page_access_token_encrypted
+                ? decryptIfEncrypted(page.page_access_token_encrypted)
+                : null;
+            if (!accessToken) continue;
+
+            try {
+                const response = await fetch(
+                    `${META_API_BASE}/${page.page_id}/conversations?fields=participants,messages.limit(10){message,from,created_time,attachments},updated_time&limit=25`,
+                    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+                );
+                const data = await response.json();
+                if (!response.ok || data.error) continue;
+
+                for (const conv of (data.data || [])) {
+                    const participants = conv.participants?.data || [];
+                    const userParticipant = participants.find(p => p.id !== page.page_id);
+                    if (!userParticipant) continue;
+
+                    const userPsid = userParticipant.id;
+                    const userName = userParticipant.name || null;
+                    const messages = conv.messages?.data || [];
+                    const lastMsg = messages.length > 0
+                        ? messages.reduce((a, b) => (a.created_time > b.created_time ? a : b))
+                        : null;
+                    const lastMsgText = lastMsg ? (lastMsg.message || '[مرفق]').substring(0, 100) : '';
+                    const lastMsgTime = conv.updated_time || (lastMsg ? lastMsg.created_time : null) || new Date().toISOString();
+
+                    let dbConv = db.prepare(
+                        'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
+                    ).get(page.id, userPsid);
+
+                    if (!dbConv) {
+                        db.prepare(`
+                            INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                        `).run(tenantId, page.id, page.page_id, userPsid, userName, null, lastMsgText, lastMsgTime);
+
+                        dbConv = db.prepare(
+                            'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
+                        ).get(page.id, userPsid);
+                        totalConversations++;
+                    } else {
+                        const existingTime = dbConv.last_message_time ? new Date(dbConv.last_message_time).getTime() : 0;
+                        const newTime = new Date(lastMsgTime).getTime();
+                        if (newTime > existingTime) {
+                            db.prepare(`
+                                UPDATE fb_conversations SET
+                                    last_message = ?, last_message_time = ?,
+                                    user_name = COALESCE(?, user_name),
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            `).run(lastMsgText, lastMsgTime, userName, dbConv.id);
+                        }
+                    }
+
+                    for (const msg of messages) {
+                        const mid = msg.mid || `${dbConv.id}_${msg.from?.id || 'unknown'}_${msg.created_time || Date.now()}`;
+                        const existing = db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid);
+                        if (existing) continue;
+
+                        const direction = msg.from?.id === page.page_id ? 'outgoing' : 'incoming';
+                        db.prepare(`
+                            INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        `).run(dbConv.id, tenantId, mid, direction, msg.from?.id, msg.from?.name, msg.message || '', msg.created_time || new Date().toISOString());
+                        totalMessages++;
+                    }
+                }
+            } catch (pageErr) {
+                console.error(`[TenantPortal] Sync error for page ${page.page_id}:`, pageErr);
+            }
+        }
+
+        res.json({
+            success: true,
+            synced_conversations: totalConversations,
+            synced_messages: totalMessages,
+        });
+    } catch (error) {
+        console.error('[TenantPortal] Messenger sync error:', error);
+        res.status(500).json({ error: 'فشل مزامنة المحادثات' });
+    }
+});
+
 export default router;

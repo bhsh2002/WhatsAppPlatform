@@ -78,7 +78,7 @@ const Sidebar = () => {
     // Tenant navigation items
     const tenantNavItems = [
         { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
-        { label: 'المحادثات', path: '/portal/chat', icon: <ChatIcon /> },
+        { label: 'صندوق الوارد', path: '/portal/inbox', icon: <InboxIcon /> },
         { label: 'جهات الاتصال', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
         { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
         { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },

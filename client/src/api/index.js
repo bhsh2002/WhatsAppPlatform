@@ -383,6 +383,33 @@ class ApiService {
         });
     }
 
+    // ============================================
+    // Portal Unified Inbox (WhatsApp + Messenger)
+    // ============================================
+
+    async getPortalUnifiedConversations(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/unified/conversations${query ? '?' + query : ''}`);
+    }
+
+    async getPortalUnifiedMessages(channel, contactId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/unified/${channel}/${encodeURIComponent(contactId)}/messages${query ? '?' + query : ''}`);
+    }
+
+    async sendPortalUnifiedMessage(channel, contactId, data) {
+        return this.request(`/api/portal/unified/${channel}/${encodeURIComponent(contactId)}/send`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async syncPortalMessenger() {
+        return this.request('/api/portal/unified/messenger/sync', {
+            method: 'POST',
+        });
+    }
+
     async sendInteractiveMessage(data) {
         return this.request('/api/messages/send-interactive', {
             method: 'POST',
