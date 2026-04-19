@@ -285,4 +285,118 @@ router.post('/:linkedPageId/sync', async (req, res) => {
     }
 });
 
+// ============================================
+// Send utility message (MESSAGE_TAG) — outside 24-hour window
+// Justifies pages_utility_messages permission
+// ============================================
+const VALID_MESSAGE_TAGS = [
+    'CONFIRMED_EVENT_UPDATE',   // Event reminders/updates
+    'POST_PURCHASE_UPDATE',     // Order status, shipping, receipts
+    'ACCOUNT_UPDATE',           // Account changes, payment issues
+    'HUMAN_AGENT',              // Human agent response (7-day window)
+];
+
+router.post('/:linkedPageId/conversations/:conversationId/utility-message', async (req, res) => {
+    try {
+        const { linkedPageId, conversationId } = req.params;
+        const { message, tag } = req.body;
+
+        if (!message || !tag) {
+            return res.status(400).json({ error: 'نص الرسالة ونوع العلامة مطلوبان' });
+        }
+
+        if (!VALID_MESSAGE_TAGS.includes(tag)) {
+            return res.status(400).json({
+                error: `علامة غير صالحة: ${tag}`,
+                valid_tags: VALID_MESSAGE_TAGS
+            });
+        }
+
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        const conv = db.prepare('SELECT * FROM fb_conversations WHERE id = ? AND linked_page_id = ?').get(conversationId, linkedPageId);
+        if (!conv) {
+            return res.status(404).json({ error: 'المحادثة غير موجودة' });
+        }
+
+        // Send via Meta Send API with MESSAGE_TAG
+        const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                recipient: { id: conv.user_psid },
+                messaging_type: 'MESSAGE_TAG',
+                tag: tag,
+                message: { text: message },
+            }),
+        });
+
+        const sendData = await sendResponse.json();
+
+        if (!sendResponse.ok || sendData.error) {
+            return res.status(sendResponse.status || 400).json({
+                error: sendData.error?.message || 'فشل إرسال الرسالة',
+                details: sendData.error,
+            });
+        }
+
+        const mid = sendData.message_id;
+
+        // Store outgoing message
+        db.prepare(`
+            INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, created_at)
+            VALUES (?, ?, ?, 'outgoing', ?, ?, ?, ?)
+        `).run(conv.id, conv.tenant_id, mid, page.page_id, page.page_name, `[${tag}] ${message}`, new Date().toISOString());
+
+        // Update conversation
+        db.prepare(`
+            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(message.substring(0, 100), new Date().toISOString(), conv.id);
+
+        // Emit SSE
+        eventBus.broadcast('admin', 'fb_message:new', {
+            tenant_id: conv.tenant_id,
+            page_id: conv.page_id,
+            conversation_id: conv.id,
+            direction: 'outgoing',
+            sender_id: page.page_id,
+            sender_name: page.page_name,
+            message: `[${tag}] ${message}`,
+            tag,
+        });
+
+        res.status(201).json({ id: mid, conversation_id: conv.id, tag });
+    } catch (error) {
+        console.error('[FBMessenger] Utility message error:', error);
+        res.status(500).json({ error: 'فشل إرسال الرسالة' });
+    }
+});
+
+// ============================================
+// Get available message tags
+// ============================================
+router.get('/message-tags', (req, res) => {
+    res.json({
+        tags: VALID_MESSAGE_TAGS.map(tag => ({
+            value: tag,
+            label: {
+                'CONFIRMED_EVENT_UPDATE': 'تحديث موعد / فعالية مؤكدة',
+                'POST_PURCHASE_UPDATE': 'تحديث ما بعد الشراء (حالة الطلب)',
+                'ACCOUNT_UPDATE': 'تحديث الحساب',
+                'HUMAN_AGENT': 'رد وكيل بشري (نافذة 7 أيام)',
+            }[tag],
+            description: {
+                'CONFIRMED_EVENT_UPDATE': 'Send updates about confirmed events the user signed up for',
+                'POST_PURCHASE_UPDATE': 'Send order status, shipping updates, or receipts',
+                'ACCOUNT_UPDATE': 'Send notifications about account changes or payment issues',
+                'HUMAN_AGENT': 'Send human agent response within 7-day window',
+            }[tag],
+        })),
+    });
+});
+
 export default router;

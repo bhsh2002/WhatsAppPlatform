@@ -251,7 +251,7 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
             const userPsid = contactId;
 
-            const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            let sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -264,7 +264,25 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                 }),
             });
 
-            const sendData = await sendResponse.json();
+            let sendData = await sendResponse.json();
+
+            // Fallback to HUMAN_AGENT tag if outside 24-hour window
+            if (!sendResponse.ok && sendData.error?.code === 10) {
+                sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        recipient: { id: userPsid },
+                        messaging_type: 'MESSAGE_TAG',
+                        tag: 'HUMAN_AGENT',
+                        message: { text: message.trim() },
+                    }),
+                });
+                sendData = await sendResponse.json();
+            }
 
             if (sendResponse.ok) {
                 const mid = sendData.message_id;

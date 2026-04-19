@@ -2075,13 +2075,14 @@ router.post('/conversions/log-event', async (req, res) => {
             event_time: Math.floor(Date.now() / 1000),
             action_source: 'business_messaging',
             messaging_channel: 'whatsapp',
-            user_data: {}
+            user_data: {},
+            data_processing_options: [],
         };
 
         if (phone) {
             formattedEvent.user_data.phones = [crypto.createHash('sha256').update(phone.toLowerCase().trim()).digest('hex')];
         }
-        if (wamid) formattedEvent.user_data.madid = wamid;
+        if (wamid) formattedEvent.user_data.lead_id = wamid;
         if (custom_data) formattedEvent.custom_data = custom_data;
 
         const response = await fetch(`${META_API_BASE}/${datasetId}/events`, {
@@ -2421,7 +2422,7 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                 'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1'
             ).get(contactId, linked_page_id, tenantId);
 
-            const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            let sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -2434,7 +2435,25 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                 }),
             });
 
-            const sendData = await sendResponse.json();
+            let sendData = await sendResponse.json();
+
+            // Fallback to HUMAN_AGENT tag if outside 24-hour window
+            if (!sendResponse.ok && sendData.error?.code === 10) {
+                sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        recipient: { id: contactId },
+                        messaging_type: 'MESSAGE_TAG',
+                        tag: 'HUMAN_AGENT',
+                        message: { text: message.trim() },
+                    }),
+                });
+                sendData = await sendResponse.json();
+            }
 
             if (sendResponse.ok) {
                 const mid = sendData.message_id;

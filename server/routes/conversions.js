@@ -100,7 +100,8 @@ router.post('/events/:datasetId', async (req, res) => {
                 event_time: event.event_time || Math.floor(Date.now() / 1000),
                 action_source: event.action_source || 'business_messaging',
                 messaging_channel: 'whatsapp',
-                user_data: {}
+                user_data: {},
+                data_processing_options: [],
             };
 
             // Hash phone number if provided
@@ -113,9 +114,9 @@ router.post('/events/:datasetId', async (req, res) => {
                 formattedEvent.user_data.emails = [hashData(event.email)];
             }
 
-            // WAMID for message attribution
+            // WAMID for message attribution — must be at event level, not in user_data
             if (event.wamid) {
-                formattedEvent.user_data.madid = event.wamid;
+                formattedEvent.user_data.lead_id = event.wamid;
             }
 
             // Custom data (value, currency, content, etc.)
@@ -314,11 +315,12 @@ router.post('/log-event', async (req, res) => {
             event_time: Math.floor(Date.now() / 1000),
             action_source: 'business_messaging',
             messaging_channel: 'whatsapp',
-            user_data: {}
+            user_data: {},
+            data_processing_options: [],
         };
 
         if (phone) formattedEvent.user_data.phones = [hashData(phone)];
-        if (wamid) formattedEvent.user_data.madid = wamid;
+        if (wamid) formattedEvent.user_data.lead_id = wamid;
         if (custom_data) formattedEvent.custom_data = custom_data;
 
         const response = await fetch(
