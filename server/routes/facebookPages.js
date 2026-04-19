@@ -408,6 +408,67 @@ router.get('/:id/subscription-status', async (req, res) => {
 });
 
 // ============================================
+// GET /webhook-diagnostic — Full diagnostic of webhook configuration
+// ============================================
+router.get('/webhook-diagnostic', async (req, res) => {
+    try {
+        const appId = META_APP_ID;
+        const appSecret = META_APP_SECRET;
+
+        if (!appId || !appSecret) {
+            return res.status(400).json({ error: 'META_APP_ID/META_APP_SECRET not set' });
+        }
+
+        const appAccessToken = `${appId}|${appSecret}`;
+        const results = { app_id: appId, api_version: META_API_BASE };
+
+        // 1. Check app-level subscriptions
+        const subsRes = await fetch(`${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`);
+        results.app_subscriptions = await subsRes.json();
+
+        // 2. Check all linked pages
+        const pages = db.prepare('SELECT * FROM tenant_pages WHERE is_active = 1').all();
+        results.linked_pages = [];
+
+        for (const page of pages) {
+            const pageToken = decrypt(page.page_access_token_encrypted);
+            const pageInfo = {
+                id: page.id,
+                page_id: page.page_id,
+                page_name: page.page_name,
+                webhook_subscribed_in_db: !!page.webhook_subscribed,
+            };
+
+            if (pageToken) {
+                // Check page-level subscription
+                const pageSubRes = await fetch(
+                    `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${pageToken}`
+                );
+                pageInfo.page_subscription = await pageSubRes.json();
+
+                // Check token permissions
+                const debugRes = await fetch(
+                    `${META_API_BASE}/debug_token?input_token=${pageToken}&access_token=${appAccessToken}`
+                );
+                const debugData = await debugRes.json();
+                pageInfo.token_scopes = debugData.data?.scopes || [];
+                pageInfo.token_valid = debugData.data?.is_valid || false;
+                pageInfo.token_expires_at = debugData.data?.expires_at || null;
+            } else {
+                pageInfo.error = 'Cannot decrypt page token';
+            }
+
+            results.linked_pages.push(pageInfo);
+        }
+
+        res.json(results);
+    } catch (error) {
+        console.error('[FacebookPages] Diagnostic error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
 // POST /setup-app-webhook — Configure app-level webhook for Page events
 // Uses Graph API /{app-id}/subscriptions to bypass the dashboard
 // ============================================
