@@ -6,11 +6,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../config/index.js';
-import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/upload.js';
+import { documentUpload, mediaUpload, simpleUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
 import { decryptIfEncrypted } from '../services/encryption.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
 import { getAccessToken } from '../services/credentials.js';
+import { testRules } from '../services/autoResponder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2590,6 +2591,947 @@ router.post('/unified/messenger/sync', async (req, res) => {
     } catch (error) {
         console.error('[TenantPortal] Messenger sync error:', error);
         res.status(500).json({ error: 'فشل مزامنة المحادثات' });
+    }
+});
+
+// ============================================
+// Tenant-scoped page credential resolver
+// ============================================
+const resolveTenantPage = (linkedPageId, tenantId) => {
+    const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND tenant_id = ? AND is_active = 1')
+        .get(linkedPageId, tenantId);
+    if (!page) return { error: 'الصفحة غير موجودة أو غير مفعلة', status: 404 };
+    const accessToken = page.page_access_token_encrypted
+        ? decryptIfEncrypted(page.page_access_token_encrypted)
+        : null;
+    if (!accessToken) return { error: 'رمز الوصول غير متوفر أو غير صالح', status: 400 };
+    return { page, accessToken };
+};
+
+// ============================================
+// Component 1: Tenant Page Management
+// ============================================
+router.get('/pages', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const pages = db.prepare(`
+            SELECT id, tenant_id, platform, page_id, page_name, page_category, page_picture_url,
+                   is_active, subscribed_fields, webhook_subscribed, created_at, updated_at
+            FROM tenant_pages
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC
+        `).all(tenantId);
+        res.json(pages);
+    } catch (error) {
+        console.error('[TenantPortal] Pages list error:', error);
+        res.status(500).json({ error: 'فشل جلب صفحات فيسبوك' });
+    }
+});
+
+router.get('/pages/:id/subscription-status', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { page, accessToken, error, status } = resolveTenantPage(req.params.id, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const response = await fetch(
+            `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${accessToken}`
+        );
+        const data = await response.json();
+
+        res.json({
+            page_id: page.page_id,
+            page_name: page.page_name,
+            webhook_subscribed_in_db: !!page.webhook_subscribed,
+            meta_response: data,
+        });
+    } catch (error) {
+        console.error('[TenantPortal] Subscription status error:', error);
+        res.status(500).json({ error: 'فشل جلب حالة الاشتراك' });
+    }
+});
+
+// ============================================
+// Component 2: Tenant Content Management (Posts & Comments)
+// ============================================
+router.get('/fb-content/:linkedPageId/posts', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const { limit = 25, after } = req.query;
+        const fields = [
+            'id', 'message', 'created_time', 'full_picture', 'permalink_url',
+            'is_published', 'scheduled_publish_time',
+            'attachments{title,url,description,media,type}',
+        ].join(',');
+        let url = `${META_API_BASE}/${page.page_id}/posts?fields=${fields}&limit=${limit}`;
+        if (after) url += `&after=${after}`;
+
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب المنشورات', details: data.error });
+        }
+
+        res.json({ posts: data.data || [], paging: data.paging || null });
+    } catch (error) {
+        console.error('[TenantPortal] List posts error:', error);
+        res.status(500).json({ error: 'فشل جلب المنشورات' });
+    }
+});
+
+router.post('/fb-content/:linkedPageId/posts', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const { message, link, published, scheduled_publish_time } = req.body;
+        if (!message && !link) {
+            return res.status(400).json({ error: 'نص المنشور أو الرابط مطلوب' });
+        }
+
+        const body = {};
+        if (message) body.message = message;
+        if (link) body.link = link;
+        if (published === false) {
+            body.published = false;
+            if (scheduled_publish_time) body.scheduled_publish_time = scheduled_publish_time;
+        }
+
+        const response = await fetch(`${META_API_BASE}/${page.page_id}/feed`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل إنشاء المنشور', details: data.error });
+        }
+
+        const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'fb_post_created', ?, 'success')
+        `).run(tenantId, tenant?.name || '', `إنشاء منشور على صفحة ${page.page_name || page.page_id}`);
+
+        res.status(201).json({ id: data.id });
+    } catch (error) {
+        console.error('[TenantPortal] Create post error:', error);
+        res.status(500).json({ error: 'فشل إنشاء المنشور' });
+    }
+});
+
+router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source'), async (req, res) => {
+    let filePath = null;
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) {
+            if (req.file) cleanupFile(req.file.path);
+            return res.status(status).json({ error });
+        }
+
+        const isFileUpload = !!req.file;
+        const { caption, url } = req.body;
+        let apiResponse;
+
+        if (isFileUpload) {
+            filePath = req.file.path;
+            const form = new FormData();
+            form.append('source', fs.createReadStream(filePath), req.file.originalname || 'photo.jpg');
+            if (caption) form.append('message', caption);
+
+            apiResponse = await fetch(`${META_API_BASE}/${page.page_id}/photos`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    ...form.getHeaders(),
+                },
+                body: form,
+            });
+        } else {
+            if (!url) {
+                return res.status(400).json({ error: 'رابط الصورة أو ملف الصورة مطلوب' });
+            }
+            apiResponse = await fetch(`${META_API_BASE}/${page.page_id}/photos`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url, caption: caption || undefined }),
+            });
+        }
+
+        const data = await apiResponse.json();
+
+        if (!apiResponse.ok) {
+            return res.status(apiResponse.status).json({ error: data.error?.message || 'فشل إنشاء منشور الصورة', details: data.error });
+        }
+
+        res.status(201).json({ id: data.id, post_id: data.post_id || null });
+    } catch (error) {
+        console.error('[TenantPortal] Photo post error:', error);
+        res.status(500).json({ error: 'فشل إنشاء منشور الصورة' });
+    } finally {
+        if (filePath) cleanupFile(filePath);
+    }
+});
+
+router.put('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, postId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const { message } = req.body;
+        if (!message) {
+            return res.status(400).json({ error: 'نص المنشور مطلوب' });
+        }
+
+        const response = await fetch(`${META_API_BASE}/${postId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل تعديل المنشور', details: data.error });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] Edit post error:', error);
+        res.status(500).json({ error: 'فشل تعديل المنشور' });
+    }
+});
+
+router.delete('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, postId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const response = await fetch(`${META_API_BASE}/${postId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل حذف المنشور', details: data.error });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] Delete post error:', error);
+        res.status(500).json({ error: 'فشل حذف المنشور' });
+    }
+});
+
+router.get('/fb-content/:linkedPageId/posts/:postId/comments', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, postId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const { limit = 50, after } = req.query;
+        let url = `${META_API_BASE}/${postId}/comments?fields=id,message,created_time,from{name,id,picture{url}},like_count,is_hidden,attachment,comment_count,parent{id}&limit=${limit}`;
+        if (after) url += `&after=${after}`;
+
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب التعليقات', details: data.error });
+        }
+
+        res.json({
+            comments: data.data || [],
+            paging: data.paging || null,
+            summary: data.summary || null,
+        });
+    } catch (error) {
+        console.error('[TenantPortal] List comments error:', error);
+        res.status(500).json({ error: 'فشل جلب التعليقات' });
+    }
+});
+
+router.post('/fb-content/:linkedPageId/comments/:commentId/reply', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, commentId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const { message } = req.body;
+        if (!message) {
+            return res.status(400).json({ error: 'نص الرد مطلوب' });
+        }
+
+        const response = await fetch(`${META_API_BASE}/${commentId}/comments`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرد', details: data.error });
+        }
+
+        res.status(201).json({ id: data.id, message: data.message });
+    } catch (error) {
+        console.error('[TenantPortal] Reply error:', error);
+        res.status(500).json({ error: 'فشل إرسال الرد' });
+    }
+});
+
+router.post('/fb-content/:linkedPageId/comments/:commentId/hide', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, commentId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const { is_hidden } = req.body;
+        if (is_hidden === undefined) {
+            return res.status(400).json({ error: 'is_hidden مطلوب' });
+        }
+
+        const response = await fetch(`${META_API_BASE}/${commentId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ is_hidden: !!is_hidden }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل تحديث حالة التعليق', details: data.error });
+        }
+
+        res.json({ success: true, is_hidden: !!is_hidden });
+    } catch (error) {
+        console.error('[TenantPortal] Hide comment error:', error);
+        res.status(500).json({ error: 'فشل تحديث حالة التعليق' });
+    }
+});
+
+router.delete('/fb-content/:linkedPageId/comments/:commentId', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, commentId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const response = await fetch(`${META_API_BASE}/${commentId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل حذف التعليق', details: data.error });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] Delete comment error:', error);
+        res.status(500).json({ error: 'فشل حذف التعليق' });
+    }
+});
+
+// ============================================
+// Component 3: Tenant Automation Rules
+// ============================================
+router.get('/automation/rules', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { rule_type, channel, is_active } = req.query;
+
+        let query = 'SELECT * FROM automation_rules WHERE tenant_id = ?';
+        const params = [tenantId];
+
+        if (rule_type) {
+            query += ' AND rule_type = ?';
+            params.push(rule_type);
+        }
+        if (channel) {
+            query += ' AND channel = ?';
+            params.push(channel);
+        }
+        if (is_active !== undefined) {
+            query += ' AND is_active = ?';
+            params.push(is_active === 'true' ? 1 : 0);
+        }
+
+        query += ' ORDER BY priority ASC, id ASC';
+
+        const rules = db.prepare(query).all(...params);
+        res.json(rules);
+    } catch (error) {
+        console.error('[TenantPortal] List automation rules error:', error);
+        res.status(500).json({ error: 'فشل جلب القواعد' });
+    }
+});
+
+router.get('/automation/rules/:id', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const rule = db.prepare('SELECT * FROM automation_rules WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+
+        if (!rule) return res.status(404).json({ error: 'القاعدة غير موجودة' });
+        res.json(rule);
+    } catch (error) {
+        console.error('[TenantPortal] Get rule error:', error);
+        res.status(500).json({ error: 'فشل جلب القاعدة' });
+    }
+});
+
+router.post('/automation/rules', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const {
+            name, rule_type, channel, is_active, priority,
+            match_type, match_pattern, match_case_sensitive,
+            schedule_days, schedule_start_time, schedule_end_time, schedule_timezone,
+            response_type, response_text,
+            response_template_name, response_template_language,
+            cooldown_seconds,
+            target_post_id, target_page_id, response_action, dm_text, trigger_on,
+            auto_like, auto_like_type,
+        } = req.body;
+
+        if (!name || !rule_type) {
+            return res.status(400).json({ error: 'الاسم ونوع القاعدة مطلوبان' });
+        }
+
+        if (!['keyword', 'welcome', 'away', 'comment_reply'].includes(rule_type)) {
+            return res.status(400).json({ error: 'نوع القاعدة غير صالح' });
+        }
+
+        if (rule_type === 'keyword' && (!match_type || !match_pattern)) {
+            return res.status(400).json({ error: 'نمط المطابقة مطلوب لقواعد الكلمات المفتاحية' });
+        }
+
+        if (rule_type === 'away' && (!schedule_days || !schedule_start_time || !schedule_end_time)) {
+            return res.status(400).json({ error: 'جدول المواعيد مطلوب لقواعد خارج الدوام' });
+        }
+
+        if (rule_type === 'comment_reply' && !response_text && !dm_text) {
+            return res.status(400).json({ error: 'نص الرد أو نص الرسالة الخاصة مطلوب' });
+        }
+
+        if (response_type !== 'template' && !response_text && rule_type !== 'comment_reply') {
+            return res.status(400).json({ error: 'نص الرد مطلوب' });
+        }
+
+        const result = db.prepare(`
+            INSERT INTO automation_rules (
+                tenant_id, name, rule_type, channel,
+                is_active, priority,
+                match_type, match_pattern, match_case_sensitive,
+                schedule_days, schedule_start_time, schedule_end_time, schedule_timezone,
+                response_type, response_text,
+                response_template_name, response_template_language,
+                cooldown_seconds,
+                target_post_id, target_page_id, response_action, dm_text, trigger_on,
+                auto_like, auto_like_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            tenantId,
+            name,
+            rule_type,
+            channel || (rule_type === 'comment_reply' ? 'facebook' : 'all'),
+            is_active !== undefined ? (is_active ? 1 : 0) : 1,
+            priority || 100,
+            match_type || null,
+            match_pattern || null,
+            match_case_sensitive ? 1 : 0,
+            schedule_days ? (typeof schedule_days === 'string' ? schedule_days : JSON.stringify(schedule_days)) : null,
+            schedule_start_time || null,
+            schedule_end_time || null,
+            schedule_timezone || 'Africa/Tripoli',
+            response_type || 'text',
+            response_text || null,
+            response_template_name || null,
+            response_template_language || 'ar',
+            cooldown_seconds !== undefined ? cooldown_seconds : 300,
+            target_post_id || null,
+            target_page_id || null,
+            response_action || 'comment',
+            dm_text || null,
+            trigger_on || 'comment',
+            auto_like ? 1 : 0,
+            auto_like_type || 'like',
+        );
+
+        const newRule = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(result.lastInsertRowid);
+        res.status(201).json(newRule);
+    } catch (error) {
+        console.error('[TenantPortal] Create rule error:', error);
+        res.status(500).json({ error: 'فشل إنشاء القاعدة' });
+    }
+});
+
+router.put('/automation/rules/:id', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const existing = db.prepare('SELECT * FROM automation_rules WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+        if (!existing) return res.status(404).json({ error: 'القاعدة غير موجودة' });
+
+        const {
+            name, rule_type, channel, is_active, priority,
+            match_type, match_pattern, match_case_sensitive,
+            schedule_days, schedule_start_time, schedule_end_time, schedule_timezone,
+            response_type, response_text,
+            response_template_name, response_template_language,
+            cooldown_seconds,
+            target_post_id, target_page_id, response_action, dm_text, trigger_on,
+            auto_like, auto_like_type,
+        } = req.body;
+
+        db.prepare(`
+            UPDATE automation_rules SET
+                name = ?,
+                rule_type = ?,
+                channel = ?,
+                is_active = ?,
+                priority = ?,
+                match_type = ?,
+                match_pattern = ?,
+                match_case_sensitive = ?,
+                schedule_days = ?,
+                schedule_start_time = ?,
+                schedule_end_time = ?,
+                schedule_timezone = ?,
+                response_type = ?,
+                response_text = ?,
+                response_template_name = ?,
+                response_template_language = ?,
+                cooldown_seconds = ?,
+                target_post_id = ?,
+                target_page_id = ?,
+                response_action = ?,
+                dm_text = ?,
+                trigger_on = ?,
+                auto_like = ?,
+                auto_like_type = ?,
+                updated_at = datetime('now')
+            WHERE id = ? AND tenant_id = ?
+        `).run(
+            name || existing.name,
+            rule_type || existing.rule_type,
+            channel || existing.channel,
+            is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+            priority !== undefined ? priority : existing.priority,
+            match_type !== undefined ? match_type : existing.match_type,
+            match_pattern !== undefined ? match_pattern : existing.match_pattern,
+            match_case_sensitive !== undefined ? (match_case_sensitive ? 1 : 0) : existing.match_case_sensitive,
+            schedule_days !== undefined
+                ? (typeof schedule_days === 'string' ? schedule_days : JSON.stringify(schedule_days))
+                : existing.schedule_days,
+            schedule_start_time !== undefined ? schedule_start_time : existing.schedule_start_time,
+            schedule_end_time !== undefined ? schedule_end_time : existing.schedule_end_time,
+            schedule_timezone !== undefined ? schedule_timezone : existing.schedule_timezone,
+            response_type !== undefined ? response_type : existing.response_type,
+            response_text !== undefined ? response_text : existing.response_text,
+            response_template_name !== undefined ? response_template_name : existing.response_template_name,
+            response_template_language !== undefined ? response_template_language : existing.response_template_language,
+            cooldown_seconds !== undefined ? cooldown_seconds : existing.cooldown_seconds,
+            target_post_id !== undefined ? (target_post_id || null) : existing.target_post_id,
+            target_page_id !== undefined ? (target_page_id || null) : existing.target_page_id,
+            response_action !== undefined ? response_action : existing.response_action,
+            dm_text !== undefined ? (dm_text || null) : existing.dm_text,
+            trigger_on !== undefined ? trigger_on : (existing.trigger_on || 'comment'),
+            auto_like !== undefined ? (auto_like ? 1 : 0) : (existing.auto_like || 0),
+            auto_like_type !== undefined ? auto_like_type : (existing.auto_like_type || 'like'),
+            req.params.id,
+            tenantId,
+        );
+
+        const updated = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(req.params.id);
+        res.json(updated);
+    } catch (error) {
+        console.error('[TenantPortal] Update rule error:', error);
+        res.status(500).json({ error: 'فشل تحديث القاعدة' });
+    }
+});
+
+router.patch('/automation/rules/:id/toggle', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const rule = db.prepare('SELECT * FROM automation_rules WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+        if (!rule) return res.status(404).json({ error: 'القاعدة غير موجودة' });
+
+        const newState = rule.is_active ? 0 : 1;
+        db.prepare('UPDATE automation_rules SET is_active = ?, updated_at = datetime(\'now\') WHERE id = ? AND tenant_id = ?')
+            .run(newState, req.params.id, tenantId);
+
+        res.json({ id: rule.id, is_active: newState });
+    } catch (error) {
+        console.error('[TenantPortal] Toggle rule error:', error);
+        res.status(500).json({ error: 'فشل تبديل حالة القاعدة' });
+    }
+});
+
+router.delete('/automation/rules/:id', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const rule = db.prepare('SELECT * FROM automation_rules WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+        if (!rule) return res.status(404).json({ error: 'القاعدة غير موجودة' });
+
+        db.prepare('DELETE FROM automation_rules WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] Delete rule error:', error);
+        res.status(500).json({ error: 'فشل حذف القاعدة' });
+    }
+});
+
+router.get('/automation/rules/:id/stats', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const rule = db.prepare('SELECT * FROM automation_rules WHERE id = ? AND tenant_id = ?')
+            .get(req.params.id, tenantId);
+        if (!rule) return res.status(404).json({ error: 'القاعدة غير موجودة' });
+
+        const recentCooldowns = db.prepare(`
+            SELECT contact_id, channel, last_triggered_at
+            FROM automation_cooldowns
+            WHERE rule_id = ?
+            ORDER BY last_triggered_at DESC
+            LIMIT 20
+        `).all(req.params.id);
+
+        res.json({
+            rule_id: rule.id,
+            trigger_count: rule.trigger_count,
+            last_triggered_at: rule.last_triggered_at,
+            recent_contacts: recentCooldowns,
+        });
+    } catch (error) {
+        console.error('[TenantPortal] Rule stats error:', error);
+        res.status(500).json({ error: 'فشل جلب الإحصائيات' });
+    }
+});
+
+router.get('/automation/summary', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const total = db.prepare('SELECT COUNT(*) as count FROM automation_rules WHERE tenant_id = ?').get(tenantId).count;
+        const active = db.prepare('SELECT COUNT(*) as count FROM automation_rules WHERE tenant_id = ? AND is_active = 1').get(tenantId).count;
+        const keywords = db.prepare("SELECT COUNT(*) as count FROM automation_rules WHERE tenant_id = ? AND rule_type = 'keyword' AND is_active = 1").get(tenantId).count;
+        const totalTriggers = db.prepare('SELECT COALESCE(SUM(trigger_count), 0) as count FROM automation_rules WHERE tenant_id = ?').get(tenantId).count;
+        const weekTriggers = db.prepare(`
+            SELECT COALESCE(SUM(trigger_count), 0) as count FROM automation_rules
+            WHERE tenant_id = ? AND last_triggered_at >= datetime('now', '-7 days')
+        `).get(tenantId).count;
+
+        res.json({ total, active, keywords, weekTriggers, totalTriggers });
+    } catch (error) {
+        console.error('[TenantPortal] Automation summary error:', error);
+        res.status(500).json({ error: 'فشل جلب الملخص' });
+    }
+});
+
+// ============================================
+// Component 4: Tenant Page Insights
+// ============================================
+const safeMetricValue = (insightsData, metricName, period = 'days_28') => {
+    const metric = (insightsData || []).find(m => m.name === metricName);
+    if (!metric || !metric.values || metric.values.length === 0) return 0;
+    const periodValue = metric.values.find(v => v.period === period) || metric.values[0];
+    return periodValue?.value ?? 0;
+};
+
+router.get('/fb-insights/:linkedPageId/overview', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId } = req.params;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const metaResponse = await fetch(
+            `${META_API_BASE}/${page.page_id}?fields=name,followers_count,fan_count,talking_about_count,picture.width(100).height(100)&access_token=${accessToken}`
+        );
+        const metaData = await metaResponse.json();
+
+        if (!metaResponse.ok) {
+            return res.status(metaResponse.status).json({ error: metaData.error?.message || 'فشل جلب بيانات الصفحة', details: metaData.error });
+        }
+
+        const insightsResponse = await fetch(
+            `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=days_28&access_token=${accessToken}`
+        );
+        const insightsData = await insightsResponse.json();
+        const insights = (insightsData.data || []);
+
+        res.json({
+            page: {
+                name: metaData.name || page.page_name,
+                followers_count: metaData.followers_count ?? metaData.fan_count ?? 0,
+                talking_about_count: metaData.talking_about_count ?? 0,
+                picture: metaData.picture?.data?.url || page.page_picture_url || null,
+            },
+            metrics: {
+                views_28d: safeMetricValue(insights, 'page_views_total', 'days_28'),
+                reactions_28d: safeMetricValue(insights, 'page_actions_post_reactions_total', 'days_28'),
+                video_views_28d: safeMetricValue(insights, 'page_video_views', 'days_28'),
+            },
+        });
+    } catch (error) {
+        console.error('[TenantPortal] Insights overview error:', error);
+        res.status(500).json({ error: 'فشل جلب بيانات التحليلات' });
+    }
+});
+
+router.get('/fb-insights/:linkedPageId/daily', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId } = req.params;
+        const { since, until } = req.query;
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const untilDate = until || new Date().toISOString().split('T')[0];
+        const sinceDate = since || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        const response = await fetch(
+            `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=day&since=${sinceDate}&until=${untilDate}&access_token=${accessToken}`
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب البيانات اليومية', details: data.error });
+        }
+
+        const dailyMap = {};
+        for (const metric of (data.data || [])) {
+            for (const entry of (metric.values || [])) {
+                const date = (entry.end_time || entry.value?.end_time || '').split('T')[0];
+                if (!date) continue;
+                if (!dailyMap[date]) dailyMap[date] = { date, views: 0, reactions: 0, video_views: 0 };
+                const value = typeof entry.value === 'number' ? entry.value : (Array.isArray(entry.value) ? entry.value.reduce((s, v) => s + (v.value || 0), 0) : 0);
+                if (metric.name === 'page_views_total') dailyMap[date].views += value;
+                if (metric.name === 'page_actions_post_reactions_total') dailyMap[date].reactions += value;
+                if (metric.name === 'page_video_views') dailyMap[date].video_views += value;
+            }
+        }
+
+        const daily = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+        res.json({ daily });
+    } catch (error) {
+        console.error('[TenantPortal] Daily insights error:', error);
+        res.status(500).json({ error: 'فشل جلب البيانات اليومية' });
+    }
+});
+
+router.get('/fb-insights/:linkedPageId/posts', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId } = req.params;
+        const limit = Math.min(parseInt(req.query.limit) || 25, 25);
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const postsResponse = await fetch(
+            `${META_API_BASE}/${page.page_id}/posts?fields=id,message,created_time,full_picture,permalink_url&limit=${limit}&access_token=${accessToken}`
+        );
+        const postsData = await postsResponse.json();
+
+        if (!postsResponse.ok) {
+            return res.status(postsResponse.status).json({ error: postsData.error?.message || 'فشل جلب المنشورات', details: postsData.error });
+        }
+
+        const posts = postsData.data || [];
+        const insightsLimit = Math.min(posts.length, 10);
+        const postsWithInsights = [];
+
+        for (let i = 0; i < posts.length; i++) {
+            const post = posts[i];
+            const postEntry = {
+                id: post.id,
+                message: post.message || '',
+                created_time: post.created_time || null,
+                full_picture: post.full_picture || null,
+                permalink_url: post.permalink_url || null,
+                insights: null,
+            };
+
+            if (i < insightsLimit) {
+                try {
+                    const insightsResponse = await fetch(
+                        `${META_API_BASE}/${post.id}/insights?metric=post_reactions_by_type_total,post_clicks&period=lifetime&access_token=${accessToken}`
+                    );
+                    const insightsData = await insightsResponse.json();
+
+                    if (insightsResponse.ok && insightsData.data) {
+                        const reactionsMetric = insightsData.data.find(m => m.name === 'post_reactions_by_type_total');
+                        const clicksMetric = insightsData.data.find(m => m.name === 'post_clicks');
+
+                        let reactions = { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0, total: 0 };
+                        if (reactionsMetric?.values?.[0]?.value) {
+                            const rv = reactionsMetric.values[0].value;
+                            reactions = {
+                                like: rv.like || 0, love: rv.love || 0, haha: rv.haha || 0,
+                                wow: rv.wow || 0, sad: rv.sad || 0, angry: rv.angry || 0,
+                                total: Object.values(rv).reduce((s, v) => s + (v || 0), 0),
+                            };
+                        }
+
+                        let clicks = 0;
+                        if (clicksMetric?.values?.[0]?.value) clicks = clicksMetric.values[0].value;
+
+                        postEntry.insights = { reactions, clicks };
+                    }
+                } catch (e) { }
+            }
+
+            postsWithInsights.push(postEntry);
+        }
+
+        res.json({ posts: postsWithInsights });
+    } catch (error) {
+        console.error('[TenantPortal] Post insights error:', error);
+        res.status(500).json({ error: 'فشل جلب أداء المنشورات' });
+    }
+});
+
+// ============================================
+// Component 5: Tenant Utility Messages
+// ============================================
+const VALID_MESSAGE_TAGS = [
+    'CONFIRMED_EVENT_UPDATE',
+    'POST_PURCHASE_UPDATE',
+    'ACCOUNT_UPDATE',
+    'HUMAN_AGENT',
+];
+
+router.get('/fb-messenger/message-tags', (req, res) => {
+    res.json({
+        tags: VALID_MESSAGE_TAGS.map(tag => ({
+            value: tag,
+            label: {
+                'CONFIRMED_EVENT_UPDATE': 'تحديث موعد / فعالية مؤكدة',
+                'POST_PURCHASE_UPDATE': 'تحديث ما بعد الشراء (حالة الطلب)',
+                'ACCOUNT_UPDATE': 'تحديث الحساب',
+                'HUMAN_AGENT': 'رد وكيل بشري (نافذة 7 أيام)',
+            }[tag],
+            description: {
+                'CONFIRMED_EVENT_UPDATE': 'Send updates about confirmed events the user signed up for',
+                'POST_PURCHASE_UPDATE': 'Send order status, shipping updates, or receipts',
+                'ACCOUNT_UPDATE': 'Send notifications about account changes or payment issues',
+                'HUMAN_AGENT': 'Send human agent response within 7-day window',
+            }[tag],
+        })),
+    });
+});
+
+router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { linkedPageId, convId } = req.params;
+        const { message, tag } = req.body;
+
+        if (!message || !tag) {
+            return res.status(400).json({ error: 'نص الرسالة ونوع العلامة مطلوبان' });
+        }
+
+        if (!VALID_MESSAGE_TAGS.includes(tag)) {
+            return res.status(400).json({ error: `علامة غير صالحة: ${tag}`, valid_tags: VALID_MESSAGE_TAGS });
+        }
+
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        if (error) return res.status(status).json({ error });
+
+        const conv = db.prepare('SELECT * FROM fb_conversations WHERE id = ? AND linked_page_id = ? AND tenant_id = ?')
+            .get(convId, linkedPageId, tenantId);
+        if (!conv) {
+            return res.status(404).json({ error: 'المحادثة غير موجودة' });
+        }
+
+        const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                recipient: { id: conv.user_psid },
+                messaging_type: 'MESSAGE_TAG',
+                tag: tag,
+                message: { text: message },
+            }),
+        });
+
+        const sendData = await sendResponse.json();
+
+        if (!sendResponse.ok || sendData.error) {
+            return res.status(sendResponse.status || 400).json({
+                error: sendData.error?.message || 'فشل إرسال الرسالة',
+                details: sendData.error,
+            });
+        }
+
+        const mid = sendData.message_id;
+
+        db.prepare(`
+            INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, created_at)
+            VALUES (?, ?, ?, 'outgoing', ?, ?, ?, ?)
+        `).run(conv.id, tenantId, mid, page.page_id, page.page_name, `[${tag}] ${message}`, new Date().toISOString());
+
+        db.prepare(`
+            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(message.substring(0, 100), new Date().toISOString(), conv.id);
+
+        eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
+            tenant_id: tenantId,
+            page_id: conv.page_id,
+            conversation_id: conv.id,
+            direction: 'outgoing',
+            sender_id: page.page_id,
+            sender_name: page.page_name,
+            message: `[${tag}] ${message}`,
+            tag,
+        });
+
+        res.status(201).json({ id: mid, conversation_id: conv.id, tag });
+    } catch (error) {
+        console.error('[TenantPortal] Utility message error:', error);
+        res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }
 });
 

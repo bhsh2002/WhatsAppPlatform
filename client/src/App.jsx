@@ -31,6 +31,10 @@ import TenantConversions from './pages/TenantPortal/TenantConversions';
 import TenantContacts from './pages/TenantPortal/TenantContacts';
 import TenantBroadcast from './pages/TenantPortal/TenantBroadcast';
 import TenantInbox from './pages/TenantPortal/TenantInbox';
+import TenantFacebookPages from './pages/TenantPortal/TenantFacebookPages';
+import TenantContentManager from './pages/TenantPortal/TenantContentManager';
+import TenantAutomation from './pages/TenantPortal/TenantAutomation';
+import TenantFbInsights from './pages/TenantPortal/TenantFbInsights';
 
 // Admin Feature Pages
 import BusinessManager from './pages/Settings/BusinessManager';
@@ -356,6 +360,38 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantBroadcast /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/fb-pages"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantFacebookPages /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/fb-content"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantContentManager /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/automation"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantAutomation /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/fb-insights"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantFbInsights /></MainLayout>
           </ProtectedRoute>
         }
       />

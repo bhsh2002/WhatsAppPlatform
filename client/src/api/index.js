@@ -1138,6 +1138,171 @@ class ApiService {
     async getAutomationSummary() {
         return this.request('/api/automation/summary');
     }
+
+    // ============================================
+    // Portal: Tenant Page Management
+    // ============================================
+    async getPortalPages() {
+        return this.request('/api/portal/pages');
+    }
+
+    async getPortalPageSubscriptionStatus(pageId) {
+        return this.request(`/api/portal/pages/${pageId}/subscription-status`);
+    }
+
+    // ============================================
+    // Portal: Tenant Content Management
+    // ============================================
+    async getPortalFbPosts(linkedPageId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts${query ? '?' + query : ''}`);
+    }
+
+    async createPortalFbPost(linkedPageId, data) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async createPortalFbPhotoPostUrl(linkedPageId, data) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/photo`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async createPortalFbPhotoPostFile(linkedPageId, formData) {
+        const headers = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+        const response = await fetch(`${this.baseUrl}/api/portal/fb-content/${linkedPageId}/posts/photo`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || `HTTP ${response.status}`);
+        }
+        return result;
+    }
+
+    async editPortalFbPost(linkedPageId, postId, data) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deletePortalFbPost(linkedPageId, postId) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async getPortalFbComments(linkedPageId, postId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}/comments${query ? '?' + query : ''}`);
+    }
+
+    async replyPortalFbComment(linkedPageId, commentId, message) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/reply`, {
+            method: 'POST',
+            body: JSON.stringify({ message }),
+        });
+    }
+
+    async hidePortalFbComment(linkedPageId, commentId, isHidden = true) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/hide`, {
+            method: 'POST',
+            body: JSON.stringify({ is_hidden: isHidden }),
+        });
+    }
+
+    async deletePortalFbComment(linkedPageId, commentId) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // ============================================
+    // Portal: Tenant Automation Rules
+    // ============================================
+    async getPortalAutomationRules(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/automation/rules${query ? '?' + query : ''}`);
+    }
+
+    async getPortalAutomationRule(id) {
+        return this.request(`/api/portal/automation/rules/${id}`);
+    }
+
+    async createPortalAutomationRule(data) {
+        return this.request('/api/portal/automation/rules', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updatePortalAutomationRule(id, data) {
+        return this.request(`/api/portal/automation/rules/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async togglePortalAutomationRule(id) {
+        return this.request(`/api/portal/automation/rules/${id}/toggle`, {
+            method: 'PATCH',
+        });
+    }
+
+    async deletePortalAutomationRule(id) {
+        return this.request(`/api/portal/automation/rules/${id}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async getPortalAutomationRuleStats(id) {
+        return this.request(`/api/portal/automation/rules/${id}/stats`);
+    }
+
+    async getPortalAutomationSummary() {
+        return this.request('/api/portal/automation/summary');
+    }
+
+    // ============================================
+    // Portal: Tenant Facebook Insights
+    // ============================================
+    async getPortalFbOverview(linkedPageId) {
+        return this.request(`/api/portal/fb-insights/${linkedPageId}/overview`);
+    }
+
+    async getPortalFbDaily(linkedPageId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/fb-insights/${linkedPageId}/daily${query ? '?' + query : ''}`);
+    }
+
+    async getPortalFbPostInsights(linkedPageId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/fb-insights/${linkedPageId}/posts${query ? '?' + query : ''}`);
+    }
+
+    // ============================================
+    // Portal: Tenant Utility Messages
+    // ============================================
+    async getPortalMessageTags() {
+        return this.request('/api/portal/fb-messenger/message-tags');
+    }
+
+    async sendPortalUtilityMessage(linkedPageId, convId, data) {
+        return this.request(`/api/portal/fb-messenger/${linkedPageId}/conversations/${convId}/utility-message`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
 }
 
 const api = new ApiService();
