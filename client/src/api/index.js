@@ -935,6 +935,14 @@ class ApiService {
         return this.request(`/api/portal/messages/window/${encodeURIComponent(phone)}`);
     }
 
+    // 24h Window status (Admin — for unified inbox)
+    async getAdminWindowStatus(phone, tenantId) {
+        const params = new URLSearchParams();
+        if (tenantId) params.append('tenant_id', tenantId);
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/api/messages/window-status/${encodeURIComponent(phone)}${qs}`);
+    }
+
     // ============================================
     // Credits Management (Admin)
     // ============================================

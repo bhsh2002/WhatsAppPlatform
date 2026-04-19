@@ -100,13 +100,13 @@ const UnifiedInbox = () => {
         }
     }, []);
 
-    const fetchWindowStatus = useCallback(async (contactId) => {
+    const fetchWindowStatus = useCallback(async (contactId, tenantId) => {
         if (!contactId) {
             setWindowStatus(null);
             return;
         }
         try {
-            const data = await api.getWindowStatus(contactId);
+            const data = await api.getAdminWindowStatus(contactId, tenantId);
             setWindowStatus(data);
         } catch {
             setWindowStatus(null);
@@ -146,7 +146,7 @@ const UnifiedInbox = () => {
             });
             if (selectedChat.channel === 'whatsapp') {
                 fetchTemplates(selectedChat.tenant_id);
-                fetchWindowStatus(selectedChat.contact_id);
+                fetchWindowStatus(selectedChat.contact_id, selectedChat.tenant_id);
             } else {
                 setTemplates([]);
                 setWindowStatus(null);
@@ -222,7 +222,7 @@ const UnifiedInbox = () => {
                 recipient: selectedChat.contact_id,
                 type: 'template',
                 templateName: templateData.name,
-                templateLanguage: templateData.language,
+                templateLanguage: templateData.language?.code || templateData.language || 'ar',
                 templateParams: templateData.components,
                 tenant_id: selectedChat.tenant_id,
             });
@@ -464,6 +464,7 @@ const UnifiedInbox = () => {
     const chatWindowChat = selectedChat?.channel === 'whatsapp' ? {
         contact: selectedChat.contact_id,
         profile_name: selectedChat.display_name,
+        profile_picture_url: selectedChat.avatar_url || null,
         tenant_id: selectedChat.tenant_id,
     } : null;
 

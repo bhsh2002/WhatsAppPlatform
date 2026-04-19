@@ -16,6 +16,35 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 // ============================================
+// 24h Window Status (Admin)
+// ============================================
+router.get('/window-status/:phone', (req, res) => {
+    const phone = req.params.phone;
+    const { tenant_id } = req.query;
+
+    let contact;
+    if (tenant_id) {
+        contact = db.prepare(
+            'SELECT last_customer_message_at FROM contacts WHERE tenant_id = ? AND phone = ?'
+        ).get(tenant_id, phone);
+    } else {
+        contact = db.prepare(
+            'SELECT last_customer_message_at FROM contacts WHERE phone = ? ORDER BY last_customer_message_at DESC LIMIT 1'
+        ).get(phone);
+    }
+
+    const lastMsg = contact?.last_customer_message_at ? new Date(contact.last_customer_message_at) : null;
+    const windowMs = 24 * 60 * 60 * 1000;
+    const isOpen = lastMsg && (Date.now() - lastMsg.getTime()) <= windowMs;
+
+    res.json({
+        is_open: isOpen,
+        last_customer_message_at: lastMsg?.toISOString() || null,
+        window_closes_at: lastMsg ? new Date(lastMsg.getTime() + windowMs).toISOString() : null,
+    });
+});
+
+// ============================================
 // Send message via Meta API
 // ============================================
 router.post('/send', async (req, res) => {
