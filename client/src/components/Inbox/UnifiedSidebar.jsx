@@ -16,13 +16,16 @@ import {
     Typography,
     InputAdornment,
     IconButton,
-    Tooltip
+    Tooltip,
+    Button,
+    CircularProgress
 } from '@mui/material';
 import {
     Search as SearchIcon,
     Refresh as RefreshIcon,
     WhatsApp as WhatsAppIcon,
-    Facebook as FacebookIcon
+    Facebook as FacebookIcon,
+    Sync as SyncIcon
 } from '@mui/icons-material';
 
 const getChannelIcon = (channel) => {
@@ -60,7 +63,9 @@ const UnifiedSidebar = ({
     setSearchTerm,
     channelFilter,
     setChannelFilter,
-    onRefresh
+    onRefresh,
+    onSyncMessenger,
+    syncing
 }) => {
     const filtered = conversations.filter(c => {
         if (!searchTerm) return true;
@@ -83,6 +88,13 @@ const UnifiedSidebar = ({
                         <Tooltip title="تحديث">
                             <IconButton size="small" onClick={onRefresh}>
                                 <RefreshIcon fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
+                    )}
+                    {onSyncMessenger && (
+                        <Tooltip title="مزامنة ماسنجر">
+                            <IconButton size="small" onClick={onSyncMessenger} disabled={syncing}>
+                                {syncing ? <CircularProgress size={18} /> : <SyncIcon fontSize="small" sx={{ color: '#0084ff' }} />}
                             </IconButton>
                         </Tooltip>
                     )}

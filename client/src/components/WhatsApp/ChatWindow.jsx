@@ -209,7 +209,7 @@ const ChatWindow = ({
     };
 
     return (
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
+        <Box sx={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
             {/* Chat Header */}
             <AppBar position="static" color="default" elevation={1} sx={{ bgcolor: 'background.paper' }}>
                 <Toolbar sx={{ px: 1 }}>

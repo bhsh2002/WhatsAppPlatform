@@ -33,6 +33,7 @@ const UnifiedInbox = () => {
     const [channelFilter, setChannelFilter] = useState('');
     const [templates, setTemplates] = useState([]);
     const [windowStatus, setWindowStatus] = useState(null);
+    const [syncing, setSyncing] = useState(false);
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -456,6 +457,24 @@ const UnifiedInbox = () => {
         return api.getMediaDownloadUrl(mediaId, tenantId || selectedChat?.tenant_id);
     }, [selectedChat]);
 
+    // Sync all Messenger pages (same as /messenger sync button)
+    const handleSyncMessenger = useCallback(async () => {
+        try {
+            setSyncing(true);
+            const pages = await api.getFbAllPages();
+            if (Array.isArray(pages) && pages.length > 0) {
+                for (const page of pages) {
+                    await api.syncMessengerConversations(page.id);
+                }
+            }
+            await fetchConversations();
+        } catch (err) {
+            console.error('Messenger sync failed:', err);
+        } finally {
+            setSyncing(false);
+        }
+    }, [fetchConversations]);
+
     // ============================================
     // Render
     // ============================================
@@ -489,6 +508,8 @@ const UnifiedInbox = () => {
                     channelFilter={channelFilter}
                     setChannelFilter={setChannelFilter}
                     onRefresh={fetchConversations}
+                    onSyncMessenger={handleSyncMessenger}
+                    syncing={syncing}
                 />
             </Box>
 
