@@ -336,7 +336,7 @@ router.post('/register-tenant', async (req, res) => {
 // This avoids exposing the full JWT in URLs.
 
 router.post('/media-token', authMiddleware, (req, res) => {
-    const mediaToken = generateMediaToken(req.user.id, req.user.tenant_id || null);
+    const mediaToken = generateMediaToken(req.user.id, req.user.tenant_id || null, req.user.role || null);
     res.json({ media_token: mediaToken, expires_in: 300 });
 });
 

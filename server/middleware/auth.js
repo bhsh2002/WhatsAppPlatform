@@ -12,10 +12,11 @@ const MEDIA_TOKEN_TTL = 300; // 5 minutes
  * Generate a short-lived HMAC-signed token for media access.
  * This avoids exposing the full JWT in URL query params.
  */
-export function generateMediaToken(userId, tenantId = null) {
+export function generateMediaToken(userId, tenantId = null, role = null) {
     const payload = {
         sub: userId,
         tid: tenantId,
+        role: role,
         purpose: 'media',
     };
     return jwt.sign(payload, JWT_SECRET, { expiresIn: MEDIA_TOKEN_TTL });
@@ -60,10 +61,11 @@ export const authMiddleware = (req, res, next) => {
         if (!mediaUser) {
             return res.status(401).json({ error: 'رمز وسائط غير صالح أو منتهي' });
         }
-        // Minimal user object for media routes
+        // Minimal user object for media routes (includes role for admin middleware)
         req.user = {
             id: mediaUser.sub,
             tenant_id: mediaUser.tid,
+            role: mediaUser.role || null,
         };
         return next();
     }
