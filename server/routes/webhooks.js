@@ -188,6 +188,15 @@ router.post('/', async (req, res) => {
 
     const body = req.body;
 
+    // Detailed incoming webhook logging
+    console.log(`[Webhook] ◀ Incoming POST — object: "${body.object}", entries: ${body.entry?.length || 0}`);
+    if (body.object === 'page' && body.entry) {
+        for (const entry of body.entry) {
+            const hasChanges = !!(entry.changes && entry.changes.length);
+            const hasMessaging = !!(entry.messaging && entry.messaging.length);
+            console.log(`[Webhook]   Page entry id=${entry.id}, changes=${hasChanges ? entry.changes.length : 0} (${entry.changes?.map(c => c.field).join(',') || '-'}), messaging=${hasMessaging ? entry.messaging.length : 0}`);
+        }
+    }
 
     // Always respond 200 OK quickly to Meta
     res.sendStatus(200);
