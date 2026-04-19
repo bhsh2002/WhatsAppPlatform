@@ -168,23 +168,25 @@ const UnifiedInbox = () => {
     useEffect(() => {
         if (messages.length === 0) return;
 
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
         if (isFirstLoad.current) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            container.scrollTop = container.scrollHeight;
             isFirstLoad.current = false;
             return;
         }
 
-        const container = messagesContainerRef.current;
-        if (!container) return;
         const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
         if (distanceFromBottom < 300) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            container.scrollTop = container.scrollHeight;
         }
     }, [messages]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            const container = messagesContainerRef.current;
+            if (container) container.scrollTop = container.scrollHeight;
         }, 50);
     };
 
@@ -488,7 +490,7 @@ const UnifiedInbox = () => {
     } : null;
 
     return (
-        <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', height: { xs: 'calc(100vh - 56px)', md: '100vh' }, overflow: 'hidden' }}>
             {/* Sidebar */}
             <Box sx={{
                 width: isMobile ? (selectedChat ? 0 : '100%') : 350,
