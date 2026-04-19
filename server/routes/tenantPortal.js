@@ -10,6 +10,7 @@ import { documentUpload, mediaUpload, uploadDir, cleanupFile } from '../config/u
 import eventBus from '../services/eventBus.js';
 import { decryptIfEncrypted } from '../services/encryption.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
+import { getAccessToken } from '../services/credentials.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -925,13 +926,11 @@ router.get('/media/:mediaId/download', async (req, res) => {
         const tenantId = req.user.tenant_id;
         const { mediaId } = req.params;
 
-        // Get tenant credentials
-        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-        if (!tenant?.access_token) {
+        // Use getAccessToken to properly decrypt tenant access tokens
+        const accessToken = getAccessToken(tenantId);
+        if (!accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
-
-        const accessToken = tenant.access_token;
 
         // Get media URL from Meta
         const urlResponse = await fetch(`${META_API_BASE}/${mediaId}`, {

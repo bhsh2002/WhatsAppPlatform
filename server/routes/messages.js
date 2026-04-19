@@ -471,14 +471,9 @@ router.get('/media/:mediaId/download', async (req, res) => {
         const { mediaId } = req.params;
         const { tenant_id } = req.query;
 
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
-
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant?.access_token) {
-                accessToken = tenant.access_token;
-            }
-        }
+        // Use resolveCredentials to properly decrypt tenant access tokens
+        const credentials = resolveCredentials({ tenantId: tenant_id });
+        const accessToken = credentials.accessToken;
 
         if (!accessToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
