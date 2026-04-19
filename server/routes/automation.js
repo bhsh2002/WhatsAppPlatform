@@ -75,7 +75,7 @@ router.post('/rules', (req, res) => {
             response_type, response_text,
             response_template_name, response_template_language,
             cooldown_seconds,
-            target_post_id, target_page_id, response_action, dm_text,
+            target_post_id, target_page_id, response_action, dm_text, trigger_on,
         } = req.body;
 
         if (!name || !rule_type) {
@@ -111,8 +111,8 @@ router.post('/rules', (req, res) => {
                 response_type, response_text,
                 response_template_name, response_template_language,
                 cooldown_seconds,
-                target_post_id, target_page_id, response_action, dm_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                target_post_id, target_page_id, response_action, dm_text, trigger_on
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             tenant_id || null,
             name,
@@ -136,6 +136,7 @@ router.post('/rules', (req, res) => {
             target_page_id || null,
             response_action || 'comment',
             dm_text || null,
+            trigger_on || 'comment',
         );
 
         const newRule = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(result.lastInsertRowid);
@@ -162,7 +163,7 @@ router.put('/rules/:id', (req, res) => {
             response_type, response_text,
             response_template_name, response_template_language,
             cooldown_seconds,
-            target_post_id, target_page_id, response_action, dm_text,
+            target_post_id, target_page_id, response_action, dm_text, trigger_on,
         } = req.body;
 
         db.prepare(`
@@ -189,6 +190,7 @@ router.put('/rules/:id', (req, res) => {
                 target_page_id = ?,
                 response_action = ?,
                 dm_text = ?,
+                trigger_on = ?,
                 updated_at = datetime('now')
             WHERE id = ?
         `).run(
@@ -216,6 +218,7 @@ router.put('/rules/:id', (req, res) => {
             target_page_id !== undefined ? (target_page_id || null) : existing.target_page_id,
             response_action !== undefined ? response_action : existing.response_action,
             dm_text !== undefined ? (dm_text || null) : existing.dm_text,
+            trigger_on !== undefined ? trigger_on : (existing.trigger_on || 'comment'),
             req.params.id,
         );
 

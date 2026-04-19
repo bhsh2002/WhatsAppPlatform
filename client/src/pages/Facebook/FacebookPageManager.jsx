@@ -71,7 +71,7 @@ const FacebookPageManager = () => {
     const [autoRulesLoading, setAutoRulesLoading] = useState(false);
     const [autoForm, setAutoForm] = useState({
         name: '', match_pattern: '', response_text: '', dm_text: '',
-        response_action: 'comment', cooldown_seconds: 300,
+        response_action: 'comment', cooldown_seconds: 300, trigger_on: 'comment',
     });
     const [autoSaving, setAutoSaving] = useState(false);
 
@@ -297,6 +297,7 @@ const FacebookPageManager = () => {
             dm_text: '',
             response_action: 'comment',
             cooldown_seconds: 300,
+            trigger_on: 'comment',
         });
         setAutoDialogOpen(true);
         fetchAutoRules(post.id);
@@ -336,6 +337,7 @@ const FacebookPageManager = () => {
                 dm_text: autoForm.dm_text || null,
                 response_action: autoForm.response_action,
                 cooldown_seconds: autoForm.cooldown_seconds,
+                trigger_on: autoForm.trigger_on,
                 is_active: true,
                 priority: 100,
             });
@@ -726,7 +728,8 @@ const FacebookPageManager = () => {
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant="body2" fontWeight="bold">{rule.name}</Typography>
                                         <Typography variant="caption" color="text.secondary">
-                                            {rule.match_pattern ? `كلمات: ${rule.match_pattern}` : 'جميع التعليقات'}
+                                            {rule.trigger_on === 'reaction' ? 'تفاعلات' : rule.trigger_on === 'both' ? 'تعليقات+تفاعلات' : 'تعليقات'}
+                                            {rule.match_pattern ? ` • كلمات: ${rule.match_pattern}` : ''}
                                             {' • '}
                                             {rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'كلاهما'}
                                             {' • '}
@@ -764,15 +767,33 @@ const FacebookPageManager = () => {
                             placeholder="مثال: سعر,تفاصيل,كم"
                         />
 
+                        <Typography variant="caption" color="primary">مشغل القاعدة</Typography>
+                        <RadioGroup
+                            row
+                            value={autoForm.trigger_on}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setAutoForm(p => ({
+                                    ...p,
+                                    trigger_on: val,
+                                    response_action: val === 'reaction' ? 'dm' : p.response_action,
+                                }));
+                            }}
+                        >
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label="تعليقات" />
+                            <FormControlLabel value="reaction" control={<Radio size="small" />} label="تفاعلات" />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" />
+                        </RadioGroup>
+
                         <Typography variant="caption" color="primary">نوع الرد</Typography>
                         <RadioGroup
                             row
                             value={autoForm.response_action}
                             onChange={e => setAutoForm(p => ({ ...p, response_action: e.target.value }))}
                         >
-                            <FormControlLabel value="comment" control={<Radio size="small" />} label="رد عام" />
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label="رد عام" disabled={autoForm.trigger_on === 'reaction'} />
                             <FormControlLabel value="dm" control={<Radio size="small" />} label="رسالة خاصة" />
-                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" disabled={autoForm.trigger_on === 'reaction'} />
                         </RadioGroup>
 
                         {(autoForm.response_action === 'comment' || autoForm.response_action === 'both') && (

@@ -46,6 +46,12 @@ const RESPONSE_ACTIONS = [
     { value: 'both', label: 'كلاهما' },
 ];
 
+const TRIGGER_ON_OPTIONS = [
+    { value: 'comment', label: 'التعليقات فقط' },
+    { value: 'reaction', label: 'التفاعلات/الإعجاب فقط' },
+    { value: 'both', label: 'التعليقات والتفاعلات' },
+];
+
 const MATCH_TYPES = [
     { value: 'exact', label: 'مطابقة تامة' },
     { value: 'contains', label: 'يحتوي على' },
@@ -85,6 +91,7 @@ const emptyRule = {
     target_page_id: '',
     response_action: 'comment',
     dm_text: '',
+    trigger_on: 'comment',
 };
 
 const AutomationManager = () => {
@@ -213,6 +220,7 @@ const AutomationManager = () => {
             target_page_id: rule.target_page_id || '',
             response_action: rule.response_action || 'comment',
             dm_text: rule.dm_text || '',
+            trigger_on: rule.trigger_on || 'comment',
         });
         if (rule.target_page_id) fetchPostsForPage(rule.target_page_id);
         setDialogOpen(true);
@@ -235,6 +243,7 @@ const AutomationManager = () => {
                 target_page_id: isComment ? (formData.target_page_id || null) : null,
                 response_action: isComment ? formData.response_action : 'comment',
                 dm_text: isComment ? (formData.dm_text || null) : null,
+                trigger_on: isComment ? formData.trigger_on : 'comment',
             };
 
             if (editingRule) {
@@ -425,7 +434,7 @@ const AutomationManager = () => {
                                             {rule.rule_type === 'welcome' && 'أول رسالة من جهة اتصال جديدة'}
                                             {rule.rule_type === 'away' && `${rule.schedule_start_time} - ${rule.schedule_end_time}`}
                                             {rule.rule_type === 'comment_reply' && (
-                                                `${rule.target_post_id ? 'منشور محدد' : 'جميع المنشورات'} • ${rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'رد + DM'}${rule.match_pattern ? ` • ${rule.match_pattern}` : ''}`
+                                                `${rule.trigger_on === 'reaction' ? 'تفاعلات' : rule.trigger_on === 'both' ? 'تعليقات+تفاعلات' : 'تعليقات'} • ${rule.target_post_id ? 'منشور محدد' : 'جميع المنشورات'} • ${rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'رد + DM'}${rule.match_pattern ? ` • ${rule.match_pattern}` : ''}`
                                             )}
                                         </Typography>
                                     </TableCell>
@@ -760,6 +769,32 @@ const AutomationManager = () => {
                                 </Alert>
 
                                 {/* Response Action */}
+                                <Typography variant="subtitle2" color="primary" sx={{ mt: 1 }}>مشغل القاعدة</Typography>
+                                <RadioGroup
+                                    row
+                                    value={formData.trigger_on}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setFormData(p => ({
+                                            ...p,
+                                            trigger_on: val,
+                                            // Reactions can only send DMs
+                                            response_action: val === 'reaction' ? 'dm' : p.response_action,
+                                        }));
+                                    }}
+                                >
+                                    {TRIGGER_ON_OPTIONS.map(t => (
+                                        <FormControlLabel key={t.value} value={t.value} control={<Radio />} label={t.label} />
+                                    ))}
+                                </RadioGroup>
+
+                                {formData.trigger_on === 'reaction' && (
+                                    <Alert severity="warning" sx={{ fontSize: '0.8rem' }}>
+                                        التفاعلات (إعجاب/قلب/هاها...) يمكنها فقط إرسال رسالة خاصة (DM).
+                                        يمكنك تحديد نوع التفاعل في حقل الكلمات (مثل: like,love,haha).
+                                    </Alert>
+                                )}
+
                                 <Typography variant="subtitle2" color="primary" sx={{ mt: 1 }}>نوع الرد</Typography>
                                 <RadioGroup
                                     row
@@ -767,7 +802,13 @@ const AutomationManager = () => {
                                     onChange={e => setFormData(p => ({ ...p, response_action: e.target.value }))}
                                 >
                                     {RESPONSE_ACTIONS.map(a => (
-                                        <FormControlLabel key={a.value} value={a.value} control={<Radio />} label={a.label} />
+                                        <FormControlLabel
+                                            key={a.value}
+                                            value={a.value}
+                                            control={<Radio />}
+                                            label={a.label}
+                                            disabled={formData.trigger_on === 'reaction' && a.value === 'comment'}
+                                        />
                                     ))}
                                 </RadioGroup>
                             </>

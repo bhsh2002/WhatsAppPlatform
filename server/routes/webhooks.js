@@ -4,7 +4,7 @@ import db from '../db/database.js';
 import eventBus from '../services/eventBus.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
-import { processIncomingMessage, processIncomingComment } from '../services/autoResponder.js';
+import { processIncomingMessage, processIncomingComment, processIncomingReaction } from '../services/autoResponder.js';
 
 const router = express.Router();
 
@@ -469,6 +469,21 @@ router.post('/', async (req, res) => {
                                         commenter_name: value.from.name,
                                         comment_text: value.message || '',
                                     }).catch(err => console.error('[AutoResponder] Comment error:', err.message));
+                                }
+                            }
+
+                            // Handle reactions/likes
+                            if ((item === 'reaction' || item === 'like') && verb === 'add') {
+                                if (value.from?.id && value.from.id !== pageId) {
+                                    processIncomingReaction({
+                                        tenant_id: linkedPage.tenant_id,
+                                        page_id: pageId,
+                                        linked_page_id: linkedPage.id,
+                                        post_id: value.post_id,
+                                        reactor_id: value.from.id,
+                                        reactor_name: value.from.name,
+                                        reaction_type: value.reaction_type || 'like',
+                                    }).catch(err => console.error('[AutoResponder] Reaction error:', err.message));
                                 }
                             }
 

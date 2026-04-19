@@ -511,7 +511,7 @@ export async function processIncomingComment({
     comment_text,
 }) {
     try {
-        const rules = getCommentRules(tenant_id, linked_page_id, post_id);
+        const rules = getCommentRules(tenant_id, linked_page_id, post_id, 'comment');
 
         if (!rules || rules.length === 0) {
             return { replied: false };
@@ -562,8 +562,9 @@ export async function processIncomingComment({
 
 /**
  * Get active comment_reply rules for a tenant, optionally scoped to a post.
+ * @param {string} triggerType - 'comment' or 'reaction'
  */
-function getCommentRules(tenantId, linkedPageId, postId) {
+function getCommentRules(tenantId, linkedPageId, postId, triggerType = 'comment') {
     return db.prepare(`
         SELECT * FROM automation_rules
         WHERE is_active = 1
@@ -571,10 +572,11 @@ function getCommentRules(tenantId, linkedPageId, postId) {
           AND (tenant_id IS NULL OR tenant_id = ?)
           AND (target_page_id IS NULL OR target_page_id = ?)
           AND (target_post_id IS NULL OR target_post_id = ?)
+          AND (trigger_on = ? OR trigger_on = 'both')
         ORDER BY
             CASE WHEN target_post_id IS NOT NULL THEN 0 ELSE 1 END ASC,
             priority ASC, id ASC
-    `).all(tenantId, linkedPageId, postId);
+    `).all(tenantId, linkedPageId, postId, triggerType);
 }
 
 /**
@@ -698,3 +700,163 @@ async function sendCommentAutoReply(rule, {
     return publicSent || dmSent;
 }
 
+// ============================================
+// Reaction/Like Auto-Reply
+// ============================================
+
+/**
+ * Process an incoming Facebook reaction/like against comment_reply rules.
+ * Reactions can only trigger DMs (no public comment to reply to).
+ *
+ * @param {object} params
+ * @returns {Promise<{ replied: boolean, rule_id?: number }>}
+ */
+export async function processIncomingReaction({
+    tenant_id,
+    page_id,
+    linked_page_id,
+    post_id,
+    reactor_id,
+    reactor_name,
+    reaction_type,
+}) {
+    try {
+        const rules = getCommentRules(tenant_id, linked_page_id, post_id, 'reaction');
+
+        if (!rules || rules.length === 0) {
+            return { replied: false };
+        }
+
+        for (const rule of rules) {
+            // Check cooldown (per reactor + rule)
+            if (isOnCooldown(rule.id, reactor_id, 'facebook', rule.cooldown_seconds)) {
+                continue;
+            }
+
+            // For reactions, keyword matching doesn't apply (there's no text)
+            // But if match_pattern is set, check if it matches reaction_type
+            if (rule.match_pattern) {
+                const patterns = rule.match_pattern.toLowerCase().split(',').map(s => s.trim());
+                if (!patterns.includes(reaction_type?.toLowerCase())) {
+                    continue;
+                }
+            }
+
+            // Rule matched — send DM to reactor
+            const sent = await sendReactionAutoReply(rule, {
+                tenant_id,
+                page_id,
+                linked_page_id,
+                post_id,
+                reactor_id,
+                reactor_name,
+                reaction_type,
+            });
+
+            if (sent) {
+                updateCooldown(rule.id, reactor_id, 'facebook');
+
+                db.prepare(`
+                    UPDATE automation_rules
+                    SET trigger_count = trigger_count + 1,
+                        last_triggered_at = datetime('now')
+                    WHERE id = ?
+                `).run(rule.id);
+
+                console.log(`[AutoResponder] Reaction rule "${rule.name}" (id=${rule.id}) fired for ${reaction_type} by ${reactor_id}`);
+                return { replied: true, rule_id: rule.id };
+            }
+        }
+
+        return { replied: false };
+    } catch (error) {
+        console.error('[AutoResponder] Reaction processing error:', error);
+        return { replied: false };
+    }
+}
+
+/**
+ * Send DM to a reactor via Messenger Send API.
+ * Uses the reactor's page-scoped user ID as the recipient.
+ */
+async function sendReactionAutoReply(rule, {
+    tenant_id,
+    page_id,
+    linked_page_id,
+    post_id,
+    reactor_id,
+    reactor_name,
+    reaction_type,
+}) {
+    const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND is_active = 1').get(linked_page_id);
+    if (!page) {
+        console.warn(`[AutoResponder] Reaction reply: page ${linked_page_id} not found`);
+        return false;
+    }
+
+    const accessToken = page.page_access_token_encrypted
+        ? decryptIfEncrypted(page.page_access_token_encrypted)
+        : null;
+    if (!accessToken) {
+        console.warn(`[AutoResponder] Reaction reply: no access token for page ${linked_page_id}`);
+        return false;
+    }
+
+    const dmMessage = rule.dm_text || rule.response_text;
+    if (!dmMessage) {
+        console.warn(`[AutoResponder] Reaction reply: no DM text configured for rule ${rule.id}`);
+        return false;
+    }
+
+    try {
+        // Use Messenger Send API with the reactor's page-scoped user ID
+        const response = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                recipient: { id: reactor_id },
+                message: { text: dmMessage },
+                messaging_type: 'RESPONSE',
+            }),
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            console.log(`[AutoResponder] Reaction DM sent to ${reactor_id} (${reaction_type} on ${post_id})`);
+
+            // Store in fb_messages if conversation exists
+            const conv = db.prepare(
+                'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1'
+            ).get(reactor_id, linked_page_id);
+
+            if (conv) {
+                db.prepare(`
+                    INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
+                    VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
+                `).run(
+                    conv.id, tenant_id,
+                    data.message_id || `reaction_dm_${post_id}_${Date.now()}`,
+                    page.page_id, page.page_name,
+                    dmMessage
+                );
+
+                db.prepare(`
+                    UPDATE fb_conversations
+                    SET last_message = ?, last_message_time = datetime('now')
+                    WHERE id = ?
+                `).run(dmMessage.substring(0, 100), conv.id);
+            }
+
+            return true;
+        } else {
+            console.error(`[AutoResponder] Reaction DM failed:`, data.error?.message);
+            return false;
+        }
+    } catch (err) {
+        console.error(`[AutoResponder] Reaction DM error:`, err.message);
+        return false;
+    }
+}

@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS automation_rules_new (
     target_page_id INTEGER,
     response_action TEXT DEFAULT 'comment' CHECK(response_action IN ('comment', 'dm', 'both')),
     dm_text TEXT,
+    trigger_on TEXT DEFAULT 'comment' CHECK(trigger_on IN ('comment', 'reaction', 'both')),
 
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
