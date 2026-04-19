@@ -84,20 +84,22 @@ const UnifiedSidebar = ({
                     <Typography variant="h6" fontWeight="bold">
                         📨 صندوق الوارد
                     </Typography>
-                    {onRefresh && (
-                        <Tooltip title="تحديث">
-                            <IconButton size="small" onClick={onRefresh}>
-                                <RefreshIcon fontSize="small" />
-                            </IconButton>
-                        </Tooltip>
-                    )}
-                    {onSyncMessenger && (
-                        <Tooltip title="مزامنة ماسنجر">
-                            <IconButton size="small" onClick={onSyncMessenger} disabled={syncing}>
-                                {syncing ? <CircularProgress size={18} /> : <SyncIcon fontSize="small" sx={{ color: '#0084ff' }} />}
-                            </IconButton>
-                        </Tooltip>
-                    )}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {onRefresh && (
+                            <Tooltip title="تحديث">
+                                <IconButton size="small" onClick={onRefresh}>
+                                    <RefreshIcon fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                        {onSyncMessenger && (
+                            <Tooltip title="مزامنة ماسنجر">
+                                <IconButton size="small" onClick={onSyncMessenger} disabled={syncing}>
+                                    {syncing ? <CircularProgress size={18} /> : <SyncIcon fontSize="small" sx={{ color: '#0084ff' }} />}
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                    </Box>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
                     <FormControl size="small" sx={{ minWidth: 120 }}>

@@ -211,7 +211,7 @@ const ChatWindow = ({
     return (
         <Box sx={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
             {/* Chat Header */}
-            <AppBar position="static" color="default" elevation={1} sx={{ bgcolor: 'background.paper' }}>
+            <AppBar position="sticky" color="default" elevation={1} sx={{ bgcolor: 'background.paper', zIndex: 10, flexShrink: 0 }}>
                 <Toolbar sx={{ px: 1 }}>
                     <IconButton
                         onClick={onBack}
