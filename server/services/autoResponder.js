@@ -488,3 +488,213 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
         return false;
     }
 }
+
+// ============================================
+// Comment Auto-Reply
+// ============================================
+
+/**
+ * Process an incoming Facebook comment against comment_reply rules.
+ * Returns whether an auto-reply was sent.
+ *
+ * @param {object} params
+ * @returns {Promise<{ replied: boolean, rule_id?: number }>}
+ */
+export async function processIncomingComment({
+    tenant_id,
+    page_id,
+    linked_page_id,
+    post_id,
+    comment_id,
+    commenter_id,
+    commenter_name,
+    comment_text,
+}) {
+    try {
+        const rules = getCommentRules(tenant_id, linked_page_id, post_id);
+
+        if (!rules || rules.length === 0) {
+            return { replied: false };
+        }
+
+        for (const rule of rules) {
+            // Check cooldown (per commenter + rule)
+            if (isOnCooldown(rule.id, commenter_id, 'facebook', rule.cooldown_seconds)) {
+                continue;
+            }
+
+            // Evaluate keyword matching (comment_reply rules use keyword matching on comment text)
+            const matches = evaluateCommentRule(rule, comment_text);
+            if (!matches) continue;
+
+            // Rule matched — send response(s)
+            const sent = await sendCommentAutoReply(rule, {
+                tenant_id,
+                page_id,
+                linked_page_id,
+                post_id,
+                comment_id,
+                commenter_id,
+                commenter_name,
+            });
+
+            if (sent) {
+                updateCooldown(rule.id, commenter_id, 'facebook');
+
+                db.prepare(`
+                    UPDATE automation_rules
+                    SET trigger_count = trigger_count + 1,
+                        last_triggered_at = datetime('now')
+                    WHERE id = ?
+                `).run(rule.id);
+
+                console.log(`[AutoResponder] Comment rule "${rule.name}" (id=${rule.id}) fired for comment ${comment_id}`);
+                return { replied: true, rule_id: rule.id };
+            }
+        }
+
+        return { replied: false };
+    } catch (error) {
+        console.error('[AutoResponder] Comment processing error:', error);
+        return { replied: false };
+    }
+}
+
+/**
+ * Get active comment_reply rules for a tenant, optionally scoped to a post.
+ */
+function getCommentRules(tenantId, linkedPageId, postId) {
+    return db.prepare(`
+        SELECT * FROM automation_rules
+        WHERE is_active = 1
+          AND rule_type = 'comment_reply'
+          AND (tenant_id IS NULL OR tenant_id = ?)
+          AND (target_page_id IS NULL OR target_page_id = ?)
+          AND (target_post_id IS NULL OR target_post_id = ?)
+        ORDER BY
+            CASE WHEN target_post_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+            priority ASC, id ASC
+    `).all(tenantId, linkedPageId, postId);
+}
+
+/**
+ * Evaluate whether a comment matches a comment_reply rule.
+ * If no match_pattern is set, the rule matches all comments.
+ */
+function evaluateCommentRule(rule, commentText) {
+    // If no keyword matching configured, match all comments
+    if (!rule.match_pattern) return true;
+
+    return matchesKeyword(rule, commentText);
+}
+
+/**
+ * Send auto-reply for a comment: public reply, DM, or both.
+ */
+async function sendCommentAutoReply(rule, {
+    tenant_id,
+    page_id,
+    linked_page_id,
+    post_id,
+    comment_id,
+    commenter_id,
+    commenter_name,
+}) {
+    // Resolve page credentials
+    const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND is_active = 1').get(linked_page_id);
+    if (!page) {
+        console.warn(`[AutoResponder] Comment reply: page ${linked_page_id} not found`);
+        return false;
+    }
+
+    const accessToken = page.page_access_token_encrypted
+        ? decryptIfEncrypted(page.page_access_token_encrypted)
+        : null;
+    if (!accessToken) {
+        console.warn(`[AutoResponder] Comment reply: no access token for page ${linked_page_id}`);
+        return false;
+    }
+
+    const responseAction = rule.response_action || 'comment';
+    let publicSent = false;
+    let dmSent = false;
+
+    // 1. Public comment reply
+    if ((responseAction === 'comment' || responseAction === 'both') && rule.response_text) {
+        try {
+            const response = await fetch(`${META_API_BASE}/${comment_id}/comments`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: rule.response_text,
+                }),
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                publicSent = true;
+                console.log(`[AutoResponder] Public reply sent on comment ${comment_id}`);
+            } else {
+                console.error(`[AutoResponder] Public reply failed:`, data.error?.message);
+            }
+        } catch (err) {
+            console.error(`[AutoResponder] Public reply error:`, err.message);
+        }
+    }
+
+    // 2. Private DM via private_replies API
+    if ((responseAction === 'dm' || responseAction === 'both') && (rule.dm_text || rule.response_text)) {
+        const dmMessage = rule.dm_text || rule.response_text;
+        try {
+            const response = await fetch(`${META_API_BASE}/${comment_id}/private_replies`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: dmMessage,
+                }),
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                dmSent = true;
+                console.log(`[AutoResponder] DM sent to commenter on comment ${comment_id}`);
+
+                // Try to store in fb_messages if conversation exists
+                const conv = db.prepare(
+                    'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1'
+                ).get(commenter_id, linked_page_id);
+
+                if (conv) {
+                    db.prepare(`
+                        INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
+                        VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
+                    `).run(
+                        conv.id, tenant_id,
+                        data.id || `dm_${comment_id}_${Date.now()}`,
+                        page.page_id, page.page_name,
+                        dmMessage
+                    );
+
+                    db.prepare(`
+                        UPDATE fb_conversations
+                        SET last_message = ?, last_message_time = datetime('now')
+                        WHERE id = ?
+                    `).run(dmMessage.substring(0, 100), conv.id);
+                }
+            } else {
+                console.error(`[AutoResponder] DM failed:`, data.error?.message);
+            }
+        } catch (err) {
+            console.error(`[AutoResponder] DM error:`, err.message);
+        }
+    }
+
+    return publicSent || dmSent;
+}
+

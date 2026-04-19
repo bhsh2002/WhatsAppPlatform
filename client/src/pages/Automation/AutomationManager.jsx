@@ -3,7 +3,7 @@ import {
     Box, Paper, Typography, Button, IconButton, Chip, Card, CardContent,
     Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
     Switch, FormControlLabel, Checkbox, FormGroup, Alert, CircularProgress,
-    Divider, Tooltip, Grid, Select, InputLabel, FormControl,
+    Divider, Tooltip, Grid, Select, InputLabel, FormControl, RadioGroup, Radio,
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 } from '@mui/material';
 import {
@@ -20,7 +20,9 @@ import {
     Refresh as RefreshIcon,
     CheckCircle as CheckCircleIcon,
     Cancel as CancelIcon,
-    Science as ScienceIcon
+    Science as ScienceIcon,
+    ChatBubble as CommentReplyIcon,
+    Facebook as FBPageIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -28,12 +30,20 @@ const RULE_TYPES = [
     { value: 'keyword', label: 'كلمة مفتاحية', icon: <KeywordIcon /> },
     { value: 'welcome', label: 'رسالة ترحيب', icon: <WelcomeIcon /> },
     { value: 'away', label: 'خارج الدوام', icon: <AwayIcon /> },
+    { value: 'comment_reply', label: 'رد على التعليقات', icon: <CommentReplyIcon /> },
 ];
 
 const CHANNELS = [
     { value: 'all', label: 'جميع القنوات' },
     { value: 'whatsapp', label: 'واتساب' },
     { value: 'messenger', label: 'ماسنجر' },
+    { value: 'facebook', label: 'فيسبوك' },
+];
+
+const RESPONSE_ACTIONS = [
+    { value: 'comment', label: 'رد عام (تعليق)' },
+    { value: 'dm', label: 'رسالة خاصة (DM)' },
+    { value: 'both', label: 'كلاهما' },
 ];
 
 const MATCH_TYPES = [
@@ -71,6 +81,10 @@ const emptyRule = {
     response_template_name: '',
     response_template_language: 'ar',
     cooldown_seconds: 300,
+    target_post_id: '',
+    target_page_id: '',
+    response_action: 'comment',
+    dm_text: '',
 };
 
 const AutomationManager = () => {
@@ -95,6 +109,11 @@ const AutomationManager = () => {
     const [testNewContact, setTestNewContact] = useState(false);
     const [testResult, setTestResult] = useState(null);
     const [testing, setTesting] = useState(false);
+
+    // FB Pages for comment_reply
+    const [fbPages, setFbPages] = useState([]);
+    const [fbPosts, setFbPosts] = useState([]);
+    const [postsLoading, setPostsLoading] = useState(false);
 
     const fetchRules = useCallback(async () => {
         try {
@@ -133,7 +152,30 @@ const AutomationManager = () => {
         fetchRules();
         fetchSummary();
         fetchTenants();
+        fetchFbPages();
     }, [fetchRules, fetchSummary, fetchTenants]);
+
+    const fetchFbPages = useCallback(async () => {
+        try {
+            const data = await api.getFbAllPages();
+            setFbPages(Array.isArray(data) ? data : []);
+        } catch {
+            setFbPages([]);
+        }
+    }, []);
+
+    const fetchPostsForPage = useCallback(async (linkedPageId) => {
+        if (!linkedPageId) { setFbPosts([]); return; }
+        try {
+            setPostsLoading(true);
+            const data = await api.getFbPosts(linkedPageId);
+            setFbPosts(data?.posts || []);
+        } catch {
+            setFbPosts([]);
+        } finally {
+            setPostsLoading(false);
+        }
+    }, []);
 
     const handleOpenCreate = () => {
         setEditingRule(null);
@@ -167,21 +209,32 @@ const AutomationManager = () => {
             response_template_name: rule.response_template_name || '',
             response_template_language: rule.response_template_language || 'ar',
             cooldown_seconds: rule.cooldown_seconds ?? 300,
+            target_post_id: rule.target_post_id || '',
+            target_page_id: rule.target_page_id || '',
+            response_action: rule.response_action || 'comment',
+            dm_text: rule.dm_text || '',
         });
+        if (rule.target_page_id) fetchPostsForPage(rule.target_page_id);
         setDialogOpen(true);
     };
 
     const handleSave = async () => {
         try {
             setSaving(true);
+            const isComment = formData.rule_type === 'comment_reply';
             const payload = {
                 ...formData,
                 tenant_id: formData.tenant_id || null,
+                channel: isComment ? 'facebook' : formData.channel,
                 schedule_days: formData.rule_type === 'away' ? JSON.stringify(formData.schedule_days) : null,
                 schedule_start_time: formData.rule_type === 'away' ? formData.schedule_start_time : null,
                 schedule_end_time: formData.rule_type === 'away' ? formData.schedule_end_time : null,
-                match_type: formData.rule_type === 'keyword' ? formData.match_type : null,
-                match_pattern: formData.rule_type === 'keyword' ? formData.match_pattern : null,
+                match_type: (formData.rule_type === 'keyword' || isComment) ? formData.match_type : null,
+                match_pattern: (formData.rule_type === 'keyword' || isComment) ? formData.match_pattern : null,
+                target_post_id: isComment ? (formData.target_post_id || null) : null,
+                target_page_id: isComment ? (formData.target_page_id || null) : null,
+                response_action: isComment ? formData.response_action : 'comment',
+                dm_text: isComment ? (formData.dm_text || null) : null,
             };
 
             if (editingRule) {
@@ -246,6 +299,7 @@ const AutomationManager = () => {
             case 'keyword': return <KeywordIcon sx={{ fontSize: 18 }} />;
             case 'welcome': return <WelcomeIcon sx={{ fontSize: 18 }} />;
             case 'away': return <AwayIcon sx={{ fontSize: 18 }} />;
+            case 'comment_reply': return <CommentReplyIcon sx={{ fontSize: 18 }} />;
             default: return <SmartToyIcon sx={{ fontSize: 18 }} />;
         }
     };
@@ -253,6 +307,7 @@ const AutomationManager = () => {
     const getChannelChip = (ch) => {
         if (ch === 'whatsapp') return <Chip icon={<WhatsAppIcon />} label="واتساب" size="small" sx={{ bgcolor: '#25D36622', color: '#25D366' }} />;
         if (ch === 'messenger') return <Chip icon={<FacebookIcon />} label="ماسنجر" size="small" sx={{ bgcolor: '#0084ff22', color: '#0084ff' }} />;
+        if (ch === 'facebook') return <Chip icon={<FBPageIcon />} label="فيسبوك" size="small" sx={{ bgcolor: '#1877f222', color: '#1877f2' }} />;
         return <Chip label="الكل" size="small" variant="outlined" />;
     };
 
@@ -369,6 +424,9 @@ const AutomationManager = () => {
                                             {rule.rule_type === 'keyword' && `${rule.match_type === 'exact' ? 'مطابقة:' : rule.match_type === 'contains' ? 'يحتوي:' : 'regex:'} ${rule.match_pattern}`}
                                             {rule.rule_type === 'welcome' && 'أول رسالة من جهة اتصال جديدة'}
                                             {rule.rule_type === 'away' && `${rule.schedule_start_time} - ${rule.schedule_end_time}`}
+                                            {rule.rule_type === 'comment_reply' && (
+                                                `${rule.target_post_id ? 'منشور محدد' : 'جميع المنشورات'} • ${rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'رد + DM'}${rule.match_pattern ? ` • ${rule.match_pattern}` : ''}`
+                                            )}
                                         </Typography>
                                     </TableCell>
                                     <TableCell>
@@ -636,20 +694,118 @@ const AutomationManager = () => {
                             </>
                         )}
 
+                        {/* Comment Reply-specific fields */}
+                        {formData.rule_type === 'comment_reply' && (
+                            <>
+                                <Typography variant="subtitle2" color="primary">إعدادات الرد على التعليقات</Typography>
+                                <Box sx={{ display: 'flex', gap: 2 }}>
+                                    <FormControl fullWidth>
+                                        <InputLabel>الصفحة</InputLabel>
+                                        <Select
+                                            value={formData.target_page_id}
+                                            onChange={e => {
+                                                const pageId = e.target.value;
+                                                setFormData(p => ({ ...p, target_page_id: pageId, target_post_id: '' }));
+                                                fetchPostsForPage(pageId);
+                                            }}
+                                            label="الصفحة"
+                                        >
+                                            <MenuItem value="">جميع الصفحات</MenuItem>
+                                            {fbPages.map(p => (
+                                                <MenuItem key={p.id} value={p.id}>{p.page_name || p.page_id}</MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                    <FormControl fullWidth>
+                                        <InputLabel>المنشور</InputLabel>
+                                        <Select
+                                            value={formData.target_post_id}
+                                            onChange={e => setFormData(p => ({ ...p, target_post_id: e.target.value }))}
+                                            label="المنشور"
+                                            disabled={!formData.target_page_id || postsLoading}
+                                        >
+                                            <MenuItem value="">جميع المنشورات</MenuItem>
+                                            {fbPosts.map(post => (
+                                                <MenuItem key={post.id} value={post.id}>
+                                                    {(post.message || 'بدون نص').substring(0, 60)}{(post.message || '').length > 60 ? '...' : ''}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                </Box>
+
+                                {/* Keyword matching (optional for comment_reply) */}
+                                <Typography variant="subtitle2" color="primary" sx={{ mt: 1 }}>مطابقة الكلمات (اختياري)</Typography>
+                                <Box sx={{ display: 'flex', gap: 2 }}>
+                                    <FormControl sx={{ minWidth: 160 }}>
+                                        <InputLabel>نوع المطابقة</InputLabel>
+                                        <Select
+                                            value={formData.match_type}
+                                            onChange={e => setFormData(p => ({ ...p, match_type: e.target.value }))}
+                                            label="نوع المطابقة"
+                                        >
+                                            {MATCH_TYPES.map(m => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
+                                        </Select>
+                                    </FormControl>
+                                    <TextField
+                                        label="الكلمات (اتركه فارغاً للرد على الكل)"
+                                        value={formData.match_pattern}
+                                        onChange={e => setFormData(p => ({ ...p, match_pattern: e.target.value }))}
+                                        fullWidth
+                                        placeholder="مثال: سعر,تفاصيل,كم — اتركه فارغاً للرد على كل تعليق"
+                                    />
+                                </Box>
+                                <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+                                    اترك حقل الكلمات فارغاً للرد على جميع التعليقات. أو اكتب كلمات مفتاحية مفصولة بفاصلة للرد فقط على التعليقات المطابقة.
+                                </Alert>
+
+                                {/* Response Action */}
+                                <Typography variant="subtitle2" color="primary" sx={{ mt: 1 }}>نوع الرد</Typography>
+                                <RadioGroup
+                                    row
+                                    value={formData.response_action}
+                                    onChange={e => setFormData(p => ({ ...p, response_action: e.target.value }))}
+                                >
+                                    {RESPONSE_ACTIONS.map(a => (
+                                        <FormControlLabel key={a.value} value={a.value} control={<Radio />} label={a.label} />
+                                    ))}
+                                </RadioGroup>
+                            </>
+                        )}
+
                         <Divider />
 
                         {/* Response */}
-                        <Typography variant="subtitle2" color="primary">الرد التلقائي</Typography>
-                        <TextField
-                            label="نص الرد"
-                            value={formData.response_text}
-                            onChange={e => setFormData(p => ({ ...p, response_text: e.target.value }))}
-                            multiline
-                            rows={3}
-                            required
-                            fullWidth
-                            placeholder="اكتب الرد التلقائي هنا..."
-                        />
+                        <Typography variant="subtitle2" color="primary">
+                            {formData.rule_type === 'comment_reply' && (formData.response_action === 'comment' || formData.response_action === 'both')
+                                ? 'نص الرد العام (تعليق)'
+                                : 'الرد التلقائي'}
+                        </Typography>
+                        {(formData.rule_type !== 'comment_reply' || formData.response_action === 'comment' || formData.response_action === 'both') && (
+                            <TextField
+                                label={formData.rule_type === 'comment_reply' ? 'نص التعليق العام' : 'نص الرد'}
+                                value={formData.response_text}
+                                onChange={e => setFormData(p => ({ ...p, response_text: e.target.value }))}
+                                multiline
+                                rows={3}
+                                required={formData.rule_type !== 'comment_reply'}
+                                fullWidth
+                                placeholder="اكتب الرد التلقائي هنا..."
+                            />
+                        )}
+
+                        {/* DM text for comment_reply */}
+                        {formData.rule_type === 'comment_reply' && (formData.response_action === 'dm' || formData.response_action === 'both') && (
+                            <TextField
+                                label="نص الرسالة الخاصة (DM)"
+                                value={formData.dm_text}
+                                onChange={e => setFormData(p => ({ ...p, dm_text: e.target.value }))}
+                                multiline
+                                rows={3}
+                                fullWidth
+                                placeholder="الرسالة الخاصة التي ستُرسل للمعلق..."
+                            />
+                        )}
 
                         <TextField
                             label="فترة التهدئة (بالثواني)"
@@ -666,7 +822,11 @@ const AutomationManager = () => {
                     <Button
                         variant="contained"
                         onClick={handleSave}
-                        disabled={saving || !formData.name || !formData.response_text}
+                        disabled={saving || !formData.name || (
+                            formData.rule_type === 'comment_reply'
+                                ? (!formData.response_text && !formData.dm_text)
+                                : !formData.response_text
+                        )}
                         startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
                     >
                         {saving ? 'جاري الحفظ...' : editingRule ? 'تحديث' : 'إنشاء'}

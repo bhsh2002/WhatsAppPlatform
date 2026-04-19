@@ -4,7 +4,7 @@ import db from '../db/database.js';
 import eventBus from '../services/eventBus.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
-import { processIncomingMessage } from '../services/autoResponder.js';
+import { processIncomingMessage, processIncomingComment } from '../services/autoResponder.js';
 
 const router = express.Router();
 
@@ -456,6 +456,20 @@ router.post('/', async (req, res) => {
                                     tenant?.name || 'Unknown',
                                     `تعليق جديد على صفحة ${linkedPage.page_name || pageId}: "${(value.message || '').substring(0, 50)}"`
                                 );
+
+                                // Comment auto-reply (fire-and-forget)
+                                if (value.from?.id && value.from.id !== pageId) {
+                                    processIncomingComment({
+                                        tenant_id: linkedPage.tenant_id,
+                                        page_id: pageId,
+                                        linked_page_id: linkedPage.id,
+                                        post_id: value.post_id,
+                                        comment_id: value.comment_id,
+                                        commenter_id: value.from.id,
+                                        commenter_name: value.from.name,
+                                        comment_text: value.message || '',
+                                    }).catch(err => console.error('[AutoResponder] Comment error:', err.message));
+                                }
                             }
 
                             forwardToTenantWebhook(linkedPage.tenant_id, `fb_${item}_${verb}`, value);

@@ -75,13 +75,14 @@ router.post('/rules', (req, res) => {
             response_type, response_text,
             response_template_name, response_template_language,
             cooldown_seconds,
+            target_post_id, target_page_id, response_action, dm_text,
         } = req.body;
 
         if (!name || !rule_type) {
             return res.status(400).json({ error: 'الاسم ونوع القاعدة مطلوبان' });
         }
 
-        if (!['keyword', 'welcome', 'away'].includes(rule_type)) {
+        if (!['keyword', 'welcome', 'away', 'comment_reply'].includes(rule_type)) {
             return res.status(400).json({ error: 'نوع القاعدة غير صالح' });
         }
 
@@ -93,7 +94,11 @@ router.post('/rules', (req, res) => {
             return res.status(400).json({ error: 'جدول المواعيد مطلوب لقواعد خارج الدوام' });
         }
 
-        if (response_type !== 'template' && !response_text) {
+        if (rule_type === 'comment_reply' && !response_text && !dm_text) {
+            return res.status(400).json({ error: 'نص الرد أو نص الرسالة الخاصة مطلوب' });
+        }
+
+        if (response_type !== 'template' && !response_text && rule_type !== 'comment_reply') {
             return res.status(400).json({ error: 'نص الرد مطلوب' });
         }
 
@@ -105,13 +110,14 @@ router.post('/rules', (req, res) => {
                 schedule_days, schedule_start_time, schedule_end_time, schedule_timezone,
                 response_type, response_text,
                 response_template_name, response_template_language,
-                cooldown_seconds
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cooldown_seconds,
+                target_post_id, target_page_id, response_action, dm_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             tenant_id || null,
             name,
             rule_type,
-            channel || 'all',
+            channel || (rule_type === 'comment_reply' ? 'facebook' : 'all'),
             is_active !== undefined ? (is_active ? 1 : 0) : 1,
             priority || 100,
             match_type || null,
@@ -126,6 +132,10 @@ router.post('/rules', (req, res) => {
             response_template_name || null,
             response_template_language || 'ar',
             cooldown_seconds !== undefined ? cooldown_seconds : 300,
+            target_post_id || null,
+            target_page_id || null,
+            response_action || 'comment',
+            dm_text || null,
         );
 
         const newRule = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(result.lastInsertRowid);
@@ -152,6 +162,7 @@ router.put('/rules/:id', (req, res) => {
             response_type, response_text,
             response_template_name, response_template_language,
             cooldown_seconds,
+            target_post_id, target_page_id, response_action, dm_text,
         } = req.body;
 
         db.prepare(`
@@ -174,6 +185,10 @@ router.put('/rules/:id', (req, res) => {
                 response_template_name = ?,
                 response_template_language = ?,
                 cooldown_seconds = ?,
+                target_post_id = ?,
+                target_page_id = ?,
+                response_action = ?,
+                dm_text = ?,
                 updated_at = datetime('now')
             WHERE id = ?
         `).run(
@@ -197,6 +212,10 @@ router.put('/rules/:id', (req, res) => {
             response_template_name !== undefined ? response_template_name : existing.response_template_name,
             response_template_language !== undefined ? response_template_language : existing.response_template_language,
             cooldown_seconds !== undefined ? cooldown_seconds : existing.cooldown_seconds,
+            target_post_id !== undefined ? (target_post_id || null) : existing.target_post_id,
+            target_page_id !== undefined ? (target_page_id || null) : existing.target_page_id,
+            response_action !== undefined ? response_action : existing.response_action,
+            dm_text !== undefined ? (dm_text || null) : existing.dm_text,
             req.params.id,
         );
 

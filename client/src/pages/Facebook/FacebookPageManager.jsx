@@ -3,7 +3,8 @@ import {
     Box, Paper, Typography, Button, TextField, Select, MenuItem, FormControl,
     InputLabel, CircularProgress, Alert, Snackbar, Chip, Avatar, IconButton,
     Card, CardContent, CardMedia, CardActions, Collapse, Dialog, DialogTitle,
-    DialogContent, DialogActions, Divider, Grid, Tab, Tabs, Tooltip
+    DialogContent, DialogActions, Divider, Grid, Tab, Tabs, Tooltip,
+    RadioGroup, Radio, FormControlLabel, Switch
 } from '@mui/material';
 import {
     Facebook as FacebookIcon, Send as SendIcon, Delete as DeleteIcon,
@@ -11,7 +12,8 @@ import {
     Link as LinkIcon, Image as ImageIcon, Schedule as ScheduleIcon,
     TextSnippet as TextIcon, Refresh as RefreshIcon, ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon, ChatBubble as CommentIcon,
-    OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon
+    OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon,
+    SmartToy as AutomationIcon, Bolt as BoltIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -61,6 +63,17 @@ const FacebookPageManager = () => {
     const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+    // Automation quick-setup
+    const [autoDialogOpen, setAutoDialogOpen] = useState(false);
+    const [autoTargetPost, setAutoTargetPost] = useState(null);
+    const [autoRules, setAutoRules] = useState([]);
+    const [autoRulesLoading, setAutoRulesLoading] = useState(false);
+    const [autoForm, setAutoForm] = useState({
+        name: '', match_pattern: '', response_text: '', dm_text: '',
+        response_action: 'comment', cooldown_seconds: 300,
+    });
+    const [autoSaving, setAutoSaving] = useState(false);
 
     const selectedPage = allPages.find(p => p.id === selectedPageId);
 
@@ -272,6 +285,77 @@ const FacebookPageManager = () => {
     const formatTime = (ts) => {
         if (!ts) return '';
         try { return new Date(ts).toLocaleString('ar-LY'); } catch { return ts; }
+    };
+
+    // Automation quick-setup functions
+    const openAutoDialog = async (post) => {
+        setAutoTargetPost(post);
+        setAutoForm({
+            name: `رد تلقائي - ${(post.message || 'منشور').substring(0, 30)}`,
+            match_pattern: '',
+            response_text: '',
+            dm_text: '',
+            response_action: 'comment',
+            cooldown_seconds: 300,
+        });
+        setAutoDialogOpen(true);
+        fetchAutoRules(post.id);
+    };
+
+    const fetchAutoRules = async (postId) => {
+        try {
+            setAutoRulesLoading(true);
+            const allRules = await api.getAutomationRules({ rule_type: 'comment_reply' });
+            const filtered = (allRules || []).filter(r =>
+                r.target_post_id === postId ||
+                (r.target_page_id == selectedPageId && !r.target_post_id)
+            );
+            setAutoRules(filtered);
+        } catch {
+            setAutoRules([]);
+        } finally {
+            setAutoRulesLoading(false);
+        }
+    };
+
+    const handleCreateAutoRule = async () => {
+        if (!autoTargetPost) return;
+        try {
+            setAutoSaving(true);
+            const selectedTenant = selectedPage?.tenant_id || null;
+            await api.createAutomationRule({
+                name: autoForm.name,
+                rule_type: 'comment_reply',
+                channel: 'facebook',
+                tenant_id: selectedTenant,
+                target_page_id: selectedPageId,
+                target_post_id: autoTargetPost.id,
+                match_type: autoForm.match_pattern ? 'contains' : null,
+                match_pattern: autoForm.match_pattern || null,
+                response_text: autoForm.response_text || null,
+                dm_text: autoForm.dm_text || null,
+                response_action: autoForm.response_action,
+                cooldown_seconds: autoForm.cooldown_seconds,
+                is_active: true,
+                priority: 100,
+            });
+            setSnackbar({ open: true, message: 'تم إنشاء قاعدة الأتمتة', severity: 'success' });
+            fetchAutoRules(autoTargetPost.id);
+            setAutoForm(prev => ({ ...prev, name: '', match_pattern: '', response_text: '', dm_text: '' }));
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل إنشاء القاعدة', severity: 'error' });
+        } finally {
+            setAutoSaving(false);
+        }
+    };
+
+    const handleToggleAutoRule = async (ruleId) => {
+        try {
+            await api.toggleAutomationRule(ruleId);
+            if (autoTargetPost) fetchAutoRules(autoTargetPost.id);
+        } catch {
+            setSnackbar({ open: true, message: 'فشل تبديل حالة القاعدة', severity: 'error' });
+        }
     };
 
     if (pagesLoading) {
@@ -511,6 +595,9 @@ const FacebookPageManager = () => {
                                             </Button>
                                         </Box>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                            <Tooltip title="أتمتة التعليقات">
+                                                <IconButton size="small" color="primary" onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
+                                            </Tooltip>
                                             <Tooltip title="تعديل">
                                                 <IconButton size="small" onClick={() => handleStartEdit(post)}><EditIcon fontSize="small" /></IconButton>
                                             </Tooltip>
@@ -608,6 +695,124 @@ const FacebookPageManager = () => {
                     {snackbar.message}
                 </Alert>
             </Snackbar>
+
+            {/* Per-Post Automation Dialog */}
+            <Dialog open={autoDialogOpen} onClose={() => setAutoDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <BoltIcon color="primary" />
+                    أتمتة التعليقات
+                </DialogTitle>
+                <DialogContent dividers>
+                    {autoTargetPost && (
+                        <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
+                            المنشور: "{(autoTargetPost.message || 'بدون نص').substring(0, 80)}{(autoTargetPost.message || '').length > 80 ? '...' : ''}"
+                        </Alert>
+                    )}
+
+                    {/* Existing rules for this post */}
+                    {autoRulesLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}><CircularProgress size={24} /></Box>
+                    ) : autoRules.length > 0 && (
+                        <Box sx={{ mb: 3 }}>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>القواعد الحالية</Typography>
+                            {autoRules.map(rule => (
+                                <Box key={rule.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, mb: 0.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                    <Switch
+                                        checked={!!rule.is_active}
+                                        onChange={() => handleToggleAutoRule(rule.id)}
+                                        size="small"
+                                        color="success"
+                                    />
+                                    <Box sx={{ flex: 1 }}>
+                                        <Typography variant="body2" fontWeight="bold">{rule.name}</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {rule.match_pattern ? `كلمات: ${rule.match_pattern}` : 'جميع التعليقات'}
+                                            {' • '}
+                                            {rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'كلاهما'}
+                                            {' • '}
+                                            {rule.trigger_count || 0} تشغيل
+                                        </Typography>
+                                    </Box>
+                                    <Chip
+                                        label={rule.target_post_id ? 'هذا المنشور' : 'عام'}
+                                        size="small"
+                                        variant="outlined"
+                                        color={rule.target_post_id ? 'primary' : 'default'}
+                                    />
+                                </Box>
+                            ))}
+                        </Box>
+                    )}
+
+                    <Divider sx={{ mb: 2 }} />
+                    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>إنشاء قاعدة جديدة لهذا المنشور</Typography>
+
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <TextField
+                            label="اسم القاعدة"
+                            value={autoForm.name}
+                            onChange={e => setAutoForm(p => ({ ...p, name: e.target.value }))}
+                            fullWidth
+                            size="small"
+                        />
+                        <TextField
+                            label="كلمات مفتاحية (اتركه فارغاً للرد على الكل)"
+                            value={autoForm.match_pattern}
+                            onChange={e => setAutoForm(p => ({ ...p, match_pattern: e.target.value }))}
+                            fullWidth
+                            size="small"
+                            placeholder="مثال: سعر,تفاصيل,كم"
+                        />
+
+                        <Typography variant="caption" color="primary">نوع الرد</Typography>
+                        <RadioGroup
+                            row
+                            value={autoForm.response_action}
+                            onChange={e => setAutoForm(p => ({ ...p, response_action: e.target.value }))}
+                        >
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label="رد عام" />
+                            <FormControlLabel value="dm" control={<Radio size="small" />} label="رسالة خاصة" />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" />
+                        </RadioGroup>
+
+                        {(autoForm.response_action === 'comment' || autoForm.response_action === 'both') && (
+                            <TextField
+                                label="نص التعليق العام"
+                                value={autoForm.response_text}
+                                onChange={e => setAutoForm(p => ({ ...p, response_text: e.target.value }))}
+                                multiline
+                                rows={2}
+                                fullWidth
+                                size="small"
+                                placeholder="الرد الذي سيظهر كتعليق..."
+                            />
+                        )}
+                        {(autoForm.response_action === 'dm' || autoForm.response_action === 'both') && (
+                            <TextField
+                                label="نص الرسالة الخاصة"
+                                value={autoForm.dm_text}
+                                onChange={e => setAutoForm(p => ({ ...p, dm_text: e.target.value }))}
+                                multiline
+                                rows={2}
+                                fullWidth
+                                size="small"
+                                placeholder="الرسالة الخاصة التي ستُرسل للمعلق..."
+                            />
+                        )}
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setAutoDialogOpen(false)}>إغلاق</Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleCreateAutoRule}
+                        disabled={autoSaving || !autoForm.name || (!autoForm.response_text && !autoForm.dm_text)}
+                        startIcon={autoSaving ? <CircularProgress size={16} color="inherit" /> : <BoltIcon />}
+                    >
+                        {autoSaving ? 'جاري الحفظ...' : 'إنشاء قاعدة'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };
