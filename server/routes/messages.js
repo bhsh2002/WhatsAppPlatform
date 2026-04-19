@@ -832,7 +832,7 @@ router.post('/send-interactive', async (req, res) => {
         // Save to database
         db.prepare(`
             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, error_message)
-            VALUES (?, 'outgoing', ?, 'interactive', ?, ?, ?, ?)
+            VALUES (?, 'outgoing', ?, ?, 'interactive', ?, ?, ?, ?)
         `).run(
             tenant?.id || null,
             reqPhoneId,
