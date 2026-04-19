@@ -3,7 +3,7 @@
 // ============================================
 
 // Meta WhatsApp Cloud API
-export const META_API_VERSION = 'v22.0';
+export const META_API_VERSION = 'v25.0';
 export const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
 // JWT
