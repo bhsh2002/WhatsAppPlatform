@@ -837,7 +837,7 @@ router.post('/send-interactive', async (req, res) => {
             tenant?.id || null,
             reqPhoneId,
             recipient,
-            JSON.stringify({ type: interactive_type, body: body_text, header: header_text }),
+            JSON.stringify({ type: interactive_type, body: body_text, header: header_text, footer: footer_text, buttons: interactive_type === 'button' ? buttons : undefined, list_button: list_button_text }),
             response.ok ? 'sent' : 'failed',
             data.messages?.[0]?.id || null,
             data.error?.message || null
