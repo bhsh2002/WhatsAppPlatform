@@ -1,6 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
-import { META_API_BASE } from '../config/index.js';
+import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 
 const router = express.Router();
@@ -403,6 +403,84 @@ router.get('/:id/subscription-status', async (req, res) => {
         });
     } catch (error) {
         console.error('[FacebookPages] Subscription status error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// POST /setup-app-webhook — Configure app-level webhook for Page events
+// Uses Graph API /{app-id}/subscriptions to bypass the dashboard
+// ============================================
+router.post('/setup-app-webhook', async (req, res) => {
+    try {
+        const appId = META_APP_ID;
+        const appSecret = META_APP_SECRET;
+        const verifyToken = process.env.WEBHOOK_VERIFY_TOKEN;
+        const callbackUrl = req.body.callback_url || `${req.protocol}://${req.get('host')}/webhook`;
+
+        if (!appId || !appSecret) {
+            return res.status(400).json({
+                error: 'META_APP_ID and META_APP_SECRET must be set in environment',
+            });
+        }
+
+        if (!verifyToken) {
+            return res.status(400).json({ error: 'WEBHOOK_VERIFY_TOKEN must be set' });
+        }
+
+        // App access token = app_id|app_secret
+        const appAccessToken = `${appId}|${appSecret}`;
+
+        // First, check current subscriptions
+        const getRes = await fetch(
+            `${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`
+        );
+        const currentSubs = await getRes.json();
+
+        console.log('[FacebookPages] Current app subscriptions:', JSON.stringify(currentSubs));
+
+        // Subscribe to Page object
+        const subscribeRes = await fetch(
+            `${META_API_BASE}/${appId}/subscriptions`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    object: 'page',
+                    callback_url: callbackUrl,
+                    fields: 'feed,messages,messaging_postbacks',
+                    verify_token: verifyToken,
+                    access_token: appAccessToken,
+                    include_values: 'true',
+                }).toString(),
+            }
+        );
+        const subscribeData = await subscribeRes.json();
+
+        console.log('[FacebookPages] App webhook subscription result:', JSON.stringify(subscribeData));
+
+        if (!subscribeRes.ok || subscribeData.error) {
+            return res.status(subscribeRes.status || 400).json({
+                error: 'Failed to subscribe',
+                details: subscribeData.error || subscribeData,
+                callback_url_used: callbackUrl,
+            });
+        }
+
+        // Verify it was set correctly
+        const verifyRes = await fetch(
+            `${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`
+        );
+        const verifySubs = await verifyRes.json();
+
+        res.json({
+            success: true,
+            message: 'App-level webhook for Page events configured successfully',
+            callback_url: callbackUrl,
+            current_subscriptions: verifySubs,
+        });
+    } catch (error) {
+        console.error('[FacebookPages] Setup app webhook error:', error);
         res.status(500).json({ error: error.message });
     }
 });
