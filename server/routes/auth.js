@@ -302,7 +302,7 @@ router.post('/register-tenant', async (req, res) => {
             // Create user account
             db.prepare(`
                 INSERT INTO users (username, email, password_hash, name, role, tenant_id, is_active)
-                VALUES (?, ?, ?, ?, 'user', ?, 1)
+                VALUES (?, ?, ?, ?, 'user', ?, 0)
             `).run(username, email || null, password_hash, contact_name || business_name, tenantId);
 
             return tenantId;

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box, Paper, Typography, CircularProgress, Alert, Snackbar, Grid,
     Card, CardContent, Chip, Avatar, Button, Dialog, DialogTitle,
-    DialogContent, DialogActions, Divider
+    DialogContent, DialogActions, Divider, Tabs, Tab
 } from '@mui/material';
 import {
     Facebook as FacebookIcon,
@@ -10,11 +10,24 @@ import {
     CloudOff as CloudOffIcon,
     Refresh as RefreshIcon,
     CheckCircle as CheckCircleIcon,
-    Cancel as CancelIcon
+    Cancel as CancelIcon,
+    Add as AddIcon,
+    Delete as DeleteIcon,
+    WhatsApp as WhatsAppIcon,
+    Link as LinkIcon
 } from '@mui/icons-material';
 import api from '../../api';
+import FacebookConnect from '../../components/Facebook/FacebookConnect';
+import WhatsAppConnect from '../../components/WhatsApp/WhatsAppConnect';
+
+const TabPanel = ({ children, value, index }) => (
+    <Box role="tabpanel" hidden={value !== index} sx={{ pt: 3 }}>
+        {value === index && children}
+    </Box>
+);
 
 const TenantFacebookPages = () => {
+    const [tab, setTab] = useState(0);
     const [pages, setPages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -23,6 +36,11 @@ const TenantFacebookPages = () => {
     const [subStatusPage, setSubStatusPage] = useState(null);
     const [subStatusData, setSubStatusData] = useState(null);
     const [subStatusLoading, setSubStatusLoading] = useState(false);
+
+    const [disconnectDialog, setDisconnectDialog] = useState(null);
+    const [disconnecting, setDisconnecting] = useState(false);
+
+    const [showConnect, setShowConnect] = useState(false);
 
     const fetchPages = useCallback(async () => {
         try {
@@ -52,6 +70,21 @@ const TenantFacebookPages = () => {
         }
     };
 
+    const handleDisconnect = async () => {
+        if (!disconnectDialog) return;
+        try {
+            setDisconnecting(true);
+            await api.disconnectFacebookPage(disconnectDialog.id);
+            setSnackbar({ open: true, message: `تم إلغاء ربط ${disconnectDialog.page_name}`, severity: 'success' });
+            setDisconnectDialog(null);
+            fetchPages();
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل إلغاء الربط', severity: 'error' });
+        } finally {
+            setDisconnecting(false);
+        }
+    };
+
     const formatDate = (ts) => {
         if (!ts) return '';
         try { return new Date(ts).toLocaleDateString('ar-LY'); } catch { return ts; }
@@ -65,100 +98,160 @@ const TenantFacebookPages = () => {
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 3, gap: { xs: 1, md: 0 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
+                    <LinkIcon sx={{ fontSize: 32, color: '#1877f2' }} />
                     <Box>
-                        <Typography variant="h4" fontWeight={700}>صفحات فيسبوك</Typography>
-                        <Typography variant="body2" color="text.secondary">الصفحات المربوطة بحسابك</Typography>
+                        <Typography variant="h4" fontWeight={700}>ربط الحسابات</Typography>
+                        <Typography variant="body2" color="text.secondary">ربط وإدارة فيسبوك وواتساب</Typography>
                     </Box>
                 </Box>
-                <Button startIcon={<RefreshIcon />} onClick={fetchPages} variant="outlined">
-                    تحديث
-                </Button>
             </Box>
 
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            <Paper sx={{ mb: 3 }}>
+                <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
+                    <Tab icon={<FacebookIcon />} label="فيسبوك" iconPosition="start" />
+                    <Tab icon={<WhatsAppIcon />} label="واتساب" iconPosition="start" />
+                </Tabs>
+            </Paper>
 
-            {pages.length === 0 ? (
-                <Paper sx={{ p: 6, textAlign: 'center' }}>
-                    <FacebookIcon sx={{ fontSize: 60, color: 'grey.300', mb: 2 }} />
-                    <Typography variant="h6" color="text.secondary">لا توجد صفحات مربوطة</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                        تواصل مع المدير لربط صفحة فيسبوك بحسابك
+            <TabPanel value={tab} index={0}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="h6">صفحات فيسبوك المربوطة</Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button startIcon={<AddIcon />} variant="contained" onClick={() => setShowConnect(!showConnect)}>
+                            {showConnect ? 'إخفاء' : 'ربط صفحة جديدة'}
+                        </Button>
+                        <Button startIcon={<RefreshIcon />} onClick={fetchPages} variant="outlined">
+                            تحديث
+                        </Button>
+                    </Box>
+                </Box>
+
+                {showConnect && (
+                    <Box sx={{ mb: 3 }}>
+                        <FacebookConnect onComplete={() => { setShowConnect(false); fetchPages(); }} />
+                    </Box>
+                )}
+
+                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+                {pages.length === 0 ? (
+                    <Paper sx={{ p: 6, textAlign: 'center' }}>
+                        <FacebookIcon sx={{ fontSize: 60, color: 'grey.300', mb: 2 }} />
+                        <Typography variant="h6" color="text.secondary">لا توجد صفحات مربوطة</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            اربط صفحة فيسبوك للبدء
+                        </Typography>
+                        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setShowConnect(true)}>
+                            ربط صفحة
+                        </Button>
+                    </Paper>
+                ) : (
+                    <Grid container spacing={3}>
+                        {pages.map(page => (
+                            <Grid size={{ xs: 12, md: 6 }} key={page.id}>
+                                <Card sx={{ height: '100%' }}>
+                                    <CardContent>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                                            <Avatar
+                                                src={page.page_picture_url}
+                                                sx={{ width: 56, height: 56, bgcolor: '#1877f2' }}
+                                            >
+                                                <FacebookIcon />
+                                            </Avatar>
+                                            <Box sx={{ flex: 1 }}>
+                                                <Typography variant="h6" fontWeight={600}>
+                                                    {page.page_name || page.page_id}
+                                                </Typography>
+                                                {page.page_category && (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {page.page_category}
+                                                    </Typography>
+                                                )}
+                                            </Box>
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-end' }}>
+                                                {page.is_active ? (
+                                                    <Chip icon={<CheckCircleIcon />} label="مفعلة" size="small" color="success" />
+                                                ) : (
+                                                    <Chip icon={<CancelIcon />} label="معطلة" size="small" color="error" />
+                                                )}
+                                                {page.webhook_subscribed ? (
+                                                    <Chip icon={<CloudDoneIcon />} label="Webhook مشترك" size="small" color="primary" variant="outlined" />
+                                                ) : (
+                                                    <Chip icon={<CloudOffIcon />} label="بدون Webhook" size="small" color="warning" variant="outlined" />
+                                                )}
+                                            </Box>
+                                        </Box>
+
+                                        <Divider sx={{ my: 1.5 }} />
+
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Typography variant="caption" color="text.secondary">
+                                                رُبطت في {formatDate(page.created_at)}
+                                            </Typography>
+                                            <Box sx={{ display: 'flex', gap: 1 }}>
+                                                <Button
+                                                    size="small"
+                                                    variant="text"
+                                                    onClick={() => checkSubscription(page)}
+                                                    disabled={subStatusLoading && subStatusPage === page.id}
+                                                >
+                                                    {subStatusLoading && subStatusPage === page.id
+                                                        ? 'جاري التحقق...'
+                                                        : 'حالة الاشتراك'}
+                                                </Button>
+                                                <Button
+                                                    size="small"
+                                                    variant="text"
+                                                    color="error"
+                                                    startIcon={<DeleteIcon />}
+                                                    onClick={() => setDisconnectDialog(page)}
+                                                >
+                                                    إلغاء الربط
+                                                </Button>
+                                            </Box>
+                                        </Box>
+
+                                        {subStatusPage === page.id && subStatusData && (
+                                            <Alert severity="info" sx={{ mt: 1.5, fontSize: '0.8rem' }}>
+                                                <Typography variant="caption" component="div">
+                                                    حالة قاعدة البيانات: {subStatusData.webhook_subscribed_in_db ? 'مشترك' : 'غير مشترك'}
+                                                </Typography>
+                                                {subStatusData.meta_response?.data?.length > 0 && (
+                                                    <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
+                                                        الحقول المشترك بها: {subStatusData.meta_response.data.map(s => s.name || s).join(', ')}
+                                                    </Typography>
+                                                )}
+                                            </Alert>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        ))}
+                    </Grid>
+                )}
+            </TabPanel>
+
+            <TabPanel value={tab} index={1}>
+                <WhatsAppConnect />
+            </TabPanel>
+
+            <Dialog open={!!disconnectDialog} onClose={() => setDisconnectDialog(null)}>
+                <DialogTitle>إلغاء ربط الصفحة</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        هل أنت متأكد من إلغاء ربط صفحة "{disconnectDialog?.page_name}"؟
                     </Typography>
-                </Paper>
-            ) : (
-                <Grid container spacing={3}>
-                    {pages.map(page => (
-                        <Grid size={{ xs: 12, md: 6 }} key={page.id}>
-                            <Card sx={{ height: '100%' }}>
-                                <CardContent>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                                        <Avatar
-                                            src={page.page_picture_url}
-                                            sx={{ width: 56, height: 56, bgcolor: '#1877f2' }}
-                                        >
-                                            <FacebookIcon />
-                                        </Avatar>
-                                        <Box sx={{ flex: 1 }}>
-                                            <Typography variant="h6" fontWeight={600}>
-                                                {page.page_name || page.page_id}
-                                            </Typography>
-                                            {page.page_category && (
-                                                <Typography variant="body2" color="text.secondary">
-                                                    {page.page_category}
-                                                </Typography>
-                                            )}
-                                        </Box>
-                                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-end' }}>
-                                            {page.is_active ? (
-                                                <Chip icon={<CheckCircleIcon />} label="مفعلة" size="small" color="success" />
-                                            ) : (
-                                                <Chip icon={<CancelIcon />} label="معطلة" size="small" color="error" />
-                                            )}
-                                            {page.webhook_subscribed ? (
-                                                <Chip icon={<CloudDoneIcon />} label="Webhook مشترك" size="small" color="primary" variant="outlined" />
-                                            ) : (
-                                                <Chip icon={<CloudOffIcon />} label="بدون Webhook" size="small" color="warning" variant="outlined" />
-                                            )}
-                                        </Box>
-                                    </Box>
-
-                                    <Divider sx={{ my: 1.5 }} />
-
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Typography variant="caption" color="text.secondary">
-                                            رُبطت في {formatDate(page.created_at)}
-                                        </Typography>
-                                        <Button
-                                            size="small"
-                                            variant="text"
-                                            onClick={() => checkSubscription(page)}
-                                            disabled={subStatusLoading && subStatusPage === page.id}
-                                        >
-                                            {subStatusLoading && subStatusPage === page.id
-                                                ? 'جاري التحقق...'
-                                                : 'حالة الاشتراك'}
-                                        </Button>
-                                    </Box>
-
-                                    {subStatusPage === page.id && subStatusData && (
-                                        <Alert severity="info" sx={{ mt: 1.5, fontSize: '0.8rem' }}>
-                                            <Typography variant="caption" component="div">
-                                                حالة قاعدة البيانات: {subStatusData.webhook_subscribed_in_db ? 'مشترك ✅' : 'غير مشترك ❌'}
-                                            </Typography>
-                                            {subStatusData.meta_response?.data?.length > 0 && (
-                                                <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
-                                                    الحقول المشترك بها: {subStatusData.meta_response.data.map(s => s.name || s).join(', ')}
-                                                </Typography>
-                                            )}
-                                        </Alert>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        </Grid>
-                    ))}
-                </Grid>
-            )}
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        سيتم إلغاء اشتراك Webhook وحذف بيانات الصفحة من حسابك.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDisconnectDialog(null)}>إلغاء</Button>
+                    <Button onClick={handleDisconnect} color="error" variant="contained" disabled={disconnecting}>
+                        {disconnecting ? <CircularProgress size={20} /> : 'إلغاء الربط'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
                 <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>

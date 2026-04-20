@@ -1338,6 +1338,44 @@ class ApiService {
             body: JSON.stringify(data),
         });
     }
+
+    // ============================================
+    // Meta Self-Service Integration (Tenant)
+    // ============================================
+    async getMetaConfig() {
+        return this.request('/api/portal/meta/config');
+    }
+
+    async getFacebookAuthUrl() {
+        return this.request('/api/portal/facebook/auth-url');
+    }
+
+    async connectFacebook(code, state) {
+        return this.request('/api/portal/facebook/connect', {
+            method: 'POST',
+            body: JSON.stringify({ code, state }),
+        });
+    }
+
+    async linkFacebookPages(linkState, pageIds) {
+        return this.request('/api/portal/facebook/link-pages', {
+            method: 'POST',
+            body: JSON.stringify({ link_state: linkState, page_ids: pageIds }),
+        });
+    }
+
+    async disconnectFacebookPage(linkedPageId) {
+        return this.request(`/api/portal/facebook/disconnect/${linkedPageId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async connectWhatsApp(code, phoneNumberId, wabaId, businessId) {
+        return this.request('/api/portal/whatsapp/connect', {
+            method: 'POST',
+            body: JSON.stringify({ code, phone_number_id: phoneNumberId, waba_id: wabaId, business_id: businessId }),
+        });
+    }
 }
 
 const api = new ApiService();

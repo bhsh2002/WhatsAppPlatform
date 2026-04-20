@@ -59,3 +59,9 @@ export const AUTH_RATE_LIMIT = {
 // Meta App credentials (for token health monitoring)
 export const META_APP_ID = process.env.META_APP_ID || '';
 export const META_APP_SECRET = process.env.META_APP_SECRET || '';
+
+// Facebook OAuth (self-service page linking)
+export const FACEBOOK_REDIRECT_URI = process.env.FACEBOOK_REDIRECT_URI || '';
+
+// WhatsApp Embedded Signup
+export const WA_EMBEDDED_SIGNUP_CONFIG_ID = process.env.WA_EMBEDDED_SIGNUP_CONFIG_ID || '';

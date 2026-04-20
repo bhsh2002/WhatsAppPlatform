@@ -18,6 +18,7 @@ import AdminTemplates from './pages/Templates/AdminTemplates';
 // Public Pages
 import PrivacyPolicy from './pages/PrivacyPolicy/PrivacyPolicy';
 import LandingPage from './pages/Landing/LandingPage';
+import FacebookOAuthCallback from './pages/Auth/FacebookOAuthCallback';
 
 // Tenant Portal Pages
 import TenantDashboard from './pages/TenantPortal/TenantDashboard';
@@ -107,6 +108,7 @@ function AppRoutes() {
         element={isAuthenticated ? <Navigate to={isTenant ? '/portal' : '/dashboard'} replace /> : <Login />}
       />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+      <Route path="/auth/facebook/callback" element={<FacebookOAuthCallback />} />
 
       {/* ============================================ */}
       {/* Admin Routes */}

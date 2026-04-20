@@ -5,10 +5,10 @@ import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { META_API_BASE } from '../config/index.js';
+import { META_API_BASE, META_APP_ID, META_APP_SECRET, FACEBOOK_REDIRECT_URI, WA_EMBEDDED_SIGNUP_CONFIG_ID, META_API_VERSION } from '../config/index.js';
 import { documentUpload, mediaUpload, simpleUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
-import { decryptIfEncrypted } from '../services/encryption.js';
+import { decryptIfEncrypted, encrypt } from '../services/encryption.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
 import { getAccessToken } from '../services/credentials.js';
 import { testRules } from '../services/autoResponder.js';
@@ -24,6 +24,19 @@ const router = express.Router();
 const ensureTenant = (req, res, next) => {
     if (!req.user || !req.user.tenant_id) {
         return res.status(403).json({ error: 'صلاحية الوصول مقتصرة على العملاء فقط' });
+    }
+    const tenant = db.prepare('SELECT status FROM tenants WHERE id = ?').get(req.user.tenant_id);
+    if (!tenant) {
+        return res.status(404).json({ error: 'العميل غير موجود' });
+    }
+    if (tenant.status === 'Pending') {
+        return res.status(403).json({ error: 'حسابك قيد المراجعة', code: 'ACCOUNT_PENDING' });
+    }
+    if (tenant.status === 'Rejected') {
+        return res.status(403).json({ error: 'تم رفض حسابك', code: 'ACCOUNT_REJECTED' });
+    }
+    if (tenant.status === 'Suspended') {
+        return res.status(403).json({ error: 'حسابك موقوف', code: 'ACCOUNT_SUSPENDED' });
     }
     next();
 };
@@ -350,18 +363,21 @@ router.post('/messages/send', async (req, res) => {
         // Get tenant credentials
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {
+            if (file) fs.unlinkSync(file.path);
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!phoneNumberId || !accessToken) {
+            if (file) fs.unlinkSync(file.path);
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
         if (tenant.status === 'Suspended') {
-            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
+            if (file) fs.unlinkSync(file.path);
+            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الملفات. تواصل مع المدير.' });
         }
 
         // Credit check
@@ -591,9 +607,7 @@ router.post('/media/upload-to-meta', documentUpload.single('file'), async (req, 
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token_encrypted 
-            ? decryptIfEncrypted(tenant.access_token_encrypted) 
-            : tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!phoneNumberId || !accessToken) {
             if (file) fs.unlinkSync(file.path);
@@ -667,7 +681,7 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!phoneNumberId || !accessToken) {
             if (file) fs.unlinkSync(file.path);
@@ -850,7 +864,7 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!phoneNumberId || !accessToken) {
             if (file) fs.unlinkSync(file.path);
@@ -1062,7 +1076,7 @@ router.post('/messages/send-interactive', async (req, res) => {
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        const accessToken = tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!phoneNumberId || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
@@ -1171,10 +1185,7 @@ router.post('/broadcast', async (req, res) => {
         }
 
         const phoneNumberId = tenant.phone_number_id;
-        // decryptIfEncrypted is imported at the top of the file
-        const accessToken = tenant.access_token_encrypted
-            ? decryptIfEncrypted(tenant.access_token_encrypted)
-            : tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!phoneNumberId || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
@@ -1529,7 +1540,8 @@ router.post('/templates/sync', async (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
-        if (!tenant.access_token) {
+        const accessToken = getAccessToken(tenantId);
+        if (!accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة. تواصل مع المدير لإضافة Access Token.' });
         }
 
@@ -1542,7 +1554,7 @@ router.post('/templates/sync', async (req, res) => {
                 const wabaResponse = await fetch(
                     `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_account`,
                     {
-                        headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
                     }
                 );
                 const wabaData = await wabaResponse.json();
@@ -1556,9 +1568,9 @@ router.post('/templates/sync', async (req, res) => {
 
                     // Method 2: Try debug_token to get app info
                     const debugResponse = await fetch(
-                        `${META_API_BASE}/debug_token?input_token=${tenant.access_token}`,
+                        `${META_API_BASE}/debug_token?input_token=${accessToken}`,
                         {
-                            headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                            headers: { 'Authorization': `Bearer ${accessToken}` }
                         }
                     );
                     const debugData = await debugResponse.json();
@@ -1591,7 +1603,7 @@ router.post('/templates/sync', async (req, res) => {
 
         while (url) {
             const resp = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             const data = await resp.json();
 
@@ -1745,7 +1757,8 @@ router.post('/templates/create-meta', async (req, res) => {
         const tenantId = req.user.tenant_id;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-        if (!tenant.access_token || !tenant.waba_id) {
+        const accessToken = getAccessToken(tenantId);
+        if (!accessToken || !tenant.waba_id) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة (يجب توفر Access Token و WABA ID)' });
         }
 
@@ -1759,7 +1772,7 @@ router.post('/templates/create-meta', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -1803,7 +1816,8 @@ router.delete('/templates/delete-meta', async (req, res) => {
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-        if (!tenant.access_token || !tenant.waba_id) {
+        const accessToken = getAccessToken(tenantId);
+        if (!accessToken || !tenant.waba_id) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -1811,7 +1825,7 @@ router.delete('/templates/delete-meta', async (req, res) => {
             `${META_API_BASE}/${tenant.waba_id}/message_templates?name=${encodeURIComponent(name)}`,
             {
                 method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
@@ -1949,7 +1963,8 @@ router.get('/business-profile', async (req, res) => {
         const tenantId = req.user.tenant_id;
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-        if (!tenant || !tenant.phone_number_id || !tenant.access_token) {
+        const accessToken = getAccessToken(tenantId);
+        if (!tenant || !tenant.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -1957,7 +1972,7 @@ router.get('/business-profile', async (req, res) => {
         const response = await fetch(
             `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_profile?fields=${fields}`,
             {
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
@@ -1983,7 +1998,8 @@ router.put('/business-profile', async (req, res) => {
         const tenantId = req.user.tenant_id;
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-        if (!tenant || !tenant.phone_number_id || !tenant.access_token) {
+        const accessToken = getAccessToken(tenantId);
+        if (!tenant || !tenant.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -2003,7 +2019,7 @@ router.put('/business-profile', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(updatePayload)
@@ -2082,14 +2098,15 @@ router.get('/qr-codes', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        const accessToken = getAccessToken(tenantId);
 
-        if (!tenant?.phone_number_id || !tenant?.access_token) {
+        if (!tenant?.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
         const response = await fetch(
             `${META_API_BASE}/${tenant.phone_number_id}/message_qrdls`,
-            { headers: { 'Authorization': `Bearer ${tenant.access_token}` } }
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
         );
         const data = await response.json();
 
@@ -2111,8 +2128,9 @@ router.post('/qr-codes', async (req, res) => {
         const tenantId = req.user.tenant_id;
         const { prefilled_message, generate_qr_image } = req.body;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        const accessToken = getAccessToken(tenantId);
 
-        if (!tenant?.phone_number_id || !tenant?.access_token) {
+        if (!tenant?.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
         if (!prefilled_message) {
@@ -2124,7 +2142,7 @@ router.post('/qr-codes', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ prefilled_message, generate_qr_image: generate_qr_image || 'PNG' })
@@ -2155,14 +2173,15 @@ router.delete('/qr-codes/:qrCodeId', async (req, res) => {
         const tenantId = req.user.tenant_id;
         const { qrCodeId } = req.params;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        const accessToken = getAccessToken(tenantId);
 
-        if (!tenant?.phone_number_id || !tenant?.access_token) {
+        if (!tenant?.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
         const response = await fetch(
             `${META_API_BASE}/${tenant.phone_number_id}/message_qrdls/${qrCodeId}`,
-            { method: 'DELETE', headers: { 'Authorization': `Bearer ${tenant.access_token}` } }
+            { method: 'DELETE', headers: { 'Authorization': `Bearer ${accessToken}` } }
         );
         const data = await response.json();
 
@@ -2222,6 +2241,8 @@ router.post('/conversions/log-event', async (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
+        const accessToken = getAccessToken(tenantId);
+
         const datasetId = tenant.dataset_id;
         if (!datasetId) {
             db.prepare(`
@@ -2250,7 +2271,7 @@ router.post('/conversions/log-event', async (req, res) => {
         const response = await fetch(`${META_API_BASE}/${datasetId}/events`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${tenant.access_token}`,
+                'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ data: [formattedEvent] })
@@ -2288,7 +2309,7 @@ router.post('/mark-read', async (req, res) => {
             return res.status(400).json({ error: 'message_id is required' });
         }
 
-        const tenant = db.prepare('SELECT phone_number_id, access_token, access_token_encrypted, status FROM tenants WHERE id = ?').get(tenantId);
+        const tenant = db.prepare('SELECT phone_number_id, status FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
@@ -2296,10 +2317,7 @@ router.post('/mark-read', async (req, res) => {
             return res.status(403).json({ error: 'الحساب موقوف' });
         }
 
-        // decryptIfEncrypted is imported at the top of the file
-        const accessToken = tenant.access_token_encrypted
-            ? decryptIfEncrypted(tenant.access_token_encrypted)
-            : tenant.access_token;
+        const accessToken = getAccessToken(tenantId);
 
         if (!tenant.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد غير مكتملة' });
@@ -3693,6 +3711,297 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
     } catch (error) {
         console.error('[TenantPortal] Utility message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
+    }
+});
+
+// ============================================
+// Meta Config (exposes non-secret config to frontend)
+// ============================================
+router.get('/meta/config', (req, res) => {
+    res.json({
+        app_id: META_APP_ID,
+        config_id: WA_EMBEDDED_SIGNUP_CONFIG_ID,
+        api_version: META_API_VERSION,
+        facebook_oauth_available: !!(META_APP_ID && META_APP_SECRET && FACEBOOK_REDIRECT_URI),
+        whatsapp_signup_available: !!(META_APP_ID && WA_EMBEDDED_SIGNUP_CONFIG_ID),
+    });
+});
+
+// ============================================
+// Facebook OAuth — Self-Service Page Linking
+// ============================================
+const oauthSessions = new Map();
+const OAUTH_SESSION_TTL = 10 * 60 * 1000;
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of oauthSessions) {
+        if (now - val.createdAt > OAUTH_SESSION_TTL) oauthSessions.delete(key);
+    }
+}, 60 * 1000);
+
+router.get('/facebook/auth-url', (req, res) => {
+    if (!META_APP_ID || !META_APP_SECRET || !FACEBOOK_REDIRECT_URI) {
+        return res.status(400).json({ error: 'Facebook OAuth not configured' });
+    }
+
+    const tenantId = req.user.tenant_id;
+    const state = crypto.randomBytes(16).toString('hex');
+
+    oauthSessions.set(state, { tenantId, createdAt: Date.now() });
+
+    const params = new URLSearchParams({
+        client_id: META_APP_ID,
+        redirect_uri: FACEBOOK_REDIRECT_URI,
+        state,
+        scope: 'pages_show_list,pages_manage_metadata,pages_messaging,pages_read_engagement,pages_read_user_content',
+        response_type: 'code',
+    });
+
+    res.json({
+        url: `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params.toString()}`,
+        state,
+    });
+});
+
+router.post('/facebook/connect', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { code, state } = req.body;
+
+        if (!code || !state) {
+            return res.status(400).json({ error: 'code and state are required' });
+        }
+
+        const session = oauthSessions.get(state);
+        if (!session || session.tenantId !== tenantId) {
+            return res.status(400).json({ error: 'Invalid or expired OAuth state' });
+        }
+        oauthSessions.delete(state);
+
+        const tokenRes = await fetch(
+            `${META_API_BASE}/oauth/access_token?${new URLSearchParams({
+                client_id: META_APP_ID,
+                redirect_uri: FACEBOOK_REDIRECT_URI,
+                client_secret: META_APP_SECRET,
+                code,
+            })}`
+        );
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) {
+            return res.status(400).json({ error: 'Token exchange failed', details: tokenData.error.message });
+        }
+
+        const llRes = await fetch(
+            `${META_API_BASE}/oauth/access_token?${new URLSearchParams({
+                grant_type: 'fb_exchange_token',
+                client_id: META_APP_ID,
+                client_secret: META_APP_SECRET,
+                fb_exchange_token: tokenData.access_token,
+            })}`
+        );
+        const llData = await llRes.json();
+        if (llData.error) {
+            return res.status(400).json({ error: 'Long-lived token exchange failed', details: llData.error.message });
+        }
+
+        const pagesRes = await fetch(
+            `${META_API_BASE}/me/accounts?fields=id,name,category,picture.width(100).height(100),access_token&access_token=${llData.access_token}`
+        );
+        const pagesData = await pagesRes.json();
+        if (pagesData.error) {
+            return res.status(400).json({ error: 'Failed to fetch pages', details: pagesData.error.message });
+        }
+
+        const pages = (pagesData.data || []).map(p => ({
+            id: p.id,
+            name: p.name,
+            category: p.category,
+            picture_url: p.picture?.data?.url || null,
+            access_token: p.access_token,
+        }));
+
+        const linkState = crypto.randomBytes(16).toString('hex');
+        oauthSessions.set(linkState, { tenantId, longLivedToken: llData.access_token, createdAt: Date.now() });
+
+        res.json({ pages, link_state: linkState });
+    } catch (error) {
+        console.error('[TenantPortal] Facebook connect error:', error);
+        res.status(500).json({ error: 'فشل ربط فيسبوك' });
+    }
+});
+
+router.post('/facebook/link-pages', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { link_state, page_ids } = req.body;
+
+        if (!link_state || !page_ids || !Array.isArray(page_ids)) {
+            return res.status(400).json({ error: 'link_state and page_ids are required' });
+        }
+
+        const session = oauthSessions.get(link_state);
+        if (!session || session.tenantId !== tenantId) {
+            return res.status(400).json({ error: 'Invalid or expired link state' });
+        }
+        oauthSessions.delete(link_state);
+
+        const longLivedToken = session.longLivedToken;
+
+        const pagesRes = await fetch(
+            `${META_API_BASE}/me/accounts?fields=id,name,category,picture.width(100).height(100),access_token&access_token=${longLivedToken}`
+        );
+        const pagesData = await pagesRes.json();
+        if (pagesData.error) {
+            return res.status(400).json({ error: 'Failed to fetch pages', details: pagesData.error.message });
+        }
+
+        const allPages = pagesData.data || [];
+        const selectedPages = allPages.filter(p => page_ids.includes(p.id));
+        const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+        const linked = [];
+
+        for (const page of selectedPages) {
+            const encryptedToken = encrypt(page.access_token);
+            const pagePictureUrl = page.picture?.data?.url || null;
+
+            const existing = db.prepare('SELECT id FROM tenant_pages WHERE tenant_id = ? AND page_id = ?').get(tenantId, page.id);
+
+            if (existing) {
+                db.prepare('UPDATE tenant_pages SET page_access_token_encrypted = ?, page_name = ?, page_category = ?, page_picture_url = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                    .run(encryptedToken, page.name, page.category || null, pagePictureUrl, existing.id);
+            } else {
+                db.prepare(`
+                    INSERT INTO tenant_pages (tenant_id, platform, page_id, page_name, page_access_token_encrypted, page_category, page_picture_url, webhook_subscribed)
+                    VALUES (?, 'facebook', ?, ?, ?, ?, ?, 0)
+                `).run(tenantId, page.id, page.name, encryptedToken, page.category || null, pagePictureUrl);
+            }
+
+            try {
+                await fetch(`${META_API_BASE}/${page.id}/subscribed_apps`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        access_token: page.access_token,
+                        subscribed_fields: 'feed,messages,messaging_postbacks',
+                    }).toString(),
+                });
+            } catch (e) {
+                console.warn('[TenantPortal] Webhook subscription failed for page', page.id, e.message);
+            }
+
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (?, ?, 'page_linked', ?, 'success')
+            `).run(tenantId, tenant?.name, `ربط صفحة فيسبوك: ${page.name}`);
+
+            linked.push({ id: page.id, name: page.name });
+        }
+
+        res.json({ success: true, linked });
+    } catch (error) {
+        console.error('[TenantPortal] Facebook link-pages error:', error);
+        res.status(500).json({ error: 'فشل ربط الصفحات' });
+    }
+});
+
+router.delete('/facebook/disconnect/:linkedPageId', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const linkedPageId = req.params.linkedPageId;
+
+        const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND tenant_id = ?').get(linkedPageId, tenantId);
+        if (!page) {
+            return res.status(404).json({ error: 'الصفحة غير موجودة' });
+        }
+
+        const accessToken = decryptIfEncrypted(page.page_access_token_encrypted);
+        if (accessToken) {
+            try {
+                await fetch(`${META_API_BASE}/${page.page_id}/subscribed_apps`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ access_token: accessToken }).toString(),
+                });
+            } catch (e) {
+                console.warn('[TenantPortal] Webhook unsubscribe failed:', e.message);
+            }
+        }
+
+        db.prepare('DELETE FROM tenant_pages WHERE id = ?').run(linkedPageId);
+
+        const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'page_unlinked', ?, 'success')
+        `).run(tenantId, tenant?.name, `إلغاء ربط صفحة فيسبوك: ${page.page_name || page.page_id}`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] Facebook disconnect error:', error);
+        res.status(500).json({ error: 'فشل إلغاء ربط الصفحة' });
+    }
+});
+
+// ============================================
+// WhatsApp Embedded Signup
+// ============================================
+router.post('/whatsapp/connect', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { code, phone_number_id, waba_id, business_id } = req.body;
+
+        if (!code || !phone_number_id || !waba_id) {
+            return res.status(400).json({ error: 'code, phone_number_id, and waba_id are required' });
+        }
+
+        if (!META_APP_ID || !META_APP_SECRET) {
+            return res.status(400).json({ error: 'Meta app not configured' });
+        }
+
+        const tokenRes = await fetch(
+            `${META_API_BASE}/oauth/access_token?${new URLSearchParams({
+                client_id: META_APP_ID,
+                client_secret: META_APP_SECRET,
+                code,
+            })}`
+        );
+        const tokenData = await tokenRes.json();
+
+        if (tokenData.error) {
+            return res.status(400).json({ error: 'Token exchange failed', details: tokenData.error.message });
+        }
+
+        const accessToken = tokenData.access_token;
+        const encryptedToken = encrypt(accessToken);
+
+        db.prepare(`
+            UPDATE tenants SET 
+                waba_id = ?, phone_number_id = ?, business_id = ?,
+                access_token_encrypted = ?, access_token = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(waba_id, phone_number_id, business_id || null, encryptedToken, tenantId);
+
+        try {
+            await fetch(`${META_API_BASE}/${waba_id}/subscribed_apps`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+        } catch (e) {
+            console.warn('[TenantPortal] WABA webhook subscription failed:', e.message);
+        }
+
+        const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'whatsapp_connected', ?, 'success')
+        `).run(tenantId, tenant?.name, `ربط حساب WhatsApp: ${phone_number_id}`);
+
+        res.json({ success: true, waba_id, phone_number_id });
+    } catch (error) {
+        console.error('[TenantPortal] WhatsApp connect error:', error);
+        res.status(500).json({ error: 'فشل ربط واتساب' });
     }
 });
 

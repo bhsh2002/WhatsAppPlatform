@@ -137,21 +137,25 @@ app.use(cors({
 }));
 
 // Security headers
+const fbScriptSrc = process.env.META_APP_ID ? ['https://connect.facebook.net'] : [];
+const fbFrameSrc = process.env.META_APP_ID ? ['https://www.facebook.com', 'https://web.facebook.com'] : [];
+const fbConnectSrc = process.env.META_APP_ID ? ['https://graph.facebook.com'] : [];
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
+            scriptSrc: ["'self'", ...fbScriptSrc],
             imgSrc: ["'self'", 'data:', 'https:'],
-            connectSrc: ["'self'"],
+            connectSrc: ["'self'", ...fbConnectSrc],
             fontSrc: ["'self'"],
             objectSrc: ["'none'"],
             mediaSrc: ["'self'"],
-            frameSrc: ["'none'"],
+            frameSrc: fbFrameSrc.length > 0 ? fbFrameSrc : ["'none'"],
         },
     },
-    crossOriginEmbedderPolicy: false, // Needed forSSE
+    crossOriginEmbedderPolicy: false, // Needed for SSE
 }));
 
 // Request body size limit
