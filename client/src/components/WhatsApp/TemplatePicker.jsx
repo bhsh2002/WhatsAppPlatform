@@ -61,6 +61,9 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
             if (matches) {
                 vars.header = [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
             }
+        } else if (['image', 'video', 'document', 'audio'].includes(template.header_type?.toLowerCase())) {
+            // Meta requires a media link for non-text headers
+            vars.header = ['MEDIA_LINK'];
         }
 
         if (template.buttons) {
@@ -114,6 +117,13 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
 
         if (templateVars.header.length > 0) {
             const headerParams = templateVars.header.map((v) => {
+                if (v === 'MEDIA_LINK') {
+                    const hType = selectedTemplate.header_type.toLowerCase();
+                    return {
+                        type: hType,
+                        [hType]: { link: variables[`header_${v}`] || '' }
+                    };
+                }
                 const param = { type: 'text', text: variables[`header_${v}`] || '' };
                 if (isNamed) param.parameter_name = v;
                 return param;
@@ -312,7 +322,8 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                             {getTemplateVariables(selectedTemplate).header.map((v, i) => (
                                 <TextField
                                     key={`h_${i}`}
-                                    label={/^\d+$/.test(v) ? `Header Variable {{${v}}}` : v}
+                                    label={v === 'MEDIA_LINK' ? `رابط ${selectedTemplate.header_type === 'image' ? 'صورة' : selectedTemplate.header_type === 'video' ? 'فيديو' : 'مستند'} (URL)` : (/^\d+$/.test(v) ? `Header Variable {{${v}}}` : v)}
+                                    placeholder={v === 'MEDIA_LINK' ? "https://example.com/file.pdf" : ""}
                                     fullWidth
                                     size="small"
                                     sx={{ mb: 2 }}

@@ -48,6 +48,8 @@ function extractAllVariables(template) {
         if (matches) {
             result.header = [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
         }
+    } else if (['image', 'video', 'document', 'audio'].includes(template.header_type?.toLowerCase())) {
+        result.header = ['MEDIA_LINK'];
     }
 
     if (template.buttons) {
@@ -199,6 +201,13 @@ const BroadcastDialog = ({
             components.push({
                 type: 'header',
                 parameters: allVars.header.map(v => {
+                    if (v === 'MEDIA_LINK') {
+                        const hType = templateObj.header_type.toLowerCase();
+                        return {
+                            type: hType,
+                            [hType]: { link: variableValues[`header_${v}`] || '' }
+                        };
+                    }
                     const param = { type: 'text', text: variableValues[`header_${v}`] || '' };
                     if (isNamed) param.parameter_name = v;
                     return param;
@@ -437,7 +446,7 @@ const BroadcastDialog = ({
                                 {allVars.header.length > 0 && (
                                     <Box sx={{ mb: 2 }}>
                                         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات العنوان</Typography>
-                                        {allVars.header.map(v => renderVariableInput(`header_${v}`, /^\d+$/.test(v) ? `عنوان {{${v}}}` : v))}
+                                        {allVars.header.map(v => renderVariableInput(`header_${v}`, v === 'MEDIA_LINK' ? `رابط ${templateObj?.header_type === 'image' ? 'صورة' : templateObj?.header_type === 'video' ? 'فيديو' : 'مستند'} (URL)` : (/^\d+$/.test(v) ? `عنوان {{${v}}}` : v)) )}
                                     </Box>
                                 )}
                                 {allVars.body.map(v => renderVariableInput(`body_${v}`, /^\d+$/.test(v) ? `متغير {{${v}}}` : v))}
