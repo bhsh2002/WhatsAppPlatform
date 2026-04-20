@@ -1517,88 +1517,82 @@ router.post('/templates/sync', async (req, res) => {
             });
         }
 
-        // Fetch templates from Meta API
-        const templatesResponse = await fetch(
-            `${META_API_BASE}/${wabaId}/message_templates?limit=100`,
-            {
+        // Fetch templates from Meta API with pagination
+        let url = `${META_API_BASE}/${wabaId}/message_templates?limit=100&fields=name,language,status,category,components,quality_score,parameter_format`;
+        let allMetaTemplates = [];
+
+        while (url) {
+            const resp = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${tenant.access_token}` }
-            }
-        );
-
-        const templatesData = await templatesResponse.json();
-
-        if (templatesData.error) {
-            console.error('Templates API error:', templatesData.error);
-            return res.status(400).json({
-                error: 'فشل جلب القوالب من WhatsApp',
-                details: templatesData.error.message
             });
+            const data = await resp.json();
+
+            if (data.error) {
+                console.error('Templates API error:', data.error);
+                return res.status(400).json({
+                    error: 'فشل جلب القوالب من WhatsApp',
+                    details: data.error.message
+                });
+            }
+
+            allMetaTemplates.push(...(data.data || []));
+            url = data.paging?.next || null;
         }
 
-        const metaTemplates = templatesData.data || [];
         let created = 0, updated = 0, unchanged = 0;
 
-        for (const t of metaTemplates) {
-            // Parse components to extract body, header, footer, buttons
+        for (const t of allMetaTemplates) {
             let headerType = 'none', headerContent = '', body = '', footer = '', buttons = null;
-            if (t.components) {
-                for (const comp of t.components) {
-                    switch (comp.type) {
-                        case 'HEADER':
-                            headerType = (comp.format || 'text').toLowerCase();
+
+            for (const comp of (t.components || [])) {
+                switch (comp.type) {
+                    case 'HEADER':
+                        headerType = (comp.format || 'text').toLowerCase();
+                        if (headerType === 'text') {
                             headerContent = comp.text || '';
-                            break;
-                        case 'BODY':
-                            body = comp.text || '';
-                            break;
-                        case 'FOOTER':
-                            footer = comp.text || '';
-                            break;
-                        case 'BUTTONS':
-                            buttons = JSON.stringify(comp.buttons || []);
-                            break;
-                    }
+                        } else if (comp.example?.header_handle?.length) {
+                            headerContent = comp.example.header_handle[0];
+                        }
+                        break;
+                    case 'BODY': body = comp.text || ''; break;
+                    case 'FOOTER': footer = comp.text || ''; break;
+                    case 'BUTTONS': buttons = JSON.stringify(comp.buttons || []); break;
                 }
             }
 
-            const existing = db.prepare('SELECT id, status, body FROM templates WHERE tenant_id = ? AND name = ?')
-                .get(tenantId, t.name);
+            const metaStatus = (t.status || '').toLowerCase();
+            const qualityScore = t.quality_score?.score || 'UNKNOWN';
+            const paramFormat = t.parameter_format || 'positional';
+
+            const existing = db.prepare(
+                'SELECT id, status, body FROM templates WHERE tenant_id = ? AND name = ? AND language = ?'
+            ).get(tenantId, t.name, t.language);
 
             if (existing) {
-                // Update if status or body changed
-                const metaStatus = (t.status || '').toLowerCase();
                 if (existing.status !== metaStatus || existing.body !== body) {
-                    db.prepare(`
-                        UPDATE templates SET
-                            status = ?, category = ?, header_type = ?, header_content = ?,
-                            body = ?, footer = ?, buttons = ?, meta_template_id = ?,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    `).run(metaStatus, t.category, headerType, headerContent,
-                        body, footer, buttons, t.id, existing.id);
+                    db.prepare(`UPDATE templates SET status=?, category=?, header_type=?, header_content=?,
+                        body=?, footer=?, buttons=?, meta_template_id=?, quality_score=?, parameter_format=?,
+                        updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+                        .run(metaStatus, t.category, headerType, headerContent, body, footer, buttons,
+                            t.id, qualityScore, paramFormat, existing.id);
                     updated++;
-                } else {
-                    unchanged++;
-                }
+                } else { unchanged++; }
             } else {
-                // Create new template
-                db.prepare(`
-                    INSERT INTO templates (tenant_id, name, language, category, status, header_type, header_content, body, footer, buttons, meta_template_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(tenantId, t.name, t.language, t.category,
-                    (t.status || '').toLowerCase(), headerType, headerContent,
-                    body, footer, buttons, t.id);
+                db.prepare(`INSERT INTO templates (tenant_id, name, language, category, status,
+                    header_type, header_content, body, footer, buttons, meta_template_id,
+                    quality_score, parameter_format) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+                    .run(tenantId, t.name, t.language, t.category, metaStatus, headerType,
+                        headerContent, body, footer, buttons, t.id, qualityScore, paramFormat);
                 created++;
             }
         }
 
         res.json({
             success: true,
-            synced: metaTemplates.length,
+            synced: allMetaTemplates.length,
             created,
             updated,
             unchanged,
-            // Return updated templates so UI can refresh immediately
             templates: db.prepare('SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId),
         });
     } catch (error) {
@@ -1674,6 +1668,105 @@ router.post('/templates/import', (req, res) => {
     } catch (error) {
         console.error('[TenantPortal] Import template error:', error);
         res.status(500).json({ error: 'فشل استيراد القالب' });
+    }
+});
+
+// Create template on Meta API directly (Tenant)
+router.post('/templates/create-meta', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+        if (!tenant.access_token || !tenant.waba_id) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة (يجب توفر Access Token و WABA ID)' });
+        }
+
+        const { name, language, category, components, parameter_format } = req.body;
+        if (!name || !category || !components) {
+            return res.status(400).json({ error: 'name, category, and components are required' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.waba_id}/message_templates`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name,
+                    language: language || 'ar',
+                    category: category || 'UTILITY',
+                    parameter_format: parameter_format || 'positional',
+                    components
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل إنشاء القالب في Meta',
+                details: data.error
+            });
+        }
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'template_created_meta', ?, 'success')
+        `).run(tenantId, tenant.name, `إنشاء قالب في Meta: ${name}`);
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('[TenantPortal] Create Meta template error:', error);
+        res.status(500).json({ error: 'فشل إنشاء القالب في Meta' });
+    }
+});
+
+// Delete template from Meta API (Tenant)
+router.delete('/templates/delete-meta', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { name } = req.query;
+
+        if (!name) return res.status(400).json({ error: 'اسم القالب مطلوب' });
+
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+        if (!tenant.access_token || !tenant.waba_id) {
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const response = await fetch(
+            `${META_API_BASE}/${tenant.waba_id}/message_templates?name=${encodeURIComponent(name)}`,
+            {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل حذف القالب من Meta',
+                details: data.error
+            });
+        }
+
+        db.prepare('DELETE FROM templates WHERE tenant_id = ? AND name = ?').run(tenantId, name);
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'template_deleted_meta', ?, 'success')
+        `).run(tenantId, tenant.name, `حذف قالب من Meta: ${name}`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TenantPortal] Delete Meta template error:', error);
+        res.status(500).json({ error: 'فشل حذف القالب من Meta' });
     }
 });
 

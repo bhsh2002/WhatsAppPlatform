@@ -424,6 +424,19 @@ class ApiService {
         });
     }
 
+    async createPortalTemplateMeta(data) {
+        return this.request('/api/portal/templates/create-meta', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deletePortalTemplateMeta(name) {
+        return this.request(`/api/portal/templates/delete-meta?name=${encodeURIComponent(name)}`, {
+            method: 'DELETE',
+        });
+    }
+
     async getPortalApiSettings() {
         return this.request('/api/portal/settings/api');
     }

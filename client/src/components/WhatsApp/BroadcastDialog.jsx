@@ -37,16 +37,16 @@ function extractAllVariables(template) {
     if (!template) return result;
 
     if (template.body) {
-        const matches = template.body.match(/\{\{(\d+)\}\}/g);
+        const matches = template.body.match(/\{\{([^}]+)\}\}/g);
         if (matches) {
-            result.body = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
+            result.body = [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
         }
     }
 
     if (template.header_type === 'text' && template.header_content) {
-        const matches = template.header_content.match(/\{\{(\d+)\}\}/g);
+        const matches = template.header_content.match(/\{\{([^}]+)\}\}/g);
         if (matches) {
-            result.header = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
+            result.header = [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
         }
     }
 
@@ -56,14 +56,14 @@ function extractAllVariables(template) {
             if (Array.isArray(buttons)) {
                 buttons.forEach((btn, index) => {
                     if (btn.type === 'URL' && btn.url) {
-                        const matches = btn.url.match(/\{\{(\d+)\}\}/g);
+                        const matches = btn.url.match(/\{\{([^}]+)\}\}/g);
                         if (matches) {
                             result.buttons.push({
                                 index: String(index),
                                 sub_type: 'url',
                                 text: btn.text,
                                 url: btn.url,
-                                variables: [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b),
+                                variables: [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))],
                             });
                         }
                     }
@@ -73,7 +73,7 @@ function extractAllVariables(template) {
                             sub_type: 'url',
                             text: btn.text || 'Copy Code',
                             isOtp: true,
-                            variables: [1],
+                            variables: ['1'],
                         });
                     }
                 });
@@ -86,8 +86,8 @@ function extractAllVariables(template) {
 
 function previewBody(bodyText, variableValues) {
     if (!bodyText) return '';
-    return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
-        const val = variableValues[`body_${num}`];
+    return bodyText.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+        const val = variableValues[`body_${varName}`];
         return val ? val : match;
     });
 }
@@ -193,24 +193,27 @@ const BroadcastDialog = ({
 
     const buildTemplateParams = () => {
         const components = [];
+        const isNamed = templateObj?.parameter_format === 'named';
 
         if (allVars.header.length > 0) {
             components.push({
                 type: 'header',
-                parameters: allVars.header.map(v => ({
-                    type: 'text',
-                    text: variableValues[`header_${v}`] || '',
-                })),
+                parameters: allVars.header.map(v => {
+                    const param = { type: 'text', text: variableValues[`header_${v}`] || '' };
+                    if (isNamed) param.parameter_name = v;
+                    return param;
+                }),
             });
         }
 
         if (allVars.body.length > 0) {
             components.push({
                 type: 'body',
-                parameters: allVars.body.map(v => ({
-                    type: 'text',
-                    text: variableValues[`body_${v}`] || '',
-                })),
+                parameters: allVars.body.map(v => {
+                    const param = { type: 'text', text: variableValues[`body_${v}`] || '' };
+                    if (isNamed) param.parameter_name = v;
+                    return param;
+                }),
             });
         }
 
@@ -434,15 +437,15 @@ const BroadcastDialog = ({
                                 {allVars.header.length > 0 && (
                                     <Box sx={{ mb: 2 }}>
                                         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات العنوان</Typography>
-                                        {allVars.header.map(v => renderVariableInput(`header_${v}`, `عنوان {{${v}}}`))}
+                                        {allVars.header.map(v => renderVariableInput(`header_${v}`, /^\d+$/.test(v) ? `عنوان {{${v}}}` : v))}
                                     </Box>
                                 )}
-                                {allVars.body.map(v => renderVariableInput(`body_${v}`, `متغير {{${v}}}`))}
+                                {allVars.body.map(v => renderVariableInput(`body_${v}`, /^\d+$/.test(v) ? `متغير {{${v}}}` : v))}
                                 {allVars.buttons.length > 0 && (
                                     <Box sx={{ mt: 2 }}>
                                         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>متغيرات الأزرار</Typography>
                                         {allVars.buttons.map(btn =>
-                                            btn.variables.map(v => renderVariableInput(`button_${btn.index}_${v}`, `زر "${btn.text}" {{${v}}}`))
+                                            btn.variables.map(v => renderVariableInput(`button_${btn.index}_${v}`, /^\d+$/.test(v) ? `زر "${btn.text}" {{${v}}}` : `زر "${btn.text}" ${v}`))
                                         )}
                                     </Box>
                                 )}

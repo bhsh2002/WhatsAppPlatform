@@ -47,23 +47,22 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
             buttons: []
         };
 
-        // Extract from body text (e.g., "Hello {{1}}, your order {{2}} is ready")
+        const isNamed = template.parameter_format === 'named';
+
         if (template.body) {
-            const matches = template.body.match(/{{(\d+)}}/g);
+            const matches = template.body.match(/\{\{([^}]+)\}\}/g);
             if (matches) {
-                vars.body = [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))];
+                vars.body = [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
             }
         }
 
-        // Extract from header if it's a text header
         if (template.header_type === 'text' && template.header_content) {
-            const matches = template.header_content.match(/{{(\d+)}}/g);
+            const matches = template.header_content.match(/\{\{([^}]+)\}\}/g);
             if (matches) {
-                vars.header = [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))];
+                vars.header = [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))];
             }
         }
 
-        // Extract from buttons (URL buttons with variables)
         if (template.buttons) {
             try {
                 const buttons = typeof template.buttons === 'string'
@@ -73,14 +72,14 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                 if (Array.isArray(buttons)) {
                     buttons.forEach((btn, index) => {
                         if (btn.type === 'URL' && btn.url) {
-                            const matches = btn.url.match(/{{(\d+)}}/g);
+                            const matches = btn.url.match(/\{\{([^}]+)\}\}/g);
                             if (matches) {
                                 vars.buttons.push({
                                     index: index.toString(),
                                     sub_type: 'url',
                                     text: btn.text,
                                     url: btn.url,
-                                    variables: [...new Set(matches.map(m => m.replace(/{{|}}/g, '')))]
+                                    variables: [...new Set(matches.map(m => m.replace(/\{\{|\}\}/g, '')))]
                                 });
                             }
                         }
@@ -109,29 +108,28 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
     const handleSend = () => {
         if (!selectedTemplate) return;
 
-        // Construct parameters
         const templateVars = getTemplateVariables(selectedTemplate);
+        const isNamed = selectedTemplate.parameter_format === 'named';
         const components = [];
 
-        // Header params - use actual variable numbers, not index
         if (templateVars.header.length > 0) {
-            const headerParams = templateVars.header.map((v) => ({
-                type: 'text',
-                text: variables[`header_${v}`] || ''
-            }));
+            const headerParams = templateVars.header.map((v) => {
+                const param = { type: 'text', text: variables[`header_${v}`] || '' };
+                if (isNamed) param.parameter_name = v;
+                return param;
+            });
             components.push({ type: 'header', parameters: headerParams });
         }
 
-        // Body params - use actual variable numbers, not index
         if (templateVars.body.length > 0) {
-            const bodyParams = templateVars.body.map((v) => ({
-                type: 'text',
-                text: variables[`body_${v}`] || ''
-            }));
+            const bodyParams = templateVars.body.map((v) => {
+                const param = { type: 'text', text: variables[`body_${v}`] || '' };
+                if (isNamed) param.parameter_name = v;
+                return param;
+            });
             components.push({ type: 'body', parameters: bodyParams });
         }
 
-        // Button params (for URL buttons with variables)
         templateVars.buttons.forEach((btn) => {
             if (btn.variables.length > 0) {
                 const buttonParams = btn.variables.map((v) => ({
@@ -168,18 +166,17 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
     // Helper to render preview with replaced variables
     const renderPreview = (text, type, btnIndex = null) => {
         if (!text) return '';
-        return text.replace(/{{(\d+)}}/g, (match, number) => {
-            const key = btnIndex !== null ? `${type}_${btnIndex}_${number}` : `${type}_${number}`;
+        return text.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+            const key = btnIndex !== null ? `${type}_${btnIndex}_${varName}` : `${type}_${varName}`;
             const val = variables[key];
             return val ? `[${val}]` : match;
         });
     };
 
-    // Helper to render button URLs with variable substitution
     const renderButtonPreview = (btn, btnIndex) => {
         if (btn.type === 'URL' && btn.url) {
-            const previewUrl = btn.url.replace(/{{(\d+)}}/g, (match, number) => {
-                const val = variables[`button_${btnIndex}_${number}`];
+            const previewUrl = btn.url.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+                const val = variables[`button_${btnIndex}_${varName}`];
                 return val ? `[${val}]` : match;
             });
             return previewUrl;
@@ -263,6 +260,16 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                                         [📄 مستند]
                                     </Typography>
                                 )}
+                                {selectedTemplate.header_type === 'location' && (
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'primary.main' }}>
+                                        [📍 موقع]
+                                    </Typography>
+                                )}
+                                {selectedTemplate.header_type === 'gif' && (
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'primary.main' }}>
+                                        [🎞️ GIF]
+                                    </Typography>
+                                )}
 
                                 <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
                                     {renderPreview(selectedTemplate.body, 'body')}
@@ -305,7 +312,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                             {getTemplateVariables(selectedTemplate).header.map((v, i) => (
                                 <TextField
                                     key={`h_${i}`}
-                                    label={`Header Variable {{${v}}}`}
+                                    label={/^\d+$/.test(v) ? `Header Variable {{${v}}}` : v}
                                     fullWidth
                                     size="small"
                                     sx={{ mb: 2 }}
@@ -317,7 +324,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                             {getTemplateVariables(selectedTemplate).body.map((v, i) => (
                                 <TextField
                                     key={`b_${i}`}
-                                    label={`Body Variable {{${v}}}`}
+                                    label={/^\d+$/.test(v) ? `Body Variable {{${v}}}` : v}
                                     fullWidth
                                     size="small"
                                     sx={{ mb: 2 }}

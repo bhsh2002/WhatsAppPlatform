@@ -190,6 +190,17 @@ const TenantTemplates = () => {
         setDeleteDialogOpen(true);
     };
 
+    const handleDeleteFromMeta = async (template) => {
+        if (!confirm(`هل أنت متأكد من حذف القالب "${template.name}" من WhatsApp؟`)) return;
+        try {
+            await api.deletePortalTemplateMeta(template.name);
+            setSuccess(`تم حذف القالب "${template.name}" من WhatsApp`);
+            fetchTemplates();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
     };
@@ -200,12 +211,30 @@ const TenantTemplates = () => {
             pending: { label: 'قيد المراجعة', color: 'warning', icon: <ScheduleIcon fontSize="small" /> },
             approved: { label: 'معتمد', color: 'success', icon: <CheckIcon fontSize="small" /> },
             rejected: { label: 'مرفوض', color: 'error', icon: <CloseIcon fontSize="small" /> },
+            paused: { label: 'متوقف', color: 'warning', icon: <ScheduleIcon fontSize="small" /> },
+            disabled: { label: 'معطل', color: 'default', icon: <CloseIcon fontSize="small" /> },
+            in_appeal: { label: 'قيد الاستئناف', color: 'warning', icon: <ScheduleIcon fontSize="small" /> },
+            pending_deletion: { label: 'بانتظار الحذف', color: 'error', icon: <CloseIcon fontSize="small" /> },
+            deleted: { label: 'محذوف', color: 'error', icon: <CloseIcon fontSize="small" /> },
+            limit_exceeded: { label: 'تجاوز الحد', color: 'error', icon: <CloseIcon fontSize="small" /> },
             APPROVED: { label: 'معتمد', color: 'success', icon: <CheckIcon fontSize="small" /> },
             PENDING: { label: 'قيد المراجعة', color: 'warning', icon: <ScheduleIcon fontSize="small" /> },
             REJECTED: { label: 'مرفوض', color: 'error', icon: <CloseIcon fontSize="small" /> },
         };
         const config = statusConfig[status] || statusConfig.draft;
         return <Chip label={config.label} color={config.color} size="small" icon={config.icon} />;
+    };
+
+    const getQualityChip = (qualityScore) => {
+        if (!qualityScore || qualityScore === 'UNKNOWN') return null;
+        const config = {
+            HIGH: { label: 'جودة عالية', color: 'success' },
+            MEDIUM: { label: 'جودة متوسطة', color: 'warning' },
+            LOW: { label: 'جودة منخفضة', color: 'error' },
+        };
+        const q = config[qualityScore] || config[qualityScore.toUpperCase()];
+        if (!q) return null;
+        return <Chip label={q.label} color={q.color} size="small" variant="outlined" sx={{ ml: 0.5 }} />;
     };
 
     const getCategoryLabel = (category) => {
@@ -316,6 +345,7 @@ const TenantTemplates = () => {
                                         <TableCell>الفئة</TableCell>
                                         <TableCell>اللغة</TableCell>
                                         <TableCell>الحالة</TableCell>
+                                        <TableCell>الجودة</TableCell>
                                         <TableCell>تاريخ الإنشاء</TableCell>
                                         <TableCell align="center">الإجراءات</TableCell>
                                     </TableRow>
@@ -336,8 +366,9 @@ const TenantTemplates = () => {
                                                 </Typography>
                                             </TableCell>
                                             <TableCell>{getCategoryLabel(template.category)}</TableCell>
-                                            <TableCell>{template.language?.toUpperCase()}</TableCell>
+                                            <TableCell><Chip label={template.language?.toUpperCase()} size="small" variant="outlined" /></TableCell>
                                             <TableCell>{getStatusChip(template.status)}</TableCell>
+                                            <TableCell>{getQualityChip(template.quality_score)}</TableCell>
                                             <TableCell>
                                                 {new Date(template.created_at).toLocaleDateString('ar-LY')}
                                             </TableCell>
@@ -368,6 +399,17 @@ const TenantTemplates = () => {
                                                             <DeleteIcon fontSize="small" />
                                                         </IconButton>
                                                     </Tooltip>
+                                                    {template.meta_template_id && (
+                                                        <Tooltip title="حذف من WhatsApp">
+                                                            <IconButton
+                                                                size="small"
+                                                                color="error"
+                                                                onClick={() => handleDeleteFromMeta(template)}
+                                                            >
+                                                                <CloseIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    )}
                                                 </Box>
                                             </TableCell>
                                         </TableRow>
@@ -492,6 +534,8 @@ const TenantTemplates = () => {
                                 <MenuItem value="image">صورة</MenuItem>
                                 <MenuItem value="video">فيديو</MenuItem>
                                 <MenuItem value="document">مستند</MenuItem>
+                                <MenuItem value="location">موقع</MenuItem>
+                                <MenuItem value="gif">GIF</MenuItem>
                             </Select>
                         </FormControl>
 
@@ -513,7 +557,7 @@ const TenantTemplates = () => {
                             multiline
                             rows={4}
                             placeholder="اكتب محتوى الرسالة هنا..."
-                            helperText="يمكنك استخدام {{1}}, {{2}} للمتغيرات"
+                            helperText="يمكنك استخدام {{1}}, {{2}} أو {{variable_name}} للمتغيرات"
                         />
 
                         <TextField

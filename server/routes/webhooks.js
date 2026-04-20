@@ -403,6 +403,35 @@ router.post('/', async (req, res) => {
                             console.log('[Webhook] Quality update for tenant:', tenant.id, '->', newQuality);
                         }
                     }
+
+                    // Handle template status updates
+                    if (change.field === 'message_template_status_update') {
+                        const { message_template_id, message_template_name, event, message_template_language } = value;
+                        const tenantId = tenant?.id || null;
+
+                        if (tenantId && message_template_id) {
+                            db.prepare(`
+                                UPDATE templates SET status = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE meta_template_id = ?
+                            `).run((event || '').toLowerCase(), message_template_id);
+
+                            console.log('[Webhook] Template status update:', message_template_name, '->', event);
+                        }
+                    }
+
+                    // Handle template quality updates
+                    if (change.field === 'message_template_quality_update') {
+                        const { message_template_id, new_quality_score } = value;
+
+                        if (tenant && message_template_id) {
+                            db.prepare(`
+                                UPDATE templates SET quality_score = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE meta_template_id = ?
+                            `).run(new_quality_score || 'UNKNOWN', message_template_id);
+
+                            console.log('[Webhook] Template quality update:', message_template_id, '->', new_quality_score);
+                        }
+                    }
                 });
             });
         }
