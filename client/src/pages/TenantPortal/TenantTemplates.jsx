@@ -37,7 +37,8 @@ import {
     Sync as SyncIcon,
     Check as CheckIcon,
     Close as CloseIcon,
-    Schedule as ScheduleIcon
+    Schedule as ScheduleIcon,
+    CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -50,6 +51,7 @@ const TenantTemplates = () => {
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [submittingToMeta, setSubmittingToMeta] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
     const [tabValue, setTabValue] = useState(0);
@@ -188,6 +190,77 @@ const TenantTemplates = () => {
     const openDeleteDialog = (template) => {
         setSelectedTemplate(template);
         setDeleteDialogOpen(true);
+    };
+
+    // Build Meta components array from form data
+    const buildMetaComponents = (data) => {
+        const components = [];
+
+        if (data.header_type && data.header_type !== 'none') {
+            const header = { type: 'HEADER' };
+            if (data.header_type === 'text') {
+                header.format = 'TEXT';
+                header.text = data.header_content || '';
+                const headerVars = (data.header_content || '').match(/\{\{[^}]+\}\}/g);
+                if (headerVars) {
+                    header.example = { header_text: headerVars.map(() => 'مثال') };
+                }
+            } else if (data.header_type === 'location') {
+                header.format = 'LOCATION';
+            } else {
+                header.format = data.header_type.toUpperCase();
+            }
+            components.push(header);
+        }
+
+        const bodyComp = { type: 'BODY', text: data.body };
+        const bodyVars = (data.body || '').match(/\{\{[^}]+\}\}/g);
+        if (bodyVars) {
+            bodyComp.example = { body_text: [bodyVars.map(() => 'مثال')] };
+        }
+        components.push(bodyComp);
+
+        if (data.footer) {
+            components.push({ type: 'FOOTER', text: data.footer });
+        }
+
+        return components;
+    };
+
+    const handleSubmitToMeta = async (data = null) => {
+        const templateData = data || formData;
+        if (!templateData.name || !templateData.body) {
+            setError('اسم القالب والمحتوى مطلوبان');
+            return;
+        }
+
+        try {
+            setSubmittingToMeta(true);
+            setError(null);
+
+            const components = buildMetaComponents(templateData);
+
+            await api.createPortalTemplateMeta({
+                name: templateData.name,
+                language: templateData.language || 'ar',
+                category: templateData.category || 'UTILITY',
+                parameter_format: 'positional',
+                components,
+            });
+
+            handleCloseDialog();
+            setSuccess(`تم رفع القالب "${templateData.name}" إلى WhatsApp بنجاح. سيتم مراجعته من Meta.`);
+
+            try {
+                await api.syncPortalTemplates();
+            } catch (_) { /* silent */ }
+            fetchTemplates();
+        } catch (err) {
+            console.error('Failed to submit template to Meta:', err);
+            setError(err.message || 'فشل رفع القالب إلى WhatsApp');
+        } finally {
+            setSubmittingToMeta(false);
+        }
     };
 
     const handleDeleteFromMeta = async (template) => {
@@ -374,6 +447,18 @@ const TenantTemplates = () => {
                                             </TableCell>
                                             <TableCell align="center">
                                                 <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                                                    {(!template.meta_template_id && template.status === 'draft') && (
+                                                        <Tooltip title="رفع إلى WhatsApp">
+                                                            <IconButton
+                                                                size="small"
+                                                                color="primary"
+                                                                onClick={() => handleSubmitToMeta(template)}
+                                                                disabled={submittingToMeta}
+                                                            >
+                                                                <CloudUploadIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    )}
                                                     <Tooltip title="نسخ المحتوى">
                                                         <IconButton
                                                             size="small"
@@ -569,15 +654,25 @@ const TenantTemplates = () => {
                         />
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ justifyContent: 'space-between' }}>
                     <Button onClick={handleCloseDialog}>إلغاء</Button>
-                    <Button
-                        variant="contained"
-                        onClick={handleSave}
-                        disabled={saving || !formData.name || !formData.body}
-                    >
-                        {saving ? <CircularProgress size={24} /> : (selectedTemplate ? 'حفظ التغييرات' : 'إنشاء')}
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                            variant="outlined"
+                            onClick={handleSave}
+                            disabled={saving || submittingToMeta || !formData.name || !formData.body}
+                        >
+                            {saving ? <CircularProgress size={24} /> : (selectedTemplate ? 'حفظ التغييرات' : 'حفظ كمسودة')}
+                        </Button>
+                        <Button
+                            variant="contained"
+                            startIcon={submittingToMeta ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+                            onClick={() => handleSubmitToMeta()}
+                            disabled={saving || submittingToMeta || !formData.name || !formData.body}
+                        >
+                            {submittingToMeta ? 'جاري الرفع...' : 'رفع إلى WhatsApp'}
+                        </Button>
+                    </Box>
                 </DialogActions>
             </Dialog>
 
