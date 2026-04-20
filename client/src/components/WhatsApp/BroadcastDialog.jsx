@@ -29,8 +29,10 @@ import {
     Close as CloseIcon,
     Send as SendIcon,
     TextFields as StaticIcon,
-    Person as ContactIcon
+    Person as ContactIcon,
+    AttachFile as AttachFileIcon
 } from '@mui/icons-material';
+import api from '../../api';
 
 function extractAllVariables(template) {
     const result = { header: [], body: [], buttons: [] };
@@ -193,7 +195,7 @@ const BroadcastDialog = ({
         }));
     };
 
-    const buildTemplateParams = () => {
+    const buildTemplateParams = (headerMediaId = null) => {
         const components = [];
         const isNamed = templateObj?.parameter_format === 'named';
 
@@ -203,10 +205,18 @@ const BroadcastDialog = ({
                 parameters: allVars.header.map(v => {
                     if (v === 'MEDIA_LINK') {
                         const hType = templateObj.header_type.toLowerCase();
-                        return {
-                            type: hType,
-                            [hType]: { link: variableValues[`header_${v}`] || '' }
-                        };
+                        if (headerMediaId) {
+                            return {
+                                type: hType,
+                                [hType]: { id: headerMediaId }
+                            };
+                        } else {
+                            // Fallback if string URL
+                            return {
+                                type: hType,
+                                [hType]: { link: variableValues[`header_${v}`] || '' }
+                            };
+                        }
                     }
                     const param = { type: 'text', text: variableValues[`header_${v}`] || '' };
                     if (isNamed) param.parameter_name = v;
@@ -246,13 +256,27 @@ const BroadcastDialog = ({
 
         setSending(true);
         try {
+            let headerMediaId = null;
+            if (templateObj?.header_type && ['image', 'video', 'document', 'audio'].includes(templateObj.header_type.toLowerCase())) {
+                 const fileOrLink = variableValues['header_MEDIA_LINK'];
+                 if (!fileOrLink) {
+                     alert("الملف مطلوب للرأس");
+                     setSending(false);
+                     return;
+                 }
+                 if (fileOrLink instanceof File) {
+                      const res = await api.uploadPortalMediaToMeta(fileOrLink);
+                      headerMediaId = res.id;
+                 }
+            }
+
             const payload = {
                 recipients: allRecipients,
                 template_name: selectedTemplate,
                 template_language: templateLanguage
             };
 
-            const templateParams = buildTemplateParams();
+            const templateParams = buildTemplateParams(headerMediaId);
             if (templateParams) {
                 payload.template_params = templateParams;
             }
@@ -272,20 +296,48 @@ const BroadcastDialog = ({
         }
     };
 
-    const renderVariableInput = (key, label) => (
-        <TextField
-            key={key}
-            label={label}
-            placeholder={`أدخل قيمة ${label}`}
-            value={variableValues[key] || ''}
-            onChange={(e) => handleVariableChange(key, e.target.value)}
-            fullWidth
-            size="small"
-            required
-            error={!(variableValues[key]?.trim())}
-            sx={{ mb: 1.5 }}
-        />
-    );
+    const renderVariableInput = (key, label) => {
+        if (key === 'header_MEDIA_LINK') {
+            return (
+                <Box key={key} sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>{label}</Typography>
+                    <Button
+                        variant="outlined"
+                        component="label"
+                        startIcon={<AttachFileIcon />}
+                        fullWidth
+                        color={variableValues[key] ? 'success' : 'primary'}
+                        sx={{ textTransform: 'none', justifyContent: 'flex-start', px: 2 }}
+                    >
+                        <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {variableValues[key]?.name || 'اختيار ملف...'}
+                        </Box>
+                        <input
+                            type="file"
+                            hidden
+                            accept={templateObj?.header_type === 'image' ? 'image/jpeg,image/png,image/webp' : templateObj?.header_type === 'video' ? 'video/mp4,video/3gpp' : '.pdf,.doc,.docx,.xls,.xlsx,.txt'}
+                            onChange={(e) => handleVariableChange('header_MEDIA_LINK', e.target.files[0])}
+                        />
+                    </Button>
+                </Box>
+            );
+        }
+
+        return (
+            <TextField
+                key={key}
+                label={label}
+                placeholder={`أدخل قيمة ${label}`}
+                value={variableValues[key] || ''}
+                onChange={(e) => handleVariableChange(key, e.target.value)}
+                fullWidth
+                size="small"
+                required
+                error={!(variableValues[key])}
+                sx={{ mb: 1.5 }}
+            />
+        );
+    };
 
     return (
         <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>

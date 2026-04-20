@@ -573,6 +573,74 @@ router.post('/messages/send', async (req, res) => {
 });
 
 // ============================================
+// Upload Media to Meta (Returns Media ID)
+// ============================================
+router.post('/media/upload-to-meta', documentUpload.single('file'), async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const file = req.file;
+        
+        if (!file) {
+            return res.status(400).json({ error: 'الملف مطلوب' });
+        }
+
+        const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const phoneNumberId = tenant.phone_number_id;
+        const accessToken = tenant.access_token_encrypted 
+            ? decryptIfEncrypted(tenant.access_token_encrypted) 
+            : tenant.access_token;
+
+        if (!phoneNumberId || !accessToken) {
+            if (file) fs.unlinkSync(file.path);
+            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+        }
+
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('file', fs.readFileSync(file.path), {
+            filename: file.originalname,
+            contentType: file.mimetype
+        });
+
+        const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
+        const formBuffer = form.getBuffer();
+        const formHeaders = form.getHeaders();
+
+        const uploadResponse = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                ...formHeaders
+            },
+            body: formBuffer
+        });
+
+        const uploadData = await uploadResponse.json();
+
+        try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }
+
+        if (!uploadResponse.ok) {
+            console.error('[TenantPortal] Media Upload failed:', uploadResponse.status, uploadData);
+            return res.status(400).json({
+                error: 'فشل رفع الملف إلى WhatsApp',
+                details: uploadData.error?.message || uploadData
+            });
+        }
+
+        res.json({ id: uploadData.id });
+    } catch (error) {
+        console.error('[TenantPortal] Media upload error:', error);
+        if (req.file) try { fs.unlinkSync(req.file.path); } catch(e){}
+        res.status(500).json({ error: 'حدث خطأ أثناء رفع الملف' });
+    }
+});
+
+// ============================================
 // Send Document (PDF, DOC, XLS, etc.)
 // ============================================
 router.post('/messages/send-document', documentUpload.single('file'), async (req, res) => {

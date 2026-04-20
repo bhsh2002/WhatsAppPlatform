@@ -15,14 +15,17 @@ import {
     InputAdornment,
     IconButton,
     Paper,
-    Divider
+    Divider,
+    CircularProgress
 } from '@mui/material';
-import { Search as SearchIcon, Close as CloseIcon, Description as TemplateIcon } from '@mui/icons-material';
+import { Search as SearchIcon, Close as CloseIcon, Description as TemplateIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
+import api from '../../api';
 
 const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [variables, setVariables] = useState({});
+    const [uploading, setUploading] = useState(false);
 
     // Reset state when opening
     useEffect(() => {
@@ -108,7 +111,7 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         }));
     };
 
-    const handleSend = () => {
+    const handleSend = async () => {
         if (!selectedTemplate) return;
 
         const templateVars = getTemplateVariables(selectedTemplate);
@@ -116,18 +119,44 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
         const components = [];
 
         if (templateVars.header.length > 0) {
-            const headerParams = templateVars.header.map((v) => {
+            const headerParams = [];
+            for (let v of templateVars.header) {
                 if (v === 'MEDIA_LINK') {
                     const hType = selectedTemplate.header_type.toLowerCase();
-                    return {
-                        type: hType,
-                        [hType]: { link: variables[`header_${v}`] || '' }
-                    };
+                    const fileOrLink = variables[`header_${v}`];
+                    
+                    if (!fileOrLink) {
+                        alert('الملف مطلوب للرأس');
+                        return;
+                    }
+
+                    if (fileOrLink instanceof File) {
+                        setUploading(true);
+                        try {
+                            const res = await api.uploadPortalMediaToMeta(fileOrLink);
+                            headerParams.push({
+                                type: hType,
+                                [hType]: { id: res.id }
+                            });
+                        } catch (e) {
+                            setUploading(false);
+                            alert('فشل رفع الملف: ' + e.message);
+                            return;
+                        }
+                        setUploading(false);
+                    } else if (typeof fileOrLink === 'string') {
+                        // Fallback in case a URL was pasted programmatically
+                        headerParams.push({
+                            type: hType,
+                            [hType]: { link: fileOrLink }
+                        });
+                    }
+                } else {
+                    const param = { type: 'text', text: variables[`header_${v}`] || '' };
+                    if (isNamed) param.parameter_name = v;
+                    headerParams.push(param);
                 }
-                const param = { type: 'text', text: variables[`header_${v}`] || '' };
-                if (isNamed) param.parameter_name = v;
-                return param;
-            });
+            }
             components.push({ type: 'header', parameters: headerParams });
         }
 
@@ -320,16 +349,41 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                             <Typography variant="subtitle2" gutterBottom>ملء المتغيرات</Typography>
 
                             {getTemplateVariables(selectedTemplate).header.map((v, i) => (
-                                <TextField
-                                    key={`h_${i}`}
-                                    label={v === 'MEDIA_LINK' ? `رابط ${selectedTemplate.header_type === 'image' ? 'صورة' : selectedTemplate.header_type === 'video' ? 'فيديو' : 'مستند'} (URL)` : (/^\d+$/.test(v) ? `Header Variable {{${v}}}` : v)}
-                                    placeholder={v === 'MEDIA_LINK' ? "https://example.com/file.pdf" : ""}
-                                    fullWidth
-                                    size="small"
-                                    sx={{ mb: 2 }}
-                                    value={variables[`header_${v}`] || ''}
-                                    onChange={(e) => handleVariableChange('header', v, e.target.value)}
-                                />
+                                v === 'MEDIA_LINK' ? (
+                                    <Box key={`h_${i}`} sx={{ mb: 2 }}>
+                                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                            إرفاق {selectedTemplate.header_type === 'image' ? 'صورة' : selectedTemplate.header_type === 'video' ? 'فيديو' : 'مستند'}
+                                        </Typography>
+                                        <Button
+                                            variant="outlined"
+                                            component="label"
+                                            startIcon={<AttachFileIcon />}
+                                            fullWidth
+                                            color={variables[`header_${v}`] ? 'success' : 'primary'}
+                                            sx={{ textTransform: 'none', justifyContent: 'flex-start', px: 2 }}
+                                        >
+                                            <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {variables[`header_${v}`]?.name || 'اختيار ملف...'}
+                                            </Box>
+                                            <input
+                                                type="file"
+                                                hidden
+                                                accept={selectedTemplate.header_type === 'image' ? 'image/jpeg,image/png,image/webp' : selectedTemplate.header_type === 'video' ? 'video/mp4,video/3gpp' : '.pdf,.doc,.docx,.xls,.xlsx,.txt'}
+                                                onChange={(e) => handleVariableChange('header', v, e.target.files[0])}
+                                            />
+                                        </Button>
+                                    </Box>
+                                ) : (
+                                    <TextField
+                                        key={`h_${i}`}
+                                        label={/^\d+$/.test(v) ? `Header Variable {{${v}}}` : v}
+                                        fullWidth
+                                        size="small"
+                                        sx={{ mb: 2 }}
+                                        value={variables[`header_${v}`] || ''}
+                                        onChange={(e) => handleVariableChange('header', v, e.target.value)}
+                                    />
+                                )
                             ))}
 
                             {getTemplateVariables(selectedTemplate).body.map((v, i) => (
@@ -383,13 +437,13 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
                 </Box>
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose}>إلغاء</Button>
+                <Button onClick={onClose} disabled={uploading}>إلغاء</Button>
                 <Button
                     variant="contained"
                     onClick={handleSend}
-                    disabled={!selectedTemplate}
+                    disabled={!selectedTemplate || uploading}
                 >
-                    إرسال القالب
+                    {uploading ? <CircularProgress size={20} color="inherit" /> : 'إرسال القالب'}
                 </Button>
             </DialogActions>
         </Dialog>
