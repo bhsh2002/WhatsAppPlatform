@@ -68,25 +68,53 @@ const WhatsAppConnect = ({ onComplete }) => {
             return;
         }
 
+        setError('');
+
+        // Session info (phone_number_id, waba_id) arrives via sessionInfoListener,
+        // NOT in authResponse. We capture it here and combine with the code.
+        let sessionInfo = { phone_number_id: '', waba_id: '' };
+
+        // Also listen for the WA_EMBEDDED_SIGNUP message event as fallback
+        const messageHandler = (event) => {
+            if (event.origin !== 'https://www.facebook.com' && event.origin !== 'https://web.facebook.com') return;
+            try {
+                const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                if (data.type === 'WA_EMBEDDED_SIGNUP') {
+                    sessionInfo.phone_number_id = data.data?.phone_number_id || '';
+                    sessionInfo.waba_id = data.data?.waba_id || '';
+                }
+            } catch (e) { /* ignore non-JSON messages */ }
+        };
+        window.addEventListener('message', messageHandler);
+
         window.FB.login(response => {
+            window.removeEventListener('message', messageHandler);
+
             if (response.authResponse?.code) {
-                const phoneId = response.authResponse.phone_number_id || '';
-                const wabaId = response.authResponse.waba_id || '';
-                const bizId = response.authResponse.business_id || '';
+                const code = response.authResponse.code;
+                const phoneId = sessionInfo.phone_number_id;
+                const wabaId = sessionInfo.waba_id;
 
                 if (!wabaId || !phoneId) {
-                    setError('لم يتم استلام بيانات WhatsApp. تأكد من إكمال خطوات التسجيل.');
+                    // Auto-fill what we have so user can complete manually
+                    setFormData(prev => ({
+                        ...prev,
+                        code,
+                        phone_number_id: phoneId,
+                        waba_id: wabaId,
+                    }));
+                    setError('تم التسجيل بنجاح لكن لم يتم استلام معرفات WhatsApp تلقائياً. أدخلها يدوياً أدناه.');
                     return;
                 }
 
                 setFormData({
-                    code: response.authResponse.code,
+                    code,
                     phone_number_id: phoneId,
                     waba_id: wabaId,
-                    business_id: bizId,
+                    business_id: '',
                 });
                 setActiveStep(2);
-                handleSubmitConnect(response.authResponse.code, phoneId, wabaId, bizId);
+                handleSubmitConnect(code, phoneId, wabaId, '');
             } else if (response.status === 'not_authorized') {
                 setError('تم رفض صلاحية التسجيل');
             } else {
@@ -96,7 +124,15 @@ const WhatsAppConnect = ({ onComplete }) => {
             config_id: config.config_id,
             response_type: 'code',
             override_default_response_type: true,
-            extras: { setup: {} },
+            extras: {
+                setup: {},
+                featureType: '',
+                sessionInfoListener: (info) => {
+                    // Meta sends phone_number_id and waba_id here
+                    sessionInfo.phone_number_id = info.phone_number_id || '';
+                    sessionInfo.waba_id = info.waba_id || '';
+                },
+            },
         });
     };
 
