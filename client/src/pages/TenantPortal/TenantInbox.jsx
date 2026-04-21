@@ -4,25 +4,12 @@ import {
     Typography,
     useMediaQuery,
     useTheme,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Button,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Alert,
-    Snackbar,
-    CircularProgress
 } from '@mui/material';
 import {
     DoneAll as DoneAllIcon,
     Done as DoneIcon,
     Schedule as ScheduleIcon,
     Error as ErrorIcon,
-    Send as SendIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import UnifiedSidebar from '../../components/Inbox/UnifiedSidebar';
@@ -47,14 +34,7 @@ const TenantInbox = () => {
     const [templates, setTemplates] = useState([]);
     const [windowStatus, setWindowStatus] = useState(null);
     const [syncing, setSyncing] = useState(false);
-
-    const [utilityDialogOpen, setUtilityDialogOpen] = useState(false);
-    const [utilityTags, setUtilityTags] = useState([]);
-    const [utilitySelectedTag, setUtilitySelectedTag] = useState('');
-    const [utilityMessageText, setUtilityMessageText] = useState('');
-    const [utilitySending, setUtilitySending] = useState(false);
-    const [utilityError, setUtilityError] = useState('');
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const [utilityFallback, setUtilityFallback] = useState(null);
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -323,16 +303,7 @@ const TenantInbox = () => {
         } catch (err) {
             const errMsg = err.message || '';
             if (errMsg.includes('24') || errMsg.includes('window') || errMsg.includes('outside')) {
-                setUtilityMessageText(text.trim());
-                setUtilityError('');
-                setUtilitySelectedTag('');
-                try {
-                    const tagsData = await api.getPortalMessageTags();
-                    setUtilityTags(tagsData.tags || []);
-                } catch {
-                    setUtilityTags([]);
-                }
-                setUtilityDialogOpen(true);
+                setUtilityFallback({ text: text.trim(), timestamp: Date.now() });
             }
             console.error('Failed to send:', err);
         } finally {
@@ -340,28 +311,22 @@ const TenantInbox = () => {
         }
     }, [selectedChat, fetchMessages, fetchConversations]);
 
-    const handleSendUtilityMessage = async () => {
-        if (!utilitySelectedTag || !utilityMessageText?.trim() || !selectedChat) return;
-        try {
-            setUtilitySending(true);
-            setUtilityError('');
-            await api.sendPortalUtilityMessage(
-                selectedChat.linked_page_id,
-                selectedChat.conversation_id,
-                { message: utilityMessageText.trim(), tag: utilitySelectedTag }
-            );
-            setUtilityDialogOpen(false);
-            setUtilityMessageText('');
-            setUtilitySelectedTag('');
-            await fetchMessages(selectedChat);
-            fetchConversations();
-            setSnackbar({ open: true, message: 'تم إرسال الرسالة الموسومة بنجاح', severity: 'success' });
-        } catch (err) {
-            setUtilityError(err.message || 'فشل إرسال الرسالة');
-        } finally {
-            setUtilitySending(false);
+    const handleGetMessageTags = useCallback(async () => {
+        return await api.getPortalMessageTags();
+    }, []);
+
+    const handleSendUtilityMessage = useCallback(async (message, tag) => {
+        if (!selectedChat?.linked_page_id || !selectedChat?.conversation_id) {
+            throw new Error('بيانات المحادثة غير مكتملة');
         }
-    };
+        await api.sendPortalUtilityMessage(
+            selectedChat.linked_page_id,
+            selectedChat.conversation_id,
+            { message, tag }
+        );
+        await fetchMessages(selectedChat);
+        fetchConversations();
+    }, [selectedChat, fetchMessages, fetchConversations]);
 
     // ============================================
     // SSE Integration (Portal endpoint)
@@ -579,56 +544,12 @@ const TenantInbox = () => {
                         messagesContainerRef={messagesContainerRef}
                         getDisplayName={getDisplayName}
                         formatTime={formatTime}
+                        onSendUtilityMessage={handleSendUtilityMessage}
+                        getMessageTags={handleGetMessageTags}
+                        utilityFallback={utilityFallback}
                     />
                 )}
             </Box>
-
-            <Dialog open={utilityDialogOpen} onClose={() => setUtilityDialogOpen(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>إرسال رسالة موسومة</DialogTitle>
-                <DialogContent>
-                    <Alert severity="warning" sx={{ mb: 2 }}>
-                        نافذة المحادثة (24 ساعة) مغلقة. يمكنك إرسال رسالة موسومة خارج النافذة.
-                    </Alert>
-                    {utilityError && <Alert severity="error" sx={{ mb: 2 }}>{utilityError}</Alert>}
-                    <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                        <InputLabel>نوع الرسالة</InputLabel>
-                        <Select value={utilitySelectedTag} onChange={e => setUtilitySelectedTag(e.target.value)} label="نوع الرسالة">
-                            <MenuItem value="" disabled>اختر نوع الرسالة</MenuItem>
-                            {utilityTags.map(tag => (
-                                <MenuItem key={tag.value} value={tag.value}>
-                                    <Box>
-                                        <Typography variant="body2">{tag.label}</Typography>
-                                        <Typography variant="caption" color="text.secondary">{tag.description}</Typography>
-                                    </Box>
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        نص الرسالة:
-                    </Typography>
-                    <Typography variant="body1" sx={{ p: 1.5, bgcolor: 'grey.100', borderRadius: 1 }}>
-                        {utilityMessageText}
-                    </Typography>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setUtilityDialogOpen(false)}>إلغاء</Button>
-                    <Button
-                        variant="contained"
-                        onClick={handleSendUtilityMessage}
-                        disabled={utilitySending || !utilitySelectedTag}
-                        startIcon={utilitySending ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
-                    >
-                        {utilitySending ? 'جاري الإرسال...' : 'إرسال'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
-
-            <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
-                <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
-                    {snackbar.message}
-                </Alert>
-            </Snackbar>
         </Box>
     );
 };

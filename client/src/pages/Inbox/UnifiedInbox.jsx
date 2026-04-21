@@ -34,6 +34,7 @@ const UnifiedInbox = () => {
     const [templates, setTemplates] = useState([]);
     const [windowStatus, setWindowStatus] = useState(null);
     const [syncing, setSyncing] = useState(false);
+    const [utilityFallback, setUtilityFallback] = useState(null);
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -328,10 +329,31 @@ const UnifiedInbox = () => {
             fetchConversations();
             scrollToBottom();
         } catch (err) {
+            const errMsg = err.message || '';
+            if (errMsg.includes('24') || errMsg.includes('window') || errMsg.includes('outside')) {
+                setUtilityFallback({ text: text.trim(), timestamp: Date.now() });
+            }
             console.error('Failed to send:', err);
         } finally {
             setSending(false);
         }
+    }, [selectedChat, fetchMessages, fetchConversations]);
+
+    const handleGetMessageTags = useCallback(async () => {
+        return await api.getAdminMessageTags();
+    }, []);
+
+    const handleSendUtilityMessage = useCallback(async (message, tag) => {
+        if (!selectedChat?.linked_page_id || !selectedChat?.conversation_id) {
+            throw new Error('بيانات المحادثة غير مكتملة');
+        }
+        await api.sendAdminUtilityMessage(
+            selectedChat.linked_page_id,
+            selectedChat.conversation_id,
+            { message, tag }
+        );
+        await fetchMessages(selectedChat);
+        fetchConversations();
     }, [selectedChat, fetchMessages, fetchConversations]);
 
     // ============================================
@@ -561,6 +583,9 @@ const UnifiedInbox = () => {
                         messagesContainerRef={messagesContainerRef}
                         getDisplayName={getDisplayName}
                         formatTime={formatTime}
+                        onSendUtilityMessage={handleSendUtilityMessage}
+                        getMessageTags={handleGetMessageTags}
+                        utilityFallback={utilityFallback}
                     />
                 )}
             </Box>

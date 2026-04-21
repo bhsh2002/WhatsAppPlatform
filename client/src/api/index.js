@@ -816,6 +816,17 @@ class ApiService {
             method: 'POST',
         });
     }
+
+    async getAdminMessageTags() {
+        return this.request('/api/fb-messenger/message-tags');
+    }
+
+    async sendAdminUtilityMessage(linkedPageId, convId, data) {
+        return this.request(`/api/fb-messenger/${linkedPageId}/conversations/${convId}/utility-message`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
     // ============================================
     // Facebook Insights (Admin)
     // ============================================

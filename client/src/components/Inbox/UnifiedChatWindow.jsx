@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Paper,
@@ -8,12 +8,25 @@ import {
     Avatar,
     Chip,
     CircularProgress,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    Alert,
+    Tooltip,
+    Snackbar,
 } from '@mui/material';
 import {
     Send as SendIcon,
     WhatsApp as WhatsAppIcon,
     Facebook as FacebookIcon,
     ArrowBack as ArrowBackIcon,
+    Label as LabelIcon,
 } from '@mui/icons-material';
 
 const formatTime = (dateStr) => {
@@ -88,7 +101,71 @@ const UnifiedChatWindow = ({
     messagesContainerRef,
     getDisplayName,
     formatTime: formatTimeProp,
+    // Utility message props
+    onSendUtilityMessage,
+    getMessageTags,
+    utilityFallback, // { text, timestamp } — set by parent on 24h error
 }) => {
+    // Utility dialog state
+    const [utilityOpen, setUtilityOpen] = useState(false);
+    const [utilityTags, setUtilityTags] = useState([]);
+    const [utilitySelectedTag, setUtilitySelectedTag] = useState('');
+    const [utilityMessage, setUtilityMessage] = useState('');
+    const [utilitySending, setUtilitySending] = useState(false);
+    const [utilityError, setUtilityError] = useState('');
+    const [utilityLoadingTags, setUtilityLoadingTags] = useState(false);
+    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+    // Auto-open utility dialog on fallback (24h window error from parent)
+    useEffect(() => {
+        if (utilityFallback?.text && utilityFallback?.timestamp) {
+            setUtilityMessage(utilityFallback.text);
+            setUtilityError('');
+            setUtilitySelectedTag('');
+            openUtilityDialog();
+        }
+    }, [utilityFallback?.timestamp]);
+
+    const openUtilityDialog = useCallback(async () => {
+        if (!getMessageTags) return;
+        setUtilityLoadingTags(true);
+        setUtilityError('');
+        try {
+            const data = await getMessageTags();
+            setUtilityTags(data?.tags || []);
+        } catch {
+            setUtilityTags([]);
+        } finally {
+            setUtilityLoadingTags(false);
+        }
+        setUtilityOpen(true);
+    }, [getMessageTags]);
+
+    const handleOpenUtilityManual = useCallback(() => {
+        setUtilityMessage(newMessage?.trim() || '');
+        setUtilitySelectedTag('');
+        setUtilityError('');
+        openUtilityDialog();
+    }, [newMessage, openUtilityDialog]);
+
+    const handleSendUtility = useCallback(async () => {
+        if (!utilitySelectedTag || !utilityMessage?.trim() || !onSendUtilityMessage) return;
+        try {
+            setUtilitySending(true);
+            setUtilityError('');
+            await onSendUtilityMessage(utilityMessage.trim(), utilitySelectedTag);
+            setUtilityOpen(false);
+            setUtilityMessage('');
+            setUtilitySelectedTag('');
+            setNewMessage('');
+            setSnackbar({ open: true, message: 'تم إرسال الرسالة الموسومة بنجاح', severity: 'success' });
+        } catch (err) {
+            setUtilityError(err.message || 'فشل إرسال الرسالة');
+        } finally {
+            setUtilitySending(false);
+        }
+    }, [utilitySelectedTag, utilityMessage, onSendUtilityMessage, setNewMessage]);
+
     if (!selectedChat) {
         return (
             <Box sx={{
@@ -110,6 +187,7 @@ const UnifiedChatWindow = ({
     const displayName = selectedChat.display_name || selectedChat.contact_id || 'غير معروف';
     const fTime = formatTimeProp || formatTime;
     const fGetDateKey = getDateKey;
+    const hasUtilitySupport = !!onSendUtilityMessage && !!getMessageTags;
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -217,6 +295,19 @@ const UnifiedChatWindow = ({
             {/* Input area */}
             <Paper sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }} elevation={0}>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                    {hasUtilitySupport && (
+                        <Tooltip title="رسالة موسومة (خارج نافذة 24 ساعة)" arrow>
+                            <IconButton
+                                onClick={handleOpenUtilityManual}
+                                sx={{
+                                    color: '#7c4dff',
+                                    '&:hover': { bgcolor: '#7c4dff14' },
+                                }}
+                            >
+                                <LabelIcon />
+                            </IconButton>
+                        </Tooltip>
+                    )}
                     <TextField
                         fullWidth
                         multiline
@@ -248,6 +339,69 @@ const UnifiedChatWindow = ({
                     </IconButton>
                 </Box>
             </Paper>
+
+            {/* Utility Message Dialog */}
+            {hasUtilitySupport && (
+                <Dialog open={utilityOpen} onClose={() => setUtilityOpen(false)} maxWidth="sm" fullWidth>
+                    <DialogTitle>إرسال رسالة موسومة</DialogTitle>
+                    <DialogContent>
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                            يمكنك إرسال رسالة خارج نافذة الـ 24 ساعة باستخدام علامة رسالة مناسبة.
+                        </Alert>
+                        {utilityError && <Alert severity="error" sx={{ mb: 2 }}>{utilityError}</Alert>}
+
+                        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                            <InputLabel>نوع الرسالة</InputLabel>
+                            <Select
+                                value={utilitySelectedTag}
+                                onChange={e => setUtilitySelectedTag(e.target.value)}
+                                label="نوع الرسالة"
+                                disabled={utilityLoadingTags}
+                            >
+                                <MenuItem value="" disabled>اختر نوع الرسالة</MenuItem>
+                                {utilityTags.map(tag => (
+                                    <MenuItem key={tag.value} value={tag.value}>
+                                        <Box>
+                                            <Typography variant="body2">{tag.label}</Typography>
+                                            <Typography variant="caption" color="text.secondary">{tag.description}</Typography>
+                                        </Box>
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+
+                        <TextField
+                            fullWidth
+                            multiline
+                            minRows={2}
+                            maxRows={6}
+                            size="small"
+                            label="نص الرسالة"
+                            value={utilityMessage}
+                            onChange={e => setUtilityMessage(e.target.value)}
+                            sx={{ mb: 1 }}
+                        />
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setUtilityOpen(false)}>إلغاء</Button>
+                        <Button
+                            variant="contained"
+                            onClick={handleSendUtility}
+                            disabled={utilitySending || !utilitySelectedTag || !utilityMessage?.trim()}
+                            startIcon={utilitySending ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
+                        >
+                            {utilitySending ? 'جاري الإرسال...' : 'إرسال'}
+                        </Button>
+                    </DialogActions>
+                </Dialog>
+            )}
+
+            {/* Snackbar */}
+            <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
+                <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
+                    {snackbar.message}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };
