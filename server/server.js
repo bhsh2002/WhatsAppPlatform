@@ -139,7 +139,7 @@ app.use(cors({
 // Security headers
 const fbScriptSrc = process.env.META_APP_ID ? ['https://connect.facebook.net'] : [];
 const fbFrameSrc = process.env.META_APP_ID ? ['https://www.facebook.com', 'https://web.facebook.com'] : [];
-const fbConnectSrc = process.env.META_APP_ID ? ['https://graph.facebook.com'] : [];
+const fbConnectSrc = process.env.META_APP_ID ? ['https://graph.facebook.com', 'https://connect.facebook.net'] : [];
 
 app.use(helmet({
     contentSecurityPolicy: {

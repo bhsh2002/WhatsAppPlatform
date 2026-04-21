@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Box, Paper, Typography, Button, CircularProgress, Alert, Snackbar,
     Stepper, Step, StepLabel, TextField, Divider
@@ -23,27 +23,41 @@ const WhatsAppConnect = ({ onComplete }) => {
         waba_id: '',
         business_id: '',
     });
-    const fbScriptLoaded = useRef(false);
+    const [sdkReady, setSdkReady] = useState(false);
 
     useEffect(() => {
         api.getMetaConfig().then(cfg => {
             setConfig(cfg);
-            if (cfg.whatsapp_signup_available && cfg.app_id && !fbScriptLoaded.current) {
+            if (cfg.whatsapp_signup_available && cfg.app_id) {
+                if (window.FB) {
+                    setSdkReady(true);
+                    return;
+                }
+
+                window.fbAsyncInit = function () {
+                    window.FB.init({
+                        appId: cfg.app_id,
+                        autoLogAppEvents: true,
+                        xfbml: false,
+                        version: cfg.api_version || 'v25.0',
+                    });
+                    setSdkReady(true);
+                };
+
+                if (document.getElementById('facebook-jssdk')) return;
+
                 const script = document.createElement('script');
+                script.id = 'facebook-jssdk';
                 script.src = 'https://connect.facebook.net/en_US/sdk.js';
                 script.async = true;
-                script.onload = () => {
-                    fbScriptLoaded.current = true;
-                    if (window.FB) {
-                        window.FB.init({
-                            appId: cfg.app_id,
-                            autoLogAppEvents: true,
-                            xfbml: false,
-                            version: cfg.api_version || 'v25.0',
-                        });
-                    }
-                };
+                script.onerror = () => setError('فشل تحميل Facebook SDK. تحقق من اتصال الإنترنت.');
                 document.head.appendChild(script);
+
+                setTimeout(() => {
+                    if (!window.FB) {
+                        setError('تعذر تحميل Facebook SDK. تحقق من إعدادات الشبكة أو حاول لاحقاً.');
+                    }
+                }, 15000);
             }
         }).catch(() => {});
     }, []);
@@ -152,12 +166,12 @@ const WhatsAppConnect = ({ onComplete }) => {
                         size="large"
                         startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <WhatsAppIcon />}
                         onClick={handleEmbeddedSignup}
-                        disabled={loading || !fbScriptLoaded.current}
+                        disabled={loading || !sdkReady}
                         sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
                     >
                         بدء التسجيل عبر Meta
                     </Button>
-                    {!fbScriptLoaded.current && (
+                    {!sdkReady && (
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                             جاري تحميل Facebook SDK...
                         </Typography>
