@@ -425,8 +425,8 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
         return false;
     }
 
-    // Try RESPONSE first (within 24-hour window)
-    let response = await fetch(`${META_API_BASE}/${page_id}/messages`, {
+    // Send within 24-hour standard messaging window
+    const response = await fetch(`${META_API_BASE}/${page_id}/messages`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${token}`,
@@ -439,27 +439,7 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
         }),
     });
 
-    let data = await response.json();
-
-    // If RESPONSE fails (outside 24-hour window), try HUMAN_AGENT tag
-    // This uses pages_utility_messages permission
-    if (!response.ok && data.error?.code === 10) {
-        console.log(`[AutoResponder] RESPONSE failed (outside 24h window), retrying with HUMAN_AGENT tag for ${contact_id}`);
-        response = await fetch(`${META_API_BASE}/${page_id}/messages`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                recipient: { id: contact_id },
-                messaging_type: 'MESSAGE_TAG',
-                tag: 'HUMAN_AGENT',
-                message: { text: responseText },
-            }),
-        });
-        data = await response.json();
-    }
+    const data = await response.json();
 
     if (response.ok) {
         const mid = data.message_id;
@@ -505,7 +485,11 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
 
         return true;
     } else {
-        console.error(`[AutoResponder] Messenger API error:`, data.error?.message || JSON.stringify(data));
+        if (data.error?.code === 10) {
+            console.warn(`[AutoResponder] Messenger auto-reply skipped: outside 24h window for ${contact_id}`);
+        } else {
+            console.error(`[AutoResponder] Messenger API error:`, data.error?.message || JSON.stringify(data));
+        }
         return false;
     }
 }

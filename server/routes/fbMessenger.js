@@ -115,6 +115,14 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
         const sendData = await sendResponse.json();
 
         if (!sendResponse.ok || sendData.error) {
+            // Outside 24-hour messaging window
+            if (sendData.error?.code === 10) {
+                return res.status(403).json({
+                    error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
+                    error_code: 'OUTSIDE_WINDOW',
+                    details: sendData.error,
+                });
+            }
             return res.status(sendResponse.status || 400).json({
                 error: sendData.error?.message || 'فشل إرسال الرسالة',
                 details: sendData.error,
@@ -287,13 +295,12 @@ router.post('/:linkedPageId/sync', async (req, res) => {
 
 // ============================================
 // Send utility message (MESSAGE_TAG) — outside 24-hour window
-// Justifies pages_utility_messages permission
+// NOTE: As of Feb 10, 2026, Meta deprecated CONFIRMED_EVENT_UPDATE,
+// POST_PURCHASE_UPDATE, and ACCOUNT_UPDATE tags.
+// Only HUMAN_AGENT remains, which requires App Review approval.
 // ============================================
 const VALID_MESSAGE_TAGS = [
-    'CONFIRMED_EVENT_UPDATE',   // Event reminders/updates
-    'POST_PURCHASE_UPDATE',     // Order status, shipping, receipts
-    'ACCOUNT_UPDATE',           // Account changes, payment issues
-    'HUMAN_AGENT',              // Human agent response (7-day window)
+    'HUMAN_AGENT',              // Human agent response (7-day window) — requires App Review
 ];
 
 router.post('/:linkedPageId/conversations/:conversationId/utility-message', async (req, res) => {
@@ -384,16 +391,10 @@ router.get('/message-tags', (req, res) => {
         tags: VALID_MESSAGE_TAGS.map(tag => ({
             value: tag,
             label: {
-                'CONFIRMED_EVENT_UPDATE': 'تحديث موعد / فعالية مؤكدة',
-                'POST_PURCHASE_UPDATE': 'تحديث ما بعد الشراء (حالة الطلب)',
-                'ACCOUNT_UPDATE': 'تحديث الحساب',
-                'HUMAN_AGENT': 'رد وكيل بشري (نافذة 7 أيام)',
+                'HUMAN_AGENT': 'رد وكيل بشري (يتطلب مراجعة التطبيق)',
             }[tag],
             description: {
-                'CONFIRMED_EVENT_UPDATE': 'Send updates about confirmed events the user signed up for',
-                'POST_PURCHASE_UPDATE': 'Send order status, shipping updates, or receipts',
-                'ACCOUNT_UPDATE': 'Send notifications about account changes or payment issues',
-                'HUMAN_AGENT': 'Send human agent response within 7-day window',
+                'HUMAN_AGENT': 'Send a response to a user within 7 days of their last message (requires App Review)',
             }[tag],
         })),
     });

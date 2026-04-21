@@ -2602,7 +2602,7 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                 'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1'
             ).get(contactId, linked_page_id, tenantId);
 
-            let sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -2615,25 +2615,7 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                 }),
             });
 
-            let sendData = await sendResponse.json();
-
-            // Fallback to HUMAN_AGENT tag if outside 24-hour window
-            if (!sendResponse.ok && sendData.error?.code === 10) {
-                sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        recipient: { id: contactId },
-                        messaging_type: 'MESSAGE_TAG',
-                        tag: 'HUMAN_AGENT',
-                        message: { text: message.trim() },
-                    }),
-                });
-                sendData = await sendResponse.json();
-            }
+            const sendData = await sendResponse.json();
 
             if (sendResponse.ok) {
                 const mid = sendData.message_id;
@@ -2660,7 +2642,15 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: mid });
             } else {
-                res.status(sendResponse.status).json({ error: sendData.error?.message || 'فشل إرسال الرسالة' });
+                // Outside 24-hour messaging window
+                if (sendData.error?.code === 10) {
+                    res.status(403).json({
+                        error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
+                        error_code: 'OUTSIDE_WINDOW',
+                    });
+                } else {
+                    res.status(sendResponse.status).json({ error: sendData.error?.message || 'فشل إرسال الرسالة' });
+                }
             }
         } else {
             res.status(400).json({ error: 'القناة غير صالحة' });
@@ -3611,12 +3601,12 @@ router.get('/fb-insights/:linkedPageId/posts', async (req, res) => {
 
 // ============================================
 // Component 5: Tenant Utility Messages
+// NOTE: As of Feb 10, 2026, Meta deprecated CONFIRMED_EVENT_UPDATE,
+// POST_PURCHASE_UPDATE, and ACCOUNT_UPDATE tags.
+// Only HUMAN_AGENT remains, which requires App Review approval.
 // ============================================
 const VALID_MESSAGE_TAGS = [
-    'CONFIRMED_EVENT_UPDATE',
-    'POST_PURCHASE_UPDATE',
-    'ACCOUNT_UPDATE',
-    'HUMAN_AGENT',
+    'HUMAN_AGENT',              // Human agent response (7-day window) — requires App Review
 ];
 
 router.get('/fb-messenger/message-tags', (req, res) => {
@@ -3624,16 +3614,10 @@ router.get('/fb-messenger/message-tags', (req, res) => {
         tags: VALID_MESSAGE_TAGS.map(tag => ({
             value: tag,
             label: {
-                'CONFIRMED_EVENT_UPDATE': 'تحديث موعد / فعالية مؤكدة',
-                'POST_PURCHASE_UPDATE': 'تحديث ما بعد الشراء (حالة الطلب)',
-                'ACCOUNT_UPDATE': 'تحديث الحساب',
-                'HUMAN_AGENT': 'رد وكيل بشري (نافذة 7 أيام)',
+                'HUMAN_AGENT': 'رد وكيل بشري (يتطلب مراجعة التطبيق)',
             }[tag],
             description: {
-                'CONFIRMED_EVENT_UPDATE': 'Send updates about confirmed events the user signed up for',
-                'POST_PURCHASE_UPDATE': 'Send order status, shipping updates, or receipts',
-                'ACCOUNT_UPDATE': 'Send notifications about account changes or payment issues',
-                'HUMAN_AGENT': 'Send human agent response within 7-day window',
+                'HUMAN_AGENT': 'Send a response to a user within 7 days of their last message (requires App Review)',
             }[tag],
         })),
     });

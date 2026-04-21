@@ -251,7 +251,7 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
             const userPsid = contactId;
 
-            let sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
+            const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -264,25 +264,7 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                 }),
             });
 
-            let sendData = await sendResponse.json();
-
-            // Fallback to HUMAN_AGENT tag if outside 24-hour window
-            if (!sendResponse.ok && sendData.error?.code === 10) {
-                sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        recipient: { id: userPsid },
-                        messaging_type: 'MESSAGE_TAG',
-                        tag: 'HUMAN_AGENT',
-                        message: { text: message.trim() },
-                    }),
-                });
-                sendData = await sendResponse.json();
-            }
+            const sendData = await sendResponse.json();
 
             if (sendResponse.ok) {
                 const mid = sendData.message_id;
@@ -322,7 +304,15 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                 res.json({ success: true, message_id: mid });
             } else {
                 console.error('[Unified] Messenger send error:', sendData.error);
-                res.status(sendResponse.status).json({ error: sendData.error?.message || 'فشل إرسال الرسالة' });
+                // Outside 24-hour messaging window
+                if (sendData.error?.code === 10) {
+                    res.status(403).json({
+                        error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
+                        error_code: 'OUTSIDE_WINDOW',
+                    });
+                } else {
+                    res.status(sendResponse.status).json({ error: sendData.error?.message || 'فشل إرسال الرسالة' });
+                }
             }
         } else {
             res.status(400).json({ error: 'Invalid channel' });
