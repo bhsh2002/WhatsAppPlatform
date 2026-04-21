@@ -13,10 +13,6 @@ router.get('/me', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -58,10 +54,6 @@ router.get('/:pageId/info', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -100,10 +92,6 @@ router.get('/:pageId/linked-waba', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });

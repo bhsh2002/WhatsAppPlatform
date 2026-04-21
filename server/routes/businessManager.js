@@ -14,10 +14,6 @@ router.get('/:businessId', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -64,10 +60,6 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -117,10 +109,6 @@ router.post('/:businessId/claim-ad-account', async (req, res) => {
         const { tenant_id, adaccount_id } = req.body;
 
         let accessToken = getAccessToken(tenant_id);
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -167,10 +155,6 @@ router.get('/:businessId/assets', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -224,10 +208,6 @@ router.get('/:businessId/whatsapp-accounts', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });

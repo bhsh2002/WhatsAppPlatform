@@ -8,13 +8,13 @@ const router = express.Router();
 // ============================================
 // Helper: Get tenant credentials
 // ============================================
-const getTenantCreds = (tenantId) => {
+const getTenantCreds = async (tenantId) => {
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     if (!tenant) return null;
     return {
         tenant,
         phoneNumberId: tenant.phone_number_id,
-        accessToken: tenant.access_token,
+        accessToken: await getAccessToken(tenantId),
         wabaId: tenant.waba_id
     };
 };
@@ -28,10 +28,6 @@ router.get('/:wabaId', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const creds = getTenantCreds(tenantId);
-            if (creds?.accessToken) accessToken = creds.accessToken;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -73,10 +69,6 @@ router.get('/info/:phoneNumberId', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const creds = getTenantCreds(tenantId);
-            if (creds?.accessToken) accessToken = creds.accessToken;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -114,11 +106,7 @@ router.post('/register/:phoneNumberId', async (req, res) => {
         const { phoneNumberId } = req.params;
         const { tenant_id, pin } = req.body;
 
-        let accessToken = getAccessToken(tenant_id);
-        if (tenant_id) {
-            const creds = getTenantCreds(tenant_id);
-            if (creds?.accessToken) accessToken = creds.accessToken;
-        }
+        let accessToken = await getAccessToken(tenant_id);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -177,10 +165,6 @@ router.post('/request-code/:phoneNumberId', async (req, res) => {
         const { tenant_id, code_method, language } = req.body;
 
         let accessToken = getAccessToken(tenant_id);
-        if (tenant_id) {
-            const creds = getTenantCreds(tenant_id);
-            if (creds?.accessToken) accessToken = creds.accessToken;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -226,10 +210,6 @@ router.post('/verify-code/:phoneNumberId', async (req, res) => {
         const { tenant_id, code } = req.body;
 
         let accessToken = getAccessToken(tenant_id);
-        if (tenant_id) {
-            const creds = getTenantCreds(tenant_id);
-            if (creds?.accessToken) accessToken = creds.accessToken;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -272,10 +252,6 @@ router.post('/two-step/:phoneNumberId', async (req, res) => {
         const { tenant_id, pin } = req.body;
 
         let accessToken = getAccessToken(tenant_id);
-        if (tenant_id) {
-            const creds = getTenantCreds(tenant_id);
-            if (creds?.accessToken) accessToken = creds.accessToken;
-        }
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });

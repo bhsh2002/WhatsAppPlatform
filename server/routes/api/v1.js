@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-import { getTenantCredentials as _getTenantCredentials } from '../../services/credentials.js';
+import { getTenantCredentials as _getTenantCredentials, getAccessToken } from '../../services/credentials.js';
 
 // Adapter: wraps shared credentials service to match existing v1 API contract
 const getTenantCredentials = (tenantId) => {
@@ -636,7 +636,7 @@ router.post('/events', async (req, res) => {
         const response = await fetch(`${META_API_BASE}/${tenant.dataset_id}/events`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${tenant.access_token}`,
+                'Authorization': `Bearer ${getAccessToken(tenantId)}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ data: formattedEvents })

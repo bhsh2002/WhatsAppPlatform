@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { checkSingleTenant } from '../services/tokenMonitor.js';
+import { getAccessToken } from '../services/credentials.js';
 
 const router = express.Router();
 
@@ -522,7 +523,8 @@ router.post('/:id/templates/sync', async (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
-        if (!tenant.access_token) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة. يجب إضافة Access Token للعميل.' });
         }
 
@@ -535,7 +537,7 @@ router.post('/:id/templates/sync', async (req, res) => {
                 const wabaResponse = await fetch(
                     `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_account`,
                     {
-                        headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
                     }
                 );
                 const wabaData = await wabaResponse.json();
@@ -549,9 +551,9 @@ router.post('/:id/templates/sync', async (req, res) => {
 
                     // Method 2: Try debug_token to get app info
                     const debugResponse = await fetch(
-                        `${META_API_BASE}/debug_token?input_token=${tenant.access_token}`,
+                        `${META_API_BASE}/debug_token?input_token=${accessToken}`,
                         {
-                            headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                            headers: { 'Authorization': `Bearer ${accessToken}` }
                         }
                     );
                     const debugData = await debugResponse.json();
@@ -586,7 +588,7 @@ router.post('/:id/templates/sync', async (req, res) => {
 
         while (url) {
             const resp = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             const data = await resp.json();
 
@@ -742,7 +744,8 @@ router.post('/:id/templates/create-meta', async (req, res) => {
         const tenantId = req.params.id;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-        if (!tenant.access_token || !tenant.waba_id) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!accessToken || !tenant.waba_id) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة (يجب توفر Access Token و WABA ID)' });
         }
 
@@ -756,7 +759,7 @@ router.post('/:id/templates/create-meta', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -803,7 +806,8 @@ router.delete('/:id/templates/delete-meta', async (req, res) => {
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-        if (!tenant.access_token || !tenant.waba_id) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!accessToken || !tenant.waba_id) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -811,7 +815,7 @@ router.delete('/:id/templates/delete-meta', async (req, res) => {
             `${META_API_BASE}/${tenant.waba_id}/message_templates?name=${encodeURIComponent(name)}`,
             {
                 method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
@@ -847,7 +851,8 @@ router.post('/:id/subscribe-webhook', async (req, res) => {
         const tenantId = req.params.id;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-        if (!tenant.access_token || !tenant.waba_id) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!accessToken || !tenant.waba_id) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -856,7 +861,7 @@ router.post('/:id/subscribe-webhook', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 }
             }
@@ -891,14 +896,15 @@ router.get('/:id/webhook-subscriptions', async (req, res) => {
         const tenantId = req.params.id;
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-        if (!tenant.access_token || !tenant.waba_id) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!accessToken || !tenant.waba_id) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
         const response = await fetch(
             `${META_API_BASE}/${tenant.waba_id}/subscribed_apps`,
             {
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 

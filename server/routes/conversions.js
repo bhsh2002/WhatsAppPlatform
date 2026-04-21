@@ -22,7 +22,7 @@ const getCredentials = (tenantId) => {
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     return {
         tenant,
-        accessToken: tenant?.access_token || getAccessToken(),
+        accessToken: getAccessToken(tenantId),
         datasetId: tenant?.dataset_id
     };
 };
@@ -328,7 +328,7 @@ router.post('/log-event', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${getAccessToken(tenantId)}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ data: [formattedEvent] })

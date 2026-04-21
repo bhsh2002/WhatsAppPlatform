@@ -8,7 +8,7 @@ const router = express.Router();
 // ============================================
 // Helper: Get credentials from tenant or request
 // ============================================
-const getCredentials = (req) => {
+const getCredentials = async (req) => {
     const tenantId = req.body?.tenant_id || req.query?.tenant_id || req.user?.tenant_id;
     let phoneNumberId = null;
     let accessToken = null;
@@ -17,13 +17,13 @@ const getCredentials = (req) => {
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (tenant) {
             phoneNumberId = tenant.phone_number_id;
-            accessToken = tenant.access_token;
+            accessToken = await getAccessToken(tenantId);
         }
     }
 
     // Fallback to defaults
     phoneNumberId = phoneNumberId || process.env.DEFAULT_PHONE_NUMBER_ID;
-    accessToken = accessToken || getAccessToken();
+    accessToken = accessToken || await getAccessToken();
 
     return { phoneNumberId, accessToken, tenantId };
 };
@@ -37,11 +37,7 @@ router.get('/:phoneNumberId', async (req, res) => {
         const tenantId = req.query.tenant_id;
 
         // Get access token
-        let accessToken = getAccessToken(tenantId);
-        if (tenantId) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
+        let accessToken = await getAccessToken(tenantId);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -82,11 +78,7 @@ router.post('/:phoneNumberId', async (req, res) => {
         const { tenant_id, about, address, description, email, vertical, websites, profile_picture_handle } = req.body;
 
         // Get access token
-        let accessToken = getAccessToken(tenant_id);
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant?.access_token) accessToken = tenant.access_token;
-        }
+        let accessToken = await getAccessToken(tenant_id);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -150,7 +142,8 @@ router.get('/me/profile', async (req, res) => {
         }
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-        if (!tenant || !tenant.phone_number_id || !tenant.access_token) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!tenant || !tenant.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -158,7 +151,7 @@ router.get('/me/profile', async (req, res) => {
         const response = await fetch(
             `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_profile?fields=${fields}`,
             {
-                headers: { 'Authorization': `Bearer ${tenant.access_token}` }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
@@ -190,7 +183,8 @@ router.put('/me/profile', async (req, res) => {
         }
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-        if (!tenant || !tenant.phone_number_id || !tenant.access_token) {
+        const accessToken = await getAccessToken(tenantId);
+        if (!tenant || !tenant.phone_number_id || !accessToken) {
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
@@ -210,7 +204,7 @@ router.put('/me/profile', async (req, res) => {
             {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${tenant.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(updatePayload)

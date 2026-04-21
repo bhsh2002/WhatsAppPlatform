@@ -432,14 +432,8 @@ router.get('/media/:mediaId', async (req, res) => {
         const { tenant_id } = req.query;
 
         // Get credentials
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
-
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant?.access_token) {
-                accessToken = tenant.access_token;
-            }
-        }
+        const credentials = resolveCredentials({ tenantId: tenant_id });
+        const accessToken = credentials.accessToken;
 
         if (!accessToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
@@ -617,22 +611,14 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         }
 
         // Get tenant credentials
-        let phoneNumberId = process.env.DEFAULT_PHONE_NUMBER_ID;
-        let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
+        const credentials = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: req.body.phone_number_id,
+            accessTokenOverride: req.body.access_token,
+        });
 
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant_id);
-            if (tenant?.access_token) {
-                phoneNumberId = tenant.phone_number_id;
-                accessToken = tenant.access_token;
-            } else if (req.body.phone_number_id && req.body.access_token) {
-                phoneNumberId = req.body.phone_number_id;
-                accessToken = req.body.access_token;
-            }
-        } else if (req.body.phone_number_id && req.body.access_token) {
-            phoneNumberId = req.body.phone_number_id;
-            accessToken = req.body.access_token;
-        }
+        let phoneNumberId = credentials.phoneNumberId;
+        let accessToken = credentials.accessToken;
 
         if (!phoneNumberId || !accessToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
