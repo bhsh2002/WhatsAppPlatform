@@ -40,7 +40,8 @@ import {
     QuestionAnswer as QuestionAnswerIcon,
     BarChart as BarChartIcon,
     ReportProblem as ReportProblemIcon,
-    SmartToy as SmartToyIcon
+    SmartToy as SmartToyIcon,
+    FactCheck as FactCheckIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -83,6 +84,7 @@ const Sidebar = () => {
         { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
         { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
         { label: 'صفحات فيسبوك', path: '/portal/fb-pages', icon: <FacebookIcon /> },
+        { label: 'جاهزية Meta', path: '/portal/meta-review', icon: <FactCheckIcon /> },
         { label: 'إدارة المحتوى', path: '/portal/fb-content', icon: <StoreIcon /> },
         { label: 'الأتمتة', path: '/portal/automation', icon: <SmartToyIcon /> },
         { label: 'تحليلات فيسبوك', path: '/portal/fb-insights', icon: <BarChartIcon /> },
@@ -234,4 +236,3 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
-

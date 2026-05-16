@@ -1,0 +1,377 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
+import {
+    Alert,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    Chip,
+    CircularProgress,
+    Divider,
+    Grid,
+    LinearProgress,
+    Paper,
+    Stack,
+    Typography,
+} from '@mui/material';
+import {
+    Article as ArticleIcon,
+    Business as BusinessIcon,
+    CheckCircle as CheckCircleIcon,
+    ErrorOutline as ErrorOutlineIcon,
+    Facebook as FacebookIcon,
+    FactCheck as FactCheckIcon,
+    Forum as ForumIcon,
+    OpenInNew as OpenInNewIcon,
+    PersonSearch as PersonSearchIcon,
+    Refresh as RefreshIcon,
+    TrendingUp as TrendingUpIcon,
+    Webhook as WebhookIcon,
+} from '@mui/icons-material';
+import api from '../../api';
+
+const STATUS_CONFIG = {
+    ready: { label: 'جاهز', color: 'success', icon: <CheckCircleIcon /> },
+    action_required: { label: 'يتطلب إجراء', color: 'warning', icon: <ErrorOutlineIcon /> },
+    missing: { label: 'ناقص', color: 'error', icon: <ErrorOutlineIcon /> },
+};
+
+const getStatusConfig = (status) => STATUS_CONFIG[status] || STATUS_CONFIG.action_required;
+
+const formatDate = (value) => {
+    if (!value) return 'غير متوفر';
+    try {
+        return new Date(value).toLocaleString('ar-LY');
+    } catch {
+        return value;
+    }
+};
+
+const StatusChip = ({ status }) => {
+    const config = getStatusConfig(status);
+    return (
+        <Chip
+            icon={config.icon}
+            label={config.label}
+            color={config.color}
+            size="small"
+            variant={status === 'ready' ? 'filled' : 'outlined'}
+        />
+    );
+};
+
+const Metric = ({ label, value }) => (
+    <Box>
+        <Typography variant="caption" color="text.secondary" component="div">
+            {label}
+        </Typography>
+        <Typography variant="body2" fontWeight={700}>
+            {value}
+        </Typography>
+    </Box>
+);
+
+const MissingChips = ({ items, emptyLabel = 'لا توجد نواقص' }) => {
+    if (!items?.length) {
+        return <Chip label={emptyLabel} color="success" size="small" variant="outlined" />;
+    }
+
+    return items.map(item => (
+        <Chip key={item} label={item} color="warning" size="small" variant="outlined" />
+    ));
+};
+
+const ReviewSectionCard = ({ title, icon, section, metrics, missingItems, actionLabel, actionPath, children }) => (
+    <Card sx={{ height: '100%' }}>
+        <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'flex-start' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box sx={{ color: 'primary.main', display: 'flex' }}>{icon}</Box>
+                    <Typography variant="h6" fontWeight={700}>{title}</Typography>
+                </Box>
+                <StatusChip status={section?.status} />
+            </Box>
+
+            {section?.review_hint && (
+                <Typography variant="body2" color="text.secondary">
+                    {section.review_hint}
+                </Typography>
+            )}
+
+            <Grid container spacing={2}>
+                {metrics.map(metric => (
+                    <Grid size={{ xs: 6 }} key={metric.label}>
+                        <Metric label={metric.label} value={metric.value} />
+                    </Grid>
+                ))}
+            </Grid>
+
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                <MissingChips items={missingItems} />
+            </Box>
+
+            {children}
+
+            {actionPath && (
+                <Box sx={{ mt: 'auto', pt: 1 }}>
+                    <Button
+                        component={RouterLink}
+                        to={actionPath}
+                        variant="outlined"
+                        size="small"
+                        endIcon={<OpenInNewIcon />}
+                    >
+                        {actionLabel}
+                    </Button>
+                </Box>
+            )}
+        </CardContent>
+    </Card>
+);
+
+const TenantMetaReview = () => {
+    const [readiness, setReadiness] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const loadReadiness = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError('');
+            const data = await api.getMetaReviewReadiness();
+            setReadiness(data);
+        } catch (err) {
+            setError(err.message || 'فشل تحميل جاهزية مراجعة Meta');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { loadReadiness(); }, [loadReadiness]);
+
+    const sections = useMemo(() => {
+        if (!readiness) return [];
+
+        return [
+            {
+                title: 'أذونات Facebook OAuth',
+                icon: <FacebookIcon />,
+                section: readiness.permissions,
+                missingItems: readiness.permissions?.missing_scopes,
+                actionLabel: 'إعادة التفويض',
+                actionPath: readiness.permissions?.action_path,
+                metrics: [
+                    { label: 'الممنوحة', value: `${readiness.permissions?.granted_scopes?.length || 0}/${readiness.permissions?.requested_scopes?.length || 0}` },
+                    { label: 'آخر تفويض', value: formatDate(readiness.permissions?.facebook_user_token_updated_at) },
+                ],
+            },
+            {
+                title: 'الصفحات و Webhooks',
+                icon: <WebhookIcon />,
+                section: readiness.pages,
+                missingItems: readiness.pages?.webhook_ready_count ? [] : readiness.pages?.required_webhook_fields,
+                actionLabel: 'إدارة الصفحات',
+                actionPath: readiness.pages?.action_path,
+                metrics: [
+                    { label: 'الصفحات النشطة', value: readiness.pages?.active_count || 0 },
+                    { label: 'Webhooks جاهزة', value: readiness.pages?.webhook_ready_count || 0 },
+                ],
+            },
+            {
+                title: 'محتوى الصفحة',
+                icon: <ArticleIcon />,
+                section: readiness.content,
+                missingItems: readiness.content?.missing_permissions,
+                actionLabel: 'فتح إدارة المحتوى',
+                actionPath: readiness.content?.action_path,
+                metrics: [
+                    { label: 'صفحات برمز صالح', value: readiness.content?.linked_pages_ready || 0 },
+                    { label: 'الإجراءات', value: readiness.content?.supported_actions?.length || 0 },
+                ],
+            },
+            {
+                title: 'Messenger',
+                icon: <ForumIcon />,
+                section: readiness.messenger,
+                missingItems: readiness.messenger?.missing_permissions,
+                actionLabel: 'فتح inbox',
+                actionPath: readiness.messenger?.action_path,
+                metrics: [
+                    { label: 'المحادثات', value: readiness.messenger?.conversations_count || 0 },
+                    { label: 'آخر نشاط', value: formatDate(readiness.messenger?.latest_activity_at) },
+                ],
+            },
+            {
+                title: 'Business Asset User Profile Access',
+                icon: <PersonSearchIcon />,
+                section: readiness.business_asset_user_profile_access,
+                missingItems: readiness.business_asset_user_profile_access?.status === 'ready'
+                    ? []
+                    : [readiness.business_asset_user_profile_access?.feature_required].filter(Boolean),
+                actionLabel: 'فتح inbox',
+                actionPath: readiness.business_asset_user_profile_access?.action_path,
+                metrics: [
+                    { label: 'ملفات مستخدمين', value: readiness.business_asset_user_profile_access?.profile_records_count || 0 },
+                    { label: 'الميزة', value: readiness.business_asset_user_profile_access?.feature_required || '-' },
+                ],
+            },
+            {
+                title: 'Business APIs',
+                icon: <BusinessIcon />,
+                section: readiness.business,
+                missingItems: readiness.business?.missing_permissions,
+                actionLabel: 'إعادة تفويض Facebook',
+                actionPath: readiness.business?.action_path,
+                metrics: [
+                    { label: 'Business ID', value: readiness.business?.business_id_present ? 'موجود' : 'غير موجود' },
+                    { label: 'Facebook token', value: readiness.business?.facebook_user_token_present ? 'موجود' : 'غير موجود' },
+                ],
+                adminPaths: readiness.business?.admin_paths || [],
+            },
+            {
+                title: 'WhatsApp Events API',
+                icon: <TrendingUpIcon />,
+                section: readiness.whatsapp_events,
+                missingItems: readiness.whatsapp_events?.status === 'ready'
+                    ? []
+                    : [readiness.whatsapp_events?.permission_required].filter(Boolean),
+                actionLabel: 'فتح أحداث التحويل',
+                actionPath: readiness.whatsapp_events?.action_path,
+                metrics: [
+                    { label: 'Dataset ID', value: readiness.whatsapp_events?.dataset_id_present ? 'موجود' : 'غير موجود' },
+                    { label: 'أحداث مرسلة', value: readiness.whatsapp_events?.events_sent || 0 },
+                ],
+            },
+        ];
+    }, [readiness]);
+
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
+
+    return (
+        <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+            <Box sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                justifyContent: 'space-between',
+                alignItems: { xs: 'flex-start', md: 'center' },
+                gap: 2,
+                mb: 3,
+            }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <FactCheckIcon sx={{ fontSize: 34, color: 'primary.main' }} />
+                    <Box>
+                        <Typography variant="h5" fontWeight={700}>جاهزية مراجعة Meta</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            حالة الأذونات ومسارات الإثبات المطلوبة قبل إعادة التقديم
+                        </Typography>
+                    </Box>
+                </Box>
+                <Button startIcon={<RefreshIcon />} variant="outlined" onClick={loadReadiness}>
+                    تحديث
+                </Button>
+            </Box>
+
+            {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+
+            {readiness && (
+                <>
+                    <Paper sx={{ p: 3, mb: 3 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'center', mb: 2 }}>
+                            <Box>
+                                <Typography variant="h6" fontWeight={700}>الحالة العامة</Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    آخر فحص: {formatDate(readiness.generated_at)}
+                                </Typography>
+                            </Box>
+                            <StatusChip status={readiness.overall?.status} />
+                        </Box>
+                        <LinearProgress
+                            variant="determinate"
+                            value={((readiness.overall?.ready_count || 0) / (readiness.overall?.total_count || 1)) * 100}
+                            sx={{ height: 8, borderRadius: 1, mb: 1.5 }}
+                        />
+                        <Typography variant="body2" color="text.secondary">
+                            الجاهز: {readiness.overall?.ready_count || 0} من {readiness.overall?.total_count || 0}
+                        </Typography>
+                    </Paper>
+
+                    <Grid container spacing={3}>
+                        {sections.map(section => (
+                            <Grid size={{ xs: 12, lg: 6 }} key={section.title}>
+                                <ReviewSectionCard
+                                    title={section.title}
+                                    icon={section.icon}
+                                    section={section.section}
+                                    metrics={section.metrics}
+                                    missingItems={section.missingItems}
+                                    actionLabel={section.actionLabel}
+                                    actionPath={section.actionPath}
+                                >
+                                    {section.adminPaths?.length > 0 && (
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            {section.adminPaths.map(path => (
+                                                <Chip key={path} label={`Admin: ${path}`} size="small" variant="outlined" />
+                                            ))}
+                                        </Stack>
+                                    )}
+                                </ReviewSectionCard>
+                            </Grid>
+                        ))}
+                    </Grid>
+
+                    {readiness.pages?.pages?.length > 0 && (
+                        <Paper sx={{ p: 3, mt: 3 }}>
+                            <Typography variant="h6" fontWeight={700} gutterBottom>
+                                تفاصيل صفحات Facebook
+                            </Typography>
+                            <Stack spacing={2} divider={<Divider flexItem />}>
+                                {readiness.pages.pages.map(page => (
+                                    <Box
+                                        key={page.id}
+                                        sx={{
+                                            display: 'flex',
+                                            flexDirection: { xs: 'column', md: 'row' },
+                                            alignItems: { xs: 'flex-start', md: 'center' },
+                                            justifyContent: 'space-between',
+                                            gap: 2,
+                                        }}
+                                    >
+                                        <Box>
+                                            <Typography variant="subtitle1" fontWeight={700}>
+                                                {page.page_name || page.page_id}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Page ID: {page.page_id} | آخر تحديث: {formatDate(page.updated_at)}
+                                            </Typography>
+                                        </Box>
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <StatusChip status={page.webhook_ready ? 'ready' : 'action_required'} />
+                                            <Chip
+                                                label={page.page_access_token_present ? 'Page token موجود' : 'Page token مفقود'}
+                                                color={page.page_access_token_present ? 'success' : 'warning'}
+                                                size="small"
+                                                variant="outlined"
+                                            />
+                                            {page.missing_webhook_fields?.map(field => (
+                                                <Chip key={field} label={`Webhook ناقص: ${field}`} color="warning" size="small" variant="outlined" />
+                                            ))}
+                                        </Stack>
+                                    </Box>
+                                ))}
+                            </Stack>
+                        </Paper>
+                    )}
+                </>
+            )}
+        </Box>
+    );
+};
+
+export default TenantMetaReview;

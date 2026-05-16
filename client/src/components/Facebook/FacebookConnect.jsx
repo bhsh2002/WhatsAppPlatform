@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Box, Paper, Typography, Button, CircularProgress, Alert, Stepper, Step, StepLabel,
     Checkbox, FormControlLabel, Avatar, List, ListItem, ListItemAvatar, ListItemText,
@@ -18,7 +18,6 @@ const FacebookConnect = ({ onComplete }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [available, setAvailable] = useState(false);
-    const [authUrl, setAuthUrl] = useState('');
     const [oauthState, setOauthState] = useState('');
     const [code, setCode] = useState('');
     const [pages, setPages] = useState([]);
@@ -53,7 +52,6 @@ const FacebookConnect = ({ onComplete }) => {
             setLoading(true);
             setError('');
             const data = await api.getFacebookAuthUrl();
-            setAuthUrl(data.url);
             setOauthState(data.state);
             window.open(data.url, '_blank', 'width=600,height=700');
             setActiveStep(1);

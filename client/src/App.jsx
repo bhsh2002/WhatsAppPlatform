@@ -36,6 +36,7 @@ import TenantFacebookPages from './pages/TenantPortal/TenantFacebookPages';
 import TenantContentManager from './pages/TenantPortal/TenantContentManager';
 import TenantAutomation from './pages/TenantPortal/TenantAutomation';
 import TenantFbInsights from './pages/TenantPortal/TenantFbInsights';
+import TenantMetaReview from './pages/TenantPortal/TenantMetaReview';
 
 // Admin Feature Pages
 import BusinessManager from './pages/Settings/BusinessManager';
@@ -374,6 +375,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/portal/meta-review"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantMetaReview /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/portal/fb-content"
         element={
           <ProtectedRoute requireTenant>
@@ -428,4 +437,3 @@ function App() {
 }
 
 export default App;
-

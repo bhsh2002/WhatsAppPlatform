@@ -22,6 +22,8 @@ const TenantConversions = () => {
     const { tenant } = useAuth();
     const [events, setEvents] = useState([]);
     const [stats, setStats] = useState(null);
+    const [datasetId, setDatasetId] = useState(tenant?.dataset_id || null);
+    const [eventsApiReady, setEventsApiReady] = useState(!!tenant?.dataset_id);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -37,12 +39,14 @@ const TenantConversions = () => {
             const data = await api.getPortalConversionHistory();
             setEvents(data.events || []);
             setStats(data.stats || null);
+            setDatasetId(data.dataset_id || tenant?.dataset_id || null);
+            setEventsApiReady(!!data.events_api_ready);
         } catch (err) {
             setError(err.message || 'فشل تحميل البيانات');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [tenant?.dataset_id]);
 
     useEffect(() => { loadData(); }, [loadData]);
 
@@ -56,8 +60,11 @@ const TenantConversions = () => {
             if (form.value) {
                 payload.custom_data = { value: parseFloat(form.value), currency: form.currency };
             }
-            await api.logPortalConversionEvent(payload);
-            setSuccess('تم تسجيل الحدث بنجاح');
+            const result = await api.logPortalConversionEvent(payload);
+            setSuccess(result.sent_to_meta
+                ? `تم إرسال الحدث إلى Meta${result.fbtrace_id ? ` (${result.fbtrace_id})` : ''}`
+                : (result.note || 'تم حفظ الحدث محلياً')
+            );
             setLogOpen(false);
             setForm({ event_name: 'Purchase', phone: '', value: '', currency: 'LYD' });
             loadData();
@@ -107,6 +114,15 @@ const TenantConversions = () => {
                     </Grid>
                 ))}
             </Grid>
+
+            <Alert severity={eventsApiReady ? 'success' : 'warning'} sx={{ mb: 3 }}>
+                <Typography variant="body2" fontWeight={600}>
+                    حالة WhatsApp Events API: {eventsApiReady ? 'جاهز للإرسال إلى Meta' : 'غير مكتمل'}
+                </Typography>
+                <Typography variant="caption" component="div">
+                    Dataset ID: {datasetId || 'غير محدد'}
+                </Typography>
+            </Alert>
 
             {stats?.eventBreakdown?.length > 0 && (
                 <Paper sx={{ p: 3, mb: 3 }}>

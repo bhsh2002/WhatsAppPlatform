@@ -42,6 +42,20 @@ export const getAccessToken = (tenantId = null) => {
 };
 
 /**
+ * Get the Facebook user token granted during Facebook Page OAuth.
+ * This is intentionally separate from the tenant WhatsApp token because
+ * Business Manager/Page review permissions are granted on the user token.
+ */
+export const getFacebookUserAccessToken = (tenantId = null) => {
+    if (!tenantId) return null;
+
+    const tenant = db.prepare('SELECT facebook_user_access_token_encrypted FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant?.facebook_user_access_token_encrypted) return null;
+
+    return decrypt(tenant.facebook_user_access_token_encrypted);
+};
+
+/**
  * Get full tenant credentials (access_token + phone_number_id + waba_id)
  */
 export const getTenantCredentials = (tenantId = null) => {

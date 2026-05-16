@@ -1,9 +1,13 @@
 import express from 'express';
 import db from '../db/database.js';
-import { getAccessToken } from '../services/credentials.js';
+import { getAccessToken, getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 
 const router = express.Router();
+
+const getBusinessAccessToken = (tenantId) => {
+    return getFacebookUserAccessToken(tenantId) || getAccessToken(tenantId);
+};
 
 // ============================================
 // List managed businesses (clients)
@@ -13,7 +17,7 @@ router.get('/clients', async (req, res) => {
         const businessId = req.query.business_id;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
+        let accessToken = getBusinessAccessToken(tenantId);
 
         if (!accessToken || !businessId) {
             return res.status(400).json({ error: 'بيانات الاعتماد أو معرف النشاط التجاري مفقودة' });
@@ -62,7 +66,7 @@ router.post('/clients', async (req, res) => {
     try {
         const { business_id, tenant_id, existing_client_business_id, name, survey_business_type, timezone_id } = req.body;
 
-        let accessToken = getAccessToken(tenant_id);
+        let accessToken = getBusinessAccessToken(tenant_id);
 
         if (!accessToken || !business_id) {
             return res.status(400).json({ error: 'بيانات الاعتماد أو معرف النشاط التجاري مفقودة' });
@@ -125,7 +129,7 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
         const { clientBusinessId } = req.params;
         const { business_id, tenant_id } = req.query;
 
-        let accessToken = getAccessToken(tenant_id);
+        let accessToken = getBusinessAccessToken(tenant_id);
 
         if (!accessToken || !business_id) {
             return res.status(400).json({ error: 'بيانات الاعتماد أو معرف النشاط التجاري مفقودة' });
@@ -169,7 +173,7 @@ router.get('/clients/:clientBusinessId/waba', async (req, res) => {
         const { clientBusinessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
+        let accessToken = getBusinessAccessToken(tenantId);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -209,7 +213,7 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
         const { clientBusinessId } = req.params;
         const { tenant_id, name, role } = req.body;
 
-        let accessToken = getAccessToken(tenant_id);
+        let accessToken = getBusinessAccessToken(tenant_id);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });

@@ -1361,6 +1361,14 @@ class ApiService {
         return this.request('/api/portal/facebook/auth-url');
     }
 
+    async getFacebookDiagnostics() {
+        return this.request('/api/portal/facebook/diagnostics');
+    }
+
+    async getMetaReviewReadiness() {
+        return this.request('/api/portal/meta-review/readiness');
+    }
+
     async connectFacebook(code, state) {
         return this.request('/api/portal/facebook/connect', {
             method: 'POST',

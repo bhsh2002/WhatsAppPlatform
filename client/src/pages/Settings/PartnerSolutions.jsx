@@ -1,15 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Box, Typography, Paper, Grid, TextField, Button, Card, CardContent, Chip,
     CircularProgress, Alert, Snackbar, Table, TableBody, TableCell, TableContainer,
-    TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions, IconButton
+    TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
+    FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import { Handshake as HandshakeIcon, Search as SearchIcon, Add as AddIcon, Delete as DeleteIcon, PersonAdd } from '@mui/icons-material';
 import api from '../../api';
 
 const PartnerSolutions = () => {
     const [businessId, setBusinessId] = useState('');
+    const [tenants, setTenants] = useState([]);
+    const [selectedTenant, setSelectedTenant] = useState('');
     const [clients, setClients] = useState([]);
+    const [permissionWarning, setPermissionWarning] = useState('');
     const [loading, setLoading] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [error, setError] = useState('');
@@ -18,13 +22,41 @@ const PartnerSolutions = () => {
     const [adding, setAdding] = useState(false);
     const [newClient, setNewClient] = useState({ name: '', existing_client_business_id: '' });
 
+    useEffect(() => {
+        const loadTenants = async () => {
+            try {
+                const data = await api.getTenants();
+                setTenants(data || []);
+                const tenantWithBusiness = (data || []).find(t => t.business_id);
+                if (tenantWithBusiness) {
+                    setSelectedTenant(String(tenantWithBusiness.id));
+                    setBusinessId(tenantWithBusiness.business_id);
+                }
+            } catch (err) {
+                setError(err.message || 'فشل جلب قائمة العملاء');
+            }
+        };
+        loadTenants();
+    }, []);
+
+    const handleTenantChange = (event) => {
+        const tenantId = event.target.value;
+        setSelectedTenant(tenantId);
+        const tenant = tenants.find(t => String(t.id) === String(tenantId));
+        setBusinessId(tenant?.business_id || '');
+        setClients([]);
+        setLoaded(false);
+        setPermissionWarning('');
+    };
+
     const loadClients = async () => {
         if (!businessId.trim()) return;
         try {
             setLoading(true);
             setError('');
-            const data = await api.getPartnerClients(businessId);
+            const data = await api.getPartnerClients(businessId, selectedTenant || null);
             setClients(data.clients || []);
+            setPermissionWarning(data.permission_error || '');
             setLoaded(true);
         } catch (err) {
             setError(err.message || 'فشل جلب العملاء');
@@ -36,7 +68,7 @@ const PartnerSolutions = () => {
     const handleAdd = async () => {
         try {
             setAdding(true);
-            const payload = { business_id: businessId };
+            const payload = { business_id: businessId, tenant_id: selectedTenant || undefined };
             if (newClient.existing_client_business_id) {
                 payload.existing_client_business_id = newClient.existing_client_business_id;
             } else {
@@ -65,7 +97,18 @@ const PartnerSolutions = () => {
             </Box>
 
             <Paper sx={{ p: 3, mb: 3 }}>
-                <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
+                    <FormControl fullWidth size="small">
+                        <InputLabel>العميل</InputLabel>
+                        <Select value={selectedTenant} label="العميل" onChange={handleTenantChange}>
+                            <MenuItem value="">بدون عميل محدد</MenuItem>
+                            {tenants.map(tenant => (
+                                <MenuItem key={tenant.id} value={String(tenant.id)}>
+                                    {tenant.name} {tenant.business_id ? '' : '(بدون Business ID)'}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
                     <TextField fullWidth label="معرف النشاط التجاري (Business ID)" value={businessId}
                         onChange={e => setBusinessId(e.target.value)} size="small" />
                     <Button variant="contained" startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}
@@ -75,6 +118,10 @@ const PartnerSolutions = () => {
 
             {loaded && (
                 <>
+                    {permissionWarning && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>{permissionWarning}</Alert>
+                    )}
+
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                         <Typography variant="h6" fontWeight={600}>العملاء المُدارون ({clients.length})</Typography>
                         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} size="small">إضافة عميل</Button>

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Box, Typography, Paper, Grid, TextField, Button, Card, CardContent, Chip,
     CircularProgress, Alert, Snackbar, Table, TableBody, TableCell, TableContainer,
-    TableHead, TableRow, Divider, Avatar
+    TableHead, TableRow, Divider, Avatar, FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import { Business as BusinessIcon, Search as SearchIcon, AccountBalance, Store } from '@mui/icons-material';
 import api from '../../api';
@@ -12,9 +12,40 @@ const BusinessManager = () => {
     const [info, setInfo] = useState(null);
     const [adAccounts, setAdAccounts] = useState([]);
     const [assets, setAssets] = useState(null);
+    const [tenants, setTenants] = useState([]);
+    const [selectedTenant, setSelectedTenant] = useState('');
+    const [permissionWarnings, setPermissionWarnings] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('info');
+
+    useEffect(() => {
+        const loadTenants = async () => {
+            try {
+                const data = await api.getTenants();
+                setTenants(data || []);
+                const tenantWithBusiness = (data || []).find(t => t.business_id);
+                if (tenantWithBusiness) {
+                    setSelectedTenant(String(tenantWithBusiness.id));
+                    setBusinessId(tenantWithBusiness.business_id);
+                }
+            } catch (err) {
+                setError(err.message || 'فشل جلب قائمة العملاء');
+            }
+        };
+        loadTenants();
+    }, []);
+
+    const handleTenantChange = (event) => {
+        const tenantId = event.target.value;
+        setSelectedTenant(tenantId);
+        const tenant = tenants.find(t => String(t.id) === String(tenantId));
+        setBusinessId(tenant?.business_id || '');
+        setInfo(null);
+        setAdAccounts([]);
+        setAssets(null);
+        setPermissionWarnings([]);
+    };
 
     const handleSearch = async () => {
         if (!businessId.trim()) return;
@@ -22,13 +53,19 @@ const BusinessManager = () => {
             setLoading(true);
             setError('');
             const [infoData, adData, assetsData] = await Promise.all([
-                api.getBusinessManagerInfo(businessId).catch(() => null),
-                api.getAdAccounts(businessId).catch(() => ({ ad_accounts: [] })),
-                api.getBusinessAssets(businessId).catch(() => ({ pages: [], whatsapp_accounts: [] }))
+                api.getBusinessManagerInfo(businessId, selectedTenant || null).catch(() => null),
+                api.getAdAccounts(businessId, selectedTenant || null).catch(() => ({ ad_accounts: [] })),
+                api.getBusinessAssets(businessId, selectedTenant || null).catch(() => ({ pages: [], whatsapp_accounts: [] }))
             ]);
             setInfo(infoData);
             setAdAccounts(adData?.ad_accounts || []);
             setAssets(assetsData);
+            setPermissionWarnings([
+                infoData?.permission_error,
+                adData?.permission_error,
+                assetsData?.permission_errors?.pages,
+                assetsData?.permission_errors?.whatsapp_accounts,
+            ].filter(Boolean));
         } catch (err) {
             setError(err.message || 'فشل جلب البيانات');
         } finally {
@@ -47,7 +84,18 @@ const BusinessManager = () => {
             </Box>
 
             <Paper sx={{ p: 3, mb: 3 }}>
-                <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
+                    <FormControl fullWidth size="small">
+                        <InputLabel>العميل</InputLabel>
+                        <Select value={selectedTenant} label="العميل" onChange={handleTenantChange}>
+                            <MenuItem value="">بدون عميل محدد</MenuItem>
+                            {tenants.map(tenant => (
+                                <MenuItem key={tenant.id} value={String(tenant.id)}>
+                                    {tenant.name} {tenant.business_id ? '' : '(بدون Business ID)'}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
                     <TextField fullWidth label="معرف مدير الأعمال (Business ID)" value={businessId}
                         onChange={e => setBusinessId(e.target.value)} placeholder="أدخل Business ID" size="small" />
                     <Button variant="contained" startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}
@@ -59,6 +107,14 @@ const BusinessManager = () => {
 
             {info && (
                 <>
+                    {permissionWarnings.length > 0 && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                            {permissionWarnings.map((msg, index) => (
+                                <Typography key={index} variant="body2">{msg}</Typography>
+                            ))}
+                        </Alert>
+                    )}
+
                     <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
                         {['info', 'ads', 'assets'].map(tab => (
                             <Button key={tab} variant={activeTab === tab ? 'contained' : 'outlined'} size="small"

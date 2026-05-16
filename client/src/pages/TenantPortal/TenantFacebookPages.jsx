@@ -29,6 +29,7 @@ const TabPanel = ({ children, value, index }) => (
 const TenantFacebookPages = () => {
     const [tab, setTab] = useState(0);
     const [pages, setPages] = useState([]);
+    const [diagnostics, setDiagnostics] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -46,8 +47,12 @@ const TenantFacebookPages = () => {
         try {
             setLoading(true);
             setError('');
-            const data = await api.getPortalPages();
+            const [data, diag] = await Promise.all([
+                api.getPortalPages(),
+                api.getFacebookDiagnostics().catch(() => null),
+            ]);
             setPages(Array.isArray(data) ? data : []);
+            setDiagnostics(diag);
         } catch (err) {
             setError(err.message || 'فشل جلب صفحات فيسبوك');
         } finally {
@@ -133,6 +138,22 @@ const TenantFacebookPages = () => {
                 )}
 
                 {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+                {diagnostics?.facebook_user_token_present && (
+                    <Alert severity={diagnostics.missing_scopes?.length ? 'warning' : 'success'} sx={{ mb: 2 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                            حالة صلاحيات Facebook: {diagnostics.missing_scopes?.length ? 'تحتاج إعادة تفويض' : 'مكتملة'}
+                        </Typography>
+                        <Typography variant="caption" component="div">
+                            الأذونات الممنوحة: {diagnostics.granted_scopes?.length || 0} / {diagnostics.requested_scopes?.length || 0}
+                        </Typography>
+                        {diagnostics.missing_scopes?.length > 0 && (
+                            <Typography variant="caption" component="div">
+                                الناقصة: {diagnostics.missing_scopes.join(', ')}
+                            </Typography>
+                        )}
+                    </Alert>
+                )}
 
                 {pages.length === 0 ? (
                     <Paper sx={{ p: 6, textAlign: 'center' }}>

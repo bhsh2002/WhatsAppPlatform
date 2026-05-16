@@ -1,9 +1,13 @@
 import express from 'express';
 import db from '../db/database.js';
-import { getAccessToken } from '../services/credentials.js';
+import { getAccessToken, getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 
 const router = express.Router();
+
+const getBusinessAccessToken = (tenantId) => {
+    return getFacebookUserAccessToken(tenantId) || getAccessToken(tenantId);
+};
 
 // ============================================
 // Get Business Manager info
@@ -13,7 +17,7 @@ router.get('/:businessId', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
+        let accessToken = getBusinessAccessToken(tenantId);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -59,7 +63,7 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
+        let accessToken = getBusinessAccessToken(tenantId);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -108,7 +112,7 @@ router.post('/:businessId/claim-ad-account', async (req, res) => {
         const { businessId } = req.params;
         const { tenant_id, adaccount_id } = req.body;
 
-        let accessToken = getAccessToken(tenant_id);
+        let accessToken = getBusinessAccessToken(tenant_id);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -154,7 +158,7 @@ router.get('/:businessId/assets', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
+        let accessToken = getBusinessAccessToken(tenantId);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
@@ -192,6 +196,10 @@ router.get('/:businessId/assets', async (req, res) => {
         res.json({
             pages: pagesData.data || [],
             whatsapp_accounts: wabaData.data || [],
+            permission_errors: {
+                pages: pagesData.permission_error || null,
+                whatsapp_accounts: wabaData.permission_error || null,
+            },
         });
     } catch (error) {
         console.error('[BusinessManager] Assets error:', error);
@@ -207,7 +215,7 @@ router.get('/:businessId/whatsapp-accounts', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
+        let accessToken = getBusinessAccessToken(tenantId);
 
         if (!accessToken) {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });

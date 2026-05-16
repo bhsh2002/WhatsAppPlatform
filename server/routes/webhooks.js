@@ -629,7 +629,7 @@ router.post('/', async (req, res) => {
                                 sender_name: conv?.user_name,
                                 message: messageText,
                             });
-                            eventBus.broadcast(`tenant:\${linkedPage.tenant_id}`, 'fb_message:new', {
+                            eventBus.broadcast(`tenant:${linkedPage.tenant_id}`, 'fb_message:new', {
                                 tenant_id: linkedPage.tenant_id,
                                 page_id: pageId,
                                 conversation_id: conv?.id,
@@ -646,7 +646,7 @@ router.post('/', async (req, res) => {
                                     VALUES (?, ?, 'fb_message_received', ?, 'info')
                                 `).run(
                                     linkedPage.tenant_id, tenant.name,
-                                    `رسالة ماسنجر جديدة من \${conv?.user_name || senderId}`
+                                    `رسالة ماسنجر جديدة من ${conv?.user_name || senderId}`
                                 );
                             }
 
@@ -680,7 +680,7 @@ router.post('/', async (req, res) => {
 
                         // Handle message read receipts from user
                         if (msgEvent.read) {
-                            console.log(`[Webhook/FB] User \${senderId} read messages up to \${msgEvent.read.watermark}`);
+                            console.log(`[Webhook/FB] User ${senderId} read messages up to ${msgEvent.read.watermark}`);
                         }
                     }
                 }
