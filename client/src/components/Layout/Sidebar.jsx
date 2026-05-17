@@ -55,47 +55,89 @@ const Sidebar = () => {
         navigate('/login');
     };
 
-    // Admin navigation items
-    const adminNavItems = [
-        { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
-        { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
-        { label: 'صندوق الوارد', path: '/inbox', icon: <InboxIcon /> },
-        { label: 'جهات الاتصال', path: '/contacts', icon: <ContactPhoneIcon /> },
-        { label: 'البث الجماعي', path: '/broadcast', icon: <CampaignIcon /> },
-        { label: 'الأتمتة', path: '/automation', icon: <SmartToyIcon /> },
-        { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
-        { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
-        { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
-        { label: 'أعطال Webhook', path: '/webhook-failures', icon: <ReportProblemIcon /> },
-        { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
-        { label: 'إدارة فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
-        { label: 'تحليلات فيسبوك', path: '/fb-insights', icon: <BarChartIcon /> },
-        { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
-        { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
-        { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
-        { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
+    const adminNavSections = [
+        {
+            title: 'عام',
+            items: [
+                { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
+                { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
+                { label: 'صندوق الوارد', path: '/inbox', icon: <InboxIcon /> },
+                { label: 'جهات الاتصال', path: '/contacts', icon: <ContactPhoneIcon /> },
+            ],
+        },
+        {
+            title: 'WhatsApp',
+            color: '#25D366',
+            items: [
+                { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
+                { label: 'البث الجماعي', path: '/broadcast', icon: <CampaignIcon /> },
+                { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
+                { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
+                { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
+            ],
+        },
+        {
+            title: 'Facebook / Meta',
+            color: '#1877f2',
+            items: [
+                { label: 'إدارة فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
+                { label: 'تحليلات فيسبوك', path: '/fb-insights', icon: <BarChartIcon /> },
+                { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
+                { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
+                { label: 'أعطال Webhook', path: '/webhook-failures', icon: <ReportProblemIcon /> },
+            ],
+        },
+        {
+            title: 'النظام',
+            items: [
+                { label: 'الأتمتة', path: '/automation', icon: <SmartToyIcon /> },
+                { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
+                { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
+            ],
+        },
     ];
 
-    // Tenant navigation items
-    const tenantNavItems = [
-        { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
-        { label: 'صندوق الوارد', path: '/portal/inbox', icon: <InboxIcon /> },
-        { label: 'جهات الاتصال', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
-        { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
-        { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
-        { label: 'صفحات فيسبوك', path: '/portal/fb-pages', icon: <FacebookIcon /> },
-        { label: 'جاهزية Meta', path: '/portal/meta-review', icon: <FactCheckIcon /> },
-        { label: 'إدارة المحتوى', path: '/portal/fb-content', icon: <StoreIcon /> },
-        { label: 'الأتمتة', path: '/portal/automation', icon: <SmartToyIcon /> },
-        { label: 'تحليلات فيسبوك', path: '/portal/fb-insights', icon: <BarChartIcon /> },
-        { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <BusinessIcon /> },
-        { label: 'التحليلات', path: '/portal/analytics', icon: <AnalyticsIcon /> },
-        { label: 'رموز QR', path: '/portal/qr-codes', icon: <QrCodeIcon /> },
-        { label: 'أحداث التحويل', path: '/portal/conversions', icon: <TrendingUpIcon /> },
-        { label: 'إعدادات API', path: '/portal/api-settings', icon: <ApiIcon /> },
+    const tenantNavSections = [
+        {
+            title: 'عام',
+            items: [
+                { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
+                { label: 'صندوق الوارد', path: '/portal/inbox', icon: <InboxIcon /> },
+                { label: 'جهات الاتصال', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
+                { label: 'التحليلات', path: '/portal/analytics', icon: <AnalyticsIcon /> },
+            ],
+        },
+        {
+            title: 'WhatsApp',
+            color: '#25D366',
+            items: [
+                { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
+                { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
+                { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <BusinessIcon /> },
+                { label: 'رموز QR', path: '/portal/qr-codes', icon: <QrCodeIcon /> },
+                { label: 'أحداث التحويل', path: '/portal/conversions', icon: <TrendingUpIcon /> },
+                { label: 'إعدادات API', path: '/portal/api-settings', icon: <ApiIcon /> },
+            ],
+        },
+        {
+            title: 'Facebook / Meta',
+            color: '#1877f2',
+            items: [
+                { label: 'صفحات فيسبوك', path: '/portal/fb-pages', icon: <FacebookIcon /> },
+                { label: 'إدارة المحتوى', path: '/portal/fb-content', icon: <StoreIcon /> },
+                { label: 'تحليلات فيسبوك', path: '/portal/fb-insights', icon: <BarChartIcon /> },
+                { label: 'جاهزية Meta', path: '/portal/meta-review', icon: <FactCheckIcon /> },
+            ],
+        },
+        {
+            title: 'التشغيل',
+            items: [
+                { label: 'الأتمتة', path: '/portal/automation', icon: <SmartToyIcon /> },
+            ],
+        },
     ];
 
-    const navItems = isTenant ? tenantNavItems : adminNavItems;
+    const navSections = isTenant ? tenantNavSections : adminNavSections;
 
     return (
         <Box sx={{
@@ -139,35 +181,59 @@ const Sidebar = () => {
             <Divider />
 
             {/* Navigation */}
-            <List sx={{ flex: 1, px: 2, py: 2 }}>
-                {navItems.map((item) => {
-                    const isActive = location.pathname === item.path;
-                    return (
-                        <ListItem key={item.path} disablePadding sx={{ mb: 1 }}>
-                            <ListItemButton
-                                onClick={() => navigate(item.path)}
-                                selected={isActive}
-                                sx={{
-                                    borderRadius: 2,
-                                    '&.Mui-selected': {
-                                        bgcolor: isTenant ? 'secondary.light' : 'primary.light',
-                                        color: isTenant ? 'secondary.contrastText' : 'primary.contrastText',
-                                        '&:hover': { bgcolor: isTenant ? 'secondary.dark' : 'primary.dark' },
-                                        '& .MuiListItemIcon-root': { color: 'inherit' }
-                                    }
-                                }}
-                            >
-                                <ListItemIcon sx={{ minWidth: 40, color: isActive ? 'inherit' : 'text.secondary' }}>
-                                    {item.icon}
-                                </ListItemIcon>
-                                <ListItemText
-                                    primary={item.label}
-                                    primaryTypographyProps={{ fontWeight: isActive ? 600 : 400 }}
-                                />
-                            </ListItemButton>
-                        </ListItem>
-                    );
-                })}
+            <List sx={{ flex: 1, px: 1.5, py: 1.5, overflowY: 'auto' }}>
+                {navSections.map((section, sectionIndex) => (
+                    <Box key={section.title} sx={{ mb: sectionIndex === navSections.length - 1 ? 0 : 1.5 }}>
+                        {sectionIndex > 0 && <Divider sx={{ mb: 1 }} />}
+                        <Typography
+                            variant="caption"
+                            sx={{
+                                display: 'block',
+                                px: 1.25,
+                                mb: 0.75,
+                                fontWeight: 800,
+                                color: section.color || 'text.secondary',
+                                letterSpacing: 0,
+                            }}
+                        >
+                            {section.title}
+                        </Typography>
+                        {section.items.map((item) => {
+                            const isActive = location.pathname === item.path;
+                            return (
+                                <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
+                                    <ListItemButton
+                                        onClick={() => navigate(item.path)}
+                                        selected={isActive}
+                                        sx={{
+                                            borderRadius: 1.5,
+                                            minHeight: 40,
+                                            '&.Mui-selected': {
+                                                bgcolor: isTenant ? 'secondary.light' : 'primary.light',
+                                                color: isTenant ? 'secondary.contrastText' : 'primary.contrastText',
+                                                '&:hover': { bgcolor: isTenant ? 'secondary.dark' : 'primary.dark' },
+                                                '& .MuiListItemIcon-root': { color: 'inherit' }
+                                            }
+                                        }}
+                                    >
+                                        <ListItemIcon sx={{ minWidth: 36, color: isActive ? 'inherit' : (section.color || 'text.secondary') }}>
+                                            {item.icon}
+                                        </ListItemIcon>
+                                        <ListItemText
+                                            primary={item.label}
+                                            primaryTypographyProps={{
+                                                fontWeight: isActive ? 700 : 500,
+                                                fontSize: '0.9rem',
+                                                noWrap: true,
+                                            }}
+                                            sx={{ minWidth: 0 }}
+                                        />
+                                    </ListItemButton>
+                                </ListItem>
+                            );
+                        })}
+                    </Box>
+                ))}
             </List>
 
             <Divider />
