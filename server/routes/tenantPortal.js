@@ -9,7 +9,13 @@ import { META_API_BASE, META_APP_ID, META_APP_SECRET, FACEBOOK_REDIRECT_URI, WA_
 import { documentUpload, mediaUpload, simpleUpload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
 import { decryptIfEncrypted, encrypt } from '../services/encryption.js';
-import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
+import {
+    buildRichTemplateContent,
+    buildInteractivePayload,
+    normalizeTemplateComponents,
+    parseTemplateShortcut,
+    saveOutgoingMessage,
+} from '../services/messaging.js';
 import { getAccessToken } from '../services/credentials.js';
 import { testRules } from '../services/autoResponder.js';
 import {
@@ -425,7 +431,17 @@ router.get('/messages/window/:phone', (req, res) => {
 router.post('/messages/send', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const { recipient, type, message, templateId, components } = req.body;
+        const { recipient, type, message, templateId } = req.body;
+        const shortcut = parseTemplateShortcut(req.body.message);
+        const templateName = req.body.templateName || req.body.template_name || req.body.template || shortcut?.name;
+        const rawTemplateComponents = req.body.components
+            ?? req.body.templateParams
+            ?? req.body.template_params
+            ?? req.body.params
+            ?? shortcut?.params
+            ?? [];
+        const normalizedTemplateComponents = normalizeTemplateComponents(rawTemplateComponents);
+        const effectiveType = (type === 'template' || templateId || templateName) ? 'template' : (type || 'text');
 
         if (!recipient) {
             return res.status(400).json({ error: 'رقم المستلم مطلوب' });
@@ -461,7 +477,7 @@ router.post('/messages/send', async (req, res) => {
         }
 
         // 24h conversation window enforcement (non-template messages only)
-        if (type !== 'template') {
+        if (effectiveType !== 'template') {
             const contact = db.prepare(
                 'SELECT last_customer_message_at FROM contacts WHERE tenant_id = ? AND phone = ?'
             ).get(tenantId, recipient);
@@ -484,30 +500,35 @@ router.post('/messages/send', async (req, res) => {
             to: recipient,
         };
 
-        if (type === 'template' && templateId) {
+        let selectedTemplate = null;
+
+        if (effectiveType === 'template') {
             // Get template from database
-            const template = db.prepare('SELECT * FROM templates WHERE id = ? AND tenant_id = ?').get(templateId, tenantId);
-            if (!template) {
+            selectedTemplate = templateId
+                ? db.prepare('SELECT * FROM templates WHERE id = ? AND tenant_id = ?').get(templateId, tenantId)
+                : db.prepare('SELECT * FROM templates WHERE name = ? AND tenant_id = ?').get(templateName, tenantId);
+
+            if (!selectedTemplate) {
                 return res.status(404).json({ error: 'القالب غير موجود' });
             }
 
             payload.type = 'template';
             payload.template = {
-                name: template.name,
-                language: { code: template.language || 'ar' },
+                name: selectedTemplate.name,
+                language: { code: selectedTemplate.language || 'ar' },
             };
 
             // Validate template variable count
-            const placeholders = (template.body || '').match(/\{\{\d+\}\}/g) || [];
+            const placeholders = (selectedTemplate.body || '').match(/\{\{\d+\}\}/g) || [];
             const expectedCount = placeholders.length;
 
             let providedParams = [];
-            if (components && Array.isArray(components) && components.length > 0) {
-                const bodyComp = components.find(c => c.type === 'body' || c.type === 'BODY');
+            if (normalizedTemplateComponents.length > 0) {
+                const bodyComp = normalizedTemplateComponents.find(c => c.type === 'body' || c.type === 'BODY');
                 providedParams = bodyComp?.parameters || [];
-            } else if (template.variables) {
+            } else if (selectedTemplate.variables) {
                 try {
-                    const variables = JSON.parse(template.variables);
+                    const variables = JSON.parse(selectedTemplate.variables);
                     providedParams = variables.body || [];
                 } catch (e) { }
             }
@@ -522,8 +543,8 @@ router.post('/messages/send', async (req, res) => {
             }
 
             // Add components if provided (from user input)
-            if (components && Array.isArray(components) && components.length > 0) {
-                payload.template.components = components;
+            if (normalizedTemplateComponents.length > 0) {
+                payload.template.components = normalizedTemplateComponents;
             } else if (providedParams.length > 0) {
                 payload.template.components = [{
                     type: 'body',
@@ -549,46 +570,13 @@ router.post('/messages/send', async (req, res) => {
         const data = await response.json();
 
         let storedContent = message;
-        if (type === 'template' && templateId) {
+        if (effectiveType === 'template') {
             try {
-                // Get template from database again if needed, or use already fetched 'template'
-                // We already fetched 'template' above at line 213
-
-                const template = db.prepare('SELECT * FROM templates WHERE id = ? AND tenant_id = ?').get(templateId, tenantId);
-
-                if (template) {
-                    let bodyParams = [];
-
-                    // Try to get params from input components first
-                    if (components && Array.isArray(components)) {
-                        const bodyComp = components.find(c => c.type === 'body' || c.type === 'BODY');
-                        if (bodyComp && bodyComp.parameters) {
-                            bodyParams = bodyComp.parameters;
-                        }
-                    }
-
-                    // Fallback to stored variables only if no input params found
-                    if (bodyParams.length === 0 && template.variables) {
-                        try {
-                            const variables = JSON.parse(template.variables);
-                            if (variables.body) bodyParams = variables.body;
-                        } catch (e) { }
-                    }
-
-                    const richContent = {
-                        header: template.header_content ? {
-                            type: template.header_type,
-                            text: template.header_content
-                        } : null,
-                        body: substituteVariables(template.body, bodyParams),
-                        footer: template.footer,
-                        buttons: template.buttons ? JSON.parse(template.buttons) : null
-                    };
-                    storedContent = JSON.stringify(richContent);
-                }
+                storedContent = buildRichTemplateContent(selectedTemplate, payload.template.components || normalizedTemplateComponents)
+                    || `[قالب: ${selectedTemplate?.name || templateName || templateId}]`;
             } catch (e) {
                 console.error('Failed to construct rich template content:', e);
-                storedContent = `[قالب: ${templateId}]`;
+                storedContent = `[قالب: ${selectedTemplate?.name || templateName || templateId}]`;
             }
         }
 
@@ -597,7 +585,7 @@ router.post('/messages/send', async (req, res) => {
             tenant_id: tenantId,
             direction: 'outgoing',
             recipient: recipient,
-            message_type: type || 'text',
+            message_type: effectiveType,
             content: storedContent,
             status: response.ok ? 'sent' : 'failed',
             wamid: data.messages?.[0]?.id || null,
@@ -626,8 +614,8 @@ router.post('/messages/send', async (req, res) => {
         `).run(
             tenantId,
             tenant.name,
-            type === 'template' ? 'template_sent' : 'message_sent',
-            type === 'template' ? 'إرسال قالب' : 'إرسال رسالة نصية',
+            effectiveType === 'template' ? 'template_sent' : 'message_sent',
+            effectiveType === 'template' ? `إرسال قالب: ${selectedTemplate?.name || templateName || templateId}` : 'إرسال رسالة نصية',
             response.ok ? 'success' : 'error'
         );
 

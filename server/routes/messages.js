@@ -8,7 +8,12 @@ import { META_API_BASE } from '../config/index.js';
 import { generalUpload as upload, uploadDir, cleanupFile } from '../config/upload.js';
 import eventBus from '../services/eventBus.js';
 import { resolveCredentials } from '../services/credentials.js';
-import { substituteVariables, buildInteractivePayload } from '../services/messaging.js';
+import {
+    buildRichTemplateContent,
+    buildInteractivePayload,
+    normalizeTemplateComponents,
+    parseTemplateShortcut,
+} from '../services/messaging.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,7 +54,13 @@ router.get('/window-status/:phone', (req, res) => {
 // ============================================
 router.post('/send', async (req, res) => {
     try {
-        const { tenant_id, recipient, type, message, templateName, templateLanguage, templateParams } = req.body;
+        const { tenant_id, recipient, type, message } = req.body;
+        const shortcut = parseTemplateShortcut(req.body.message);
+        const templateName = req.body.templateName || req.body.template_name || req.body.template || shortcut?.name;
+        const templateLanguage = req.body.templateLanguage || req.body.template_language || shortcut?.language;
+        const rawTemplateParams = req.body.templateParams ?? req.body.template_params ?? req.body.params ?? shortcut?.params ?? [];
+        const normalizedTemplateParams = normalizeTemplateComponents(rawTemplateParams);
+        const effectiveType = (type === 'template' || templateName) ? 'template' : (type || 'text');
 
         if (!recipient) {
             return res.status(400).json({ error: 'Recipient is required' });
@@ -76,7 +87,7 @@ router.post('/send', async (req, res) => {
         const reqToken = accessToken;
 
         // 24h conversation window enforcement for non-template messages (tenant sends only)
-        if (type !== 'template' && tenant_id) {
+        if (effectiveType !== 'template' && tenant_id) {
             const contact = db.prepare(
                 'SELECT last_customer_message_at FROM contacts WHERE tenant_id = ? AND phone = ?'
             ).get(tenant_id, recipient);
@@ -99,7 +110,11 @@ router.post('/send', async (req, res) => {
             to: recipient,
         };
 
-        if (type === 'template') {
+        if (effectiveType === 'template') {
+            if (!templateName) {
+                return res.status(400).json({ error: 'templateName is required for template type' });
+            }
+
             payload.type = 'template';
             payload.template = {
                 name: templateName,
@@ -113,7 +128,7 @@ router.post('/send', async (req, res) => {
                 if (tmpl) {
                     const placeholders = (tmpl.body || '').match(/\{\{\d+\}\}/g) || [];
                     const expectedCount = placeholders.length;
-                    const bodyComp = templateParams?.find(c => c.type === 'body' || c.type === 'BODY');
+                    const bodyComp = normalizedTemplateParams.find(c => c.type === 'body' || c.type === 'BODY');
                     const providedCount = bodyComp?.parameters?.length || 0;
                     if (expectedCount > 0 && providedCount !== expectedCount) {
                         return res.status(400).json({
@@ -126,8 +141,8 @@ router.post('/send', async (req, res) => {
                 }
             }
 
-            if (templateParams && templateParams.length > 0) {
-                payload.template.components = templateParams;
+            if (normalizedTemplateParams.length > 0) {
+                payload.template.components = normalizedTemplateParams;
             }
         } else {
             payload.type = 'text';
@@ -150,7 +165,7 @@ router.post('/send', async (req, res) => {
 
         // Save message to database
         let storedContent = message;
-        if (type === 'template') {
+        if (effectiveType === 'template') {
             storedContent = `[Template: ${templateName}]`; // Default fallback
 
             if (tenant_id) {
@@ -158,20 +173,7 @@ router.post('/send', async (req, res) => {
                     const template = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenant_id, templateName);
 
                     if (template) {
-                        // Extract params for body
-                        const bodyParamsComponent = templateParams?.find(c => c.type === 'body' || c.type === 'BODY');
-                        const bodyParams = bodyParamsComponent?.parameters || [];
-
-                        const richContent = {
-                            header: template.header_content ? {
-                                type: template.header_type,
-                                text: template.header_content // Image/Video headers handling might need more logic
-                            } : null,
-                            body: substituteVariables(template.body, bodyParams),
-                            footer: template.footer,
-                            buttons: template.buttons ? JSON.parse(template.buttons) : null
-                        };
-                        storedContent = JSON.stringify(richContent);
+                        storedContent = buildRichTemplateContent(template, normalizedTemplateParams) || storedContent;
                     }
                 } catch (e) {
                     console.error('Failed to construct rich template content:', e);
@@ -183,7 +185,7 @@ router.post('/send', async (req, res) => {
             tenant_id: tenant?.id || null,
             direction: 'outgoing',
             recipient: recipient,
-            message_type: type || 'text',
+            message_type: effectiveType,
             content: storedContent,
             status: response.ok ? 'sent' : 'failed',
             wamid: data.messages?.[0]?.id || null,
@@ -213,8 +215,8 @@ router.post('/send', async (req, res) => {
       `).run(
                 tenant.id,
                 tenant.name,
-                type === 'template' ? 'template_sent' : 'message_sent',
-                type === 'template' ? `إرسال قالب: ${templateName}` : 'إرسال رسالة نصية',
+                effectiveType === 'template' ? 'template_sent' : 'message_sent',
+                effectiveType === 'template' ? `إرسال قالب: ${templateName}` : 'إرسال رسالة نصية',
                 response.ok ? 'success' : 'error'
             );
             
@@ -1377,4 +1379,3 @@ router.post('/mark-read', async (req, res) => {
 });
 
 export default router;
-

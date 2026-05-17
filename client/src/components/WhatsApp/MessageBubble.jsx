@@ -18,8 +18,90 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
     const [lightboxOpen, setLightboxOpen] = useState(false);
 
     // Normalize message fields
-    const type = message.type || message.message_type || 'text';
+    const rawType = message.type || message.message_type || 'text';
     const content = message.body || message.content || '';
+    const isLegacyTemplatePayload = (() => {
+        if (typeof content !== 'string' || !content.trim().startsWith('{')) return false;
+        try {
+            const data = JSON.parse(content);
+            return Boolean(data?.template && Array.isArray(data?.params));
+        } catch {
+            return false;
+        }
+    })();
+    const type = rawType === 'text' && isLegacyTemplatePayload ? 'template' : rawType;
+
+    const getHeaderMediaUrl = (header) => header?.url || header?.link || (typeof header?.text === 'string' && /^https?:\/\//i.test(header.text) ? header.text : '');
+
+    const renderTemplateHeader = (header) => {
+        if (!header) return null;
+
+        const headerType = String(header.type || '').toLowerCase();
+        const mediaUrl = getHeaderMediaUrl(header);
+        const filename = header.filename || (!mediaUrl && header.text) || (headerType === 'document' ? 'مستند مرفق' : 'وسائط مرفقة');
+
+        if (headerType === 'image') {
+            return mediaUrl && !imageError ? (
+                <Box
+                    component="img"
+                    src={mediaUrl}
+                    alt="صورة القالب"
+                    sx={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 1, mb: 1 }}
+                    onError={() => setImageError(true)}
+                />
+            ) : (
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>[صورة]</Typography>
+            );
+        }
+
+        if (headerType === 'video') {
+            return (
+                <Box sx={{ mb: 1 }}>
+                    <Chip label="فيديو مرفق" size="small" color="primary" variant="outlined" />
+                    {mediaUrl && (
+                        <Link href={mediaUrl} target="_blank" rel="noopener" display="block" sx={{ mt: 0.5, wordBreak: 'break-all' }}>
+                            فتح الفيديو
+                        </Link>
+                    )}
+                </Box>
+            );
+        }
+
+        if (headerType === 'document') {
+            return (
+                <Paper
+                    variant="outlined"
+                    component={mediaUrl ? 'a' : 'div'}
+                    href={mediaUrl || undefined}
+                    target={mediaUrl ? '_blank' : undefined}
+                    rel={mediaUrl ? 'noopener' : undefined}
+                    sx={{
+                        p: 1,
+                        mb: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        bgcolor: 'rgba(0,0,0,0.04)',
+                        color: 'inherit',
+                        textDecoration: 'none',
+                        borderColor: 'divider',
+                    }}
+                >
+                    <FileIcon fontSize="small" color="action" />
+                    <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {filename}
+                    </Typography>
+                    {mediaUrl && <DownloadIcon fontSize="small" color="action" />}
+                </Paper>
+            );
+        }
+
+        return (
+            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                {header.text || ''}
+            </Typography>
+        );
+    };
 
     // Helper to render interactive message content
     const renderInteractive = () => {
@@ -241,16 +323,35 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             }
 
             if (templateData && typeof templateData === 'object') {
+                if (templateData.template && Array.isArray(templateData.params)) {
+                    return (
+                        <Box sx={{ minWidth: { xs: 0, md: 200 } }}>
+                            <Chip
+                                label="رسالة قالب"
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                                sx={{ mb: 0.75 }}
+                            />
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75, direction: 'ltr', textAlign: 'left' }}>
+                                {templateData.template}
+                            </Typography>
+                            {templateData.params.length > 0 && (
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                    {templateData.params.map((param, index) => (
+                                        <Typography key={index} variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                            {`{{${index + 1}}}: ${param}`}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                            )}
+                        </Box>
+                    );
+                }
+
                 return (
                     <Box sx={{ minWidth: { xs: 0, md: 200 } }}>
-                        {templateData.header && (
-                            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
-                                {templateData.header.type === 'IMAGE' ? '[صورة]' :
-                                    templateData.header.type === 'VIDEO' ? '[فيديو]' :
-                                        templateData.header.type === 'DOCUMENT' ? '[مستند]' :
-                                            templateData.header.text || ''}
-                            </Typography>
-                        )}
+                        {renderTemplateHeader(templateData.header)}
                         <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', mb: 1 }}>
                             {templateData.body?.text || templateData.body || content}
                         </Typography>

@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../../config/index.js';
 import { simpleUpload as upload, uploadDir, cleanupFile } from '../../config/upload.js';
+import { buildRichTemplateContent, normalizeTemplateComponents, parseTemplateShortcut } from '../../services/messaging.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,7 +58,12 @@ router.get('/health', (req, res) => {
 router.post('/messages/send', async (req, res) => {
     try {
         const tenantId = req.tenantId;
-        const { recipient, type = 'text', message, template_name, template_language, template_params } = req.body;
+        const { recipient, type = 'text', message, template_language } = req.body;
+        const shortcut = parseTemplateShortcut(req.body.message);
+        const templateName = req.body.template_name || req.body.templateName || req.body.template || shortcut?.name;
+        const templateParams = req.body.template_params ?? req.body.templateParams ?? req.body.params ?? shortcut?.params ?? [];
+        const templateLanguage = template_language || shortcut?.language;
+        const effectiveType = (type === 'template' || templateName) ? 'template' : type;
 
         if (!recipient) {
             return res.status(400).json({ error: 'recipient is required' });
@@ -81,12 +87,19 @@ router.post('/messages/send', async (req, res) => {
             to: normalizedRecipient
         };
 
-        if (type === 'template' && template_name) {
+        let template = null;
+        let normalizedTemplateComponents = [];
+
+        if (effectiveType === 'template') {
+            if (!templateName) {
+                return res.status(400).json({ error: 'template_name is required for template type' });
+            }
+
             // Get template from database
-            const template = db.prepare(`
+            template = db.prepare(`
                 SELECT * FROM templates 
                 WHERE tenant_id = ? AND name = ? AND status = 'approved'
-            `).get(tenantId, template_name);
+            `).get(tenantId, templateName);
 
             if (!template) {
                 return res.status(404).json({ error: 'Template not found or not approved' });
@@ -94,16 +107,14 @@ router.post('/messages/send', async (req, res) => {
 
             payload.type = 'template';
             payload.template = {
-                name: template_name,
-                language: { code: template_language || template.language || 'en' }
+                name: templateName,
+                language: { code: templateLanguage || template.language || 'en' }
             };
 
             // Add parameters if provided
-            if (template_params && Array.isArray(template_params)) {
-                payload.template.components = [{
-                    type: 'body',
-                    parameters: template_params.map(p => ({ type: 'text', text: p }))
-                }];
+            normalizedTemplateComponents = normalizeTemplateComponents(templateParams);
+            if (normalizedTemplateComponents.length > 0) {
+                payload.template.components = normalizedTemplateComponents;
             }
         } else {
             // Text message
@@ -137,14 +148,15 @@ router.post('/messages/send', async (req, res) => {
         // Save to database
         const messageId = data.messages?.[0]?.id;
         let content = message;
-        if (type === 'template') {
-            content = JSON.stringify({ template: template_name, params: template_params });
+        if (effectiveType === 'template') {
+            content = buildRichTemplateContent(template, normalizedTemplateComponents)
+                || JSON.stringify({ template: templateName, params: templateParams });
         }
 
         db.prepare(`
             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
             VALUES (?, 'outgoing', ?, ?, ?, ?, 'sent', ?)
-        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, type, content || '', messageId);
+        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, effectiveType, content || '', messageId);
 
         // Log activity
         const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
@@ -157,7 +169,7 @@ router.post('/messages/send', async (req, res) => {
         sendCallback(tenantId, 'message_sent', {
             message_id: messageId,
             recipient: normalizedRecipient,
-            type,
+            type: effectiveType,
             status: 'sent'
         });
 

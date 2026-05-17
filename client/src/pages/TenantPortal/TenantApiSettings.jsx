@@ -345,6 +345,7 @@ Response:
 - template_name: اسم القالب المعتمد في WhatsApp
 - template_language: رمز اللغة (ar, en, ...)
 - template_params: مصفوفة القيم التي تحل محل {{1}}, {{2}}, ...
+- يمكن أيضاً استخدام الصيغة المختصرة: {"template": "otp", "params": ["123456"]}
 - القالب يجب أن يكون بحالة "approved" ليعمل`}
                                 </pre>
                             </Paper>
