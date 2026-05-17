@@ -196,7 +196,7 @@ const UnifiedChatWindow = ({
     let lastDateKey = null;
 
     return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', minWidth: 0 }}>
             {/* Header */}
             <Box sx={{
                 display: 'flex',
@@ -297,6 +297,7 @@ const UnifiedChatWindow = ({
                             <IconButton
                                 onClick={handleOpenUtilityManual}
                                 sx={{
+                                    flexShrink: 0,
                                     color: '#7c4dff',
                                     '&:hover': { bgcolor: '#7c4dff14' },
                                 }}
@@ -316,6 +317,7 @@ const UnifiedChatWindow = ({
                         onKeyDown={handleKeyDown}
                         disabled={sending}
                         sx={{
+                            minWidth: 0,
                             '& .MuiOutlinedInput-root': {
                                 borderRadius: 4,
                                 bgcolor: 'grey.50'
@@ -326,6 +328,7 @@ const UnifiedChatWindow = ({
                         onClick={() => onSendMessage(newMessage)}
                         disabled={sending || !newMessage?.trim()}
                         sx={{
+                            flexShrink: 0,
                             bgcolor: '#0084ff',
                             color: 'white',
                             '&:hover': { bgcolor: '#006fdd' },

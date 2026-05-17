@@ -209,7 +209,7 @@ const ChatWindow = ({
     };
 
     return (
-        <Box sx={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
+        <Box sx={{ height: '100%', width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
             {/* Chat Header */}
             <AppBar position="static" color="default" elevation={1} sx={{ bgcolor: 'background.paper', flexShrink: 0 }}>
                 <Toolbar sx={{ px: 1 }}>
@@ -228,7 +228,7 @@ const ChatWindow = ({
                         )}
                     </Avatar>
 
-                    <Box sx={{ flex: 1 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
                             {getDisplayName(selectedChat)}
                         </Typography>
@@ -328,6 +328,7 @@ const ChatWindow = ({
                         <IconButton
                             size="small"
                             onClick={(e) => setAttachMenuAnchor(e.currentTarget)}
+                            sx={{ flexShrink: 0 }}
                         >
                             <MoreActionsIcon />
                         </IconButton>
@@ -396,6 +397,7 @@ const ChatWindow = ({
                     multiline
                     maxRows={4}
                     sx={{
+                        minWidth: 0,
                         '& .MuiOutlinedInput-root': {
                             borderRadius: 4,
                             bgcolor: 'grey.50'
@@ -407,6 +409,7 @@ const ChatWindow = ({
                     onClick={onSendMessage}
                     disabled={sending || !newMessage.trim()}
                     sx={{
+                        flexShrink: 0,
                         bgcolor: 'primary.main',
                         color: 'white',
                         '&:hover': { bgcolor: 'primary.dark' },

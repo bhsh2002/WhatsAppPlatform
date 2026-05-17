@@ -9,9 +9,11 @@ import {
 } from '@mui/icons-material';
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
-
-const getChatKey = (contact, tenantId = null) => `${tenantId || 'no-tenant'}:${contact || ''}`;
-const getSelectedChatKey = (chat) => getChatKey(chat?.contact, chat?.tenant_id);
+import {
+    getWhatsAppConversationKey,
+    isSameWhatsAppConversation,
+} from '../../utils/conversationKeys';
+import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 
 const WhatsAppChat = () => {
     // State
@@ -32,6 +34,7 @@ const WhatsAppChat = () => {
     const messagesContainerRef = useRef(null);
     const isFirstLoad = useRef(true);
     const selectedChatRef = useRef(null);
+    const shouldStickToBottomRef = useRef(true);
 
     // Helpers
     const getCredentials = () => ({
@@ -97,23 +100,24 @@ const WhatsAppChat = () => {
     };
 
     const fetchMessages = async (contact, tenantId = null) => {
-        const requestedKey = getChatKey(contact, tenantId);
+        const requestedKey = getWhatsAppConversationKey({ contact, tenant_id: tenantId });
         try {
             if (isFirstLoad.current) setLoadingMessages(true);
             const data = await api.getThreadMessages(contact, 50, tenantId);
-            if (getSelectedChatKey(selectedChatRef.current) === requestedKey) {
+            if (getWhatsAppConversationKey(selectedChatRef.current) === requestedKey) {
+                shouldStickToBottomRef.current = isFirstLoad.current || isNearBottom(messagesContainerRef.current, 500);
                 setMessages(data);
             }
             return data || [];
 
         } catch (error) {
             console.error('Failed to fetch messages:', error);
-            if (getSelectedChatKey(selectedChatRef.current) === requestedKey) {
+            if (getWhatsAppConversationKey(selectedChatRef.current) === requestedKey) {
                 setMessages([]);
             }
             return [];
         } finally {
-            if (getSelectedChatKey(selectedChatRef.current) === requestedKey) {
+            if (getWhatsAppConversationKey(selectedChatRef.current) === requestedKey) {
                 setLoadingMessages(false);
             }
         }
@@ -253,10 +257,10 @@ const WhatsAppChat = () => {
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat.contact, selectedChat.tenant_id).then((loadedMessages) => {
-                if (getSelectedChatKey(selectedChatRef.current) !== getSelectedChatKey(selectedChat)) return;
+                if (!isSameWhatsAppConversation(selectedChatRef.current, selectedChat)) return;
                 markAsRead(loadedMessages, selectedChat.tenant_id);
                 setConversations(prev => prev.map(conv =>
-                    getSelectedChatKey(conv) === getSelectedChatKey(selectedChat)
+                    isSameWhatsAppConversation(conv, selectedChat)
                         ? { ...conv, unread_count: 0 }
                         : conv
                 ));
@@ -274,23 +278,22 @@ const WhatsAppChat = () => {
         if (!container) return;
 
         if (isFirstLoad.current) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            scrollElementToBottom(container);
             isFirstLoad.current = false;
             return;
         }
 
         const lastMessage = messages[messages.length - 1];
         const isOutgoing = lastMessage?.direction === 'outgoing';
-        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
 
-        if (isOutgoing || distanceFromBottom < 500) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (isOutgoing || shouldStickToBottomRef.current) {
+            scrollElementToBottom(container, 'smooth');
         }
     }, [messages]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            scrollElementToBottom(messagesContainerRef.current);
         }, 50);
     };
 
@@ -462,7 +465,8 @@ const WhatsAppChat = () => {
                 <Box sx={{
                     width: { xs: '100%', md: '350px', lg: '400px' },
                     height: '100%',
-                    flexShrink: 0
+                    flexShrink: 0,
+                    minWidth: 0
                 }}>
                     <ChatSidebar
                         conversations={filteredConversations}
@@ -481,7 +485,7 @@ const WhatsAppChat = () => {
 
             {/* Chat Window */}
             {(!isMobile || selectedChat) && (
-                <Box sx={{ flex: 1, height: '100%', position: 'relative' }}>
+                <Box sx={{ flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
                     {selectedChat ? (
                         <ChatWindow
                             selectedChat={selectedChat}

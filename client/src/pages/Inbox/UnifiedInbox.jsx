@@ -15,24 +15,11 @@ import api from '../../api';
 import UnifiedSidebar from '../../components/Inbox/UnifiedSidebar';
 import UnifiedChatWindow from '../../components/Inbox/UnifiedChatWindow';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
-
-const getConversationKey = (conv) => {
-    if (!conv) return '';
-
-    const contact = conv.contact_id || conv.contact || '';
-    if (conv.channel === 'messenger') {
-        return [
-            'messenger',
-            conv.conversation_id || 'no-conversation',
-            conv.linked_page_id || 'no-page',
-            contact,
-        ].join(':');
-    }
-
-    return ['whatsapp', conv.tenant_id || 'no-tenant', contact].join(':');
-};
-
-const isSameConversation = (a, b) => getConversationKey(a) === getConversationKey(b);
+import {
+    getUnifiedConversationKey,
+    isSameUnifiedConversation,
+} from '../../utils/conversationKeys';
+import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 
 const UnifiedInbox = () => {
     const theme = useTheme();
@@ -58,6 +45,7 @@ const UnifiedInbox = () => {
     const messagesContainerRef = useRef(null);
     const selectedChatRef = useRef(null);
     const isFirstLoad = useRef(true);
+    const shouldStickToBottomRef = useRef(true);
 
     useEffect(() => {
         selectedChatRef.current = selectedChat;
@@ -87,7 +75,7 @@ const UnifiedInbox = () => {
     }, [fetchConversations]);
 
     const fetchMessages = useCallback(async (conv) => {
-        const requestedKey = getConversationKey(conv);
+        const requestedKey = getUnifiedConversationKey(conv);
         try {
             if (isFirstLoad.current) setLoadingMessages(true);
             const params = {};
@@ -98,18 +86,19 @@ const UnifiedInbox = () => {
                 params.linked_page_id = conv.linked_page_id;
             }
             const data = await api.getUnifiedMessages(conv.channel, conv.contact_id, params);
-            if (getConversationKey(selectedChatRef.current) === requestedKey) {
+            if (getUnifiedConversationKey(selectedChatRef.current) === requestedKey) {
+                shouldStickToBottomRef.current = isFirstLoad.current || isNearBottom(messagesContainerRef.current);
                 setMessages(data);
             }
             return data || [];
         } catch (error) {
             console.error('Failed to fetch messages:', error);
-            if (getConversationKey(selectedChatRef.current) === requestedKey) {
+            if (getUnifiedConversationKey(selectedChatRef.current) === requestedKey) {
                 setMessages([]);
             }
             return [];
         } finally {
-            if (getConversationKey(selectedChatRef.current) === requestedKey) {
+            if (getUnifiedConversationKey(selectedChatRef.current) === requestedKey) {
                 setLoadingMessages(false);
             }
         }
@@ -171,10 +160,10 @@ const UnifiedInbox = () => {
         if (selectedChat) {
             isFirstLoad.current = true;
             fetchMessages(selectedChat).then((loadedMessages) => {
-                if (!isSameConversation(selectedChatRef.current, selectedChat)) return;
+                if (!isSameUnifiedConversation(selectedChatRef.current, selectedChat)) return;
                 markAsRead(loadedMessages, selectedChat);
                 setConversations(prev => prev.map(conv =>
-                    isSameConversation(conv, selectedChat) ? { ...conv, unread_count: 0 } : conv
+                    isSameUnifiedConversation(conv, selectedChat) ? { ...conv, unread_count: 0 } : conv
                 ));
             });
             if (selectedChat.channel === 'whatsapp') {
@@ -207,21 +196,19 @@ const UnifiedInbox = () => {
         if (!container) return;
 
         if (isFirstLoad.current) {
-            container.scrollTop = container.scrollHeight;
+            scrollElementToBottom(container);
             isFirstLoad.current = false;
             return;
         }
 
-        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-        if (distanceFromBottom < 300) {
-            container.scrollTop = container.scrollHeight;
+        if (shouldStickToBottomRef.current) {
+            scrollElementToBottom(container, 'smooth');
         }
     }, [messages]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
-            const container = messagesContainerRef.current;
-            if (container) container.scrollTop = container.scrollHeight;
+            scrollElementToBottom(messagesContainerRef.current);
         }, 50);
     };
 
@@ -551,6 +538,8 @@ const UnifiedInbox = () => {
             <Box sx={{
                 width: isMobile ? (selectedChat ? 0 : '100%') : 350,
                 minWidth: isMobile ? 0 : 350,
+                display: isMobile && selectedChat ? 'none' : 'flex',
+                flexDirection: 'column',
                 overflow: 'hidden',
                 transition: 'width 0.3s',
                 borderRight: 1,
@@ -574,6 +563,7 @@ const UnifiedInbox = () => {
             {/* Chat Window */}
             <Box sx={{
                 flex: 1,
+                minWidth: 0,
                 display: isMobile && !selectedChat ? 'none' : 'flex',
                 overflow: 'hidden',
             }}>

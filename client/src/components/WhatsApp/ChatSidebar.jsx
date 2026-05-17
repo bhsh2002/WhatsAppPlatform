@@ -205,8 +205,10 @@ const ChatSidebar = ({
                                     </ListItemAvatar>
                                     <ListItemText
                                         primary={
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3, minWidth: 0 }}>
                                                 <Typography variant="subtitle1" sx={{
+                                                    flex: 1,
+                                                    minWidth: 0,
                                                     fontWeight: conv.unread_count ? 700 : 400,
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis',
@@ -215,11 +217,12 @@ const ChatSidebar = ({
                                                 }}>
                                                     {getDisplayName(conv)}
                                                 </Typography>
-                                                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', ml: 1 }}>
+                                                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', ml: 1, flexShrink: 0 }}>
                                                     {formatDate(conv.last_interaction)}
                                                 </Typography>
                                             </Box>
                                         }
+                                        sx={{ minWidth: 0 }}
                                         secondary={
                                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '75%' }}>

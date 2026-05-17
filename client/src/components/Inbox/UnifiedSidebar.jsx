@@ -27,6 +27,7 @@ import {
     Facebook as FacebookIcon,
     Sync as SyncIcon
 } from '@mui/icons-material';
+import { getUnifiedConversationKey } from '../../utils/conversationKeys';
 
 const getChannelIcon = (channel) => {
     if (channel === 'whatsapp') return <WhatsAppIcon sx={{ fontSize: 14, color: '#25D366' }} />;
@@ -36,22 +37,6 @@ const getChannelIcon = (channel) => {
 const getChannelColor = (channel) => {
     if (channel === 'whatsapp') return '#25D366';
     return '#0084ff';
-};
-
-const getConversationKey = (conv) => {
-    if (!conv) return '';
-
-    const contact = conv.contact_id || conv.contact || '';
-    if (conv.channel === 'messenger') {
-        return [
-            'messenger',
-            conv.conversation_id || 'no-conversation',
-            conv.linked_page_id || 'no-page',
-            contact,
-        ].join(':');
-    }
-
-    return ['whatsapp', conv.tenant_id || 'no-tenant', contact].join(':');
 };
 
 const formatDate = (dateStr) => {
@@ -154,14 +139,14 @@ const UnifiedSidebar = ({
                     <ListItem><ListItemText primary="لا توجد محادثات" sx={{ textAlign: 'center', color: 'text.secondary' }} /></ListItem>
                 ) : (
                     filtered.map((conv) => {
-                        const isSelected = getConversationKey(conv) === getConversationKey(selectedChat);
+                        const isSelected = getUnifiedConversationKey(conv) === getUnifiedConversationKey(selectedChat);
 
                         const displayName = conv.display_name || conv.contact_id || 'غير معروف';
                         const channelColor = getChannelColor(conv.channel);
 
                         return (
                             <ListItem
-                                key={getConversationKey(conv)}
+                                key={getUnifiedConversationKey(conv)}
                                 button
                                 selected={isSelected}
                                 onClick={() => onSelectChat(conv)}
@@ -187,7 +172,7 @@ const UnifiedSidebar = ({
                                 </ListItemAvatar>
                                 <ListItemText
                                     primary={
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
                                             <Typography
                                                 variant="body2"
                                                 fontWeight={conv.unread_count ? 700 : 400}
@@ -205,14 +190,16 @@ const UnifiedSidebar = ({
                                                     fontSize: 11,
                                                     borderColor: channelColor,
                                                     color: channelColor,
+                                                    flexShrink: 0,
                                                     '& .MuiChip-icon': { fontSize: 12 },
                                                 }}
                                             />
-                                            <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                                            <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, flexShrink: 0 }}>
                                                 {formatDate(conv.last_message_time)}
                                             </Typography>
                                         </Box>
                                     }
+                                    sx={{ minWidth: 0 }}
                                     secondary={
                                         <Box>
                                             <Typography variant="body2" color="text.secondary" noWrap sx={{ fontSize: 12 }}>

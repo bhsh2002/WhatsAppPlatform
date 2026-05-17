@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, useTheme, useMediaQuery } from '@mui/material';
 import {
     DoneAll as DoneAllIcon,
@@ -9,6 +9,11 @@ import {
 import api from '../../api';
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
+import {
+    getWhatsAppConversationKey,
+    isSameWhatsAppConversation,
+} from '../../utils/conversationKeys';
+import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 
 const TenantChat = () => {
     const [conversations, setConversations] = useState([]);
@@ -30,10 +35,78 @@ const TenantChat = () => {
     const messagesContainerRef = useRef(null);
     const isFirstLoad = useRef(true);
     const selectedChatRef = useRef(null);
+    const shouldStickToBottomRef = useRef(true);
 
     // Responsive
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
+    const fetchConversations = useCallback(async () => {
+        try {
+            setLoading(true);
+            const data = await api.getPortalConversations();
+            setConversations(data);
+        } catch (err) {
+            console.error('Failed to fetch conversations:', err);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    const fetchTemplates = useCallback(async () => {
+        try {
+            const data = await api.getPortalTemplates();
+            setTemplates(data || []);
+        } catch (err) {
+            console.error('Failed to fetch templates:', err);
+        }
+    }, []);
+
+    const fetchWindowStatus = useCallback(async (phone) => {
+        try {
+            const data = await api.getWindowStatus(phone);
+            setWindowStatus(data);
+        } catch (err) {
+            console.error('Failed to fetch window status:', err);
+            setWindowStatus(null);
+        }
+    }, []);
+
+    const markAsRead = useCallback(async (msgs) => {
+        try {
+            const lastIncoming = msgs.filter(m => m.direction === 'incoming').pop();
+            if (lastIncoming?.wamid) {
+                await api.markAsReadPortal({
+                    message_id: lastIncoming.wamid,
+                });
+            }
+        } catch {
+            // Best-effort, don't block UI
+        }
+    }, []);
+
+    const fetchMessages = useCallback(async (phone) => {
+        const requestedKey = getWhatsAppConversationKey({ contact: phone });
+        try {
+            if (isFirstLoad.current) setLoadingMessages(true);
+            const data = await api.getPortalMessages(phone);
+            if (getWhatsAppConversationKey(selectedChatRef.current) === requestedKey) {
+                shouldStickToBottomRef.current = isFirstLoad.current || isNearBottom(messagesContainerRef.current);
+                setMessages(data);
+            }
+            return data || [];
+        } catch (err) {
+            console.error('Failed to fetch messages:', err);
+            if (getWhatsAppConversationKey(selectedChatRef.current) === requestedKey) {
+                setMessages([]);
+            }
+            return [];
+        } finally {
+            if (getWhatsAppConversationKey(selectedChatRef.current) === requestedKey) {
+                setLoadingMessages(false);
+            }
+        }
+    }, []);
 
     // SSE: Real-time updates with polling fallback
     useEffect(() => {
@@ -131,14 +204,20 @@ const TenantChat = () => {
             stopPolling();
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
         };
-    }, []);
+    }, [fetchConversations, fetchMessages, fetchTemplates]);
 
     useEffect(() => {
         selectedChatRef.current = selectedChat;
         if (selectedChat) {
             isFirstLoad.current = true;
-            fetchMessages(selectedChat.contact).then(() => {
-                markAsRead(messages);
+            fetchMessages(selectedChat.contact).then((loadedMessages) => {
+                if (!isSameWhatsAppConversation(selectedChatRef.current, selectedChat)) return;
+                markAsRead(loadedMessages);
+                setConversations(prev => prev.map(conv =>
+                    isSameWhatsAppConversation(conv, selectedChat)
+                        ? { ...conv, unread_count: 0 }
+                        : conv
+                ));
             });
             fetchWindowStatus(selectedChat.contact);
             const interval = setInterval(() => fetchMessages(selectedChat.contact), 15000);
@@ -146,84 +225,27 @@ const TenantChat = () => {
         } else {
             setWindowStatus(null);
         }
-    }, [selectedChat]);
+    }, [selectedChat, fetchMessages, fetchWindowStatus, markAsRead]);
 
     useEffect(() => {
         if (messages.length === 0) return;
 
         if (isFirstLoad.current) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            scrollElementToBottom(messagesContainerRef.current);
             isFirstLoad.current = false;
             return;
         }
 
         const container = messagesContainerRef.current;
         if (!container) return;
-        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-        if (distanceFromBottom < 300) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (shouldStickToBottomRef.current) {
+            scrollElementToBottom(container, 'smooth');
         }
     }, [messages]);
 
-    const fetchConversations = async () => {
-        try {
-            setLoading(true);
-            const data = await api.getPortalConversations();
-            setConversations(data);
-        } catch (err) {
-            console.error('Failed to fetch conversations:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchTemplates = async () => {
-        try {
-            const data = await api.getPortalTemplates();
-            setTemplates(data || []);
-        } catch (err) {
-            console.error('Failed to fetch templates:', err);
-        }
-    };
-
-    const fetchWindowStatus = async (phone) => {
-        try {
-            const data = await api.getWindowStatus(phone);
-            setWindowStatus(data);
-        } catch (err) {
-            console.error('Failed to fetch window status:', err);
-            setWindowStatus(null);
-        }
-    };
-
-    const markAsRead = async (msgs) => {
-        try {
-            const lastIncoming = msgs.filter(m => m.direction === 'incoming').pop();
-            if (lastIncoming?.wamid) {
-                await api.markAsReadPortal({
-                    message_id: lastIncoming.wamid,
-                });
-            }
-        } catch {
-            // Best-effort, don't block UI
-        }
-    };
-
-    const fetchMessages = async (phone) => {
-        try {
-            if (isFirstLoad.current) setLoadingMessages(true);
-            const data = await api.getPortalMessages(phone);
-            setMessages(data);
-        } catch (err) {
-            console.error('Failed to fetch messages:', err);
-        } finally {
-            setLoadingMessages(false);
-        }
-    };
-
     const scrollToBottom = () => {
         setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            scrollElementToBottom(messagesContainerRef.current);
         }, 50);
     };
 
@@ -394,7 +416,10 @@ const TenantChat = () => {
     );
 
     const handleSelectChat = (chat) => {
+        isFirstLoad.current = true;
+        setMessages([]);
         setSelectedChat(chat);
+        setNewMessage('');
     };
 
     return (
@@ -404,7 +429,8 @@ const TenantChat = () => {
                 <Box sx={{
                     width: { xs: '100%', md: 350 },
                     height: '100%',
-                    flexShrink: 0
+                    flexShrink: 0,
+                    minWidth: 0
                 }}>
                     <ChatSidebar
                         conversations={filteredConversations}
@@ -423,7 +449,7 @@ const TenantChat = () => {
 
             {/* Chat Window */}
             {(!isMobile || selectedChat) && (
-                <Box sx={{ flex: 1, height: '100%' }}>
+                <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
                     {selectedChat ? (
                         <ChatWindow
                             selectedChat={selectedChat}
