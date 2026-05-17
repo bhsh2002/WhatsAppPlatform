@@ -10,7 +10,9 @@ import eventBus from '../services/eventBus.js';
 import { resolveCredentials } from '../services/credentials.js';
 import {
     buildRichTemplateContent,
+    buildTemplateComponentsFromMapping,
     buildInteractivePayload,
+    enrichTemplateFallbackMessages,
     normalizeTemplateComponents,
     parseTemplateShortcut,
 } from '../services/messaging.js';
@@ -276,7 +278,7 @@ router.get('/logs', (req, res) => {
         query += ' ORDER BY m.created_at DESC LIMIT ? OFFSET ?';
         params.push(limit, offset);
 
-        const messages = db.prepare(query).all(...params);
+        const messages = enrichTemplateFallbackMessages(db.prepare(query).all(...params));
 
         // Get total count
         let countQuery = 'SELECT COUNT(*) as total FROM messages m';
@@ -363,7 +365,7 @@ router.get('/conversations', (req, res) => {
             ORDER BY last_interaction DESC
         `;
 
-        const conversations = db.prepare(query).all();
+        const conversations = enrichTemplateFallbackMessages(db.prepare(query).all(), 'last_message');
         res.json(conversations);
     } catch (error) {
         console.error('[Messages] Conversations fetch error:', error);
@@ -404,7 +406,7 @@ router.get('/conversations/:number/messages', (req, res) => {
         // Let's keep it simply ordered by ASC for chat view. The original text had LIMIT ? OFFSET ?.
         // I will just return all for simplicity as per chat requirement usually, or respect limit.
 
-        const messages = db.prepare(query).all(...params);
+        const messages = enrichTemplateFallbackMessages(db.prepare(query).all(...params));
 
         // Mark incoming messages as read (tenant aware)
         let updateQuery = `
@@ -969,6 +971,9 @@ async function processBroadcastJob(jobId, params) {
         const batchSize = 5;
         const batchDelay = 200;
         const total = recipients.length;
+        const templateRecord = tenant_id
+            ? db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenant_id, template_name)
+            : null;
 
         for (let i = 0; i < total; i += batchSize) {
             const batch = recipients.slice(i, i + batchSize);
@@ -986,34 +991,14 @@ async function processBroadcastJob(jobId, params) {
                         },
                     };
 
-                    if (variable_mapping && variable_mapping.length > 0) {
-                        const contact = db.prepare(
+                    const contact = Array.isArray(variable_mapping) && variable_mapping.length > 0
+                        ? db.prepare(
                             'SELECT phone, profile_name, label, notes FROM contacts WHERE phone = ? AND (tenant_id = ? OR tenant_id IS NULL) ORDER BY tenant_id DESC LIMIT 1'
-                        ).get(formattedRecipient, tenant_id || null);
-
-                        const parameters = variable_mapping.map(varMap => {
-                            let value = '';
-                            if (varMap.source === 'static') {
-                                value = varMap.value || '';
-                            } else if (varMap.source === 'contact') {
-                                value = (contact && contact[varMap.field]) || varMap.fallback || formattedRecipient;
-                            }
-                            return { type: 'text', text: value };
-                        });
-
-                        const components = [{ type: 'body', parameters }];
-
-                        if (template_params && Array.isArray(template_params)) {
-                            template_params.forEach(comp => {
-                                if (comp.type !== 'body') {
-                                    components.push(comp);
-                                }
-                            });
-                        }
-
+                        ).get(formattedRecipient, tenant_id || null)
+                        : null;
+                    const components = buildTemplateComponentsFromMapping(variable_mapping, template_params, contact, formattedRecipient);
+                    if (components.length > 0) {
                         payload.template.components = components;
-                    } else if (template_params && template_params.length > 0) {
-                        payload.template.components = template_params;
                     }
 
                     const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
@@ -1029,10 +1014,12 @@ async function processBroadcastJob(jobId, params) {
 
                     if (response.ok) {
                         const messageId = data.messages?.[0]?.id;
+                        const storedContent = buildRichTemplateContent(templateRecord, payload.template.components || [])
+                            || `[قالب: ${template_name}]`;
                         db.prepare(`
                             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
                             VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
-                        `).run(tenant_id || null, phoneNumberId, formattedRecipient, `[قالب: ${template_name}]`, messageId);
+                        `).run(tenant_id || null, phoneNumberId, formattedRecipient, storedContent, messageId);
                         return { recipient: formattedRecipient, status: 'sent', message_id: messageId };
                     } else {
                         return { recipient: formattedRecipient, status: 'failed', error: data.error?.message };

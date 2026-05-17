@@ -9,6 +9,7 @@ import {
     normalizeMessengerTimestamp,
     selectMessengerMessages,
 } from '../services/messengerMessages.js';
+import { enrichTemplateFallbackMessages } from '../services/messaging.js';
 
 const router = express.Router();
 
@@ -68,7 +69,7 @@ router.get('/conversations', (req, res) => {
                 waQuery += ` AND t.tenant_id = ?`;
                 waParams.push(tenantIdFilter);
             }
-            waConversations.push(...db.prepare(waQuery).all(...waParams));
+            waConversations.push(...enrichTemplateFallbackMessages(db.prepare(waQuery).all(...waParams), 'last_message'));
         }
 
         const fbConversations = [];
@@ -138,7 +139,7 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
             }
 
             query += ` ORDER BY created_at ASC`;
-            const messages = db.prepare(query).all(...params);
+            const messages = enrichTemplateFallbackMessages(db.prepare(query).all(...params));
 
             db.prepare(`
                 UPDATE messages SET status = 'read'

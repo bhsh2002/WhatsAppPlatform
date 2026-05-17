@@ -11,7 +11,9 @@ import eventBus from '../services/eventBus.js';
 import { decryptIfEncrypted, encrypt } from '../services/encryption.js';
 import {
     buildRichTemplateContent,
+    buildTemplateComponentsFromMapping,
     buildInteractivePayload,
+    enrichTemplateFallbackMessages,
     normalizeTemplateComponents,
     parseTemplateShortcut,
     saveOutgoingMessage,
@@ -204,7 +206,7 @@ router.get('/conversations', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
 
-        const conversations = db.prepare(`
+        const conversations = enrichTemplateFallbackMessages(db.prepare(`
             SELECT 
                 t.contact,
                 t.created_at as last_interaction,
@@ -246,7 +248,7 @@ router.get('/conversations', (req, res) => {
             LEFT JOIN contacts c ON c.phone = t.contact AND c.tenant_id = t.tenant_id
             WHERE rn = 1
             ORDER BY last_interaction DESC
-        `).all(tenantId, tenantId);
+        `).all(tenantId, tenantId), 'last_message');
 
         res.json(conversations);
     } catch (error) {
@@ -261,11 +263,11 @@ router.get('/conversations/:phone/messages', (req, res) => {
         const tenantId = req.user.tenant_id;
         const contactPhone = req.params.phone;
 
-        const messages = db.prepare(`
+        const messages = enrichTemplateFallbackMessages(db.prepare(`
             SELECT * FROM messages 
             WHERE tenant_id = ? AND (sender = ? OR recipient = ?)
             ORDER BY created_at ASC
-        `).all(tenantId, contactPhone, contactPhone);
+        `).all(tenantId, contactPhone, contactPhone));
 
         // Mark incoming messages as read
         db.prepare(`
@@ -1339,6 +1341,7 @@ async function processTenantBroadcastJob(jobId, params) {
         const batchSize = 5;
         const batchDelay = 200;
         const total = recipients.length;
+        const templateRecord = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, template_name);
 
         for (let i = 0; i < total; i += batchSize) {
             const batch = recipients.slice(i, i + batchSize);
@@ -1357,34 +1360,14 @@ async function processTenantBroadcastJob(jobId, params) {
                         },
                     };
 
-                    if (variable_mapping && variable_mapping.length > 0) {
-                        const contact = db.prepare(
+                    const contact = Array.isArray(variable_mapping) && variable_mapping.length > 0
+                        ? db.prepare(
                             'SELECT phone, profile_name, label, notes FROM contacts WHERE phone = ? AND tenant_id = ? LIMIT 1'
-                        ).get(formattedRecipient, tenantId);
-
-                        const parameters = variable_mapping.map(varMap => {
-                            let value = '';
-                            if (varMap.source === 'static') {
-                                value = varMap.value || '';
-                            } else if (varMap.source === 'contact') {
-                                value = (contact && contact[varMap.field]) || varMap.fallback || formattedRecipient;
-                            }
-                            return { type: 'text', text: value };
-                        });
-
-                        const components = [{ type: 'body', parameters }];
-
-                        if (template_params && Array.isArray(template_params)) {
-                            template_params.forEach(comp => {
-                                if (comp.type !== 'body') {
-                                    components.push(comp);
-                                }
-                            });
-                        }
-
+                        ).get(formattedRecipient, tenantId)
+                        : null;
+                    const components = buildTemplateComponentsFromMapping(variable_mapping, template_params, contact, formattedRecipient);
+                    if (components.length > 0) {
                         payload.template.components = components;
-                    } else if (template_params && template_params.length > 0) {
-                        payload.template.components = template_params;
                     }
 
                     const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
@@ -1400,10 +1383,12 @@ async function processTenantBroadcastJob(jobId, params) {
 
                     if (response.ok) {
                         const messageId = data.messages?.[0]?.id;
+                        const storedContent = buildRichTemplateContent(templateRecord, payload.template.components || [])
+                            || `[قالب: ${template_name}]`;
                         db.prepare(`
                             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
                             VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
-                        `).run(tenantId, phoneNumberId, formattedRecipient, `[قالب: ${template_name}]`, messageId);
+                        `).run(tenantId, phoneNumberId, formattedRecipient, storedContent, messageId);
                         return { recipient: formattedRecipient, status: 'sent', message_id: messageId };
                     } else {
                         return { recipient: formattedRecipient, status: 'failed', error: data.error?.message };
@@ -2501,7 +2486,7 @@ router.get('/unified/conversations', async (req, res) => {
                 LEFT JOIN tenants ON tenants.id = t.tenant_id
                 WHERE rn = 1
             `;
-            waConversations.push(...db.prepare(waQuery).all(tenantId, tenantId, tenantId));
+            waConversations.push(...enrichTemplateFallbackMessages(db.prepare(waQuery).all(tenantId, tenantId, tenantId), 'last_message'));
         }
 
         const fbConversations = [];
@@ -2557,11 +2542,11 @@ router.get('/unified/:channel/:id/messages', async (req, res) => {
         const { conversation_id } = req.query;
 
         if (channel === 'whatsapp') {
-            const messages = db.prepare(`
+            const messages = enrichTemplateFallbackMessages(db.prepare(`
                 SELECT * FROM messages
                 WHERE (sender = ? OR recipient = ?) AND tenant_id = ?
                 ORDER BY created_at ASC
-            `).all(contactId, contactId, tenantId);
+            `).all(contactId, contactId, tenantId));
 
             // Mark as read
             db.prepare(`

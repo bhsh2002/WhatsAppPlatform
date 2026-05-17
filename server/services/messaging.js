@@ -63,6 +63,121 @@ export function parseTemplateShortcut(input) {
     };
 }
 
+function resolveMappedValue(varMap, contact, fallbackRecipient) {
+    if (varMap.source === 'static') return varMap.value || '';
+    if (varMap.source === 'contact') {
+        return (contact && contact[varMap.field]) || varMap.fallback || fallbackRecipient;
+    }
+    return '';
+}
+
+function componentKey(component) {
+    const type = component?.type?.toLowerCase?.();
+    if (type === 'button') {
+        return `button:${component.sub_type || 'url'}:${component.index ?? '0'}`;
+    }
+    return type;
+}
+
+const TEMPLATE_FALLBACK_RE = /^\[(?:قالب|Template):\s*([^\]]+)\]$/i;
+
+function getFallbackTemplate(message, contentField) {
+    const content = message?.[contentField];
+    const messageType = message?.message_type || message?.last_message_type || message?.type;
+    if (messageType !== 'template' || typeof content !== 'string') return null;
+    const match = content.trim().match(TEMPLATE_FALLBACK_RE);
+    if (!match) return null;
+    return match[1].trim();
+}
+
+function getTemplateByName(templateName, tenantId, cache) {
+    const key = `${tenantId || 'global'}:${templateName}`;
+    if (cache?.has(key)) return cache.get(key);
+
+    const template = tenantId
+        ? db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, templateName)
+        : db.prepare('SELECT * FROM templates WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1').get(templateName);
+    cache?.set(key, template || null);
+    return template;
+}
+
+export function enrichTemplateFallbackMessage(message, contentField = 'content', cache = new Map()) {
+    const templateName = getFallbackTemplate(message, contentField);
+    if (!templateName) return message;
+
+    const template = getTemplateByName(templateName, message.tenant_id, cache);
+    const richContent = buildRichTemplateContent(template, []);
+    if (!richContent) return message;
+
+    return {
+        ...message,
+        [contentField]: richContent,
+    };
+}
+
+export function enrichTemplateFallbackMessages(messages, contentField = 'content') {
+    const cache = new Map();
+    return Array.isArray(messages)
+        ? messages.map(message => enrichTemplateFallbackMessage(message, contentField, cache))
+        : messages;
+}
+
+export function buildTemplateComponentsFromMapping(variableMapping, templateParams, contact, fallbackRecipient) {
+    const normalizedTemplateParams = normalizeTemplateComponents(templateParams);
+    if (!Array.isArray(variableMapping) || variableMapping.length === 0) {
+        return normalizedTemplateParams;
+    }
+
+    const headerParams = [];
+    const bodyParams = [];
+    const buttonComponents = new Map();
+
+    variableMapping.forEach(varMap => {
+        const text = String(resolveMappedValue(varMap, contact, fallbackRecipient) ?? '');
+        const parameter = { type: 'text', text };
+        const section = varMap.section || 'body';
+
+        if (section === 'header') {
+            headerParams.push(parameter);
+            return;
+        }
+
+        if (section === 'button') {
+            const index = String(varMap.btn_index ?? '0');
+            const subType = varMap.sub_type || 'url';
+            const key = `button:${subType}:${index}`;
+            if (!buttonComponents.has(key)) {
+                buttonComponents.set(key, {
+                    type: 'button',
+                    sub_type: subType,
+                    index,
+                    parameters: [],
+                });
+            }
+            buttonComponents.get(key).parameters.push(parameter);
+            return;
+        }
+
+        bodyParams.push(parameter);
+    });
+
+    const components = [];
+    if (headerParams.length > 0) components.push({ type: 'header', parameters: headerParams });
+    if (bodyParams.length > 0) components.push({ type: 'body', parameters: bodyParams });
+    components.push(...buttonComponents.values());
+
+    const existingKeys = new Set(components.map(componentKey));
+    normalizedTemplateParams.forEach(component => {
+        const key = componentKey(component);
+        if (!existingKeys.has(key)) {
+            components.push(component);
+            existingKeys.add(key);
+        }
+    });
+
+    return components;
+}
+
 function getComponent(components, type) {
     return components.find(component => component?.type?.toLowerCase() === type);
 }
