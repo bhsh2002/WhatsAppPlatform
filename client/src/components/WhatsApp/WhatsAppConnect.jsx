@@ -83,7 +83,7 @@ const WhatsAppConnect = ({ onComplete }) => {
                     sessionInfo.phone_number_id = data.data?.phone_number_id || '';
                     sessionInfo.waba_id = data.data?.waba_id || '';
                 }
-            } catch (e) { /* ignore non-JSON messages */ }
+            } catch { /* ignore non-JSON messages */ }
         };
         window.addEventListener('message', messageHandler);
 

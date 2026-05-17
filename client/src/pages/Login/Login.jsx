@@ -31,9 +31,7 @@ import {
 import api from '../../api';
 
 const Login = () => {
-    const { login, register, loading, error } = useAuth();
-    const [isRegister, setIsRegister] = useState(false);
-    const [isTenantRegister, setIsTenantRegister] = useState(false);
+    const { login, loading, error } = useAuth();
     const [formData, setFormData] = useState({
         username: '',
         password: '',
@@ -61,20 +59,9 @@ const Login = () => {
         setLocalError('');
         setSuccessMessage('');
 
-        if (isRegister) {
-            if (formData.password.length < 6) {
-                setLocalError('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
-                return;
-            }
-            const result = await register(formData);
-            if (!result.success) {
-                setLocalError(result.error);
-            }
-        } else {
-            const result = await login(formData.username, formData.password);
-            if (!result.success) {
-                setLocalError(result.error);
-            }
+        const result = await login(formData.username, formData.password);
+        if (!result.success) {
+            setLocalError(result.error);
         }
     };
 

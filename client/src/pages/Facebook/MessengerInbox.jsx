@@ -107,7 +107,7 @@ const MessengerInbox = () => {
                 setConversations(prev => prev.map(c =>
                     c.id === conv.id ? { ...c, unread_count: 0 } : c
                 ));
-            } catch (err) { /* best effort */ }
+            } catch { /* best effort */ }
         }
         if (isMobile) {
             // On mobile, we want to show the chat window
@@ -180,7 +180,7 @@ const MessengerInbox = () => {
                         if (current && data.conversation_id === current.id) {
                             loadMessages();
                         }
-                    } catch (err) { /* ignore */ }
+                    } catch { /* ignore */ }
                 });
 
                 evtSource.onerror = () => {

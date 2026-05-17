@@ -50,7 +50,7 @@ const ContactDialog = ({ open, onClose, onSave, contact = null, loading = false 
     };
 
     const handleSubmit = () => {
-        const phone = formData.phone.replace(/[\s\-\+]/g, '').trim();
+        const phone = formData.phone.replace(/[\s+-]/g, '').trim();
         
         if (!phone) {
             setError('رقم الهاتف مطلوب');

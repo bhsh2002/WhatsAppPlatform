@@ -89,6 +89,7 @@ const TenantTemplates = () => {
             setSyncing(true);
             setError(null);
             const result = await api.syncPortalTemplates();
+            setMetaTemplates(result.templates || []);
             // Refresh templates list after sync - they're now in database
             fetchTemplates();
             setSuccess(`تم مزامنة ${result.synced || 0} قالب (${result.created || 0} جديد، ${result.updated || 0} محدث)`);

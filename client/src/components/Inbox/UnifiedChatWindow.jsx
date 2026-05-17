@@ -99,8 +99,6 @@ const UnifiedChatWindow = ({
     sending,
     messagesEndRef,
     messagesContainerRef,
-    getDisplayName,
-    formatTime: formatTimeProp,
     // Utility message props
     onSendUtilityMessage,
     getMessageTags,
@@ -185,7 +183,6 @@ const UnifiedChatWindow = ({
     }
 
     const displayName = selectedChat.display_name || selectedChat.contact_id || 'غير معروف';
-    const fTime = formatTimeProp || formatTime;
     const fGetDateKey = getDateKey;
     const hasUtilitySupport = !!onSendUtilityMessage && !!getMessageTags;
 

@@ -42,7 +42,6 @@ const WebhookFailures = () => {
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
-    const [total, setTotal] = useState(0);
     const [filterTenant, setFilterTenant] = useState('');
     const [filterType, setFilterType] = useState('');
     const [filterStatus, setFilterStatus] = useState('');
@@ -62,7 +61,6 @@ const WebhookFailures = () => {
 
             const data = await api.getWebhookFailures(params);
             setFailures(data.failures || []);
-            setTotal(data.total || 0);
             setTotalPages(data.totalPages || 1);
 
             const statsData = await api.getWebhookFailureStats();
@@ -97,7 +95,7 @@ const WebhookFailures = () => {
             await api.retryWebhookFailure(id);
             setMessage({ type: 'success', text: 'تم إعادة المحاولة بنجاح' });
             fetchData();
-        } catch (err) {
+        } catch (_err) {
             setMessage({ type: 'error', text: 'فشلت إعادة المحاولة' });
         } finally {
             setActionLoading(prev => ({ ...prev, [id]: false }));
@@ -110,7 +108,7 @@ const WebhookFailures = () => {
             await api.deleteWebhookFailure(id);
             setMessage({ type: 'success', text: 'تم حذف العطل' });
             fetchData();
-        } catch (err) {
+        } catch (_err) {
             setMessage({ type: 'error', text: 'فشل حذف العطل' });
         } finally {
             setActionLoading(prev => ({ ...prev, [`del-${id}`]: false }));
@@ -122,7 +120,7 @@ const WebhookFailures = () => {
             const result = await api.clearResolvedFailures();
             setMessage({ type: 'success', text: `تم مسح ${result.deleted} عطل محلول` });
             fetchData();
-        } catch (err) {
+        } catch (_err) {
             setMessage({ type: 'error', text: 'فشل مسح الأعطال' });
         }
     };

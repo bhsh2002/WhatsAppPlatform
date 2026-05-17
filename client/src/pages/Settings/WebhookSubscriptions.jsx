@@ -51,7 +51,7 @@ const WebhookSubscriptions = () => {
             if (tenantWithWaba) {
                 setSelectedTenant(tenantWithWaba.id);
             }
-        } catch (err) {
+        } catch (_err) {
             setError('فشل جلب قائمة العملاء');
         }
     };

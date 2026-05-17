@@ -113,6 +113,7 @@ const AdminTemplates = () => {
             setSyncing(true);
             setError(null);
             const result = await api.syncTemplatesFromMeta(selectedTenantId);
+            setMetaTemplates(result.templates || []);
             // Refresh templates list after sync - they're now in database
             fetchTemplates();
             setSuccess(`تم مزامنة ${result.synced || 0} قالب (${result.created || 0} جديد، ${result.updated || 0} محدث)`);

@@ -50,8 +50,6 @@ const TemplatePicker = ({ open, onClose, onSelect, templates = [] }) => {
             buttons: []
         };
 
-        const isNamed = template.parameter_format === 'named';
-
         if (template.body) {
             const matches = template.body.match(/\{\{([^}]+)\}\}/g);
             if (matches) {

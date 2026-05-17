@@ -96,7 +96,6 @@ const BroadcastManager = () => {
     const [sending, setSending] = useState(false);
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
-    const [jobId, setJobId] = useState(null);
     const [progressPct, setProgressPct] = useState(0);
 
     const variables = useMemo(() => extractVariables(selectedTemplate?.body), [selectedTemplate]);
@@ -173,14 +172,14 @@ const BroadcastManager = () => {
             try {
                 const data = await api.getAdminTemplates(selectedTenantId);
                 setTemplates(data || []);
-            } catch (err) {
+            } catch (_err) {
                 setTemplates([]);
             }
             try {
                 setContactsLoading(true);
                 const data = await api.getContacts({ tenant_id: selectedTenantId });
                 setContacts(data.contacts || data || []);
-            } catch (err) {
+            } catch (_err) {
                 setContacts([]);
             } finally {
                 setContactsLoading(false);
@@ -283,7 +282,6 @@ const BroadcastManager = () => {
             const data = await api.broadcastMessage(buildPayload());
 
             if (data.job_id) {
-                setJobId(data.job_id);
                 pollJobStatus(data.job_id);
             } else {
                 setResults(data);
@@ -307,12 +305,10 @@ const BroadcastManager = () => {
                     setResults({ total: job.total_recipients, sent: job.sent_count, failed: job.failed_count, results: parsedResults });
                     setActiveStep(3);
                     setSending(false);
-                    setJobId(null);
                 } else if (job.status === 'failed') {
                     clearInterval(interval);
                     setError(job.error || 'فشل البث');
                     setSending(false);
-                    setJobId(null);
                 }
             } catch {
                 // Continue polling on transient errors
@@ -331,7 +327,6 @@ const BroadcastManager = () => {
         setSelectedContactIds(new Set());
         setContactSearch('');
         setLabelFilter('');
-        setJobId(null);
         setProgressPct(0);
     };
 

@@ -40,10 +40,8 @@ import {
     Close as CloseIcon
 } from '@mui/icons-material';
 import api from '../../api';
-import { useAuth } from '../../context/AuthContext';
 
 const PhoneNumbers = () => {
-    const { user } = useAuth();
     const [phoneNumbers, setPhoneNumbers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -77,7 +75,7 @@ const PhoneNumbers = () => {
                 setSelectedTenant(tenantWithWaba.id);
                 setWabaId(tenantWithWaba.waba_id);
             }
-        } catch (err) {
+        } catch (_err) {
             setError('فشل جلب قائمة العملاء');
         }
     };

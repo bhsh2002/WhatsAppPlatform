@@ -47,7 +47,7 @@ const ChatSidebar = ({
     const [newChatPhone, setNewChatPhone] = useState('');
 
     const handleStartNewChat = () => {
-        const phone = newChatPhone.replace(/[\s\-\+]/g, '').trim();
+        const phone = newChatPhone.replace(/[\s+-]/g, '').trim();
         if (!phone || phone.length < 9) {
             alert('يرجى إدخال رقم هاتف صالح');
             return;
