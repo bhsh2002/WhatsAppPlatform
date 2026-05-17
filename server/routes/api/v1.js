@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { META_API_BASE } from '../../config/index.js';
 import { simpleUpload as upload, uploadDir, cleanupFile } from '../../config/upload.js';
 import { buildRichTemplateContent, normalizeTemplateComponents, parseTemplateShortcut } from '../../services/messaging.js';
+import { normalizeFilename } from '../../services/filenames.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -272,6 +273,7 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
         const tenantId = req.tenantId;
         const { recipient, caption, filename } = req.body;
         const file = req.file;
+        const displayFilename = file ? normalizeFilename(filename || file.originalname) : normalizeFilename(filename);
 
         if (!recipient || !file) {
             if (file) fs.unlinkSync(file.path);
@@ -294,7 +296,7 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
-        form.append('file', fs.createReadStream(file.path), file.originalname);
+        form.append('file', fs.createReadStream(file.path), displayFilename);
 
         const uploadResponse = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/media`, {
             method: 'POST',
@@ -329,7 +331,7 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
             type: 'document',
             document: {
                 id: mediaId,
-                filename: filename || file.originalname,
+                filename: displayFilename,
                 caption: caption || ''
             }
         };
@@ -359,7 +361,15 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
         db.prepare(`
             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
             VALUES (?, 'outgoing', ?, ?, 'document', ?, 'sent', ?, ?, ?)
-        `).run(tenantId, credentials.phoneNumberId, normalizedRecipient, caption || file.originalname, messageId, mediaId, file.mimetype);
+        `).run(
+            tenantId,
+            credentials.phoneNumberId,
+            normalizedRecipient,
+            caption ? `${displayFilename}\n\n${caption}` : displayFilename,
+            messageId,
+            mediaId,
+            file.mimetype
+        );
 
         res.json({
             success: true,

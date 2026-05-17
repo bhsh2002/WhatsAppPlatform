@@ -8,6 +8,7 @@ import {
     ALLOWED_DOCUMENT_MIMES,
     ALLOWED_MEDIA_MIMES,
 } from './index.js';
+import { normalizeFilename } from '../services/filenames.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,7 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        file.originalname = normalizeFilename(file.originalname, 'upload');
         cb(null, uniqueSuffix + '-' + file.originalname);
     },
 });

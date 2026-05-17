@@ -14,6 +14,7 @@ import {
     normalizeTemplateComponents,
     parseTemplateShortcut,
 } from '../services/messaging.js';
+import { normalizeFilename } from '../services/filenames.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -509,6 +510,8 @@ router.get('/media/:mediaId/download', async (req, res) => {
 router.post('/send-media', async (req, res) => {
     try {
         const { tenant_id, recipient, type, mediaUrl, caption } = req.body;
+        const hasDocumentFilename = type === 'document' && Boolean(req.body.filename);
+        const displayFilename = type === 'document' ? normalizeFilename(req.body.filename) : null;
 
         if (!recipient || !type || !mediaUrl) {
             return res.status(400).json({ error: 'Recipient, type, and mediaUrl are required' });
@@ -542,6 +545,9 @@ router.post('/send-media', async (req, res) => {
         if (caption && (type === 'image' || type === 'video' || type === 'document')) {
             payload[type].caption = caption;
         }
+        if (hasDocumentFilename) {
+            payload.document.filename = displayFilename;
+        }
 
         console.log('[Messages] Sending media to Meta:', JSON.stringify(payload, null, 2));
 
@@ -563,7 +569,7 @@ router.post('/send-media', async (req, res) => {
             sender: reqPhoneId,
             recipient: recipient,
             message_type: type,
-            content: caption || `[${type}]`,
+            content: type === 'document' ? (caption ? `${displayFilename}\n\n${caption}` : displayFilename) : (caption || `[${type}]`),
             status: response.ok ? 'sent' : 'failed',
             wamid: data.messages?.[0]?.id || null,
             error_message: data.error?.message || null,
@@ -627,12 +633,13 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         }
 
         // 1. Upload media directly to Phone Number ID (simpler than Resumable API)
+        const displayFilename = normalizeFilename(file.originalname, 'upload');
         const form = new FormData();
 
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
         form.append('file', fs.readFileSync(file.path), {
-            filename: file.originalname,
+            filename: displayFilename,
             contentType: file.mimetype
         });
 
@@ -680,6 +687,9 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             id: mediaId,
             caption: caption || ''
         };
+        if (type === 'document') {
+            payload.document.filename = displayFilename;
+        }
 
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
@@ -710,7 +720,7 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             sender: phoneNumberId,
             recipient: recipient,
             message_type: type,
-            content: caption || `[${type}]`,
+            content: type === 'document' ? (caption ? `${displayFilename}\n\n${caption}` : displayFilename) : (caption || `[${type}]`),
             status: 'sent',
             wamid: data.messages?.[0]?.id || null,
             error_message: null,

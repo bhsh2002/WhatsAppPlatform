@@ -24,6 +24,7 @@ import {
     normalizeMessengerTimestamp,
     selectMessengerMessages,
 } from '../services/messengerMessages.js';
+import { normalizeFilename } from '../services/filenames.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -673,10 +674,11 @@ router.post('/media/upload-to-meta', documentUpload.single('file'), async (req, 
             return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
         }
 
+        const displayFilename = normalizeFilename(file.originalname, 'upload');
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('file', fs.readFileSync(file.path), {
-            filename: file.originalname,
+            filename: displayFilename,
             contentType: file.mimetype
         });
 
@@ -756,16 +758,17 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         const formattedRecipient = recipient.replace(/\+/g, '').trim();
 
         // 1. Upload document to Meta
+        const displayFilename = normalizeFilename(filename || file.originalname);
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
         form.append('file', fs.readFileSync(file.path), {
-            filename: file.originalname,
+            filename: displayFilename,
             contentType: file.mimetype
         });
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
-        console.log(`[TenantPortal] Uploading document: ${file.originalname}`);
+        console.log(`[TenantPortal] Uploading document: ${displayFilename}`);
 
         // Convert form-data to buffer for compatibility with native fetch
         const formBuffer = form.getBuffer();
@@ -815,7 +818,7 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
             type: 'document',
             document: {
                 id: mediaId,
-                filename: filename || file.originalname,
+                filename: displayFilename,
                 caption: caption || ''
             }
         };
@@ -844,8 +847,8 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         // 3. Save to database
         // Store filename in content, caption can be appended if provided
         const displayContent = caption 
-            ? `${file.originalname}\n\n${caption}` 
-            : file.originalname;
+            ? `${displayFilename}\n\n${caption}` 
+            : displayFilename;
 
         db.prepare(`
             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
@@ -944,16 +947,17 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
         else if (file.mimetype.startsWith('audio/')) mediaType = 'audio';
 
         // 1. Upload media to Meta
+        const displayFilename = normalizeFilename(file.originalname, 'upload');
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
         form.append('type', file.mimetype);
         form.append('file', fs.readFileSync(file.path), {
-            filename: file.originalname,
+            filename: displayFilename,
             contentType: file.mimetype
         });
 
         const uploadUrl = `${META_API_BASE}/${phoneNumberId}/media`;
-        console.log(`[TenantPortal] Uploading ${mediaType}: ${file.originalname}`);
+        console.log(`[TenantPortal] Uploading ${mediaType}: ${displayFilename}`);
 
         // Convert form-data to buffer for compatibility with native fetch
         const formBuffer = form.getBuffer();
@@ -992,6 +996,9 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
                 caption: caption || ''
             }
         };
+        if (mediaType === 'document') {
+            payload.document.filename = displayFilename;
+        }
 
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
@@ -1020,7 +1027,7 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
             phoneNumberId,
             formattedRecipient,
             mediaType,
-            caption || `[${mediaType}]`,
+            mediaType === 'document' ? (caption ? `${displayFilename}\n\n${caption}` : displayFilename) : (caption || `[${mediaType}]`),
             data.messages?.[0]?.id || null,
             mediaId,
             file.mimetype
@@ -1039,7 +1046,7 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
             sender: phoneNumberId,
             recipient: formattedRecipient,
             message_type: mediaType,
-            content: caption || `[${mediaType}]`,
+            content: mediaType === 'document' ? (caption ? `${displayFilename}\n\n${caption}` : displayFilename) : (caption || `[${mediaType}]`),
             wamid: data.messages?.[0]?.id,
             created_at: new Date().toISOString(),
         });

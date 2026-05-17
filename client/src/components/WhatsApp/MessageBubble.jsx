@@ -11,6 +11,7 @@ import {
     LocationOn as LocationIcon,
     Contacts as ContactsIcon
 } from '@mui/icons-material';
+import { normalizeFilename } from '../../utils/filenames';
 
 const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMediaDownloadUrl }) => {
 
@@ -38,7 +39,10 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
 
         const headerType = String(header.type || '').toLowerCase();
         const mediaUrl = getHeaderMediaUrl(header);
-        const filename = header.filename || (!mediaUrl && header.text) || (headerType === 'document' ? 'مستند مرفق' : 'وسائط مرفقة');
+        const filename = normalizeFilename(
+            header.filename || (!mediaUrl && header.text) || '',
+            headerType === 'document' ? 'مستند مرفق' : 'وسائط مرفقة'
+        );
 
         if (headerType === 'image') {
             return mediaUrl && !imageError ? (
@@ -451,7 +455,12 @@ const MessageBubble = ({ message, isOutgoing, formatTime, getStatusIcon, getMedi
             // Parse filename and caption from content
             // Format: "filename\n\ncaption" or just "filename"
             const contentLines = (content || '').split('\n\n');
-            const filename = contentLines[0] || 'مستند';
+            const rawFilename = contentLines[0] || 'مستند';
+            const wrappedFilename = rawFilename.match(/^\[(?:Document|Video|Audio):\s*(.*?)\]$/i)?.[1] || rawFilename;
+            const filename = normalizeFilename(
+                wrappedFilename === `[${type}]` ? '' : wrappedFilename,
+                type === 'document' ? 'مستند' : 'ملف مرفق'
+            );
             const caption = contentLines.length > 1 ? contentLines.slice(1).join('\n\n') : '';
 
             return (

@@ -9,6 +9,7 @@ import {
     insertMessengerMessage,
     normalizeMessengerTimestamp,
 } from '../services/messengerMessages.js';
+import { normalizeFilename } from '../services/filenames.js';
 
 const router = express.Router();
 
@@ -715,7 +716,7 @@ function extractMessageContent(message) {
         case 'audio':
             return '[Audio message]';
         case 'document':
-            return `[Document: ${message.document?.filename || 'Unknown'}]`;
+            return normalizeFilename(message.document?.filename, 'مستند');
         case 'location':
             return `[Location: ${message.location?.latitude}, ${message.location?.longitude}]`;
         case 'sticker':
@@ -744,7 +745,7 @@ function extractMediaInfo(message) {
             return {
                 id: message[type].id || null,
                 mimeType: message[type].mime_type || null,
-                filename: message[type].filename || null,
+                filename: message[type].filename ? normalizeFilename(message[type].filename) : null,
             };
         }
     }
