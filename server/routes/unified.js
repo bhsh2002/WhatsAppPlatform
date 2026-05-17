@@ -4,6 +4,11 @@ import { META_API_BASE } from '../config/index.js';
 import { resolveCredentials } from '../services/credentials.js';
 import { decryptIfEncrypted } from '../services/encryption.js';
 import eventBus from '../services/eventBus.js';
+import {
+    insertMessengerMessage,
+    normalizeMessengerTimestamp,
+    selectMessengerMessages,
+} from '../services/messengerMessages.js';
 
 const router = express.Router();
 
@@ -74,7 +79,11 @@ router.get('/conversations', (req, res) => {
                     fc.user_psid as contact_id,
                     fc.tenant_id,
                     tenants.name as tenant_name,
-                    fc.last_message_time,
+                    CASE
+                        WHEN fc.last_message_time GLOB '????-??-??T??:??:??*'
+                            THEN datetime(substr(replace(fc.last_message_time, 'T', ' '), 1, 19), 'localtime')
+                        ELSE fc.last_message_time
+                    END AS last_message_time,
                     fc.last_message,
                     NULL as last_message_type,
                     fc.user_name as display_name,
@@ -94,7 +103,7 @@ router.get('/conversations', (req, res) => {
                 fbQuery += ` AND fc.tenant_id = ?`;
                 fbParams.push(tenantIdFilter);
             }
-            fbQuery += ` ORDER BY fc.last_message_time DESC NULLS LAST`;
+            fbQuery += ` ORDER BY last_message_time DESC NULLS LAST`;
             fbConversations.push(...db.prepare(fbQuery).all(...fbParams));
         }
 
@@ -142,24 +151,10 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
                 return res.status(400).json({ error: 'conversation_id is required for messenger channel' });
             }
 
-            const messages = db.prepare(`
-                SELECT
-                    id, 'messenger' as channel, direction,
-                    sender_name,
-                    message_text,
-                    CASE
-                        WHEN attachment_type IS NOT NULL THEN attachment_type
-                        WHEN sticker_url IS NOT NULL THEN 'sticker'
-                        ELSE 'text'
-                    END as message_type,
-                    attachment_url,
-                    sticker_url,
-                    is_read,
-                    created_at
-                FROM fb_messages
-                WHERE conversation_id = ?
-                ORDER BY created_at ASC
-            `).all(parseInt(conversation_id));
+            const messages = selectMessengerMessages(db, {
+                conversationId: parseInt(conversation_id),
+                unified: true,
+            });
 
             res.json(messages);
         } else {
@@ -270,16 +265,23 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                 const mid = sendData.message_id;
 
                 if (conv) {
-                    db.prepare(`
-                        INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
-                        VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
-                    `).run(conv.id, conv.tenant_id, mid, page.page_id, page.page_name, message.trim());
+                    const createdAt = normalizeMessengerTimestamp();
+                    insertMessengerMessage(db, {
+                        conversationId: conv.id,
+                        tenantId: conv.tenant_id,
+                        mid,
+                        direction: 'outgoing',
+                        senderId: page.page_id,
+                        senderName: page.page_name,
+                        messageText: message.trim(),
+                        createdAt,
+                    });
 
                     db.prepare(`
                         UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = datetime('now', 'localtime')
+                        SET last_message = ?, last_message_time = ?
                         WHERE id = ?
-                    `).run(message.trim().substring(0, 100), conv.id);
+                    `).run(message.trim().substring(0, 100), createdAt, conv.id);
 
                     eventBus.broadcast('admin', 'fb_message:new', {
                         tenant_id: conv.tenant_id,

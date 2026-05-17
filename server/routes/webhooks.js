@@ -5,6 +5,10 @@ import eventBus from '../services/eventBus.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
 import { processIncomingMessage, processIncomingComment, processIncomingReaction } from '../services/autoResponder.js';
+import {
+    insertMessengerMessage,
+    normalizeMessengerTimestamp,
+} from '../services/messengerMessages.js';
 
 const router = express.Router();
 
@@ -553,8 +557,11 @@ router.post('/', async (req, res) => {
                             const stickerUrl = msgEvent.message.sticker_url || null;
 
                             // Deduplicate by mid
-                            const existingMsg = db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid);
+                            const existingMsg = mid ? db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid) : null;
                             if (existingMsg) continue;
+                            const messageCreatedAt = normalizeMessengerTimestamp(
+                                msgEvent.timestamp || new Date()
+                            );
 
                             // Upsert conversation
                             let conv = db.prepare(
@@ -582,7 +589,7 @@ router.post('/', async (req, res) => {
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
                                 `).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic,
                                     (messageText || '[مرفق]').substring(0, 100),
-                                    msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString());
+                                    messageCreatedAt);
 
                                 conv = db.prepare(
                                     'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
@@ -595,7 +602,7 @@ router.post('/', async (req, res) => {
                                     WHERE id = ?
                                 `).run(
                                     (messageText || '[مرفق]').substring(0, 100),
-                                    msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString(),
+                                    messageCreatedAt,
                                     conv.id
                                 );
                             }
@@ -610,14 +617,19 @@ router.post('/', async (req, res) => {
 
                             // Insert message
                             if (conv) {
-                                db.prepare(`
-                                    INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, attachment_type, attachment_url, sticker_url, created_at)
-                                    VALUES (?, ?, ?, 'incoming', ?, ?, ?, ?, ?, ?, ?)
-                                `).run(
-                                    conv.id, linkedPage.tenant_id, mid, senderId, conv.user_name,
-                                    messageText, attachmentType, attachmentUrl, stickerUrl,
-                                    msgEvent.timestamp ? new Date(msgEvent.timestamp).toISOString() : new Date().toISOString()
-                                );
+                                insertMessengerMessage(db, {
+                                    conversationId: conv.id,
+                                    tenantId: linkedPage.tenant_id,
+                                    mid,
+                                    direction: 'incoming',
+                                    senderId,
+                                    senderName: conv.user_name,
+                                    messageText,
+                                    attachmentType,
+                                    attachmentUrl,
+                                    stickerUrl,
+                                    createdAt: messageCreatedAt,
+                                });
                             }
 
                             // Emit SSE for real-time UI update

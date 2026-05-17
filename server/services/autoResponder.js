@@ -3,6 +3,7 @@ import { META_API_BASE } from '../config/index.js';
 import { resolveCredentials } from './credentials.js';
 import { decryptIfEncrypted } from './encryption.js';
 import eventBus from './eventBus.js';
+import { insertMessengerMessage, normalizeMessengerTimestamp } from './messengerMessages.js';
 
 // ============================================
 // Auto-Responder Service
@@ -452,17 +453,24 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
         if (conv) {
             // Store outgoing message
             const linkedPageRow = db.prepare('SELECT page_name FROM tenant_pages WHERE id = ?').get(linked_page_id);
-            db.prepare(`
-                INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
-                VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
-            `).run(conv.id, tenant_id, mid, page_id, linkedPageRow?.page_name || page_id, responseText);
+            const createdAt = normalizeMessengerTimestamp();
+            insertMessengerMessage(db, {
+                conversationId: conv.id,
+                tenantId: tenant_id,
+                mid,
+                direction: 'outgoing',
+                senderId: page_id,
+                senderName: linkedPageRow?.page_name || page_id,
+                messageText: responseText,
+                createdAt,
+            });
 
             // Update conversation
             db.prepare(`
                 UPDATE fb_conversations
-                SET last_message = ?, last_message_time = datetime('now', 'localtime')
+                SET last_message = ?, last_message_time = ?
                 WHERE id = ?
-            `).run(responseText.substring(0, 100), conv.id);
+            `).run(responseText.substring(0, 100), createdAt, conv.id);
 
             // SSE update
             eventBus.broadcast('admin', 'fb_message:new', {
@@ -678,21 +686,23 @@ async function sendCommentAutoReply(rule, {
                 ).get(commenter_id, linked_page_id);
 
                 if (conv) {
-                    db.prepare(`
-                        INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
-                        VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
-                    `).run(
-                        conv.id, tenant_id,
-                        data.id || `dm_${comment_id}_${Date.now()}`,
-                        page.page_id, page.page_name,
-                        dmMessage
-                    );
+                    const createdAt = normalizeMessengerTimestamp();
+                    insertMessengerMessage(db, {
+                        conversationId: conv.id,
+                        tenantId: tenant_id,
+                        mid: data.id || data.message_id || `dm_${comment_id}_${Date.now()}`,
+                        direction: 'outgoing',
+                        senderId: page.page_id,
+                        senderName: page.page_name,
+                        messageText: dmMessage,
+                        createdAt,
+                    });
 
                     db.prepare(`
                         UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = datetime('now', 'localtime')
+                        SET last_message = ?, last_message_time = ?
                         WHERE id = ?
-                    `).run(dmMessage.substring(0, 100), conv.id);
+                    `).run(dmMessage.substring(0, 100), createdAt, conv.id);
                 }
             } else {
                 console.error(`[AutoResponder] DM failed:`, data.error?.message);
@@ -859,21 +869,23 @@ async function sendReactionAutoReply(rule, {
             ).get(reactor_id, linked_page_id);
 
             if (conv) {
-                db.prepare(`
-                    INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
-                    VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
-                `).run(
-                    conv.id, tenant_id,
-                    data.message_id || `reaction_dm_${post_id}_${Date.now()}`,
-                    page.page_id, page.page_name,
-                    dmMessage
-                );
+                const createdAt = normalizeMessengerTimestamp();
+                insertMessengerMessage(db, {
+                    conversationId: conv.id,
+                    tenantId: tenant_id,
+                    mid: data.message_id || data.id || `reaction_dm_${post_id}_${Date.now()}`,
+                    direction: 'outgoing',
+                    senderId: page.page_id,
+                    senderName: page.page_name,
+                    messageText: dmMessage,
+                    createdAt,
+                });
 
                 db.prepare(`
                     UPDATE fb_conversations
-                    SET last_message = ?, last_message_time = datetime('now', 'localtime')
+                    SET last_message = ?, last_message_time = ?
                     WHERE id = ?
-                `).run(dmMessage.substring(0, 100), conv.id);
+                `).run(dmMessage.substring(0, 100), createdAt, conv.id);
             }
 
             return true;

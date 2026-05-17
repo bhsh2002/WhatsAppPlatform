@@ -12,6 +12,12 @@ import { decryptIfEncrypted, encrypt } from '../services/encryption.js';
 import { substituteVariables, buildInteractivePayload, saveOutgoingMessage } from '../services/messaging.js';
 import { getAccessToken } from '../services/credentials.js';
 import { testRules } from '../services/autoResponder.js';
+import {
+    getTimestampMs,
+    insertMessengerMessage,
+    normalizeMessengerTimestamp,
+    selectMessengerMessages,
+} from '../services/messengerMessages.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2511,7 +2517,11 @@ router.get('/unified/conversations', async (req, res) => {
                     fc.user_psid as contact_id,
                     fc.tenant_id,
                     tenants.name as tenant_name,
-                    fc.last_message_time,
+                    CASE
+                        WHEN fc.last_message_time GLOB '????-??-??T??:??:??*'
+                            THEN datetime(substr(replace(fc.last_message_time, 'T', ' '), 1, 19), 'localtime')
+                        ELSE fc.last_message_time
+                    END AS last_message_time,
                     fc.last_message,
                     NULL as last_message_type,
                     fc.user_name as display_name,
@@ -2525,7 +2535,7 @@ router.get('/unified/conversations', async (req, res) => {
                 LEFT JOIN tenants ON tenants.id = fc.tenant_id
                 LEFT JOIN tenant_pages tp ON tp.id = fc.linked_page_id
                 WHERE fc.is_active = 1 AND fc.tenant_id = ?
-                ORDER BY fc.last_message_time DESC NULLS LAST
+                ORDER BY last_message_time DESC NULLS LAST
             `;
             fbConversations.push(...db.prepare(fbQuery).all(tenantId));
         }
@@ -2592,24 +2602,11 @@ router.get('/unified/:channel/:id/messages', async (req, res) => {
                 WHERE id = ? AND tenant_id = ?
             `).run(conversationId, tenantId);
 
-            const messages = db.prepare(`
-                SELECT
-                    id, 'messenger' as channel, direction,
-                    sender_name,
-                    message_text,
-                    CASE
-                        WHEN attachment_type IS NOT NULL THEN attachment_type
-                        WHEN sticker_url IS NOT NULL THEN 'sticker'
-                        ELSE 'text'
-                    END as message_type,
-                    attachment_url,
-                    sticker_url,
-                    is_read,
-                    created_at
-                FROM fb_messages
-                WHERE conversation_id = ? AND tenant_id = ?
-                ORDER BY created_at ASC
-            `).all(conversationId, tenantId);
+            const messages = selectMessengerMessages(db, {
+                conversationId,
+                tenantId,
+                unified: true,
+            });
 
             res.json(messages);
         } else {
@@ -2735,16 +2732,23 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                 const mid = sendData.message_id;
 
                 if (conv) {
-                    db.prepare(`
-                        INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text)
-                        VALUES (?, ?, ?, 'outgoing', ?, ?, ?)
-                    `).run(conv.id, tenantId, mid, page.page_id, page.page_name, message.trim());
+                    const createdAt = normalizeMessengerTimestamp();
+                    insertMessengerMessage(db, {
+                        conversationId: conv.id,
+                        tenantId,
+                        mid,
+                        direction: 'outgoing',
+                        senderId: page.page_id,
+                        senderName: page.page_name,
+                        messageText: message.trim(),
+                        createdAt,
+                    });
 
                     db.prepare(`
                         UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = datetime('now', 'localtime')
+                        SET last_message = ?, last_message_time = ?
                         WHERE id = ?
-                    `).run(message.trim().substring(0, 100), conv.id);
+                    `).run(message.trim().substring(0, 100), createdAt, conv.id);
 
                     eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
                         tenant_id: tenantId,
@@ -2800,7 +2804,7 @@ router.post('/unified/messenger/sync', async (req, res) => {
 
             try {
                 const response = await fetch(
-                    `${META_API_BASE}/${page.page_id}/conversations?fields=participants,messages.limit(10){message,from,created_time,attachments},updated_time&limit=25`,
+                    `${META_API_BASE}/${page.page_id}/conversations?fields=participants,messages.limit(10){message,from,created_time,mid,attachments},updated_time&limit=25`,
                     { headers: { 'Authorization': `Bearer ${accessToken}` } }
                 );
                 const data = await response.json();
@@ -2815,10 +2819,10 @@ router.post('/unified/messenger/sync', async (req, res) => {
                     const userName = userParticipant.name || null;
                     const messages = conv.messages?.data || [];
                     const lastMsg = messages.length > 0
-                        ? messages.reduce((a, b) => (a.created_time > b.created_time ? a : b))
+                        ? messages.reduce((a, b) => (getTimestampMs(a.created_time) > getTimestampMs(b.created_time) ? a : b))
                         : null;
                     const lastMsgText = lastMsg ? (lastMsg.message || '[مرفق]').substring(0, 100) : '';
-                    const lastMsgTime = conv.updated_time || (lastMsg ? lastMsg.created_time : null) || new Date().toISOString();
+                    const lastMsgTime = normalizeMessengerTimestamp(conv.updated_time || (lastMsg ? lastMsg.created_time : null));
 
                     let dbConv = db.prepare(
                         'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
@@ -2835,8 +2839,8 @@ router.post('/unified/messenger/sync', async (req, res) => {
                         ).get(page.id, userPsid);
                         totalConversations++;
                     } else {
-                        const existingTime = dbConv.last_message_time ? new Date(dbConv.last_message_time).getTime() : 0;
-                        const newTime = new Date(lastMsgTime).getTime();
+                        const existingTime = dbConv.last_message_time ? getTimestampMs(dbConv.last_message_time) : 0;
+                        const newTime = getTimestampMs(lastMsgTime);
                         if (newTime > existingTime) {
                             db.prepare(`
                                 UPDATE fb_conversations SET
@@ -2849,16 +2853,20 @@ router.post('/unified/messenger/sync', async (req, res) => {
                     }
 
                     for (const msg of messages) {
-                        const mid = msg.mid || `${dbConv.id}_${msg.from?.id || 'unknown'}_${msg.created_time || Date.now()}`;
-                        const existing = db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid);
-                        if (existing) continue;
-
                         const direction = msg.from?.id === page.page_id ? 'outgoing' : 'incoming';
-                        db.prepare(`
-                            INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        `).run(dbConv.id, tenantId, mid, direction, msg.from?.id, msg.from?.name, msg.message || '', msg.created_time || new Date().toISOString());
-                        totalMessages++;
+                        const result = insertMessengerMessage(db, {
+                            conversationId: dbConv.id,
+                            tenantId,
+                            mid: msg.mid,
+                            direction,
+                            senderId: msg.from?.id,
+                            senderName: msg.from?.name,
+                            messageText: msg.message || '',
+                            attachmentType: msg.attachments?.data?.[0]?.type || null,
+                            attachmentUrl: msg.attachments?.data?.[0]?.payload?.url || null,
+                            createdAt: msg.created_time,
+                        });
+                        if (result.inserted) totalMessages++;
                     }
                 }
             } catch (pageErr) {
@@ -3785,14 +3793,21 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
 
         const mid = sendData.message_id;
 
-        db.prepare(`
-            INSERT INTO fb_messages (conversation_id, tenant_id, mid, direction, sender_id, sender_name, message_text, created_at)
-            VALUES (?, ?, ?, 'outgoing', ?, ?, ?, ?)
-        `).run(conv.id, tenantId, mid, page.page_id, page.page_name, `[${tag}] ${message}`, new Date().toISOString());
+        const createdAt = normalizeMessengerTimestamp();
+        insertMessengerMessage(db, {
+            conversationId: conv.id,
+            tenantId,
+            mid,
+            direction: 'outgoing',
+            senderId: page.page_id,
+            senderName: page.page_name,
+            messageText: `[${tag}] ${message}`,
+            createdAt,
+        });
 
         db.prepare(`
             UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
-        `).run(message.substring(0, 100), new Date().toISOString(), conv.id);
+        `).run(message.substring(0, 100), createdAt, conv.id);
 
         eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
             tenant_id: tenantId,
