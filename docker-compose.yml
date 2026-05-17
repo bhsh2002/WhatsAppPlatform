@@ -2,6 +2,8 @@ services:
   server:
     build: ./server
     container_name: whatsapp-platform-server
+    environment:
+      TZ: Africa/Tripoli
     ports:
       - "3031:3031"
     volumes:
@@ -14,6 +16,8 @@ services:
   client:
     build: ./client
     container_name: whatsapp-platform-client
+    environment:
+      TZ: Africa/Tripoli
     ports:
       - "3133:80"
     depends_on:

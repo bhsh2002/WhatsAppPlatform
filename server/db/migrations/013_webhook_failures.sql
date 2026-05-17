@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS webhook_failures (
     error_message TEXT,
     retry_count INTEGER DEFAULT 0,
     last_retry_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     resolved_at DATETIME,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 );

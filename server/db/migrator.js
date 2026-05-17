@@ -23,7 +23,7 @@ export function runMigrationsSync(db) {
         CREATE TABLE IF NOT EXISTS _migrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            applied_at DATETIME DEFAULT (datetime('now', 'localtime'))
         )
     `);
 

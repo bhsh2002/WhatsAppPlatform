@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS tenant_pages (
     is_active INTEGER DEFAULT 1,
     subscribed_fields TEXT DEFAULT '["feed","messages","messaging_postbacks"]',
     webhook_subscribed INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 

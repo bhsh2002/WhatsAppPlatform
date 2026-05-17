@@ -26,7 +26,7 @@ export async function checkTokenHealth() {
 
         if (!token) {
             db.prepare(
-                "UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now') WHERE id = ?"
+                "UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
             ).run(tenant.id);
             continue;
         }
@@ -40,7 +40,7 @@ export async function checkTokenHealth() {
 
             if (data.error) {
                 db.prepare(
-                    "UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now') WHERE id = ?"
+                    "UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(tenant.id);
                 errors++;
                 continue;
@@ -68,7 +68,7 @@ export async function checkTokenHealth() {
             }
 
             db.prepare(
-                `UPDATE tenants SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now') WHERE id = ?`
+                `UPDATE tenants SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now', 'localtime') WHERE id = ?`
             ).run(status, expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null, tenant.id);
             checked++;
         } catch (err) {
@@ -88,7 +88,7 @@ export async function checkTokenHealth() {
 
         if (!token) {
             db.prepare(
-                "UPDATE tenant_pages SET token_status = 'invalid', token_checked_at = datetime('now') WHERE id = ?"
+                "UPDATE tenant_pages SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
             ).run(page.id);
             continue;
         }
@@ -102,7 +102,7 @@ export async function checkTokenHealth() {
 
             if (data.error) {
                 db.prepare(
-                    "UPDATE tenant_pages SET token_status = 'invalid', token_checked_at = datetime('now') WHERE id = ?"
+                    "UPDATE tenant_pages SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(page.id);
                 continue;
             }
@@ -129,7 +129,7 @@ export async function checkTokenHealth() {
             }
 
             db.prepare(
-                `UPDATE tenant_pages SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now') WHERE id = ?`
+                `UPDATE tenant_pages SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now', 'localtime') WHERE id = ?`
             ).run(status, expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null, page.id);
             checked++;
         } catch (err) {
@@ -154,7 +154,7 @@ export async function checkSingleTenant(tenantId) {
         : tenant.access_token;
 
     if (!token) {
-        db.prepare("UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now') WHERE id = ?").run(tenantId);
+        db.prepare("UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?").run(tenantId);
         return { status: 'invalid', expires_at: null };
     }
 
@@ -165,7 +165,7 @@ export async function checkSingleTenant(tenantId) {
     const data = await response.json();
 
     if (data.error) {
-        db.prepare("UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now') WHERE id = ?").run(tenantId);
+        db.prepare("UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?").run(tenantId);
         return { status: 'invalid', error: data.error.message, expires_at: null };
     }
 
@@ -191,7 +191,7 @@ export async function checkSingleTenant(tenantId) {
     }
 
     db.prepare(
-        `UPDATE tenants SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now') WHERE id = ?`
+        `UPDATE tenants SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now', 'localtime') WHERE id = ?`
     ).run(status, expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null, tenantId);
 
     return {

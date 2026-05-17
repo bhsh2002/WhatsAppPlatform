@@ -128,7 +128,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
             const subscribeData = await subscribeResponse.json();
 
             if (subscribeResponse.ok && subscribeData.success !== false) {
-                db.prepare('UPDATE tenant_pages SET webhook_subscribed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                db.prepare("UPDATE tenant_pages SET webhook_subscribed = 1, updated_at = datetime('now', 'localtime') WHERE id = ?")
                     .run(newPage.id);
                 webhookSubscribed = true;
             } else {
@@ -198,7 +198,7 @@ router.put('/:id', (req, res) => {
             return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });
         }
 
-        setClauses.push('updated_at = CURRENT_TIMESTAMP');
+        setClauses.push("updated_at = datetime('now', 'localtime')");
         values.push(id);
 
         db.prepare(`UPDATE tenant_pages SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
@@ -301,7 +301,7 @@ router.post('/:id/verify', async (req, res) => {
             values.push(data.picture.data.url);
         }
         if (updates.length > 0) {
-            updates.push('updated_at = CURRENT_TIMESTAMP');
+            updates.push("updated_at = datetime('now', 'localtime')");
             values.push(id);
             db.prepare(`UPDATE tenant_pages SET ${updates.join(', ')} WHERE id = ?`).run(...values);
         }
@@ -362,7 +362,7 @@ router.post('/:id/subscribe', async (req, res) => {
             });
         }
 
-        db.prepare('UPDATE tenant_pages SET webhook_subscribed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE tenant_pages SET webhook_subscribed = 1, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run(id);
 
         const updated = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(id);

@@ -241,11 +241,11 @@ router.post('/', async (req, res) => {
                             if (phone) {
                                 db.prepare(`
                                     INSERT INTO contacts (tenant_id, phone, profile_name, last_customer_message_at, updated_at)
-                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
                                     ON CONFLICT(tenant_id, phone) DO UPDATE SET
                                         profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
-                                        last_customer_message_at = CURRENT_TIMESTAMP,
-                                        updated_at = CURRENT_TIMESTAMP
+                                        last_customer_message_at = datetime('now', 'localtime'),
+                                        updated_at = datetime('now', 'localtime')
                                 `).run(tenantId, phone, profileName);
                             }
                         });
@@ -411,7 +411,7 @@ router.post('/', async (req, res) => {
 
                         if (tenantId && message_template_id) {
                             db.prepare(`
-                                UPDATE templates SET status = ?, updated_at = CURRENT_TIMESTAMP
+                                UPDATE templates SET status = ?, updated_at = datetime('now', 'localtime')
                                 WHERE meta_template_id = ?
                             `).run((event || '').toLowerCase(), message_template_id);
 
@@ -425,7 +425,7 @@ router.post('/', async (req, res) => {
 
                         if (tenant && message_template_id) {
                             db.prepare(`
-                                UPDATE templates SET quality_score = ?, updated_at = CURRENT_TIMESTAMP
+                                UPDATE templates SET quality_score = ?, updated_at = datetime('now', 'localtime')
                                 WHERE meta_template_id = ?
                             `).run(new_quality_score || 'UNKNOWN', message_template_id);
 
@@ -591,7 +591,7 @@ router.post('/', async (req, res) => {
                                 db.prepare(`
                                     UPDATE fb_conversations SET 
                                         last_message = ?, last_message_time = ?,
-                                        unread_count = unread_count + 1, updated_at = CURRENT_TIMESTAMP
+                                        unread_count = unread_count + 1, updated_at = datetime('now', 'localtime')
                                     WHERE id = ?
                                 `).run(
                                     (messageText || '[مرفق]').substring(0, 100),

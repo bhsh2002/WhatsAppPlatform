@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     jti TEXT UNIQUE NOT NULL,
     user_id INTEGER,
-    revoked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME DEFAULT (datetime('now', 'localtime')),
     expires_at DATETIME NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

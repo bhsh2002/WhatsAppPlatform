@@ -27,7 +27,7 @@ function revokeToken(jti, userId) {
 function revokeAllUserTokens(userId) {
     // Set tokens_revoked_at to current time
     // All tokens issued before this time will be considered invalid
-    db.prepare('UPDATE users SET tokens_revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    db.prepare("UPDATE users SET tokens_revoked_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime') WHERE id = ?")
         .run(userId);
 }
 
@@ -121,7 +121,7 @@ router.post('/login', async (req, res) => {
         }
 
         // Update last login
-        db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+        db.prepare("UPDATE users SET last_login = datetime('now', 'localtime') WHERE id = ?").run(user.id);
 
         // Generate token with tenant_id if applicable
         const tokenPayload = {
@@ -240,7 +240,7 @@ router.post('/change-password', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(newPassword, salt);
 
-        db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run(password_hash, decoded.id);
 
         // Revoke the current token (user must re-login)

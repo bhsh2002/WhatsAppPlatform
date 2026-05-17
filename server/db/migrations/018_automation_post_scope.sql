@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS automation_rules_new (
     auto_like INTEGER DEFAULT 0,
     auto_like_type TEXT DEFAULT 'like',
 
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Step 2: Copy existing data

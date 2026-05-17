@@ -44,7 +44,7 @@ export function upsertContact({ tenantId, phone, profileName, profilePictureUrl 
             updates.push('profile_picture_url = COALESCE(?, profile_picture_url)');
             values.push(profilePictureUrl);
         }
-        updates.push('updated_at = CURRENT_TIMESTAMP');
+        updates.push("updated_at = datetime('now', 'localtime')");
         
         if (updates.length > 1) {
             values.push(tenantId || null, phone);
@@ -74,13 +74,13 @@ export function updateLastCustomerMessage(phone, tenantId = null) {
     if (tenantId) {
         db.prepare(`
             UPDATE contacts 
-            SET last_customer_message_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+            SET last_customer_message_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime') 
             WHERE tenant_id = ? AND phone = ?
         `).run(tenantId, phone);
     } else {
         db.prepare(`
             UPDATE contacts 
-            SET last_customer_message_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+            SET last_customer_message_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime') 
             WHERE phone = ? AND tenant_id IS NULL
         `).run(phone);
     }

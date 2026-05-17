@@ -139,7 +139,7 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
 
         // Update conversation
         db.prepare(`
-            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(message.substring(0, 100), new Date().toISOString(), conv.id);
 
         // Emit SSE
@@ -182,7 +182,7 @@ router.post('/:linkedPageId/conversations/:conversationId/read', (req, res) => {
             return res.status(404).json({ error: 'المحادثة غير موجودة' });
         }
 
-        db.prepare('UPDATE fb_conversations SET unread_count = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(conv.id);
+        db.prepare("UPDATE fb_conversations SET unread_count = 0, updated_at = datetime('now', 'localtime') WHERE id = ?").run(conv.id);
         db.prepare('UPDATE fb_messages SET is_read = 1 WHERE conversation_id = ? AND direction = ? AND is_read = 0').run(conv.id, 'incoming');
 
         res.json({ success: true });
@@ -259,7 +259,7 @@ router.post('/:linkedPageId/sync', async (req, res) => {
                         UPDATE fb_conversations SET
                             last_message = ?, last_message_time = ?,
                             user_name = COALESCE(?, user_name),
-                            updated_at = CURRENT_TIMESTAMP
+                            updated_at = datetime('now', 'localtime')
                         WHERE id = ?
                     `).run(lastMsgText, lastMsgTime, userName, dbConv.id);
                 }
@@ -361,7 +361,7 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
 
         // Update conversation
         db.prepare(`
-            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(message.substring(0, 100), new Date().toISOString(), conv.id);
 
         // Emit SSE

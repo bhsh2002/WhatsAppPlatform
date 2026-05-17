@@ -1066,7 +1066,7 @@ async function processBroadcastJob(jobId, params) {
 
         db.prepare(`
             UPDATE broadcast_jobs SET status = 'completed', sent_count = ?, failed_count = ?,
-                progress_pct = 100, results = ?, completed_at = datetime('now') WHERE id = ?
+                progress_pct = 100, results = ?, completed_at = datetime('now', 'localtime') WHERE id = ?
         `).run(sent, failed, JSON.stringify(results), jobId);
 
         eventBus.broadcast('admin', 'broadcast:complete', { job_id: jobId, sent, failed });
@@ -1074,7 +1074,7 @@ async function processBroadcastJob(jobId, params) {
     } catch (error) {
         console.error('[Messages] Broadcast job error:', error);
         db.prepare(`
-            UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE id = ?
+            UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now', 'localtime') WHERE id = ?
         `).run(error.message, jobId);
         eventBus.broadcast('admin', 'broadcast:complete', { job_id: jobId, sent: 0, failed: 0, error: error.message });
     }
@@ -1148,7 +1148,7 @@ router.put('/contacts/:id', (req, res) => {
                 label = COALESCE(?, label),
                 notes = COALESCE(?, notes),
                 profile_name = COALESCE(?, profile_name),
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = datetime('now', 'localtime')
             WHERE id = ?
         `).run(label, notes, profile_name, req.params.id);
 
@@ -1185,7 +1185,7 @@ router.post('/contacts', async (req, res) => {
 
             const result = db.prepare(`
                 INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
-                VALUES (NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (NULL, ?, ?, ?, ?, datetime('now', 'localtime'))
             `).run(formattedPhone, profile_name || null, label || null, notes || null);
 
             const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
@@ -1202,7 +1202,7 @@ router.post('/contacts', async (req, res) => {
         if (!verify) {
             const result = db.prepare(`
                 INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
             `).run(tenant_id, formattedPhone, profile_name || null, label || null, notes || null);
 
             const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
@@ -1266,7 +1266,7 @@ router.post('/contacts', async (req, res) => {
 
         const result = db.prepare(`
             INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
         `).run(tenant_id, waId, profile_name || label || null, label || null, notes || null);
 
         const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);

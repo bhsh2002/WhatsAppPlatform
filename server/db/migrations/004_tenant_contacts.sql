@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS contacts_new (
     phone TEXT NOT NULL,
     profile_name TEXT,
     profile_picture_url TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     UNIQUE(tenant_id, phone),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );

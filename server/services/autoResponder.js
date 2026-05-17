@@ -76,7 +76,7 @@ export async function processIncomingMessage({
                 db.prepare(`
                     UPDATE automation_rules
                     SET trigger_count = trigger_count + 1,
-                        last_triggered_at = datetime('now')
+                        last_triggered_at = datetime('now', 'localtime')
                     WHERE id = ?
                 `).run(rule.id);
 
@@ -165,9 +165,9 @@ function isOnCooldown(ruleId, contactId, channel, cooldownSeconds) {
 function updateCooldown(ruleId, contactId, channel) {
     db.prepare(`
         INSERT INTO automation_cooldowns (rule_id, contact_id, channel, last_triggered_at)
-        VALUES (?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(rule_id, contact_id, channel) DO UPDATE SET
-            last_triggered_at = datetime('now')
+            last_triggered_at = datetime('now', 'localtime')
     `).run(ruleId, contactId, channel);
 }
 
@@ -460,7 +460,7 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
             // Update conversation
             db.prepare(`
                 UPDATE fb_conversations
-                SET last_message = ?, last_message_time = datetime('now')
+                SET last_message = ?, last_message_time = datetime('now', 'localtime')
                 WHERE id = ?
             `).run(responseText.substring(0, 100), conv.id);
 
@@ -549,7 +549,7 @@ export async function processIncomingComment({
                 db.prepare(`
                     UPDATE automation_rules
                     SET trigger_count = trigger_count + 1,
-                        last_triggered_at = datetime('now')
+                        last_triggered_at = datetime('now', 'localtime')
                     WHERE id = ?
                 `).run(rule.id);
 
@@ -690,7 +690,7 @@ async function sendCommentAutoReply(rule, {
 
                     db.prepare(`
                         UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = datetime('now')
+                        SET last_message = ?, last_message_time = datetime('now', 'localtime')
                         WHERE id = ?
                     `).run(dmMessage.substring(0, 100), conv.id);
                 }
@@ -785,7 +785,7 @@ export async function processIncomingReaction({
                 db.prepare(`
                     UPDATE automation_rules
                     SET trigger_count = trigger_count + 1,
-                        last_triggered_at = datetime('now')
+                        last_triggered_at = datetime('now', 'localtime')
                     WHERE id = ?
                 `).run(rule.id);
 
@@ -871,7 +871,7 @@ async function sendReactionAutoReply(rule, {
 
                 db.prepare(`
                     UPDATE fb_conversations
-                    SET last_message = ?, last_message_time = datetime('now')
+                    SET last_message = ?, last_message_time = datetime('now', 'localtime')
                     WHERE id = ?
                 `).run(dmMessage.substring(0, 100), conv.id);
             }

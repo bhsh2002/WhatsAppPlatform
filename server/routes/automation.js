@@ -198,7 +198,7 @@ router.put('/rules/:id', (req, res) => {
                 trigger_on = ?,
                 auto_like = ?,
                 auto_like_type = ?,
-                updated_at = datetime('now')
+                updated_at = datetime('now', 'localtime')
             WHERE id = ?
         `).run(
             tenant_id !== undefined ? (tenant_id || null) : existing.tenant_id,

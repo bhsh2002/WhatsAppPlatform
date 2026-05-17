@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS automation_rules (
     trigger_count INTEGER DEFAULT 0,
     last_triggered_at DATETIME,
 
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Cooldown tracking table
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS automation_cooldowns (
     rule_id INTEGER NOT NULL,
     contact_id TEXT NOT NULL,
     channel TEXT NOT NULL,
-    last_triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_triggered_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (rule_id) REFERENCES automation_rules(id) ON DELETE CASCADE,
     UNIQUE(rule_id, contact_id, channel)
 );

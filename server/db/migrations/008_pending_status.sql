@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS tenants_new (
     waba_id TEXT,
     business_id TEXT,
     dataset_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Step 2: Copy data

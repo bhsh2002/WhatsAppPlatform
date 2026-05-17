@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS broadcast_jobs (
     progress_pct REAL DEFAULT 0,
     results TEXT,
     error TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     completed_at DATETIME,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 );

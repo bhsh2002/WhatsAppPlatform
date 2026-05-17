@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS fb_conversations (
     last_message_time DATETIME,
     unread_count INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
     FOREIGN KEY (linked_page_id) REFERENCES tenant_pages(id) ON DELETE CASCADE
 );
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS fb_messages (
     attachment_url TEXT,
     sticker_url TEXT,
     is_read INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (conversation_id) REFERENCES fb_conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );

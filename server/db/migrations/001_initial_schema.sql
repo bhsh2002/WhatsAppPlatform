@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS tenants (
     waba_id TEXT,
     business_id TEXT,
     dataset_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Messages log table
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS messages (
     media_id TEXT,
     media_url TEXT,
     media_mime_type TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 );
 
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     phone TEXT PRIMARY KEY,
     profile_name TEXT,
     profile_picture_url TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Webhook logs table
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS webhook_logs (
     event_type TEXT,
     payload TEXT,
     processed INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 );
 
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     event_type TEXT,
     description TEXT,
     status TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 );
 
@@ -84,8 +84,8 @@ CREATE TABLE IF NOT EXISTS users (
     tenant_id INTEGER,
     is_active INTEGER DEFAULT 1,
     last_login DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 );
 
@@ -104,8 +104,8 @@ CREATE TABLE IF NOT EXISTS templates (
     variables TEXT,
     status TEXT DEFAULT 'draft' CHECK(status IN ('draft', 'pending', 'approved', 'rejected')),
     meta_template_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
@@ -118,8 +118,8 @@ CREATE TABLE IF NOT EXISTS tenant_api_settings (
     api_key TEXT UNIQUE,
     callback_url TEXT,
     is_active INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS conversion_events (
     custom_data TEXT,
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'sent', 'failed', 'local_only')),
     meta_response TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 

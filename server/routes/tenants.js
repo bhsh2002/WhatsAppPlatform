@@ -163,7 +163,7 @@ router.put('/:id', (req, res) => {
             return res.status(400).json({ error: 'No fields to update' });
         }
         
-        setClauses.push('updated_at = CURRENT_TIMESTAMP');
+        setClauses.push("updated_at = datetime('now', 'localtime')");
         values.push(req.params.id);
         
         db.prepare(`UPDATE tenants SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
@@ -316,7 +316,7 @@ router.put('/:id/account/password', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(password, salt);
 
-        db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run(password_hash, account.id);
 
         res.json({ message: 'تم تحديث كلمة المرور بنجاح' });
@@ -341,7 +341,7 @@ router.post('/:id/credits', (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
-        db.prepare('UPDATE tenants SET credits = credits + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE tenants SET credits = credits + ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run(amount, tenantId);
 
         const updated = db.prepare('SELECT credits FROM tenants WHERE id = ?').get(tenantId);
@@ -374,7 +374,7 @@ router.put('/:id/account/toggle', (req, res) => {
         }
 
         const newStatus = account.is_active ? 0 : 1;
-        db.prepare('UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE users SET is_active = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run(newStatus, account.id);
 
         res.json({
@@ -468,7 +468,7 @@ router.put('/:id/templates/:templateId', (req, res) => {
                 footer = ?,
                 buttons = ?,
                 variables = ?,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = datetime('now', 'localtime')
             WHERE id = ? AND tenant_id = ?
         `).run(
             name,
@@ -637,7 +637,7 @@ router.post('/:id/templates/sync', async (req, res) => {
                 if (existing.status !== metaStatus || existing.body !== body) {
                     db.prepare(`UPDATE templates SET status=?, category=?, header_type=?, header_content=?,
                         body=?, footer=?, buttons=?, meta_template_id=?, quality_score=?, parameter_format=?,
-                        updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+                        updated_at=datetime('now', 'localtime') WHERE id=?`)
                         .run(metaStatus, t.category, headerType, headerContent, body, footer, buttons,
                             t.id, qualityScore, paramFormat, existing.id);
                     updated++;
@@ -943,7 +943,7 @@ router.post('/:id/approve', (req, res) => {
         }
         
         // Update tenant status to Active
-        db.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE tenants SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run('Active', tenantId);
         
         // Activate the user account (if exists)
@@ -981,7 +981,7 @@ router.post('/:id/reject', (req, res) => {
         }
         
         // Update tenant status to Rejected
-        db.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE tenants SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run('Rejected', tenantId);
         
         // Deactivate the user account (if exists)
@@ -1001,5 +1001,4 @@ router.post('/:id/reject', (req, res) => {
 });
 
 export default router;
-
 

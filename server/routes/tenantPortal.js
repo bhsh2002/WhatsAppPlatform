@@ -322,7 +322,7 @@ router.put('/contacts/:id', (req, res) => {
             return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
         }
 
-        db.prepare('UPDATE contacts SET label = COALESCE(?, label), notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        db.prepare("UPDATE contacts SET label = COALESCE(?, label), notes = COALESCE(?, notes), updated_at = datetime('now', 'localtime') WHERE id = ?")
             .run(label, notes, req.params.id);
 
         const updated = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
@@ -360,7 +360,7 @@ router.post('/contacts', (req, res) => {
 
         const result = db.prepare(`
             INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
         `).run(tenantId, formattedPhone, profile_name || null, label || null, notes || null);
 
         const newContact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
@@ -1443,7 +1443,7 @@ async function processTenantBroadcastJob(jobId, params) {
 
         db.prepare(`
             UPDATE broadcast_jobs SET status = 'completed', sent_count = ?, failed_count = ?,
-                progress_pct = 100, results = ?, completed_at = datetime('now') WHERE id = ?
+                progress_pct = 100, results = ?, completed_at = datetime('now', 'localtime') WHERE id = ?
         `).run(sent, failed, JSON.stringify(results), jobId);
 
         eventBus.broadcast(`tenant:${tenantId}`, 'broadcast:complete', { job_id: jobId, sent, failed });
@@ -1451,7 +1451,7 @@ async function processTenantBroadcastJob(jobId, params) {
     } catch (error) {
         console.error('[TenantPortal] Broadcast job error:', error);
         db.prepare(`
-            UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE id = ?
+            UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now', 'localtime') WHERE id = ?
         `).run(error.message, jobId);
         eventBus.broadcast(`tenant:${tenantId}`, 'broadcast:complete', { job_id: jobId, sent: 0, failed: 0, error: error.message });
     }
@@ -1550,7 +1550,7 @@ router.put('/templates/:id', (req, res) => {
                 footer = ?,
                 buttons = ?,
                 variables = ?,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = datetime('now', 'localtime')
             WHERE id = ? AND tenant_id = ?
         `).run(
             name,
@@ -1717,7 +1717,7 @@ router.post('/templates/sync', async (req, res) => {
                 if (existing.status !== metaStatus || existing.body !== body) {
                     db.prepare(`UPDATE templates SET status=?, category=?, header_type=?, header_content=?,
                         body=?, footer=?, buttons=?, meta_template_id=?, quality_score=?, parameter_format=?,
-                        updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+                        updated_at=datetime('now', 'localtime') WHERE id=?`)
                         .run(metaStatus, t.category, headerType, headerContent, body, footer, buttons,
                             t.id, qualityScore, paramFormat, existing.id);
                     updated++;
@@ -1968,7 +1968,7 @@ router.put('/settings/api', (req, res) => {
                     webhook_url = ?,
                     callback_url = ?,
                     is_active = ?,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = datetime('now', 'localtime')
                 WHERE tenant_id = ?
             `).run(webhook_url || null, callback_url || null, is_active ?? 1, tenantId);
         }
@@ -1989,7 +1989,7 @@ router.post('/settings/api/regenerate-key', (req, res) => {
         db.prepare(`
             UPDATE tenant_api_settings SET
                 api_key = ?,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = datetime('now', 'localtime')
             WHERE tenant_id = ?
         `).run(newApiKey, tenantId);
 
@@ -2588,7 +2588,7 @@ router.get('/unified/:channel/:id/messages', async (req, res) => {
             `).run(conversationId, tenantId);
 
             db.prepare(`
-                UPDATE fb_conversations SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
+                UPDATE fb_conversations SET unread_count = 0, updated_at = datetime('now', 'localtime')
                 WHERE id = ? AND tenant_id = ?
             `).run(conversationId, tenantId);
 
@@ -2742,7 +2742,7 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
 
                     db.prepare(`
                         UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = datetime('now')
+                        SET last_message = ?, last_message_time = datetime('now', 'localtime')
                         WHERE id = ?
                     `).run(message.trim().substring(0, 100), conv.id);
 
@@ -2842,7 +2842,7 @@ router.post('/unified/messenger/sync', async (req, res) => {
                                 UPDATE fb_conversations SET
                                     last_message = ?, last_message_time = ?,
                                     user_name = COALESCE(?, user_name),
-                                    updated_at = CURRENT_TIMESTAMP
+                                    updated_at = datetime('now', 'localtime')
                                 WHERE id = ?
                             `).run(lastMsgText, lastMsgTime, userName, dbConv.id);
                         }
@@ -3430,7 +3430,7 @@ router.put('/automation/rules/:id', (req, res) => {
                 trigger_on = ?,
                 auto_like = ?,
                 auto_like_type = ?,
-                updated_at = datetime('now')
+                updated_at = datetime('now', 'localtime')
             WHERE id = ? AND tenant_id = ?
         `).run(
             name || existing.name,
@@ -3791,7 +3791,7 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
         `).run(conv.id, tenantId, mid, page.page_id, page.page_name, `[${tag}] ${message}`, new Date().toISOString());
 
         db.prepare(`
-            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(message.substring(0, 100), new Date().toISOString(), conv.id);
 
         eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
@@ -3921,8 +3921,8 @@ router.post('/facebook/connect', async (req, res) => {
             UPDATE tenants
             SET facebook_user_access_token_encrypted = ?,
                 facebook_user_token_scopes = ?,
-                facebook_user_token_updated_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP
+                facebook_user_token_updated_at = datetime('now', 'localtime'),
+                updated_at = datetime('now', 'localtime')
             WHERE id = ?
         `).run(encrypt(llData.access_token), JSON.stringify(grantedScopes), tenantId);
 
@@ -4315,7 +4315,7 @@ router.post('/facebook/link-pages', async (req, res) => {
             const existing = db.prepare('SELECT id FROM tenant_pages WHERE tenant_id = ? AND page_id = ?').get(tenantId, page.id);
 
             if (existing) {
-                db.prepare('UPDATE tenant_pages SET page_access_token_encrypted = ?, page_name = ?, page_category = ?, page_picture_url = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                db.prepare("UPDATE tenant_pages SET page_access_token_encrypted = ?, page_name = ?, page_category = ?, page_picture_url = ?, is_active = 1, updated_at = datetime('now', 'localtime') WHERE id = ?")
                     .run(encryptedToken, page.name, page.category || null, pagePictureUrl, existing.id);
                 linkedPageDbId = existing.id;
             } else {
@@ -4343,18 +4343,18 @@ router.post('/facebook/link-pages', async (req, res) => {
                         UPDATE tenant_pages
                         SET webhook_subscribed = 1,
                             subscribed_fields = ?,
-                            updated_at = CURRENT_TIMESTAMP
+                            updated_at = datetime('now', 'localtime')
                         WHERE id = ?
                     `).run(JSON.stringify(FACEBOOK_WEBHOOK_FIELDS), linkedPageDbId);
                 } else {
                     webhookError = subscribeData.error?.message || 'فشل اشتراك Webhook';
-                    db.prepare('UPDATE tenant_pages SET webhook_subscribed = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                    db.prepare("UPDATE tenant_pages SET webhook_subscribed = 0, updated_at = datetime('now', 'localtime') WHERE id = ?")
                         .run(linkedPageDbId);
                     console.warn('[TenantPortal] Webhook subscription failed for page', page.id, webhookError);
                 }
             } catch (e) {
                 webhookError = e.message;
-                db.prepare('UPDATE tenant_pages SET webhook_subscribed = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                db.prepare("UPDATE tenant_pages SET webhook_subscribed = 0, updated_at = datetime('now', 'localtime') WHERE id = ?")
                     .run(linkedPageDbId);
                 console.warn('[TenantPortal] Webhook subscription failed for page', page.id, e.message);
             }
@@ -4453,7 +4453,7 @@ router.post('/whatsapp/connect', async (req, res) => {
             UPDATE tenants SET 
                 waba_id = ?, phone_number_id = ?, business_id = ?,
                 access_token_encrypted = ?, access_token = NULL,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = datetime('now', 'localtime')
             WHERE id = ?
         `).run(waba_id, phone_number_id, business_id || null, encryptedToken, tenantId);
 

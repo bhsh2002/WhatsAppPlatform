@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS messages_new (
     media_id TEXT,
     media_url TEXT,
     media_mime_type TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 

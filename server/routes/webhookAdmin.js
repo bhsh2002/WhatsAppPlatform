@@ -90,7 +90,7 @@ router.post('/failures/:id/retry', async (req, res) => {
         }
 
         db.prepare(
-            `UPDATE webhook_failures SET retry_count = retry_count + 1, last_retry_at = datetime('now') WHERE id = ?`
+            `UPDATE webhook_failures SET retry_count = retry_count + 1, last_retry_at = datetime('now', 'localtime') WHERE id = ?`
         ).run(req.params.id);
 
         res.json({ success: true, ...retryResult });

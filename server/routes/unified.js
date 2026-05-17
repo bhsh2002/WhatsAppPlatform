@@ -277,7 +277,7 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
                     db.prepare(`
                         UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = datetime('now')
+                        SET last_message = ?, last_message_time = datetime('now', 'localtime')
                         WHERE id = ?
                     `).run(message.trim().substring(0, 100), conv.id);
 
