@@ -114,16 +114,6 @@ const UnifiedChatWindow = ({
     const [utilityLoadingTags, setUtilityLoadingTags] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-    // Auto-open utility dialog on fallback (24h window error from parent)
-    useEffect(() => {
-        if (utilityFallback?.text && utilityFallback?.timestamp) {
-            setUtilityMessage(utilityFallback.text);
-            setUtilityError('');
-            setUtilitySelectedTag('');
-            openUtilityDialog();
-        }
-    }, [utilityFallback?.timestamp]);
-
     const openUtilityDialog = useCallback(async () => {
         if (!getMessageTags) return;
         setUtilityLoadingTags(true);
@@ -138,6 +128,16 @@ const UnifiedChatWindow = ({
         }
         setUtilityOpen(true);
     }, [getMessageTags]);
+
+    // Auto-open utility dialog on fallback (24h window error from parent)
+    useEffect(() => {
+        if (utilityFallback?.text && utilityFallback?.timestamp) {
+            setUtilityMessage(utilityFallback.text);
+            setUtilityError('');
+            setUtilitySelectedTag('');
+            openUtilityDialog();
+        }
+    }, [openUtilityDialog, utilityFallback?.text, utilityFallback?.timestamp]);
 
     const handleOpenUtilityManual = useCallback(() => {
         setUtilityMessage(newMessage?.trim() || '');

@@ -10,6 +10,9 @@ import {
 import ChatSidebar from '../../components/WhatsApp/ChatSidebar';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
 
+const getChatKey = (contact, tenantId = null) => `${tenantId || 'no-tenant'}:${contact || ''}`;
+const getSelectedChatKey = (chat) => getChatKey(chat?.contact, chat?.tenant_id);
+
 const WhatsAppChat = () => {
     // State
     const [conversations, setConversations] = useState([]);
@@ -36,7 +39,7 @@ const WhatsAppChat = () => {
         phoneId: localStorage.getItem('ab_wa_phoneId') || '',
     });
 
-    const getDisplayName = (conv) => conv.profile_name || conv.contact;
+    const getDisplayName = (conv) => conv?.profile_name || conv?.contact || 'غير معروف';
 
     const formatDate = (dateString) => {
         if (!dateString) return '';
@@ -94,15 +97,25 @@ const WhatsAppChat = () => {
     };
 
     const fetchMessages = async (contact, tenantId = null) => {
+        const requestedKey = getChatKey(contact, tenantId);
         try {
             if (isFirstLoad.current) setLoadingMessages(true);
             const data = await api.getThreadMessages(contact, 50, tenantId);
-            setMessages(data);
+            if (getSelectedChatKey(selectedChatRef.current) === requestedKey) {
+                setMessages(data);
+            }
+            return data || [];
 
         } catch (error) {
             console.error('Failed to fetch messages:', error);
+            if (getSelectedChatKey(selectedChatRef.current) === requestedKey) {
+                setMessages([]);
+            }
+            return [];
         } finally {
-            setLoadingMessages(false);
+            if (getSelectedChatKey(selectedChatRef.current) === requestedKey) {
+                setLoadingMessages(false);
+            }
         }
     };
 
@@ -239,8 +252,14 @@ const WhatsAppChat = () => {
         selectedChatRef.current = selectedChat;
         if (selectedChat) {
             isFirstLoad.current = true;
-            fetchMessages(selectedChat.contact, selectedChat.tenant_id).then(() => {
-                markAsRead(messages, selectedChat.tenant_id);
+            fetchMessages(selectedChat.contact, selectedChat.tenant_id).then((loadedMessages) => {
+                if (getSelectedChatKey(selectedChatRef.current) !== getSelectedChatKey(selectedChat)) return;
+                markAsRead(loadedMessages, selectedChat.tenant_id);
+                setConversations(prev => prev.map(conv =>
+                    getSelectedChatKey(conv) === getSelectedChatKey(selectedChat)
+                        ? { ...conv, unread_count: 0 }
+                        : conv
+                ));
             });
             fetchTemplates(selectedChat.tenant_id);
             // Keep a slower poll for messages as backup
@@ -419,7 +438,7 @@ const WhatsAppChat = () => {
     // Filter Logic
     const filteredConversations = conversations.filter(conv => {
         const name = getDisplayName(conv).toLowerCase();
-        const number = conv.contact.toLowerCase();
+        const number = (conv.contact || '').toLowerCase();
         const search = searchTerm.toLowerCase();
         return name.includes(search) || number.includes(search);
     });
@@ -429,7 +448,10 @@ const WhatsAppChat = () => {
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
     const handleSelectChat = (chat) => {
+        isFirstLoad.current = true;
+        setMessages([]);
         setSelectedChat(chat);
+        setNewMessage('');
         setSearchTerm('');
     };
 

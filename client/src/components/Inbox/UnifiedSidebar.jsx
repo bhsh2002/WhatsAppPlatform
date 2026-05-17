@@ -38,6 +38,22 @@ const getChannelColor = (channel) => {
     return '#0084ff';
 };
 
+const getConversationKey = (conv) => {
+    if (!conv) return '';
+
+    const contact = conv.contact_id || conv.contact || '';
+    if (conv.channel === 'messenger') {
+        return [
+            'messenger',
+            conv.conversation_id || 'no-conversation',
+            conv.linked_page_id || 'no-page',
+            contact,
+        ].join(':');
+    }
+
+    return ['whatsapp', conv.tenant_id || 'no-tenant', contact].join(':');
+};
+
 const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -138,17 +154,14 @@ const UnifiedSidebar = ({
                     <ListItem><ListItemText primary="لا توجد محادثات" sx={{ textAlign: 'center', color: 'text.secondary' }} /></ListItem>
                 ) : (
                     filtered.map((conv) => {
-                        const isSelected = selectedChat &&
-                            conv.channel === selectedChat.channel &&
-                            conv.contact_id === selectedChat.contact_id &&
-                            (conv.tenant_id || null) === (selectedChat.tenant_id || null);
+                        const isSelected = getConversationKey(conv) === getConversationKey(selectedChat);
 
                         const displayName = conv.display_name || conv.contact_id || 'غير معروف';
                         const channelColor = getChannelColor(conv.channel);
 
                         return (
                             <ListItem
-                                key={`${conv.channel}-${conv.contact_id}-${conv.tenant_id || 'null'}`}
+                                key={getConversationKey(conv)}
                                 button
                                 selected={isSelected}
                                 onClick={() => onSelectChat(conv)}

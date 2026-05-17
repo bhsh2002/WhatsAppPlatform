@@ -171,6 +171,8 @@ const ChatSidebar = ({
                         {conversations.map((conv, idx) => {
                             const isSelected = selectedChat?.contact === conv.contact &&
                                 (selectedChat?.tenant_id === conv.tenant_id || (!selectedChat?.tenant_id && !conv.tenant_id));
+                            const messagePreview = conv.last_message ||
+                                (conv.last_message_type && conv.last_message_type !== 'text' ? 'صورة/ملف' : 'لا توجد رسائل بعد');
 
                             return (
                                 <ListItem
@@ -221,7 +223,7 @@ const ChatSidebar = ({
                                         secondary={
                                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '75%' }}>
-                                                    {conv.last_message?.substring(0, 40) || 'صورة/ملف'}
+                                                    {messagePreview.substring(0, 40)}
                                                 </Typography>
                                                 {conv.tenant_name && (
                                                     <Box component="span" sx={{

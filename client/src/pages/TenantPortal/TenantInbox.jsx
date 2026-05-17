@@ -16,6 +16,24 @@ import UnifiedSidebar from '../../components/Inbox/UnifiedSidebar';
 import UnifiedChatWindow from '../../components/Inbox/UnifiedChatWindow';
 import ChatWindow from '../../components/WhatsApp/ChatWindow';
 
+const getConversationKey = (conv) => {
+    if (!conv) return '';
+
+    const contact = conv.contact_id || conv.contact || '';
+    if (conv.channel === 'messenger') {
+        return [
+            'messenger',
+            conv.conversation_id || 'no-conversation',
+            conv.linked_page_id || 'no-page',
+            contact,
+        ].join(':');
+    }
+
+    return ['whatsapp', conv.tenant_id || 'no-tenant', contact].join(':');
+};
+
+const isSameConversation = (a, b) => getConversationKey(a) === getConversationKey(b);
+
 const TenantInbox = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -69,6 +87,7 @@ const TenantInbox = () => {
     }, [fetchConversations]);
 
     const fetchMessages = useCallback(async (conv) => {
+        const requestedKey = getConversationKey(conv);
         try {
             if (isFirstLoad.current) setLoadingMessages(true);
             const params = {};
@@ -76,12 +95,20 @@ const TenantInbox = () => {
                 params.conversation_id = conv.conversation_id;
             }
             const data = await api.getPortalUnifiedMessages(conv.channel, conv.contact_id, params);
-            setMessages(data);
+            if (getConversationKey(selectedChatRef.current) === requestedKey) {
+                setMessages(data);
+            }
+            return data || [];
         } catch (error) {
             console.error('Failed to fetch messages:', error);
-            setMessages([]);
+            if (getConversationKey(selectedChatRef.current) === requestedKey) {
+                setMessages([]);
+            }
+            return [];
         } finally {
-            setLoadingMessages(false);
+            if (getConversationKey(selectedChatRef.current) === requestedKey) {
+                setLoadingMessages(false);
+            }
         }
     }, []);
 
@@ -131,8 +158,12 @@ const TenantInbox = () => {
     useEffect(() => {
         if (selectedChat) {
             isFirstLoad.current = true;
-            fetchMessages(selectedChat).then(() => {
-                markAsRead(messages, selectedChat);
+            fetchMessages(selectedChat).then((loadedMessages) => {
+                if (!isSameConversation(selectedChatRef.current, selectedChat)) return;
+                markAsRead(loadedMessages, selectedChat);
+                setConversations(prev => prev.map(conv =>
+                    isSameConversation(conv, selectedChat) ? { ...conv, unread_count: 0 } : conv
+                ));
             });
             if (selectedChat.channel === 'whatsapp') {
                 fetchTemplates();
@@ -146,11 +177,14 @@ const TenantInbox = () => {
         } else {
             setWindowStatus(null);
         }
-    }, [selectedChat]);
+    }, [selectedChat, fetchMessages, fetchTemplates, fetchWindowStatus, markAsRead]);
 
     const handleSelectChat = useCallback((conv) => {
+        isFirstLoad.current = true;
+        setMessages([]);
         setSelectedChat(conv);
         setNewMessage('');
+        setUtilityFallback(null);
     }, []);
 
     // Smart scroll

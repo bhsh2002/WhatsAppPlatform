@@ -2570,12 +2570,27 @@ router.get('/unified/:channel/:id/messages', async (req, res) => {
                 return res.status(400).json({ error: 'conversation_id مطلوب' });
             }
 
+            const conversationId = Number.parseInt(conversation_id, 10);
+            if (!Number.isInteger(conversationId)) {
+                return res.status(400).json({ error: 'conversation_id غير صالح' });
+            }
+
             // Verify conversation belongs to this tenant
             const conv = db.prepare('SELECT id FROM fb_conversations WHERE id = ? AND tenant_id = ?')
-                .get(parseInt(conversation_id), tenantId);
+                .get(conversationId, tenantId);
             if (!conv) {
                 return res.status(404).json({ error: 'المحادثة غير موجودة' });
             }
+
+            db.prepare(`
+                UPDATE fb_messages SET is_read = 1
+                WHERE conversation_id = ? AND tenant_id = ? AND direction = 'incoming' AND is_read = 0
+            `).run(conversationId, tenantId);
+
+            db.prepare(`
+                UPDATE fb_conversations SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND tenant_id = ?
+            `).run(conversationId, tenantId);
 
             const messages = db.prepare(`
                 SELECT
@@ -2594,7 +2609,7 @@ router.get('/unified/:channel/:id/messages', async (req, res) => {
                 FROM fb_messages
                 WHERE conversation_id = ? AND tenant_id = ?
                 ORDER BY created_at ASC
-            `).all(parseInt(conversation_id), tenantId);
+            `).all(conversationId, tenantId);
 
             res.json(messages);
         } else {
