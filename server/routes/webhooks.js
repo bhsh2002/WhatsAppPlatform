@@ -503,16 +503,28 @@ router.post('/', async (req, res) => {
                                 );
 
                                 // Comment auto-reply (fire-and-forget)
-                                if (value.from?.id && value.from.id !== pageId) {
+                                if (!value.comment_id) {
+                                    console.warn(`[Webhook/FB] Skipping comment automation for page ${pageId}: missing comment_id`);
+                                } else if (value.from?.id === pageId) {
+                                    console.log(`[Webhook/FB] Skipping comment automation for page ${pageId}: comment is from the page itself`);
+                                } else {
+                                    const fallbackCommenterId = `comment:${value.comment_id}`;
+                                    const commenterId = value.from?.id || fallbackCommenterId;
+                                    if (!value.from?.id) {
+                                        console.warn(`[Webhook/FB] Comment ${value.comment_id} has no from.id; using fallback cooldown key ${fallbackCommenterId}`);
+                                    }
+
                                     processIncomingComment({
                                         tenant_id: linkedPage.tenant_id,
                                         page_id: pageId,
                                         linked_page_id: linkedPage.id,
                                         post_id: value.post_id,
                                         comment_id: value.comment_id,
-                                        commenter_id: value.from.id,
-                                        commenter_name: value.from.name,
+                                        commenter_id: commenterId,
+                                        commenter_name: value.from?.name || null,
                                         comment_text: value.message || '',
+                                    }).then(result => {
+                                        console.log(`[AutoResponder] Comment ${value.comment_id} result: ${result.reason || (result.replied ? 'sent' : 'not_sent')}`);
                                     }).catch(err => console.error('[AutoResponder] Comment error:', err.message));
                                 }
                             }

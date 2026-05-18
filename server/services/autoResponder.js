@@ -524,21 +524,33 @@ export async function processIncomingComment({
     comment_text,
 }) {
     try {
+        const cooldownContactId = commenter_id || (comment_id ? `comment:${comment_id}` : null);
+        if (!comment_id || !cooldownContactId) {
+            console.warn('[AutoResponder] Comment processing skipped: missing comment_id or cooldown contact key');
+            return { replied: false, reason: 'missing_comment_identity' };
+        }
+
         const rules = getCommentRules(tenant_id, linked_page_id, post_id, 'comment');
 
         if (!rules || rules.length === 0) {
-            return { replied: false };
+            console.log(`[AutoResponder] No comment_reply rules for tenant=${tenant_id}, linked_page=${linked_page_id}, post=${post_id || 'all'}`);
+            return { replied: false, reason: 'no_rules' };
         }
+
+        let skippedByCooldown = false;
+        let matchedRule = false;
 
         for (const rule of rules) {
             // Check cooldown (per commenter + rule)
-            if (isOnCooldown(rule.id, commenter_id, 'facebook', rule.cooldown_seconds)) {
+            if (isOnCooldown(rule.id, cooldownContactId, 'facebook', rule.cooldown_seconds)) {
+                skippedByCooldown = true;
                 continue;
             }
 
             // Evaluate keyword matching (comment_reply rules use keyword matching on comment text)
             const matches = evaluateCommentRule(rule, comment_text);
             if (!matches) continue;
+            matchedRule = true;
 
             // Rule matched — send response(s)
             const sent = await sendCommentAutoReply(rule, {
@@ -552,7 +564,7 @@ export async function processIncomingComment({
             });
 
             if (sent) {
-                updateCooldown(rule.id, commenter_id, 'facebook');
+                updateCooldown(rule.id, cooldownContactId, 'facebook');
 
                 db.prepare(`
                     UPDATE automation_rules
@@ -562,14 +574,19 @@ export async function processIncomingComment({
                 `).run(rule.id);
 
                 console.log(`[AutoResponder] Comment rule "${rule.name}" (id=${rule.id}) fired for comment ${comment_id}`);
-                return { replied: true, rule_id: rule.id };
+                return { replied: true, rule_id: rule.id, reason: 'sent' };
             }
+
+            console.warn(`[AutoResponder] Comment rule "${rule.name}" (id=${rule.id}) matched comment ${comment_id}, but no response was sent`);
+            return { replied: false, rule_id: rule.id, reason: 'send_failed' };
         }
 
-        return { replied: false };
+        const reason = matchedRule ? 'send_failed' : skippedByCooldown ? 'cooldown' : 'no_match';
+        console.log(`[AutoResponder] Comment ${comment_id} not handled: ${reason}`);
+        return { replied: false, reason };
     } catch (error) {
         console.error('[AutoResponder] Comment processing error:', error);
-        return { replied: false };
+        return { replied: false, reason: 'error' };
     }
 }
 
@@ -681,9 +698,12 @@ async function sendCommentAutoReply(rule, {
                 console.log(`[AutoResponder] DM sent to commenter on comment ${comment_id}`);
 
                 // Try to store in fb_messages if conversation exists
-                const conv = db.prepare(
-                    'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1'
-                ).get(commenter_id, linked_page_id);
+                const hasMessengerUserId = commenter_id && !String(commenter_id).startsWith('comment:');
+                const conv = hasMessengerUserId
+                    ? db.prepare(
+                        'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND is_active = 1 LIMIT 1'
+                    ).get(commenter_id, linked_page_id)
+                    : null;
 
                 if (conv) {
                     const createdAt = normalizeMessengerTimestamp();
