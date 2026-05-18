@@ -116,7 +116,7 @@ router.post('/events/:datasetId', async (req, res) => {
 
             // WAMID for message attribution — must be at event level, not in user_data
             if (event.wamid) {
-                formattedEvent.user_data.lead_id = event.wamid;
+                formattedEvent.wamid = event.wamid;
             }
 
             // Custom data (value, currency, content, etc.)

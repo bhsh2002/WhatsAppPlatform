@@ -1,12 +1,51 @@
 import express from 'express';
 import db from '../db/database.js';
-import { getAccessToken, getFacebookUserAccessToken } from '../services/credentials.js';
+import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { parseStoredArray } from '../services/metaReadiness.js';
 
 const router = express.Router();
 
-const getBusinessAccessToken = (tenantId) => {
-    return getFacebookUserAccessToken(tenantId) || getAccessToken(tenantId);
+const resolveBusinessAccessToken = (tenantId) => {
+    if (!tenantId) {
+        return { status: 400, error: 'tenant_id مطلوب لاستخدام Partner Solutions', code: 'TENANT_REQUIRED' };
+    }
+
+    const tenant = db.prepare('SELECT id, facebook_user_token_scopes FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant) {
+        return { status: 404, error: 'العميل غير موجود', code: 'TENANT_NOT_FOUND' };
+    }
+
+    const accessToken = getFacebookUserAccessToken(tenantId);
+    if (!accessToken) {
+        return {
+            status: 400,
+            error: 'رمز Facebook user token مطلوب لمسارات Partner Solutions. أعد تفويض Facebook من بوابة العميل.',
+            code: 'FACEBOOK_USER_TOKEN_REQUIRED',
+            permission_required: 'business_management',
+        };
+    }
+
+    const scopes = parseStoredArray(tenant.facebook_user_token_scopes);
+    if (!scopes.includes('business_management')) {
+        return {
+            status: 403,
+            error: 'هذه العملية تتطلب صلاحية business_management في Facebook user token.',
+            code: 'BUSINESS_MANAGEMENT_REQUIRED',
+            permission_required: 'business_management',
+        };
+    }
+
+    return { accessToken };
+};
+
+const requireBusinessAccessToken = (res, tenantId) => {
+    const result = resolveBusinessAccessToken(tenantId);
+    if (result.error) {
+        res.status(result.status).json(result);
+        return null;
+    }
+    return result.accessToken;
 };
 
 // ============================================
@@ -17,11 +56,11 @@ router.get('/clients', async (req, res) => {
         const businessId = req.query.business_id;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getBusinessAccessToken(tenantId);
-
-        if (!accessToken || !businessId) {
-            return res.status(400).json({ error: 'بيانات الاعتماد أو معرف النشاط التجاري مفقودة' });
+        if (!businessId) {
+            return res.status(400).json({ error: 'معرف النشاط التجاري مفقود' });
         }
+        const accessToken = requireBusinessAccessToken(res, tenantId);
+        if (!accessToken) return;
 
         const response = await fetch(
             `${META_API_BASE}/${businessId}/owned_businesses?fields=name,id&limit=50`,
@@ -66,11 +105,11 @@ router.post('/clients', async (req, res) => {
     try {
         const { business_id, tenant_id, existing_client_business_id, name, survey_business_type, timezone_id } = req.body;
 
-        let accessToken = getBusinessAccessToken(tenant_id);
-
-        if (!accessToken || !business_id) {
-            return res.status(400).json({ error: 'بيانات الاعتماد أو معرف النشاط التجاري مفقودة' });
+        if (!business_id) {
+            return res.status(400).json({ error: 'معرف النشاط التجاري مفقود' });
         }
+        const accessToken = requireBusinessAccessToken(res, tenant_id);
+        if (!accessToken) return;
 
         const payload = {};
         if (existing_client_business_id) {
@@ -129,11 +168,11 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
         const { clientBusinessId } = req.params;
         const { business_id, tenant_id } = req.query;
 
-        let accessToken = getBusinessAccessToken(tenant_id);
-
-        if (!accessToken || !business_id) {
-            return res.status(400).json({ error: 'بيانات الاعتماد أو معرف النشاط التجاري مفقودة' });
+        if (!business_id) {
+            return res.status(400).json({ error: 'معرف النشاط التجاري مفقود' });
         }
+        const accessToken = requireBusinessAccessToken(res, tenant_id);
+        if (!accessToken) return;
 
         const response = await fetch(
             `${META_API_BASE}/${business_id}/managed_businesses`,
@@ -158,6 +197,14 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
             });
         }
 
+        if (tenant_id) {
+            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenant_id);
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (?, ?, 'partner_client_removed', 'إزالة عميل شريك مُدار', 'success')
+            `).run(tenant_id, tenant?.name || 'Unknown');
+        }
+
         res.json({ success: true });
     } catch (error) {
         console.error('[Partner] Remove client error:', error);
@@ -173,11 +220,8 @@ router.get('/clients/:clientBusinessId/waba', async (req, res) => {
         const { clientBusinessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getBusinessAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenantId);
+        if (!accessToken) return;
 
         const response = await fetch(
             `${META_API_BASE}/${clientBusinessId}/owned_whatsapp_business_accounts?fields=name,id,currency,timezone_id`,
@@ -213,11 +257,8 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
         const { clientBusinessId } = req.params;
         const { tenant_id, name, role } = req.body;
 
-        let accessToken = getBusinessAccessToken(tenant_id);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenant_id);
+        if (!accessToken) return;
 
         if (!name) {
             return res.status(400).json({ error: 'اسم مستخدم النظام مطلوب' });
@@ -245,6 +286,14 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
                 error: data.error?.message || 'فشل إنشاء مستخدم نظام',
                 details: data.error
             });
+        }
+
+        if (tenant_id) {
+            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenant_id);
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (?, ?, 'partner_system_user_created', 'إنشاء مستخدم نظام لعميل شريك', 'success')
+            `).run(tenant_id, tenant?.name || 'Unknown');
         }
 
         res.json({ success: true, data });

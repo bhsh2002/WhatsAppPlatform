@@ -1,9 +1,40 @@
 import express from 'express';
 import db from '../db/database.js';
-import { getAccessToken } from '../services/credentials.js';
+import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { decryptIfEncrypted } from '../services/encryption.js';
 
 const router = express.Router();
+
+const resolveFacebookUserToken = (tenantId) => {
+    const accessToken = getFacebookUserAccessToken(tenantId);
+    if (!accessToken) {
+        return {
+            error: 'رمز Facebook user token مطلوب. أعد تفويض Facebook من بوابة العميل.',
+            status: 400,
+            code: 'FACEBOOK_USER_TOKEN_REQUIRED',
+        };
+    }
+    return { accessToken };
+};
+
+const resolvePageOrUserToken = (tenantId, pageId) => {
+    if (tenantId && pageId) {
+        const linkedPage = db.prepare(`
+            SELECT page_access_token_encrypted
+            FROM tenant_pages
+            WHERE tenant_id = ? AND page_id = ? AND is_active = 1
+        `).get(tenantId, pageId);
+        const pageToken = linkedPage?.page_access_token_encrypted
+            ? decryptIfEncrypted(linkedPage.page_access_token_encrypted)
+            : null;
+        if (pageToken) return { accessToken: pageToken, source: 'page_token' };
+    }
+
+    const userToken = resolveFacebookUserToken(tenantId);
+    if (userToken.error) return userToken;
+    return { accessToken: userToken.accessToken, source: 'facebook_user_token' };
+};
 
 // ============================================
 // List pages managed by the user
@@ -12,17 +43,16 @@ router.get('/me', async (req, res) => {
     try {
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        const tokenResult = resolveFacebookUserToken(tenantId);
+        if (tokenResult.error) {
+            return res.status(tokenResult.status).json(tokenResult);
         }
 
         const fields = 'name,id,access_token,category,category_list,fan_count,picture,verification_status,is_published';
         const response = await fetch(
             `${META_API_BASE}/me/accounts?fields=${fields}`,
             {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
+                headers: { 'Authorization': `Bearer ${tokenResult.accessToken}` }
             }
         );
 
@@ -53,17 +83,16 @@ router.get('/:pageId/info', async (req, res) => {
         const { pageId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        const tokenResult = resolvePageOrUserToken(tenantId, pageId);
+        if (tokenResult.error) {
+            return res.status(tokenResult.status).json(tokenResult);
         }
 
         const fields = 'name,id,category,fan_count,link,picture,about,description,verification_status,is_published,phone,emails,website';
         const response = await fetch(
             `${META_API_BASE}/${pageId}?fields=${fields}`,
             {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
+                headers: { 'Authorization': `Bearer ${tokenResult.accessToken}` }
             }
         );
 
@@ -91,16 +120,15 @@ router.get('/:pageId/linked-waba', async (req, res) => {
         const { pageId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
+        const tokenResult = resolvePageOrUserToken(tenantId, pageId);
+        if (tokenResult.error) {
+            return res.status(tokenResult.status).json(tokenResult);
         }
 
         const response = await fetch(
             `${META_API_BASE}/${pageId}?fields=page_backed_instagram_accounts,connected_whatsapp_business_account`,
             {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
+                headers: { 'Authorization': `Bearer ${tokenResult.accessToken}` }
             }
         );
 

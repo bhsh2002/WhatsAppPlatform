@@ -16,6 +16,14 @@ const resolvePageCredentials = (linkedPageId) => {
     return { page, accessToken };
 };
 
+const logFacebookActivity = (page, eventType, description, status = 'success') => {
+    const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(page.tenant_id);
+    db.prepare(`
+        INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+        VALUES (?, ?, ?, ?, ?)
+    `).run(page.tenant_id, tenant?.name || '', eventType, description, status);
+};
+
 // ============================================
 // List posts for a linked page
 // ============================================
@@ -88,10 +96,7 @@ router.post('/:linkedPageId/posts', async (req, res) => {
             return res.status(response.status).json({ error: data.error?.message || 'فشل إنشاء المنشور', details: data.error });
         }
 
-        db.prepare(`
-            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-            VALUES (?, ?, 'fb_post_created', ?, 'success')
-        `).run(page.tenant_id, '', `إنشاء منشور على صفحة ${page.page_name || page.page_id}`);
+        logFacebookActivity(page, 'fb_post_created', `إنشاء منشور على صفحة ${page.page_name || page.page_id}`);
 
         res.status(201).json({ id: data.id });
     } catch (error) {
@@ -152,6 +157,8 @@ router.post('/:linkedPageId/posts/photo', simpleUpload.single('source'), async (
             return res.status(apiResponse.status).json({ error: data.error?.message || 'فشل إنشاء منشور الصورة', details: data.error });
         }
 
+        logFacebookActivity(page, 'fb_post_created', `إنشاء منشور صورة على صفحة ${page.page_name || page.page_id}`);
+
         res.status(201).json({ id: data.id, post_id: data.post_id || null });
     } catch (error) {
         console.error('[FBContent] Photo post error:', error);
@@ -189,6 +196,8 @@ router.put('/:linkedPageId/posts/:postId', async (req, res) => {
             return res.status(response.status).json({ error: data.error?.message || 'فشل تعديل المنشور', details: data.error });
         }
 
+        logFacebookActivity(page, 'fb_post_edited', `تعديل منشور على صفحة ${page.page_name || page.page_id}`);
+
         res.json({ success: true });
     } catch (error) {
         console.error('[FBContent] Edit post error:', error);
@@ -214,6 +223,8 @@ router.delete('/:linkedPageId/posts/:postId', async (req, res) => {
         if (!response.ok) {
             return res.status(response.status).json({ error: data.error?.message || 'فشل حذف المنشور', details: data.error });
         }
+
+        logFacebookActivity(page, 'fb_post_deleted', `حذف منشور من صفحة ${page.page_name || page.page_id}`);
 
         res.json({ success: true });
     } catch (error) {
@@ -283,6 +294,8 @@ router.post('/:linkedPageId/comments/:commentId/reply', async (req, res) => {
             return res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرد', details: data.error });
         }
 
+        logFacebookActivity(page, 'fb_comment_replied', `الرد على تعليق في صفحة ${page.page_name || page.page_id}`);
+
         res.status(201).json({ id: data.id, message: data.message });
     } catch (error) {
         console.error('[FBContent] Reply error:', error);
@@ -318,6 +331,8 @@ router.post('/:linkedPageId/comments/:commentId/hide', async (req, res) => {
             return res.status(response.status).json({ error: data.error?.message || 'فشل تحديث حالة التعليق', details: data.error });
         }
 
+        logFacebookActivity(page, 'fb_comment_hidden', `${is_hidden ? 'إخفاء' : 'إظهار'} تعليق في صفحة ${page.page_name || page.page_id}`);
+
         res.json({ success: true, is_hidden: !!is_hidden });
     } catch (error) {
         console.error('[FBContent] Hide comment error:', error);
@@ -343,6 +358,8 @@ router.delete('/:linkedPageId/comments/:commentId', async (req, res) => {
         if (!response.ok) {
             return res.status(response.status).json({ error: data.error?.message || 'فشل حذف التعليق', details: data.error });
         }
+
+        logFacebookActivity(page, 'fb_comment_deleted', `حذف تعليق من صفحة ${page.page_name || page.page_id}`);
 
         res.json({ success: true });
     } catch (error) {

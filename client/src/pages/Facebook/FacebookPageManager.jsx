@@ -402,6 +402,7 @@ const FacebookPageManager = () => {
 
     const webhookSummary = webhookDiagnostics?.summary || null;
     const selectedPageDiagnostic = webhookDiagnostics?.linked_pages?.find(page => String(page.id) === String(selectedPageId));
+    const webhookFieldEvidence = Object.entries(webhookDiagnostics?.webhook_evidence?.by_field || {});
 
     if (pagesLoading) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}><CircularProgress /></Box>;
@@ -487,6 +488,20 @@ const FacebookPageManager = () => {
                                 variant="outlined"
                             />
                         </Box>
+
+                        {webhookFieldEvidence.length > 0 && (
+                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                                {webhookFieldEvidence.map(([field, evidence]) => (
+                                    <Chip
+                                        key={field}
+                                        size="small"
+                                        label={`${field}: إنتاج ${evidence.production_count || 0} / إجمالي ${evidence.count || 0}`}
+                                        color={(evidence.production_count || 0) > 0 ? 'success' : 'warning'}
+                                        variant="outlined"
+                                    />
+                                ))}
+                            </Box>
+                        )}
 
                         {webhookSummary?.warnings?.length > 0 && (
                             <Alert severity="warning" sx={{ mb: selectedPageDiagnostic ? 2 : 0 }}>

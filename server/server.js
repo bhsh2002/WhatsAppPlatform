@@ -85,6 +85,16 @@ if (process.env.CRYPTO_KEY.length < 64) {
     process.exit(1);
 }
 
+if (process.env.NODE_ENV === 'production') {
+    const requiredProductionMetaSecrets = ['META_APP_SECRET', 'WEBHOOK_VERIFY_TOKEN'];
+    const missingMetaSecrets = requiredProductionMetaSecrets.filter(name => !process.env[name]);
+    if (missingMetaSecrets.length > 0) {
+        console.error(`❌ FATAL: Missing production Meta secret(s): ${missingMetaSecrets.join(', ')}`);
+        console.error('   These are required for signed webhooks and Meta App verification in production.');
+        process.exit(1);
+    }
+}
+
 // Initialize encryption service
 try {
     initEncryption();
@@ -173,14 +183,13 @@ app.use((req, res, next) => {
 });
 
 // Rate limiters
-// const authLimiter = rateLimit({
-//     windowMs: AUTH_RATE_LIMIT.windowMs,
-//     max: AUTH_RATE_LIMIT.max,
-//     message: { error: AUTH_RATE_LIMIT.message },
-//     standardHeaders: true,
-//     legacyHeaders: false,
-//     keyGenerator: (req) => req.ip,
-// });
+const authLimiter = rateLimit({
+    windowMs: AUTH_RATE_LIMIT.windowMs,
+    max: AUTH_RATE_LIMIT.max,
+    message: { error: AUTH_RATE_LIMIT.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 const apiLimiter = rateLimit({
     windowMs: GLOBAL_RATE_LIMIT.windowMs,
@@ -417,8 +426,10 @@ h1{color:#075E54}
 </div></body></html>`);
 });
 
-// Auth routes (public, with stricter rate limit on login/register)
-// app.use('/auth', authLimiter, authRouter);
+// Auth routes (stricter rate limit only on credential-entry endpoints)
+app.use('/auth/login', authLimiter);
+app.use('/auth/register', authLimiter);
+app.use('/auth/register-tenant', authLimiter);
 app.use('/auth', authRouter);
 
 // SSE endpoints (use one-time token auth, not session auth)

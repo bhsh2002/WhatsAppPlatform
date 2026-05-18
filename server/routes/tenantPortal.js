@@ -27,76 +27,16 @@ import {
     selectMessengerMessages,
 } from '../services/messengerMessages.js';
 import { normalizeFilename } from '../services/filenames.js';
+import {
+    FACEBOOK_OAUTH_SCOPES as FACEBOOK_REVIEW_SCOPES,
+    FACEBOOK_WEBHOOK_FIELDS,
+    buildMetaReviewReadiness,
+} from '../services/metaReadiness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
-
-const FACEBOOK_REVIEW_SCOPES = [
-    'pages_show_list',
-    'pages_manage_metadata',
-    'pages_messaging',
-    'pages_read_engagement',
-    'pages_read_user_content',
-    'pages_manage_posts',
-    'pages_manage_engagement',
-    'business_management',
-];
-
-const FACEBOOK_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'];
-
-const CONTENT_REVIEW_SCOPES = [
-    'pages_read_user_content',
-    'pages_read_engagement',
-    'pages_manage_posts',
-    'pages_manage_engagement',
-];
-
-const MESSENGER_REVIEW_SCOPES = [
-    'pages_messaging',
-    'pages_manage_metadata',
-];
-
-const BUSINESS_REVIEW_SCOPES = ['business_management'];
-
-const parseStoredArray = (value) => {
-    if (Array.isArray(value)) return value;
-    if (!value) return [];
-
-    try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return String(value)
-            .split(',')
-            .map(item => item.trim())
-            .filter(Boolean);
-    }
-};
-
-const parseStoredObject = (value) => {
-    if (!value) return null;
-    if (typeof value === 'object') return value;
-
-    try {
-        return JSON.parse(value);
-    } catch {
-        return null;
-    }
-};
-
-const missingItems = (required, available) => {
-    const availableSet = new Set(available || []);
-    return required.filter(item => !availableSet.has(item));
-};
-
-const hasAllItems = (required, available) => missingItems(required, available).length === 0;
-
-const readinessStatus = (isReady, hasPartialSetup = false) => {
-    if (isReady) return 'ready';
-    return hasPartialSetup ? 'action_required' : 'missing';
-};
 
 // ============================================
 // Middleware to ensure user is a tenant (has tenant_id)
@@ -3906,13 +3846,22 @@ router.post('/facebook/connect', async (req, res) => {
         }
 
         let grantedScopes = [];
+        let tokenStatus = 'unchecked';
+        let tokenExpiresAt = null;
+        let tokenAppId = null;
         try {
             const appAccessToken = `${META_APP_ID}|${META_APP_SECRET}`;
             const debugRes = await fetch(
                 `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(llData.access_token)}&access_token=${encodeURIComponent(appAccessToken)}`
             );
             const debugData = await debugRes.json();
-            grantedScopes = debugData.data?.scopes || [];
+            const tokenData = debugData.data || {};
+            grantedScopes = tokenData.scopes || [];
+            tokenStatus = tokenData.is_valid === true ? 'valid' : 'invalid';
+            tokenExpiresAt = tokenData.expires_at && tokenData.expires_at > 0
+                ? new Date(tokenData.expires_at * 1000).toISOString()
+                : null;
+            tokenAppId = tokenData.app_id || null;
         } catch (e) {
             console.warn('[TenantPortal] Facebook token debug failed:', e.message);
         }
@@ -3922,9 +3871,20 @@ router.post('/facebook/connect', async (req, res) => {
             SET facebook_user_access_token_encrypted = ?,
                 facebook_user_token_scopes = ?,
                 facebook_user_token_updated_at = datetime('now', 'localtime'),
+                facebook_user_token_status = ?,
+                facebook_user_token_expires_at = ?,
+                facebook_user_token_checked_at = datetime('now', 'localtime'),
+                facebook_user_token_app_id = ?,
                 updated_at = datetime('now', 'localtime')
             WHERE id = ?
-        `).run(encrypt(llData.access_token), JSON.stringify(grantedScopes), tenantId);
+        `).run(
+            encrypt(llData.access_token),
+            JSON.stringify(grantedScopes),
+            tokenStatus,
+            tokenExpiresAt,
+            tokenAppId,
+            tenantId
+        );
 
         const pagesRes = await fetch(
             `${META_API_BASE}/me/accounts?fields=id,name,category,picture.width(100).height(100),access_token&access_token=${llData.access_token}`
@@ -4017,261 +3977,14 @@ router.get('/facebook/diagnostics', async (req, res) => {
     }
 });
 
-router.get('/meta-review/readiness', (req, res) => {
+router.get('/meta-review/readiness', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const tenant = db.prepare(`
-            SELECT id, name, phone_number_id, access_token, access_token_encrypted,
-                   waba_id, business_id, dataset_id,
-                   facebook_user_access_token_encrypted,
-                   facebook_user_token_scopes,
-                   facebook_user_token_updated_at
-            FROM tenants
-            WHERE id = ?
-        `).get(tenantId);
-
-        if (!tenant) {
-            return res.status(404).json({ error: 'العميل غير موجود' });
-        }
-
-        const grantedScopes = parseStoredArray(tenant.facebook_user_token_scopes);
-        const missingScopes = missingItems(FACEBOOK_REVIEW_SCOPES, grantedScopes);
-        const facebookUserTokenPresent = !!tenant.facebook_user_access_token_encrypted;
-
-        const pageRows = db.prepare(`
-            SELECT id, platform, page_id, page_name, page_category, page_picture_url,
-                   page_access_token_encrypted, is_active, subscribed_fields,
-                   webhook_subscribed, token_status, token_expires_at,
-                   token_checked_at, created_at, updated_at
-            FROM tenant_pages
-            WHERE tenant_id = ?
-            ORDER BY updated_at DESC
-        `).all(tenantId);
-
-        const pages = pageRows.map(page => {
-            const subscribedFields = parseStoredArray(page.subscribed_fields);
-            const missingWebhookFields = missingItems(FACEBOOK_WEBHOOK_FIELDS, subscribedFields);
-
-            return {
-                id: page.id,
-                platform: page.platform,
-                page_id: page.page_id,
-                page_name: page.page_name,
-                page_category: page.page_category,
-                page_picture_url: page.page_picture_url,
-                is_active: !!page.is_active,
-                page_access_token_present: !!page.page_access_token_encrypted,
-                subscribed_fields: subscribedFields,
-                required_webhook_fields: FACEBOOK_WEBHOOK_FIELDS,
-                missing_webhook_fields: missingWebhookFields,
-                webhook_subscribed: !!page.webhook_subscribed,
-                webhook_ready: !!page.webhook_subscribed && missingWebhookFields.length === 0,
-                token_status: page.token_status || 'unchecked',
-                token_expires_at: page.token_expires_at || null,
-                token_checked_at: page.token_checked_at || null,
-                created_at: page.created_at,
-                updated_at: page.updated_at,
-            };
-        });
-
-        const activePages = pages.filter(page => page.is_active);
-        const pagesWithToken = activePages.filter(page => page.page_access_token_present);
-        const webhookReadyPages = activePages.filter(page => page.webhook_ready);
-        const messengerWebhookPages = activePages.filter(page =>
-            page.webhook_subscribed && page.subscribed_fields.includes('messages')
-        );
-
-        const conversationStats = db.prepare(`
-            SELECT COUNT(*) as count,
-                   MAX(COALESCE(last_message_time, updated_at, created_at)) as latest_activity_at
-            FROM fb_conversations
-            WHERE tenant_id = ?
-        `).get(tenantId);
-
-        const messageStats = db.prepare(`
-            SELECT COUNT(*) as count,
-                   MAX(created_at) as latest_message_at
-            FROM fb_messages
-            WHERE tenant_id = ?
-        `).get(tenantId);
-
-        const profileStats = db.prepare(`
-            SELECT COUNT(*) as count
-            FROM fb_conversations
-            WHERE tenant_id = ?
-              AND (user_name IS NOT NULL OR user_profile_pic IS NOT NULL)
-        `).get(tenantId);
-
-        const conversionStats = db.prepare(`
-            SELECT COUNT(*) as total,
-                   COALESCE(SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END), 0) as sent,
-                   COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed,
-                   COALESCE(SUM(CASE WHEN status = 'local_only' THEN 1 ELSE 0 END), 0) as local_only
-            FROM conversion_events
-            WHERE tenant_id = ?
-        `).get(tenantId);
-
-        const lastConversion = db.prepare(`
-            SELECT id, dataset_id, event_name, status, meta_response, created_at
-            FROM conversion_events
-            WHERE tenant_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        `).get(tenantId);
-
-        const lastConversionMeta = parseStoredObject(lastConversion?.meta_response);
-        const effectiveWhatsAppTokenPresent = !!getAccessToken(tenantId);
-        const tenantWhatsAppTokenPresent = !!(tenant.access_token || tenant.access_token_encrypted);
-
-        const permissionsReady = facebookUserTokenPresent && missingScopes.length === 0;
-        const pagesReady = activePages.length > 0 && webhookReadyPages.length > 0;
-        const contentScopesReady = hasAllItems(CONTENT_REVIEW_SCOPES, grantedScopes);
-        const contentReady = pagesWithToken.length > 0 && contentScopesReady;
-        const messengerScopesReady = hasAllItems(MESSENGER_REVIEW_SCOPES, grantedScopes);
-        const messengerConfigured = messengerScopesReady && messengerWebhookPages.length > 0;
-        const messengerHasEvidence = (conversationStats?.count || 0) > 0 || (messageStats?.count || 0) > 0;
-        const businessScopeReady = hasAllItems(BUSINESS_REVIEW_SCOPES, grantedScopes);
-        const businessReady = !!tenant.business_id && facebookUserTokenPresent && businessScopeReady;
-        const eventsConfigured = !!tenant.dataset_id && effectiveWhatsAppTokenPresent;
-        const eventsReady = eventsConfigured && lastConversion?.status === 'sent';
-        const assetProfileReady = (profileStats?.count || 0) > 0;
-
-        const sections = {
-            permissions: {
-                key: 'permissions',
-                title: 'Facebook OAuth Permissions',
-                status: readinessStatus(permissionsReady, facebookUserTokenPresent || grantedScopes.length > 0),
-                action_path: '/portal/fb-pages',
-                requested_scopes: FACEBOOK_REVIEW_SCOPES,
-                granted_scopes: grantedScopes,
-                missing_scopes: missingScopes,
-                facebook_user_token_present: facebookUserTokenPresent,
-                facebook_user_token_updated_at: tenant.facebook_user_token_updated_at || null,
-                review_hint: missingScopes.length
-                    ? 'أعد تفويض Facebook من صفحة الربط حتى تظهر الأذونات المطلوبة في debug_token.'
-                    : 'كل أذونات Facebook المطلوبة موجودة في رمز المستخدم.',
-            },
-            pages: {
-                key: 'pages',
-                title: 'Facebook Pages & Webhooks',
-                status: readinessStatus(pagesReady, activePages.length > 0),
-                action_path: '/portal/fb-pages',
-                linked_count: pages.length,
-                active_count: activePages.length,
-                page_token_ready_count: pagesWithToken.length,
-                webhook_ready_count: webhookReadyPages.length,
-                required_webhook_fields: FACEBOOK_WEBHOOK_FIELDS,
-                pages,
-                review_hint: pagesReady
-                    ? 'توجد صفحة نشطة واحدة على الأقل مع Webhook fields المطلوبة.'
-                    : 'اربط صفحة Facebook وتحقق من اشتراك Webhook لكل الحقول المطلوبة.',
-            },
-            content: {
-                key: 'content',
-                title: 'Page Content',
-                status: readinessStatus(contentReady, pagesWithToken.length > 0 || contentScopesReady),
-                action_path: '/portal/fb-content',
-                required_permissions: CONTENT_REVIEW_SCOPES,
-                missing_permissions: missingItems(CONTENT_REVIEW_SCOPES, grantedScopes),
-                linked_pages_ready: pagesWithToken.length,
-                supported_actions: ['read_posts', 'create_posts', 'edit_posts', 'delete_posts', 'read_comments', 'reply_comments', 'hide_comments', 'delete_comments'],
-                review_hint: contentReady
-                    ? 'مسار إدارة المحتوى جاهز لإثبات قراءة المنشورات وإدارة التعليقات والنشر.'
-                    : 'يتطلب صفحة مرتبطة مع رمز صفحة صالح وأذونات إدارة/قراءة محتوى الصفحة.',
-            },
-            messenger: {
-                key: 'messenger',
-                title: 'Messenger',
-                status: readinessStatus(messengerConfigured && messengerHasEvidence, messengerConfigured || activePages.length > 0),
-                action_path: '/portal/inbox',
-                required_permissions: MESSENGER_REVIEW_SCOPES,
-                missing_permissions: missingItems(MESSENGER_REVIEW_SCOPES, grantedScopes),
-                webhook_pages_ready: messengerWebhookPages.length,
-                conversations_count: conversationStats?.count || 0,
-                messages_count: messageStats?.count || 0,
-                latest_activity_at: conversationStats?.latest_activity_at || messageStats?.latest_message_at || null,
-                review_hint: messengerConfigured && messengerHasEvidence
-                    ? 'Messenger جاهز وبداخله دليل نشاط يمكن عرضه للمراجع.'
-                    : 'يتطلب صفحة مشتركة في messages ووجود محادثة Messenger فعلية أو مزامنة محادثة قائمة.',
-            },
-            business_asset_user_profile_access: {
-                key: 'business_asset_user_profile_access',
-                title: 'Business Asset User Profile Access',
-                status: readinessStatus(assetProfileReady, messengerConfigured),
-                action_path: '/portal/inbox',
-                feature_required: 'Business Asset User Profile Access',
-                profile_records_count: profileStats?.count || 0,
-                review_hint: assetProfileReady
-                    ? 'يوجد دليل على استخدام اسم/صورة مستخدم Messenger داخل المحادثات.'
-                    : 'يظهر هذا الدليل بعد استقبال Messenger webhook يحتوي PSID ثم جلب بيانات المستخدم للعرض داخل inbox.',
-            },
-            business: {
-                key: 'business',
-                title: 'Business APIs',
-                status: readinessStatus(businessReady, !!tenant.business_id || facebookUserTokenPresent || businessScopeReady),
-                action_path: '/portal/fb-pages',
-                admin_paths: ['/business-manager', '/partner-solutions'],
-                required_permissions: BUSINESS_REVIEW_SCOPES,
-                missing_permissions: missingItems(BUSINESS_REVIEW_SCOPES, grantedScopes),
-                business_id_present: !!tenant.business_id,
-                facebook_user_token_present: facebookUserTokenPresent,
-                review_hint: businessReady
-                    ? 'Business ID ورمز مستخدم Facebook وصلاحية business_management جاهزة لمسارات Business Manager.'
-                    : 'يتطلب Business ID ورمز مستخدم Facebook يحتوي business_management، ثم التحقق من شاشة Business Manager كمدير.',
-            },
-            whatsapp_events: {
-                key: 'whatsapp_events',
-                title: 'WhatsApp Events API',
-                status: readinessStatus(eventsReady, eventsConfigured || !!lastConversion),
-                action_path: '/portal/conversions',
-                permission_required: 'whatsapp_business_manage_events',
-                dataset_id_present: !!tenant.dataset_id,
-                dataset_id: tenant.dataset_id || null,
-                tenant_whatsapp_token_present: tenantWhatsAppTokenPresent,
-                effective_whatsapp_token_present: effectiveWhatsAppTokenPresent,
-                events_total: conversionStats?.total || 0,
-                events_sent: conversionStats?.sent || 0,
-                events_failed: conversionStats?.failed || 0,
-                events_local_only: conversionStats?.local_only || 0,
-                last_event: lastConversion ? {
-                    id: lastConversion.id,
-                    dataset_id: lastConversion.dataset_id,
-                    event_name: lastConversion.event_name,
-                    status: lastConversion.status,
-                    created_at: lastConversion.created_at,
-                    events_received: lastConversionMeta?.events_received ?? null,
-                    fbtrace_id: lastConversionMeta?.fbtrace_id || lastConversionMeta?.error?.fbtrace_id || null,
-                } : null,
-                review_hint: eventsReady
-                    ? 'يوجد حدث conversion مرسل إلى Meta ويمكن استخدامه كدليل مراجعة.'
-                    : 'أضف Dataset ID وتأكد من وجود رمز WhatsApp ثم أرسل حدثاً من شاشة أحداث التحويل.',
-            },
-        };
-
-        const sectionValues = Object.values(sections);
-        const readyCount = sectionValues.filter(section => section.status === 'ready').length;
-
-        res.json({
-            generated_at: new Date().toISOString(),
-            tenant: {
-                id: tenant.id,
-                name: tenant.name,
-                phone_number_id_present: !!tenant.phone_number_id,
-                waba_id_present: !!tenant.waba_id,
-                business_id: tenant.business_id || null,
-                dataset_id: tenant.dataset_id || null,
-            },
-            overall: {
-                status: readyCount === sectionValues.length ? 'ready' : 'action_required',
-                ready_count: readyCount,
-                total_count: sectionValues.length,
-                action_required_count: sectionValues.length - readyCount,
-            },
-            ...sections,
-        });
+        const readiness = await buildMetaReviewReadiness(tenantId);
+        res.json(readiness);
     } catch (error) {
         console.error('[TenantPortal] Meta review readiness error:', error);
-        res.status(500).json({ error: 'فشل جلب جاهزية مراجعة Meta' });
+        res.status(error.status || 500).json({ error: 'فشل جلب جاهزية مراجعة Meta' });
     }
 });
 
@@ -4324,6 +4037,34 @@ router.post('/facebook/link-pages', async (req, res) => {
                     VALUES (?, 'facebook', ?, ?, ?, ?, ?, 0)
                 `).run(tenantId, page.id, page.name, encryptedToken, page.category || null, pagePictureUrl);
                 linkedPageDbId = result.lastInsertRowid;
+            }
+
+            if (META_APP_ID && META_APP_SECRET) {
+                try {
+                    const appAccessToken = `${META_APP_ID}|${META_APP_SECRET}`;
+                    const debugRes = await fetch(
+                        `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(page.access_token)}&access_token=${encodeURIComponent(appAccessToken)}`
+                    );
+                    const debugData = await debugRes.json();
+                    const tokenData = debugData.data || {};
+                    db.prepare(`
+                        UPDATE tenant_pages
+                        SET token_status = ?,
+                            token_expires_at = ?,
+                            token_checked_at = datetime('now', 'localtime'),
+                            token_app_id = ?,
+                            token_scopes = ?
+                        WHERE id = ?
+                    `).run(
+                        tokenData.is_valid === true ? 'valid' : 'invalid',
+                        tokenData.expires_at && tokenData.expires_at > 0 ? new Date(tokenData.expires_at * 1000).toISOString() : null,
+                        tokenData.app_id || null,
+                        JSON.stringify(tokenData.scopes || []),
+                        linkedPageDbId
+                    );
+                } catch (e) {
+                    console.warn('[TenantPortal] Page token debug failed for page', page.id, e.message);
+                }
             }
 
             try {

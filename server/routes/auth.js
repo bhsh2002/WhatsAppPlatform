@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
-import { authMiddleware, generateMediaToken } from '../middleware/auth.js';
+import { adminMiddleware, authMiddleware, generateMediaToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -32,30 +32,16 @@ function revokeAllUserTokens(userId) {
 }
 
 // Register new user (admin only — requires valid admin token)
-router.post('/register', async (req, res) => {
+router.post('/register', authMiddleware, adminMiddleware, async (req, res) => {
     try {
-        // Verify admin authorization
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'التسجيل مقتصر على المديرين فقط' });
-        }
-        try {
-            const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-            if (decoded.role !== 'admin') {
-                return res.status(403).json({ error: 'صلاحيات غير كافية — فقط المديرون يمكنهم إنشاء حسابات' });
-            }
-        } catch {
-            return res.status(401).json({ error: 'رمز غير صالح أو منتهي الصلاحية' });
-        }
-
         const { username, email, password, name } = req.body;
 
         if (!username || !password) {
             return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبة' });
         }
 
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
+        if (password.length < 8) {
+            return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' });
         }
 
         // Check if username exists
@@ -158,21 +144,11 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Get current user (verify token)
-router.get('/me', (req, res) => {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'غير مصرح' });
-    }
-
-    const token = authHeader.split(' ')[1];
-
+// Get current user
+router.get('/me', authMiddleware, (req, res) => {
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         const user = db.prepare('SELECT id, username, email, name, role, tenant_id, created_at, last_login FROM users WHERE id = ?')
-            .get(decoded.id);
+            .get(req.user.id);
 
         if (!user) {
             return res.status(401).json({ error: 'المستخدم غير موجود' });
@@ -209,28 +185,19 @@ router.post('/logout', (req, res) => {
 });
 
 // Change password
-router.post('/change-password', async (req, res) => {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'غير مصرح' });
-    }
-
-    const token = authHeader.split(' ')[1];
-
+router.post('/change-password', authMiddleware, async (req, res) => {
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { currentPassword, newPassword } = req.body;
 
         if (!currentPassword || !newPassword) {
             return res.status(400).json({ error: 'كلمة المرور الحالية والجديدة مطلوبة' });
         }
 
-        if (newPassword.length < 6) {
-            return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل' });
+        if (newPassword.length < 8) {
+            return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل' });
         }
 
-        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
 
         const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
         if (!isMatch) {
@@ -241,15 +208,20 @@ router.post('/change-password', async (req, res) => {
         const password_hash = await bcrypt.hash(newPassword, salt);
 
         db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
-            .run(password_hash, decoded.id);
+            .run(password_hash, req.user.id);
 
         // Revoke the current token (user must re-login)
-        if (decoded.jti) {
-            revokeToken(decoded.jti, decoded.id);
+        if (req.user.jti) {
+            revokeToken(req.user.jti, req.user.id);
         }
 
         // Issue a fresh token
-        const { token: newToken } = signToken({ id: decoded.id, username: decoded.username, role: decoded.role, tenant_id: decoded.tenant_id });
+        const { token: newToken } = signToken({
+            id: req.user.id,
+            username: req.user.username,
+            role: req.user.role,
+            tenant_id: req.user.tenant_id,
+        });
 
         res.json({ message: 'تم تغيير كلمة المرور بنجاح', token: newToken });
     } catch (error) {

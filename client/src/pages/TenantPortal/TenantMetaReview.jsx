@@ -82,6 +82,96 @@ const MissingChips = ({ items, emptyLabel = 'لا توجد نواقص' }) => {
     ));
 };
 
+const SourceLabel = {
+    production_event: 'حدث إنتاج',
+    meta_dashboard_test: 'اختبار Meta',
+    internal_test: 'اختبار داخلي',
+};
+
+const PermissionMatrix = ({ permissions }) => {
+    if (!permissions?.length) return null;
+
+    return (
+        <Paper sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+                مصفوفة الأذونات والأدلة
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                كل إذن مربوط بمسار استخدام ودليل تشغيل. الحالة لا تعتمد على وجود scope فقط.
+            </Typography>
+            <Grid container spacing={1.5}>
+                {permissions.map(permission => (
+                    <Grid size={{ xs: 12, md: 6, xl: 4 }} key={permission.key}>
+                        <Box
+                            sx={{
+                                border: 1,
+                                borderColor: 'divider',
+                                borderRadius: 1,
+                                p: 1.5,
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 1,
+                            }}
+                        >
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'flex-start' }}>
+                                <Box>
+                                    <Typography variant="subtitle2" fontWeight={700}>{permission.label}</Typography>
+                                    <Typography variant="caption" color="text.secondary">{permission.key}</Typography>
+                                </Box>
+                                <StatusChip status={permission.status} />
+                            </Box>
+                            <Typography variant="body2" color="text.secondary">
+                                {permission.usage}
+                            </Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                <Chip
+                                    label={permission.granted ? 'ممنوح' : 'غير ممنوح'}
+                                    color={permission.granted ? 'success' : 'warning'}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                                <Chip
+                                    label={`الدليل: ${getStatusConfig(permission.evidence_status).label}`}
+                                    color={getStatusConfig(permission.evidence_status).color}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary">
+                                آخر نجاح: {formatDate(permission.last_success_at)}
+                            </Typography>
+                        </Box>
+                    </Grid>
+                ))}
+            </Grid>
+        </Paper>
+    );
+};
+
+const WebhookEvidence = ({ evidence }) => {
+    const fields = Object.entries(evidence?.by_field || {});
+    if (!fields.length) return null;
+
+    return (
+        <Paper sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+                أدلة Webhook الفعلية
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {fields.map(([field, item]) => (
+                    <Chip
+                        key={field}
+                        label={`${field}: ${item.production_count || 0}/${item.count || 0} إنتاج - ${SourceLabel[item.latest_source] || item.latest_source || 'غير معروف'}`}
+                        color={(item.production_count || 0) > 0 ? 'success' : 'warning'}
+                        variant="outlined"
+                    />
+                ))}
+            </Stack>
+        </Paper>
+    );
+};
+
 const ReviewSectionCard = ({ title, icon, section, metrics, missingItems, actionLabel, actionPath, children }) => (
     <Card sx={{ height: '100%' }}>
         <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -299,8 +389,14 @@ const TenantMetaReview = () => {
                         />
                         <Typography variant="body2" color="text.secondary">
                             الجاهز: {readiness.overall?.ready_count || 0} من {readiness.overall?.total_count || 0}
+                            {readiness.overall?.permissions_total_count ? (
+                                <> - الأذونات المثبتة: {readiness.overall.permissions_ready_count || 0} من {readiness.overall.permissions_total_count}</>
+                            ) : null}
                         </Typography>
                     </Paper>
+
+                    <PermissionMatrix permissions={readiness.permission_matrix} />
+                    <WebhookEvidence evidence={readiness.webhook_evidence} />
 
                     <Grid container spacing={3}>
                         {sections.map(section => (

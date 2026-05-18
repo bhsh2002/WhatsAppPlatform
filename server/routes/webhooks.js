@@ -155,7 +155,11 @@ router.get('/', (req, res) => {
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    console.log('[Webhook] Verification request:', { mode, token, challenge: challenge?.substring(0, 20) + '...' });
+    console.log('[Webhook] Verification request:', {
+        mode,
+        token_present: !!token,
+        challenge_present: !!challenge,
+    });
 
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
         console.log('[Webhook] Verification successful');

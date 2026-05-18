@@ -7,9 +7,13 @@ import {
     META_WEBHOOK_CALLBACK_URL,
 } from '../config/index.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import {
+    FACEBOOK_WEBHOOK_FIELDS,
+    getWebhookEvidence,
+    parseStoredArray,
+} from '../services/metaReadiness.js';
 
 const router = express.Router();
-const FACEBOOK_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'];
 
 const sanitizePage = (row) => {
     if (!row) return null;
@@ -32,17 +36,7 @@ const resolveWebhookCallbackUrl = (req, bodyCallbackUrl = '') => {
     return normalizeUrl(`${req.protocol}://${req.get('host')}/webhook`);
 };
 
-const parseStoredFields = (value) => {
-    if (!value) return [];
-    if (Array.isArray(value)) return value.map(String).filter(Boolean);
-    try {
-        const parsed = JSON.parse(value);
-        if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch {
-        // Fall through to comma-separated parsing.
-    }
-    return String(value).split(',').map(field => field.trim()).filter(Boolean);
-};
+const parseStoredFields = parseStoredArray;
 
 const extractSubscriptionFields = (subscription) => {
     const rawFields = subscription?.fields ?? subscription?.subscribed_fields ?? [];
@@ -61,6 +55,15 @@ const extractSubscriptionFields = (subscription) => {
 };
 
 const missingFields = (fields) => FACEBOOK_WEBHOOK_FIELDS.filter(field => !fields.includes(field));
+
+const redactPayloadPreview = (preview) => {
+    if (!preview) return preview;
+    return String(preview)
+        .replace(/"message"\s*:\s*"[^"]*"/g, '"message":"[redacted]"')
+        .replace(/"text"\s*:\s*"[^"]*"/g, '"text":"[redacted]"')
+        .replace(/"name"\s*:\s*"[^"]*"/g, '"name":"[redacted]"')
+        .replace(/"email"\s*:\s*"[^"]*"/g, '"email":"[redacted]"');
+};
 
 const summarizeAppSubscriptions = (appSubscriptions, expectedCallbackUrl) => {
     const subscriptions = Array.isArray(appSubscriptions?.data) ? appSubscriptions.data : [];
@@ -194,6 +197,34 @@ router.post('/tenant/:tenantId', async (req, res) => {
         const result = stmt.run(tenantId, 'facebook', page_id, pageName, encryptedToken, pageCategory, pagePictureUrl);
 
         const newPage = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(result.lastInsertRowid);
+
+        if (META_APP_ID && META_APP_SECRET) {
+            try {
+                const appAccessToken = `${META_APP_ID}|${META_APP_SECRET}`;
+                const debugResponse = await fetch(
+                    `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(page_access_token)}&access_token=${encodeURIComponent(appAccessToken)}`
+                );
+                const debugData = await debugResponse.json();
+                const tokenData = debugData.data || {};
+                db.prepare(`
+                    UPDATE tenant_pages
+                    SET token_status = ?,
+                        token_expires_at = ?,
+                        token_checked_at = datetime('now', 'localtime'),
+                        token_app_id = ?,
+                        token_scopes = ?
+                    WHERE id = ?
+                `).run(
+                    tokenData.is_valid === true ? 'valid' : 'invalid',
+                    tokenData.expires_at && tokenData.expires_at > 0 ? new Date(tokenData.expires_at * 1000).toISOString() : null,
+                    tokenData.app_id || null,
+                    JSON.stringify(tokenData.scopes || []),
+                    newPage.id
+                );
+            } catch (err) {
+                console.warn('[FacebookPages] Page token debug failed:', err.message);
+            }
+        }
 
         // Try to subscribe the page to our app webhooks
         let webhookSubscribed = false;
@@ -558,6 +589,8 @@ router.get('/webhook-diagnostic', async (req, res) => {
                 const debugData = await debugRes.json();
                 pageInfo.token_scopes = debugData.data?.scopes || [];
                 pageInfo.token_valid = debugData.data?.is_valid || false;
+                pageInfo.token_app_id = debugData.data?.app_id || null;
+                pageInfo.token_app_id_matches = !META_APP_ID || !debugData.data?.app_id || String(debugData.data.app_id) === String(META_APP_ID);
                 pageInfo.token_expires_at = debugData.data?.expires_at || null;
             } else {
                 pageInfo.error = 'Cannot decrypt page token';
@@ -572,17 +605,25 @@ router.get('/webhook-diagnostic', async (req, res) => {
             WHERE event_type = 'page'
             ORDER BY created_at DESC
             LIMIT 10
-        `).all();
+        `).all().map(row => ({
+            ...row,
+            payload_preview: redactPayloadPreview(row.payload_preview),
+        }));
 
         const pageWebhookLogCount = db.prepare(`
             SELECT COUNT(*) AS count, MAX(created_at) AS latest_at
             FROM webhook_logs
             WHERE event_type = 'page'
         `).get();
+        const webhookEvidence = getWebhookEvidence();
+        results.webhook_evidence = webhookEvidence;
 
         const pagesWithFeed = results.linked_pages.filter(page =>
             page.page_subscription_summary?.feed_subscribed || page.stored_subscribed_fields.includes('feed')
         );
+        const feedCommentEvidence = webhookEvidence.by_event_key?.['feed:comment:add'] || null;
+        const feedReactionEvidence = webhookEvidence.by_event_key?.['feed:reaction:add'] || null;
+        const feedProductionCount = (feedCommentEvidence?.production_count || 0) + (feedReactionEvidence?.production_count || 0);
 
         const warnings = [];
         if (!results.app_subscription_summary.page_subscription_present) {
@@ -600,6 +641,9 @@ router.get('/webhook-diagnostic', async (req, res) => {
         if (!pageWebhookLogCount?.count) {
             warnings.push('No page webhook logs were recorded locally.');
         }
+        if (results.app_subscription_summary.feed_subscribed && pagesWithFeed.length > 0 && feedProductionCount === 0) {
+            warnings.push('feed is subscribed, but no production comment/reaction feed event has been recorded yet.');
+        }
 
         results.page_webhook_logs = {
             count: pageWebhookLogCount?.count || 0,
@@ -616,6 +660,19 @@ router.get('/webhook-diagnostic', async (req, res) => {
             linked_page_count: pages.length,
             pages_with_feed_count: pagesWithFeed.length,
             last_page_webhook_at: pageWebhookLogCount?.latest_at || null,
+            webhook_events_count: webhookEvidence.total_events,
+            production_webhook_events_count: webhookEvidence.production_events,
+            latest_by_field: Object.fromEntries(
+                Object.entries(webhookEvidence.by_field || {}).map(([field, evidence]) => [
+                    field,
+                    {
+                        count: evidence.count,
+                        production_count: evidence.production_count,
+                        latest_at: evidence.latest_at,
+                        latest_source: evidence.latest_source,
+                    },
+                ])
+            ),
         };
 
         res.json(results);
@@ -690,6 +747,11 @@ router.post('/setup-app-webhook', async (req, res) => {
             `${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`
         );
         const verifySubs = await verifyRes.json();
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (NULL, 'System', 'facebook_app_webhook_configured', ?, 'success')
+        `).run(`إعادة إعداد App Webhook: ${callbackUrl}`);
 
         res.json({
             success: true,

@@ -1,12 +1,51 @@
 import express from 'express';
 import db from '../db/database.js';
-import { getAccessToken, getFacebookUserAccessToken } from '../services/credentials.js';
+import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { parseStoredArray } from '../services/metaReadiness.js';
 
 const router = express.Router();
 
-const getBusinessAccessToken = (tenantId) => {
-    return getFacebookUserAccessToken(tenantId) || getAccessToken(tenantId);
+const resolveBusinessAccessToken = (tenantId) => {
+    if (!tenantId) {
+        return { status: 400, error: 'tenant_id مطلوب لاستخدام Business APIs', code: 'TENANT_REQUIRED' };
+    }
+
+    const tenant = db.prepare('SELECT id, facebook_user_token_scopes FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant) {
+        return { status: 404, error: 'العميل غير موجود', code: 'TENANT_NOT_FOUND' };
+    }
+
+    const accessToken = getFacebookUserAccessToken(tenantId);
+    if (!accessToken) {
+        return {
+            status: 400,
+            error: 'رمز Facebook user token مطلوب لمسارات Business APIs. أعد تفويض Facebook من بوابة العميل.',
+            code: 'FACEBOOK_USER_TOKEN_REQUIRED',
+            permission_required: 'business_management',
+        };
+    }
+
+    const scopes = parseStoredArray(tenant.facebook_user_token_scopes);
+    if (!scopes.includes('business_management')) {
+        return {
+            status: 403,
+            error: 'هذه العملية تتطلب صلاحية business_management في Facebook user token.',
+            code: 'BUSINESS_MANAGEMENT_REQUIRED',
+            permission_required: 'business_management',
+        };
+    }
+
+    return { accessToken };
+};
+
+const requireBusinessAccessToken = (res, tenantId) => {
+    const result = resolveBusinessAccessToken(tenantId);
+    if (result.error) {
+        res.status(result.status).json(result);
+        return null;
+    }
+    return result.accessToken;
 };
 
 // ============================================
@@ -17,11 +56,8 @@ router.get('/:businessId', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getBusinessAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenantId);
+        if (!accessToken) return;
 
         const fields = 'name,id';
         const response = await fetch(
@@ -63,11 +99,8 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getBusinessAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenantId);
+        if (!accessToken) return;
 
         const fields = 'name,account_id,account_status,currency,timezone_name,balance';
         const response = await fetch(
@@ -112,11 +145,8 @@ router.post('/:businessId/claim-ad-account', async (req, res) => {
         const { businessId } = req.params;
         const { tenant_id, adaccount_id } = req.body;
 
-        let accessToken = getBusinessAccessToken(tenant_id);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenant_id);
+        if (!accessToken) return;
 
         if (!adaccount_id) {
             return res.status(400).json({ error: 'معرف الحساب الإعلاني مطلوب' });
@@ -158,11 +188,8 @@ router.get('/:businessId/assets', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getBusinessAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenantId);
+        if (!accessToken) return;
 
         // Fetch multiple asset types in parallel
         const [pagesRes, wabaRes] = await Promise.all([
@@ -215,11 +242,8 @@ router.get('/:businessId/whatsapp-accounts', async (req, res) => {
         const { businessId } = req.params;
         const tenantId = req.query.tenant_id;
 
-        let accessToken = getBusinessAccessToken(tenantId);
-
-        if (!accessToken) {
-            return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
-        }
+        const accessToken = requireBusinessAccessToken(res, tenantId);
+        if (!accessToken) return;
 
         const response = await fetch(
             `${META_API_BASE}/${businessId}/owned_whatsapp_business_accounts?fields=name,id,currency,timezone_id,message_template_namespace`,
