@@ -734,6 +734,17 @@ class ApiService {
         });
     }
 
+    async getFacebookWebhookDiagnostic() {
+        return this.request('/api/facebook-pages/webhook-diagnostic');
+    }
+
+    async setupFacebookAppWebhook(callbackUrl) {
+        return this.request('/api/facebook-pages/setup-app-webhook', {
+            method: 'POST',
+            body: JSON.stringify(callbackUrl ? { callback_url: callbackUrl } : {}),
+        });
+    }
+
     // ============================================
     // Facebook Content Management (Admin)
     // ============================================

@@ -13,7 +13,8 @@ import {
     TextSnippet as TextIcon, Refresh as RefreshIcon, ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon, ChatBubble as CommentIcon,
     OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon,
-    SmartToy as AutomationIcon, Bolt as BoltIcon
+    SmartToy as AutomationIcon, Bolt as BoltIcon, SettingsEthernet as WebhookIcon,
+    ThumbUp as LikeIcon, Share as ShareIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -31,6 +32,10 @@ const FacebookPageManager = () => {
     const [selectedPageId, setSelectedPageId] = useState('');
     const [pagesLoading, setPagesLoading] = useState(true);
     const [pagesError, setPagesError] = useState('');
+    const [webhookDiagnostics, setWebhookDiagnostics] = useState(null);
+    const [webhookLoading, setWebhookLoading] = useState(false);
+    const [webhookSetupLoading, setWebhookSetupLoading] = useState(false);
+    const [webhookError, setWebhookError] = useState('');
 
     const [posts, setPosts] = useState([]);
     const [postsPaging, setPostsPaging] = useState(null);
@@ -98,6 +103,24 @@ const FacebookPageManager = () => {
     useEffect(() => {
         loadAllPages();
     }, [loadAllPages]);
+
+    const loadWebhookDiagnostics = useCallback(async () => {
+        try {
+            setWebhookLoading(true);
+            setWebhookError('');
+            const data = await api.getFacebookWebhookDiagnostic();
+            setWebhookDiagnostics(data);
+        } catch (err) {
+            setWebhookError(err.message || 'فشل فحص Webhook فيسبوك');
+            setWebhookDiagnostics(null);
+        } finally {
+            setWebhookLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadWebhookDiagnostics();
+    }, [loadWebhookDiagnostics]);
 
     const loadPosts = useCallback(async (append = false) => {
         if (!selectedPageId) return;
@@ -363,6 +386,23 @@ const FacebookPageManager = () => {
         }
     };
 
+    const handleSetupAppWebhook = async () => {
+        try {
+            setWebhookSetupLoading(true);
+            await api.setupFacebookAppWebhook();
+            setSnackbar({ open: true, message: 'تم إعادة إعداد Webhook التطبيق', severity: 'success' });
+            await loadWebhookDiagnostics();
+            await loadAllPages();
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل إعادة إعداد Webhook التطبيق', severity: 'error' });
+        } finally {
+            setWebhookSetupLoading(false);
+        }
+    };
+
+    const webhookSummary = webhookDiagnostics?.summary || null;
+    const selectedPageDiagnostic = webhookDiagnostics?.linked_pages?.find(page => String(page.id) === String(selectedPageId));
+
     if (pagesLoading) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}><CircularProgress /></Box>;
     }
@@ -383,6 +423,87 @@ const FacebookPageManager = () => {
             </Box>
 
             {pagesError && <Alert severity="error" sx={{ mb: 2 }}>{pagesError}</Alert>}
+
+            <Paper sx={{ p: 2, mb: 3 }}>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', md: 'center' }, gap: 1.5, mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <WebhookIcon color="primary" />
+                        <Box>
+                            <Typography variant="subtitle1" fontWeight={700}>تشخيص Webhook فيسبوك</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                                {webhookDiagnostics?.expected_callback_url || 'لم يتم جلب رابط Webhook المتوقع بعد'}
+                            </Typography>
+                        </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={loadWebhookDiagnostics}
+                            disabled={webhookLoading}
+                            startIcon={webhookLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
+                        >
+                            فحص Webhook
+                        </Button>
+                        <Button
+                            variant="contained"
+                            size="small"
+                            onClick={handleSetupAppWebhook}
+                            disabled={webhookSetupLoading}
+                            startIcon={webhookSetupLoading ? <CircularProgress size={16} color="inherit" /> : <WebhookIcon />}
+                        >
+                            إعادة إعداد App Webhook
+                        </Button>
+                    </Box>
+                </Box>
+
+                {webhookError && <Alert severity="error" sx={{ mb: 2 }}>{webhookError}</Alert>}
+
+                {webhookDiagnostics && (
+                    <>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: webhookSummary?.warnings?.length ? 2 : 0 }}>
+                            <Chip
+                                size="small"
+                                label={webhookSummary?.app_page_subscription_present ? 'App page: موجود' : 'App page: مفقود'}
+                                color={webhookSummary?.app_page_subscription_present ? 'success' : 'warning'}
+                                variant={webhookSummary?.app_page_subscription_present ? 'filled' : 'outlined'}
+                            />
+                            <Chip
+                                size="small"
+                                label={webhookSummary?.app_feed_subscribed ? 'feed: موجود' : 'feed: مفقود'}
+                                color={webhookSummary?.app_feed_subscribed ? 'success' : 'error'}
+                                variant={webhookSummary?.app_feed_subscribed ? 'filled' : 'outlined'}
+                            />
+                            <Chip
+                                size="small"
+                                label={webhookSummary?.app_callback_matches_expected ? 'Callback مطابق' : 'Callback يحتاج ضبط'}
+                                color={webhookSummary?.app_callback_matches_expected ? 'success' : 'warning'}
+                                variant={webhookSummary?.app_callback_matches_expected ? 'filled' : 'outlined'}
+                            />
+                            <Chip
+                                size="small"
+                                label={webhookSummary?.last_page_webhook_at ? `آخر Page webhook: ${formatTime(webhookSummary.last_page_webhook_at)}` : 'لا توجد Page webhooks'}
+                                color={webhookSummary?.last_page_webhook_at ? 'success' : 'warning'}
+                                variant="outlined"
+                            />
+                        </Box>
+
+                        {webhookSummary?.warnings?.length > 0 && (
+                            <Alert severity="warning" sx={{ mb: selectedPageDiagnostic ? 2 : 0 }}>
+                                {webhookSummary.warnings.join(' ')}
+                            </Alert>
+                        )}
+
+                        {selectedPageDiagnostic && (
+                            <Alert
+                                severity={selectedPageDiagnostic.page_subscription_summary?.feed_subscribed || selectedPageDiagnostic.stored_subscribed_fields?.includes('feed') ? 'success' : 'warning'}
+                            >
+                                الصفحة المحددة: {selectedPageDiagnostic.page_name || selectedPageDiagnostic.page_id} — feed في Meta: {selectedPageDiagnostic.page_subscription_summary?.feed_subscribed ? 'موجود' : 'غير مؤكد'}، feed في قاعدة البيانات: {selectedPageDiagnostic.stored_subscribed_fields?.includes('feed') ? 'موجود' : 'مفقود'}
+                            </Alert>
+                        )}
+                    </>
+                )}
+            </Paper>
 
             {/* Page Selector */}
             <Paper sx={{ p: 2, mb: 3 }}>
