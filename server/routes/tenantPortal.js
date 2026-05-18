@@ -653,7 +653,7 @@ router.post('/messages/send', async (req, res) => {
 // ============================================
 // Upload Media to Meta (Returns Media ID)
 // ============================================
-router.post('/media/upload-to-meta', documentUpload.single('file'), async (req, res) => {
+router.post('/media/upload-to-meta', mediaUpload.single('file'), async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const file = req.file;
@@ -679,6 +679,7 @@ router.post('/media/upload-to-meta', documentUpload.single('file'), async (req, 
         const displayFilename = normalizeFilename(file.originalname, 'upload');
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
         form.append('file', fs.readFileSync(file.path), {
             filename: displayFilename,
             contentType: file.mimetype
@@ -709,7 +710,11 @@ router.post('/media/upload-to-meta', documentUpload.single('file'), async (req, 
             });
         }
 
-        res.json({ id: uploadData.id });
+        res.json({
+            id: uploadData.id,
+            filename: displayFilename,
+            mime_type: file.mimetype,
+        });
     } catch (error) {
         console.error('[TenantPortal] Media upload error:', error);
         if (req.file) try { fs.unlinkSync(req.file.path); } catch(e){}

@@ -42,7 +42,8 @@ import {
     TextFields as StaticIcon,
     Person as ContactIcon,
     Search as SearchIcon,
-    SelectAll as SelectAllIcon
+    SelectAll as SelectAllIcon,
+    AttachFile as AttachFileIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -52,6 +53,20 @@ const CONTACT_FIELDS = [
     { value: 'label', label: 'التصنيف', icon: '🏷️' },
     { value: 'notes', label: 'الملاحظات', icon: '📝' },
 ];
+
+const MEDIA_HEADER_TYPES = ['image', 'video', 'document', 'audio'];
+const MEDIA_ACCEPT = {
+    image: 'image/jpeg,image/png,image/webp',
+    video: 'video/mp4,video/3gpp',
+    document: '.pdf,.doc,.docx,.xls,.xlsx,.txt',
+    audio: 'audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg',
+};
+const MEDIA_LABEL = {
+    image: 'صورة',
+    video: 'فيديو',
+    document: 'مستند',
+    audio: 'صوت',
+};
 
 function extractVariables(bodyText) {
     if (!bodyText) return [];
@@ -99,8 +114,16 @@ const BroadcastManager = () => {
     const [progressPct, setProgressPct] = useState(0);
 
     const variables = useMemo(() => extractVariables(selectedTemplate?.body), [selectedTemplate]);
+    const headerMediaType = selectedTemplate?.header_type?.toLowerCase?.();
+    const hasMediaHeader = MEDIA_HEADER_TYPES.includes(headerMediaType);
 
     const allVariablesFilled = useMemo(() => {
+        const mediaConfig = variableConfigs.header_MEDIA_LINK;
+        const mediaReady = !hasMediaHeader
+            || (mediaConfig?.source === 'upload' && Boolean(mediaConfig.file))
+            || (mediaConfig?.source === 'static' && /^https?:\/\//i.test(mediaConfig.value || ''))
+            || (mediaConfig?.source === 'contact' && Boolean(mediaConfig.field));
+        if (!mediaReady) return false;
         if (variables.length === 0) return true;
         return variables.every(v => {
             const config = variableConfigs[v];
@@ -109,7 +132,7 @@ const BroadcastManager = () => {
             if (config.source === 'contact') return !!config.field;
             return false;
         });
-    }, [variables, variableConfigs]);
+    }, [hasMediaHeader, variables, variableConfigs]);
 
     // Unique labels from contacts for filtering
     const uniqueLabels = useMemo(() => {
@@ -138,9 +161,7 @@ const BroadcastManager = () => {
         .filter(c => selectedContactIds.has(c.id))
         .map(c => c.phone);
 
-    const uniqueRecipients = useMemo(() => {
-        return [...new Set([...selectedContactPhones, ...manualRecipients])];
-    }, [selectedContactIds, contacts, recipientsText]);
+    const uniqueRecipients = [...new Set([...selectedContactPhones, ...manualRecipients])];
 
     const selectedTenant = tenants.find(t => t.id === parseInt(selectedTenantId));
     const canProceedStep0 = selectedTenantId && selectedTemplate && allVariablesFilled;
@@ -192,11 +213,14 @@ const BroadcastManager = () => {
     // Reset variable configs when template changes
     useEffect(() => {
         const newConfigs = {};
+        if (hasMediaHeader) {
+            newConfigs.header_MEDIA_LINK = { source: 'upload', value: '', file: null, field: '', fallback: '' };
+        }
         variables.forEach(v => {
             newConfigs[v] = { source: 'static', value: '', field: '', fallback: '' };
         });
         setVariableConfigs(newConfigs);
-    }, [selectedTemplate]);
+    }, [selectedTemplate, hasMediaHeader, variables]);
 
     // Contact selection handlers
     const handleToggleContact = (contactId) => {
@@ -244,32 +268,145 @@ const BroadcastManager = () => {
         }));
     };
 
-    const buildPayload = () => {
-        const hasContactSource = variables.some(v => variableConfigs[v]?.source === 'contact');
+    const buildHeaderMediaParameter = async (config) => {
+        if (config.source === 'upload') {
+            const uploaded = await api.uploadAdminMediaToMeta(selectedTenantId, config.file);
+            const media = { id: uploaded.id };
+            if (headerMediaType === 'document' && uploaded.filename) media.filename = uploaded.filename;
+            return { type: headerMediaType, [headerMediaType]: media };
+        }
+
+        const media = { link: config.value?.trim() || '' };
+        if (headerMediaType === 'document') media.filename = selectedTemplate?.name ? `${selectedTemplate.name}.pdf` : undefined;
+        return { type: headerMediaType, [headerMediaType]: media };
+    };
+
+    const buildPayload = async () => {
+        const hasContactSource = Object.values(variableConfigs).some(c => c?.source === 'contact');
         const payload = {
             tenant_id: parseInt(selectedTenantId),
             recipients: uniqueRecipients,
             template_name: selectedTemplate.name,
             template_language: templateLanguage,
         };
+        const staticComponents = [];
+
+        if (hasMediaHeader) {
+            const mediaConfig = variableConfigs.header_MEDIA_LINK;
+            if (mediaConfig?.source === 'contact') {
+                payload.variable_mapping = [{
+                    source: 'contact',
+                    field: mediaConfig.field,
+                    fallback: mediaConfig.fallback || '',
+                    section: 'header',
+                    index: 'MEDIA_LINK',
+                    media_type: headerMediaType,
+                    media_source: 'contact_url',
+                }];
+            } else if (mediaConfig) {
+                staticComponents.push({
+                    type: 'header',
+                    parameters: [await buildHeaderMediaParameter(mediaConfig)],
+                });
+            }
+        }
 
         if (variables.length > 0) {
             if (hasContactSource) {
-                payload.variable_mapping = variables.map(v => {
+                payload.variable_mapping = [
+                    ...(payload.variable_mapping || []),
+                    ...variables.map(v => {
                     const config = variableConfigs[v];
                     if (config.source === 'contact') {
                         return { source: 'contact', field: config.field, fallback: config.fallback || '' };
                     }
                     return { source: 'static', value: config.value || '' };
-                });
+                    }),
+                ];
+                if (staticComponents.length > 0) {
+                    payload.template_params = staticComponents;
+                }
             } else {
-                payload.template_params = [{
+                payload.template_params = [
+                    ...staticComponents,
+                    {
                     type: 'body',
                     parameters: variables.map(v => ({ type: 'text', text: variableConfigs[v]?.value || '' }))
-                }];
+                    },
+                ];
             }
+        } else if (staticComponents.length > 0) {
+            payload.template_params = staticComponents;
         }
         return payload;
+    };
+
+    const renderMediaHeaderInput = () => {
+        const config = variableConfigs.header_MEDIA_LINK || { source: 'upload', value: '', file: null, field: '', fallback: '' };
+        return (
+            <Card variant="outlined" sx={{ mb: 2, p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Chip label={`${MEDIA_LABEL[headerMediaType] || 'وسيط'} الرأس`} size="small" color="secondary" />
+                    <ToggleButtonGroup value={config.source} exclusive onChange={(_, val) => val && handleConfigChange('header_MEDIA_LINK', 'source', val)} size="small">
+                        <ToggleButton value="upload">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><AttachFileIcon fontSize="small" /><span>رفع ملف</span></Box>
+                        </ToggleButton>
+                        <ToggleButton value="static">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><StaticIcon fontSize="small" /><span>رابط ثابت</span></Box>
+                        </ToggleButton>
+                        <ToggleButton value="contact">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><ContactIcon fontSize="small" /><span>حقل مستلم</span></Box>
+                        </ToggleButton>
+                    </ToggleButtonGroup>
+                </Box>
+
+                {config.source === 'upload' && (
+                    <Button
+                        variant="outlined"
+                        component="label"
+                        startIcon={<AttachFileIcon />}
+                        fullWidth
+                        color={config.file ? 'success' : 'primary'}
+                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                    >
+                        <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {config.file?.name || `اختيار ${MEDIA_LABEL[headerMediaType] || 'ملف'}...`}
+                        </Box>
+                        <input
+                            type="file"
+                            hidden
+                            accept={MEDIA_ACCEPT[headerMediaType] || '*/*'}
+                            onChange={(e) => handleConfigChange('header_MEDIA_LINK', 'file', e.target.files?.[0] || null)}
+                        />
+                    </Button>
+                )}
+
+                {config.source === 'static' && (
+                    <TextField
+                        label={`رابط ${MEDIA_LABEL[headerMediaType] || 'الوسيط'}`}
+                        value={config.value}
+                        onChange={(e) => handleConfigChange('header_MEDIA_LINK', 'value', e.target.value)}
+                        fullWidth
+                        size="small"
+                        required
+                        error={Boolean(config.value) && !/^https?:\/\//i.test(config.value)}
+                        helperText="يجب أن يبدأ الرابط بـ http أو https"
+                    />
+                )}
+
+                {config.source === 'contact' && (
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                        <FormControl size="small" sx={{ flex: 1 }}>
+                            <InputLabel>حقل الرابط</InputLabel>
+                            <Select value={config.field} label="حقل الرابط" onChange={(e) => handleConfigChange('header_MEDIA_LINK', 'field', e.target.value)}>
+                                {CONTACT_FIELDS.map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                            </Select>
+                        </FormControl>
+                        <TextField label="رابط بديل" value={config.fallback} onChange={(e) => handleConfigChange('header_MEDIA_LINK', 'fallback', e.target.value)} size="small" sx={{ flex: 1 }} helperText="اختياري، ويجب أن يكون http/https" />
+                    </Box>
+                )}
+            </Card>
+        );
     };
 
     const handleSend = async () => {
@@ -279,7 +416,7 @@ const BroadcastManager = () => {
             setError(null);
             setResults(null);
             setProgressPct(0);
-            const data = await api.broadcastMessage(buildPayload());
+            const data = await api.broadcastMessage(await buildPayload());
 
             if (data.job_id) {
                 pollJobStatus(data.job_id);
@@ -394,6 +531,15 @@ const BroadcastManager = () => {
                                     </Typography>
                                 </CardContent>
                             </Card>
+                        )}
+
+                        {hasMediaHeader && (
+                            <Box>
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                    هذا القالب يحتاج {MEDIA_LABEL[headerMediaType] || 'وسيط'} في رأس الرسالة.
+                                </Alert>
+                                {renderMediaHeaderInput()}
+                            </Box>
                         )}
 
                         {variables.length > 0 && (
@@ -654,10 +800,19 @@ const BroadcastManager = () => {
                             </Card>
                         )}
 
-                        {variables.length > 0 && (
+                        {(hasMediaHeader || variables.length > 0) && (
                             <Box>
                                 <Typography variant="body2" color="text.secondary" gutterBottom>المتغيرات:</Typography>
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                    {hasMediaHeader && (() => {
+                                        const config = variableConfigs.header_MEDIA_LINK;
+                                        const label = config?.source === 'upload'
+                                            ? config?.file?.name || 'ملف'
+                                            : config?.source === 'contact'
+                                                ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
+                                                : config?.value || '—';
+                                        return <Chip label={`وسيط الرأس = ${label}`} size="small" color="secondary" variant="outlined" />;
+                                    })()}
                                     {variables.map(v => {
                                         const config = variableConfigs[v];
                                         const label = config?.source === 'contact'

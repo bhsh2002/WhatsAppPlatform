@@ -304,6 +304,29 @@ class ApiService {
         return data; // { id: '...' }
     }
 
+    async uploadAdminMediaToMeta(tenantId, file) {
+        const formData = new FormData();
+        formData.append('tenant_id', tenantId);
+        formData.append('file', file);
+
+        const headers = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        const response = await fetch(`${this.baseUrl}/api/messages/media/upload-to-meta`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Upload failed');
+        }
+        return data;
+    }
+
     async sendPortalMessage(data) {
         return this.request('/api/portal/messages/send', {
             method: 'POST',

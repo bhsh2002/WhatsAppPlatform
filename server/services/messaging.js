@@ -5,6 +5,8 @@ import db from '../db/database.js';
 // ============================================
 // Single implementation for saving messages and related logic.
 
+const TEMPLATE_MEDIA_TYPES = ['image', 'video', 'document', 'audio'];
+
 /**
  * Substitute template variables: {{1}}, {{2}}, etc.
  * 
@@ -69,6 +71,38 @@ function resolveMappedValue(varMap, contact, fallbackRecipient) {
         return (contact && contact[varMap.field]) || varMap.fallback || fallbackRecipient;
     }
     return '';
+}
+
+function isHttpUrl(value) {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+function buildHeaderParameter(varMap, contact, fallbackRecipient) {
+    const mediaType = varMap.media_type?.toLowerCase?.();
+    if (!TEMPLATE_MEDIA_TYPES.includes(mediaType)) {
+        const text = String(resolveMappedValue(varMap, contact, fallbackRecipient) ?? '');
+        return { type: 'text', text };
+    }
+
+    const sourceValue = String(resolveMappedValue(varMap, contact, fallbackRecipient) ?? '').trim();
+    if (!isHttpUrl(sourceValue)) {
+        throw new Error(`Invalid ${mediaType} header URL for ${fallbackRecipient}`);
+    }
+
+    const media = { link: sourceValue };
+    if (mediaType === 'document' && varMap.filename) {
+        media.filename = String(varMap.filename);
+    }
+
+    return {
+        type: mediaType,
+        [mediaType]: media,
+    };
 }
 
 function componentKey(component) {
@@ -138,7 +172,7 @@ export function buildTemplateComponentsFromMapping(variableMapping, templatePara
         const section = varMap.section || 'body';
 
         if (section === 'header') {
-            headerParams.push(parameter);
+            headerParams.push(buildHeaderParameter(varMap, contact, fallbackRecipient));
             return;
         }
 

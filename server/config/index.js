@@ -38,6 +38,7 @@ export const ALLOWED_MEDIA_MIMES = [
     'video/mp4',
     'video/3gpp',
     'audio/aac',
+    'audio/amr',
     'audio/mp4',
     'audio/mpeg',
     'audio/ogg',

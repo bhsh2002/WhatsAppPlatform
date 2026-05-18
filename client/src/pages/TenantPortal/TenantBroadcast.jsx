@@ -42,7 +42,8 @@ import {
     TextFields as StaticIcon,
     Person as ContactIcon,
     Search as SearchIcon,
-    SelectAll as SelectAllIcon
+    SelectAll as SelectAllIcon,
+    AttachFile as AttachFileIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -52,6 +53,20 @@ const CONTACT_FIELDS = [
     { value: 'label', label: 'التصنيف', icon: '🏷️' },
     { value: 'notes', label: 'الملاحظات', icon: '📝' },
 ];
+
+const MEDIA_HEADER_TYPES = ['image', 'video', 'document', 'audio'];
+const MEDIA_ACCEPT = {
+    image: 'image/jpeg,image/png,image/webp',
+    video: 'video/mp4,video/3gpp',
+    document: '.pdf,.doc,.docx,.xls,.xlsx,.txt',
+    audio: 'audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg',
+};
+const MEDIA_LABEL = {
+    image: 'صورة',
+    video: 'فيديو',
+    document: 'مستند',
+    audio: 'صوت',
+};
 
 function extractAllVariables(template) {
     const result = { header: [], body: [], buttons: [] };
@@ -69,6 +84,8 @@ function extractAllVariables(template) {
         if (matches) {
             result.header = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
         }
+    } else if (MEDIA_HEADER_TYPES.includes(template.header_type?.toLowerCase?.())) {
+        result.header = ['MEDIA_LINK'];
     }
 
     if (template.buttons) {
@@ -140,6 +157,8 @@ const TenantBroadcast = () => {
     const [progressPct, setProgressPct] = useState(0);
 
     const allVars = useMemo(() => extractAllVariables(selectedTemplate), [selectedTemplate]);
+    const headerMediaType = selectedTemplate?.header_type?.toLowerCase?.();
+    const hasMediaHeader = MEDIA_HEADER_TYPES.includes(headerMediaType);
 
     const hasAnyVariables = allVars.body.length > 0 || allVars.header.length > 0 || allVars.buttons.length > 0;
 
@@ -153,6 +172,12 @@ const TenantBroadcast = () => {
         return required.every(key => {
             const config = variableConfigs[key];
             if (!config) return false;
+            if (key === 'header_MEDIA_LINK') {
+                if (config.source === 'upload') return Boolean(config.file);
+                if (config.source === 'static') return /^https?:\/\//i.test(config.value || '');
+                if (config.source === 'contact') return !!config.field;
+                return false;
+            }
             if (config.source === 'static') return config.value?.trim();
             if (config.source === 'contact') return !!config.field;
             return false;
@@ -183,9 +208,7 @@ const TenantBroadcast = () => {
         .filter(c => selectedContactIds.has(c.id))
         .map(c => c.phone);
 
-    const uniqueRecipients = useMemo(() => {
-        return [...new Set([...selectedContactPhones, ...manualRecipients])];
-    }, [selectedContactIds, contacts, recipientsText]);
+    const uniqueRecipients = [...new Set([...selectedContactPhones, ...manualRecipients])];
 
     const canProceedStep0 = selectedTemplate && (!hasAnyVariables || allVariablesFilled);
     const canProceedStep1 = uniqueRecipients.length > 0 && uniqueRecipients.length <= 100;
@@ -214,7 +237,9 @@ const TenantBroadcast = () => {
     useEffect(() => {
         const newConfigs = {};
         allVars.header.forEach(v => {
-            newConfigs[`header_${v}`] = { source: 'static', value: '', field: '', fallback: '' };
+            newConfigs[`header_${v}`] = v === 'MEDIA_LINK'
+                ? { source: 'upload', value: '', file: null, field: '', fallback: '' }
+                : { source: 'static', value: '', field: '', fallback: '' };
         });
         allVars.body.forEach(v => {
             newConfigs[`body_${v}`] = { source: 'static', value: '', field: '', fallback: '' };
@@ -225,7 +250,7 @@ const TenantBroadcast = () => {
             });
         });
         setVariableConfigs(newConfigs);
-    }, [selectedTemplate]);
+    }, [allVars]);
 
     const handleToggleContact = (contactId) => {
         setSelectedContactIds(prev => {
@@ -272,18 +297,56 @@ const TenantBroadcast = () => {
         }));
     };
 
-    const buildPayload = () => {
+    const buildHeaderMediaParameter = async (config) => {
+        if (config.source === 'upload') {
+            const uploaded = await api.uploadPortalMediaToMeta(config.file);
+            const media = { id: uploaded.id };
+            if (headerMediaType === 'document' && uploaded.filename) media.filename = uploaded.filename;
+            return { type: headerMediaType, [headerMediaType]: media };
+        }
+
+        const media = { link: config.value?.trim() || '' };
+        if (headerMediaType === 'document') media.filename = selectedTemplate?.name ? `${selectedTemplate.name}.pdf` : undefined;
+        return { type: headerMediaType, [headerMediaType]: media };
+    };
+
+    const buildPayload = async () => {
         const hasContactSource = Object.values(variableConfigs).some(c => c?.source === 'contact');
         const payload = {
             recipients: uniqueRecipients,
             template_name: selectedTemplate.name,
             template_language: templateLanguage,
         };
+        const staticComponents = [];
+
+        if (hasMediaHeader) {
+            const mediaConfig = variableConfigs.header_MEDIA_LINK;
+            if (mediaConfig?.source === 'contact') {
+                payload.variable_mapping = [
+                    ...(payload.variable_mapping || []),
+                    {
+                        source: 'contact',
+                        field: mediaConfig.field,
+                        fallback: mediaConfig.fallback || '',
+                        section: 'header',
+                        index: 'MEDIA_LINK',
+                        media_type: headerMediaType,
+                        media_source: 'contact_url',
+                    },
+                ];
+            } else if (mediaConfig) {
+                staticComponents.push({
+                    type: 'header',
+                    parameters: [await buildHeaderMediaParameter(mediaConfig)],
+                });
+            }
+        }
 
         if (hasAnyVariables) {
             if (hasContactSource) {
                 payload.variable_mapping = [
-                    ...allVars.header.map(v => {
+                    ...(payload.variable_mapping || []),
+                    ...allVars.header.filter(v => v !== 'MEDIA_LINK').map(v => {
                         const config = variableConfigs[`header_${v}`];
                         if (config?.source === 'contact') {
                             return { source: 'contact', field: config.field, fallback: config.fallback || '', section: 'header', index: v };
@@ -308,12 +371,12 @@ const TenantBroadcast = () => {
                     ),
                 ];
             } else {
-                const components = [];
+                const components = [...staticComponents];
 
-                if (allVars.header.length > 0) {
+                if (allVars.header.filter(v => v !== 'MEDIA_LINK').length > 0) {
                     components.push({
                         type: 'header',
-                        parameters: allVars.header.map(v => ({
+                        parameters: allVars.header.filter(v => v !== 'MEDIA_LINK').map(v => ({
                             type: 'text',
                             text: variableConfigs[`header_${v}`]?.value || '',
                         })),
@@ -346,6 +409,11 @@ const TenantBroadcast = () => {
                     payload.template_params = components;
                 }
             }
+            if (hasContactSource && staticComponents.length > 0) {
+                payload.template_params = staticComponents;
+            }
+        } else if (staticComponents.length > 0) {
+            payload.template_params = staticComponents;
         }
         return payload;
     };
@@ -357,7 +425,7 @@ const TenantBroadcast = () => {
             setError(null);
             setResults(null);
             setProgressPct(0);
-            const data = await api.portalBroadcast(buildPayload());
+            const data = await api.portalBroadcast(await buildPayload());
 
             if (data.job_id) {
                 pollJobStatus(data.job_id);
@@ -411,6 +479,73 @@ const TenantBroadcast = () => {
 
     const renderVariableInput = (varKey, label) => {
         const config = variableConfigs[varKey] || { source: 'static', value: '', field: '', fallback: '' };
+        if (varKey === 'header_MEDIA_LINK') {
+            return (
+                <Card key={varKey} variant="outlined" sx={{ mb: 2, p: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                        <Chip label={`${MEDIA_LABEL[headerMediaType] || 'وسيط'} الرأس`} size="small" color="secondary" />
+                        <ToggleButtonGroup value={config.source} exclusive onChange={(_, val) => val && handleConfigChange(varKey, 'source', val)} size="small">
+                            <ToggleButton value="upload">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><AttachFileIcon fontSize="small" /><span>رفع ملف</span></Box>
+                            </ToggleButton>
+                            <ToggleButton value="static">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><StaticIcon fontSize="small" /><span>رابط ثابت</span></Box>
+                            </ToggleButton>
+                            <ToggleButton value="contact">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><ContactIcon fontSize="small" /><span>حقل مستلم</span></Box>
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                    </Box>
+
+                    {config.source === 'upload' && (
+                        <Button
+                            variant="outlined"
+                            component="label"
+                            startIcon={<AttachFileIcon />}
+                            fullWidth
+                            color={config.file ? 'success' : 'primary'}
+                            sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                        >
+                            <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {config.file?.name || `اختيار ${MEDIA_LABEL[headerMediaType] || 'ملف'}...`}
+                            </Box>
+                            <input
+                                type="file"
+                                hidden
+                                accept={MEDIA_ACCEPT[headerMediaType] || '*/*'}
+                                onChange={(e) => handleConfigChange(varKey, 'file', e.target.files?.[0] || null)}
+                            />
+                        </Button>
+                    )}
+
+                    {config.source === 'static' && (
+                        <TextField
+                            label={`رابط ${MEDIA_LABEL[headerMediaType] || 'الوسيط'}`}
+                            value={config.value}
+                            onChange={(e) => handleConfigChange(varKey, 'value', e.target.value)}
+                            fullWidth
+                            size="small"
+                            required
+                            error={Boolean(config.value) && !/^https?:\/\//i.test(config.value)}
+                            helperText="يجب أن يبدأ الرابط بـ http أو https"
+                        />
+                    )}
+
+                    {config.source === 'contact' && (
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <FormControl size="small" sx={{ flex: 1 }}>
+                                <InputLabel>حقل الرابط</InputLabel>
+                                <Select value={config.field} label="حقل الرابط" onChange={(e) => handleConfigChange(varKey, 'field', e.target.value)}>
+                                    {CONTACT_FIELDS.map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                </Select>
+                            </FormControl>
+                            <TextField label="رابط بديل" value={config.fallback} onChange={(e) => handleConfigChange(varKey, 'fallback', e.target.value)} size="small" sx={{ flex: 1 }} helperText="اختياري، ويجب أن يكون http/https" />
+                        </Box>
+                    )}
+                </Card>
+            );
+        }
+
         return (
             <Card key={varKey} variant="outlined" sx={{ mb: 2, p: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
@@ -731,10 +866,16 @@ const TenantBroadcast = () => {
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                                     {allVars.header.map(v => {
                                         const config = variableConfigs[`header_${v}`];
-                                        const label = config?.source === 'contact'
-                                            ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
-                                            : config?.value || '—';
-                                        return <Chip key={`h${v}`} label={`عنوان {{${v}}} = ${label}`} size="small" color="secondary" variant="outlined" />;
+                                        const label = v === 'MEDIA_LINK'
+                                            ? (config?.source === 'upload'
+                                                ? config?.file?.name || 'ملف'
+                                                : config?.source === 'contact'
+                                                    ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
+                                                    : config?.value || '—')
+                                            : (config?.source === 'contact'
+                                                ? CONTACT_FIELDS.find(f => f.value === config.field)?.label || config.field
+                                                : config?.value || '—');
+                                        return <Chip key={`h${v}`} label={`${v === 'MEDIA_LINK' ? 'وسيط الرأس' : `عنوان {{${v}}}`} = ${label}`} size="small" color="secondary" variant="outlined" />;
                                     })}
                                     {allVars.body.map(v => {
                                         const config = variableConfigs[`body_${v}`];

@@ -508,6 +508,73 @@ router.get('/media/:mediaId/download', async (req, res) => {
     }
 });
 
+// Upload media to Meta for admin broadcast template headers.
+router.post('/media/upload-to-meta', upload.single('file'), async (req, res) => {
+    try {
+        const { tenant_id } = req.body;
+        const file = req.file;
+
+        if (!tenant_id) {
+            if (file) cleanupFile(file.path);
+            return res.status(400).json({ error: 'tenant_id is required' });
+        }
+        if (!file) {
+            return res.status(400).json({ error: 'file is required' });
+        }
+
+        const credentials = resolveCredentials({ tenantId: tenant_id });
+        if (credentials.isSuspended) {
+            cleanupFile(file.path);
+            return res.status(403).json({ error: 'Tenant account is suspended' });
+        }
+
+        const { phoneNumberId, accessToken } = credentials;
+        if (!phoneNumberId || !accessToken) {
+            cleanupFile(file.path);
+            return res.status(400).json({ error: 'Missing API credentials' });
+        }
+
+        const displayFilename = normalizeFilename(file.originalname, 'upload');
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('type', file.mimetype);
+        form.append('file', fs.readFileSync(file.path), {
+            filename: displayFilename,
+            contentType: file.mimetype,
+        });
+
+        const uploadResponse = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                ...form.getHeaders(),
+            },
+            body: form.getBuffer(),
+        });
+
+        const uploadData = await uploadResponse.json();
+        cleanupFile(file.path);
+
+        if (!uploadResponse.ok || !uploadData.id) {
+            console.error('[Messages] Media upload-to-meta failed:', uploadResponse.status, uploadData);
+            return res.status(400).json({
+                error: 'Failed to upload media to Meta',
+                details: uploadData.error?.message || uploadData,
+            });
+        }
+
+        res.json({
+            id: uploadData.id,
+            filename: displayFilename,
+            mime_type: file.mimetype,
+        });
+    } catch (error) {
+        console.error('[Messages] Media upload-to-meta error:', error);
+        if (req.file) cleanupFile(req.file.path);
+        res.status(500).json({ error: 'Failed to upload media to Meta' });
+    }
+});
+
 // Send media message
 router.post('/send-media', async (req, res) => {
     try {
