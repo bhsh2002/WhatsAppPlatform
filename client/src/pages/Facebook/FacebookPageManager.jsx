@@ -56,6 +56,8 @@ const FacebookPageManager = () => {
     const [expandedPosts, setExpandedPosts] = useState({});
     const [commentsData, setCommentsData] = useState({});
     const [commentsLoading, setCommentsLoading] = useState({});
+    const [repliesData, setRepliesData] = useState({});
+    const [repliesLoading, setRepliesLoading] = useState({});
     const [replyTexts, setReplyTexts] = useState({});
     const [replyLoading, setReplyLoading] = useState({});
 
@@ -153,6 +155,7 @@ const FacebookPageManager = () => {
             setPostsPaging(null);
             setExpandedComments({});
             setCommentsData({});
+            setRepliesData({});
             loadPosts();
         }
     }, [selectedPageId]);
@@ -201,15 +204,58 @@ const FacebookPageManager = () => {
         }
     };
 
-    const loadComments = async (postId) => {
+    const canPublish = () => {
+        if (composerTab === 'photo') return !!(composerPhotoFile || composerPhotoUrl.trim());
+        if (composerTab === 'link') return !!composerLink.trim();
+        if (composerTab === 'schedule') return !!composerMessage.trim() && !!composerScheduleTime;
+        return !!composerMessage.trim();
+    };
+
+    const loadComments = async (postId, append = false) => {
         try {
             setCommentsLoading(prev => ({ ...prev, [postId]: true }));
-            const data = await api.getFacebookComments(selectedPageId, postId, { limit: 100 });
-            setCommentsData(prev => ({ ...prev, [postId]: data.comments || [] }));
+            const current = commentsData[postId] || { comments: [], paging: null };
+            const params = { limit: 25, filter: 'toplevel' };
+            if (append && current.paging?.cursors?.after) params.after = current.paging.cursors.after;
+            const data = await api.getFacebookComments(selectedPageId, postId, params);
+            setCommentsData(prev => ({
+                ...prev,
+                [postId]: {
+                    comments: append
+                        ? [...(prev[postId]?.comments || []), ...(data.comments || [])]
+                        : (data.comments || []),
+                    paging: data.paging || null,
+                    summary: data.summary || null,
+                }
+            }));
         } catch (err) {
-            console.error('Failed to load comments:', err);
+            setSnackbar({ open: true, message: err.message || 'فشل جلب التعليقات', severity: 'error' });
         } finally {
             setCommentsLoading(prev => ({ ...prev, [postId]: false }));
+        }
+    };
+
+    const loadReplies = async (commentId, append = false) => {
+        try {
+            setRepliesLoading(prev => ({ ...prev, [commentId]: true }));
+            const current = repliesData[commentId] || { replies: [], paging: null };
+            const params = { limit: 10 };
+            if (append && current.paging?.cursors?.after) params.after = current.paging.cursors.after;
+            const data = await api.getFacebookCommentReplies(selectedPageId, commentId, params);
+            setRepliesData(prev => ({
+                ...prev,
+                [commentId]: {
+                    replies: append
+                        ? [...(prev[commentId]?.replies || []), ...(data.replies || [])]
+                        : (data.replies || []),
+                    paging: data.paging || null,
+                    summary: data.summary || null,
+                }
+            }));
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل جلب الردود', severity: 'error' });
+        } finally {
+            setRepliesLoading(prev => ({ ...prev, [commentId]: false }));
         }
     };
 
@@ -224,15 +270,15 @@ const FacebookPageManager = () => {
         }
     };
 
-    const handleReply = async (commentId) => {
+    const handleReply = async (commentId, postId) => {
         const message = replyTexts[commentId];
         if (!message?.trim() || !selectedPageId) return;
         try {
             setReplyLoading(prev => ({ ...prev, [commentId]: true }));
             await api.replyToFacebookComment(selectedPageId, commentId, message);
             setReplyTexts(prev => ({ ...prev, [commentId]: '' }));
-            const postId = Object.keys(expandedComments).find(pid => expandedComments[pid]);
             if (postId) loadComments(postId);
+            loadReplies(commentId);
             setSnackbar({ open: true, message: 'تم إرسال الرد', severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err.message || 'فشل إرسال الرد', severity: 'error' });
@@ -241,10 +287,9 @@ const FacebookPageManager = () => {
         }
     };
 
-    const handleHideComment = async (commentId, currentlyHidden) => {
+    const handleHideComment = async (commentId, currentlyHidden, postId) => {
         try {
             await api.hideFacebookComment(selectedPageId, commentId, !currentlyHidden);
-            const postId = Object.keys(expandedComments).find(pid => expandedComments[pid]);
             if (postId) loadComments(postId);
             setSnackbar({ open: true, message: currentlyHidden ? 'تم إظهار التعليق' : 'تم إخفاء التعليق', severity: 'success' });
         } catch (err) {
@@ -256,8 +301,9 @@ const FacebookPageManager = () => {
         if (!deleteTarget || !selectedPageId) return;
         try {
             setDeleteLoading(true);
-            await api.deleteFacebookComment(selectedPageId, deleteTarget);
-            const postId = Object.keys(expandedComments).find(pid => expandedComments[pid]);
+            const commentId = typeof deleteTarget === 'object' ? deleteTarget.id : deleteTarget;
+            const postId = typeof deleteTarget === 'object' ? deleteTarget.postId : null;
+            await api.deleteFacebookComment(selectedPageId, commentId);
             if (postId) loadComments(postId);
             setSnackbar({ open: true, message: 'تم حذف التعليق', severity: 'success' });
         } catch (err) {
@@ -266,6 +312,20 @@ const FacebookPageManager = () => {
             setDeleteLoading(false);
             setDeleteTarget(null);
             setDeleteType('');
+        }
+    };
+
+    const handleLikeComment = async (comment, postId, parentCommentId = null) => {
+        try {
+            if (comment.user_likes) {
+                await api.unlikeFacebookComment(selectedPageId, comment.id);
+            } else {
+                await api.likeFacebookComment(selectedPageId, comment.id);
+            }
+            if (parentCommentId) loadReplies(parentCommentId);
+            else loadComments(postId);
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل تحديث الإعجاب', severity: 'error' });
         }
     };
 
@@ -634,7 +694,7 @@ const FacebookPageManager = () => {
                             <Button
                                 variant="contained"
                                 onClick={handlePublish}
-                                disabled={publishing || (!composerMessage?.trim() && composerTab !== 'photo')}
+                                disabled={publishing || !canPublish()}
                                 startIcon={publishing ? <CircularProgress size={18} /> : <SendIcon />}
                                 sx={{ bgcolor: '#1877f2', '&:hover': { bgcolor: '#1565c0' } }}
                             >
@@ -755,7 +815,11 @@ const FacebookPageManager = () => {
                                                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}><CircularProgress size={24} /></Box>
                                             ) : (
                                                 <>
-                                                    {(commentsData[post.id] || []).map(comment => (
+                                                    {(commentsData[post.id]?.comments || []).map(comment => {
+                                                        const repliesState = repliesData[comment.id] || { replies: [], paging: null };
+                                                        const replies = repliesState.replies || [];
+                                                        const replyCount = comment.comments?.summary?.total_count ?? comment.comment_count ?? replies.length;
+                                                        return (
                                                         <Box key={comment.id} sx={{ display: 'flex', gap: 1, mb: 2, p: 1, bgcolor: comment.is_hidden ? 'action.hover' : 'background.paper', borderRadius: 1, opacity: comment.is_hidden ? 0.6 : 1 }}>
                                                             <Avatar src={comment.from?.picture?.data?.url} sx={{ width: 32, height: 32 }}>
                                                                 {comment.from?.name?.charAt(0)}
@@ -769,15 +833,49 @@ const FacebookPageManager = () => {
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                                                                     <Typography variant="caption" color="text.secondary">{formatTime(comment.created_time)}</Typography>
                                                                     <Typography variant="caption" color="text.secondary">• 👍 {comment.like_count || 0}</Typography>
+                                                                    {replyCount > 0 && <Typography variant="caption" color="text.secondary">• ردود {replyCount}</Typography>}
                                                                 </Box>
                                                                 <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
-                                                                    <Button size="small" variant="text" onClick={() => handleHideComment(comment.id, comment.is_hidden)}>
+                                                                    <Button size="small" variant="text" onClick={() => handleLikeComment(comment, post.id)}>
+                                                                        {comment.user_likes ? 'إلغاء الإعجاب' : 'إعجاب'}
+                                                                    </Button>
+                                                                    <Button size="small" variant="text" onClick={() => handleHideComment(comment.id, comment.is_hidden, post.id)}>
                                                                         {comment.is_hidden ? 'إظهار' : 'إخفاء'}
                                                                     </Button>
-                                                                    <Button size="small" variant="text" color="error" onClick={() => { setDeleteTarget(comment.id); setDeleteType('comment'); }}>
+                                                                    <Button size="small" variant="text" color="error" onClick={() => { setDeleteTarget({ id: comment.id, postId: post.id }); setDeleteType('comment'); }}>
                                                                         حذف
                                                                     </Button>
+                                                                    <Button size="small" variant="text" onClick={() => loadReplies(comment.id)} disabled={repliesLoading[comment.id]}>
+                                                                        {repliesLoading[comment.id] ? 'جاري التحميل' : replies.length > 0 ? 'تحديث الردود' : 'عرض الردود'}
+                                                                    </Button>
                                                                 </Box>
+                                                                {replies.length > 0 && (
+                                                                    <Box sx={{ mt: 1, pr: 1.5, borderRight: '2px solid', borderColor: 'divider' }}>
+                                                                        {replies.map(reply => (
+                                                                            <Box key={reply.id} sx={{ display: 'flex', gap: 1, mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                                                                <Avatar src={reply.from?.picture?.data?.url} sx={{ width: 26, height: 26 }}>
+                                                                                    {reply.from?.name?.charAt(0)}
+                                                                                </Avatar>
+                                                                                <Box sx={{ flex: 1 }}>
+                                                                                    <Typography variant="caption" fontWeight={700}>{reply.from?.name || 'مستخدم'}</Typography>
+                                                                                    <Typography variant="body2">{reply.message}</Typography>
+                                                                                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
+                                                                                        <Typography variant="caption" color="text.secondary">{formatTime(reply.created_time)}</Typography>
+                                                                                        <Typography variant="caption" color="text.secondary">• 👍 {reply.like_count || 0}</Typography>
+                                                                                        <Button size="small" onClick={() => handleLikeComment(reply, post.id, comment.id)}>
+                                                                                            {reply.user_likes ? 'إلغاء الإعجاب' : 'إعجاب'}
+                                                                                        </Button>
+                                                                                    </Box>
+                                                                                </Box>
+                                                                            </Box>
+                                                                        ))}
+                                                                        {repliesState.paging?.next && (
+                                                                            <Button size="small" variant="outlined" onClick={() => loadReplies(comment.id, true)} disabled={repliesLoading[comment.id]}>
+                                                                                تحميل ردود أكثر
+                                                                            </Button>
+                                                                        )}
+                                                                    </Box>
+                                                                )}
                                                                 {/* Reply input for this comment */}
                                                                 <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
                                                                     <TextField
@@ -786,17 +884,25 @@ const FacebookPageManager = () => {
                                                                         value={replyTexts[comment.id] || ''}
                                                                         onChange={(e) => setReplyTexts(prev => ({ ...prev, [comment.id]: e.target.value }))}
                                                                         sx={{ flex: 1 }}
-                                                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply(comment.id); } }}
+                                                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply(comment.id, post.id); } }}
                                                                     />
-                                                                    <IconButton size="small" color="primary" onClick={() => handleReply(comment.id)} disabled={replyLoading[comment.id]}>
+                                                                    <IconButton size="small" color="primary" onClick={() => handleReply(comment.id, post.id)} disabled={replyLoading[comment.id]}>
                                                                         {replyLoading[comment.id] ? <CircularProgress size={16} /> : <SendIcon />}
                                                                     </IconButton>
                                                                 </Box>
                                                             </Box>
                                                         </Box>
-                                                    ))}
-                                                    {(commentsData[post.id] || []).length === 0 && (
+                                                    );
+                                                    })}
+                                                    {(commentsData[post.id]?.comments || []).length === 0 && (
                                                         <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>لا توجد تعليقات</Typography>
+                                                    )}
+                                                    {commentsData[post.id]?.paging?.next && (
+                                                        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                                                            <Button size="small" variant="outlined" onClick={() => loadComments(post.id, true)} disabled={commentsLoading[post.id]}>
+                                                                تحميل تعليقات أكثر
+                                                            </Button>
+                                                        </Box>
                                                     )}
                                                 </>
                                             )}

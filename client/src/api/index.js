@@ -678,6 +678,13 @@ class ApiService {
         return this.request(`/api/business-manager/${businessId}/assets${query}`);
     }
 
+    async claimAdAccount(businessId, tenantId, adAccountId) {
+        return this.request(`/api/business-manager/${businessId}/claim-ad-account`, {
+            method: 'POST',
+            body: JSON.stringify({ tenant_id: tenantId, adaccount_id: adAccountId }),
+        });
+    }
+
     // ============================================
     // Facebook Pages APIs
     // ============================================
@@ -802,6 +809,11 @@ class ApiService {
         return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}/comments${query ? '?' + query : ''}`);
     }
 
+    async getFacebookCommentReplies(linkedPageId, commentId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}/replies${query ? '?' + query : ''}`);
+    }
+
     async replyToFacebookComment(linkedPageId, commentId, message) {
         return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}/reply`, {
             method: 'POST',
@@ -818,6 +830,18 @@ class ApiService {
 
     async deleteFacebookComment(linkedPageId, commentId) {
         return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async likeFacebookComment(linkedPageId, commentId) {
+        return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}/like`, {
+            method: 'POST',
+        });
+    }
+
+    async unlikeFacebookComment(linkedPageId, commentId) {
+        return this.request(`/api/fb-content/${linkedPageId}/comments/${commentId}/like`, {
             method: 'DELETE',
         });
     }
@@ -894,6 +918,25 @@ class ApiService {
         });
     }
 
+    async removePartnerClient(businessId, tenantId, clientBusinessId) {
+        const query = new URLSearchParams({ business_id: businessId, tenant_id: tenantId }).toString();
+        return this.request(`/api/partner/clients/${clientBusinessId}?${query}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async getPartnerClientWaba(clientBusinessId, tenantId) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/partner/clients/${clientBusinessId}/waba${query}`);
+    }
+
+    async createPartnerSystemUser(clientBusinessId, data) {
+        return this.request(`/api/partner/clients/${clientBusinessId}/system-user`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     // ============================================
     // Conversions APIs
     // ============================================
@@ -946,6 +989,10 @@ class ApiService {
 
     async getWebhookSubscriptions(tenantId) {
         return this.request(`/api/tenants/${tenantId}/webhook-subscriptions`);
+    }
+
+    async getSystemStatus() {
+        return this.request('/api/settings/system-status');
     }
 
     // ============================================
@@ -1287,6 +1334,11 @@ class ApiService {
         return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}/comments${query ? '?' + query : ''}`);
     }
 
+    async getPortalFbCommentReplies(linkedPageId, commentId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/replies${query ? '?' + query : ''}`);
+    }
+
     async replyPortalFbComment(linkedPageId, commentId, message) {
         return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/reply`, {
             method: 'POST',
@@ -1303,6 +1355,18 @@ class ApiService {
 
     async deletePortalFbComment(linkedPageId, commentId) {
         return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async likePortalFbComment(linkedPageId, commentId) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/like`, {
+            method: 'POST',
+        });
+    }
+
+    async unlikePortalFbComment(linkedPageId, commentId) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/like`, {
             method: 'DELETE',
         });
     }

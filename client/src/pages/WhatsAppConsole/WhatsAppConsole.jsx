@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Box,
     Grid,
@@ -11,80 +11,76 @@ import {
     FormControlLabel,
     Radio,
     RadioGroup,
-    Checkbox,
     Select,
     MenuItem,
     InputLabel,
     IconButton,
-    InputAdornment,
-    Paper,
-    Divider,
     Chip,
-    Alert
+    Alert,
+    CircularProgress,
 } from '@mui/material';
 import {
     Send as SendIcon,
-    Key as KeyIcon,
     Smartphone as SmartphoneIcon,
-    Notes as NotesIcon,
     Add as AddIcon,
     Delete as DeleteIcon,
     CheckCircle as CheckCircleIcon,
     Error as ErrorIcon,
-    Terminal as TerminalIcon
+    Terminal as TerminalIcon,
+    Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import api from '../../api';
 import { useTenants } from '../../context/TenantContext';
 
 const WhatsAppConsole = () => {
-    const { tenants } = useTenants();
-    const [config, setConfig] = useState({
-        token: localStorage.getItem('ab_wa_token') || '',
-        phoneId: localStorage.getItem('ab_wa_phoneId') || '',
-    });
-
+    const { tenants, loading: tenantsLoading, fetchTenants } = useTenants();
     const [messageForm, setMessageForm] = useState({
         recipient: '',
         type: 'text',
-        message: 'مرحباً! هذه رسالة تجريبية من لوحة التحكم ⚡',
+        message: 'مرحبا، هذه رسالة اختبار من منصة واتساب.',
         templateName: 'delivery_confirmation',
         templateLanguage: 'ar',
         templateParams: [],
-        sendViaBackend: true,
         tenantId: '',
     });
-
-    const [status, setStatus] = useState(null);
+    const [status, setStatus] = useState('idle');
     const [logs, setLogs] = useState([]);
     const [serverOnline, setServerOnline] = useState(null);
 
-    useEffect(() => {
-        localStorage.setItem('ab_wa_token', config.token);
-        localStorage.setItem('ab_wa_phoneId', config.phoneId);
-    }, [config]);
+    const selectedTenant = useMemo(
+        () => tenants.find(t => String(t.id) === String(messageForm.tenantId)),
+        [tenants, messageForm.tenantId],
+    );
 
-    // Check server status
     useEffect(() => {
-        const checkServer = async () => {
-            try {
-                await api.checkHealth();
-                setServerOnline(true);
-            } catch {
-                setServerOnline(false);
-            }
-        };
+        const tenantWithWhatsapp = tenants.find(t => t.phone_number_id && t.waba_id);
+        if (!messageForm.tenantId && tenantWithWhatsapp) {
+            setMessageForm(prev => ({ ...prev, tenantId: String(tenantWithWhatsapp.id) }));
+        }
+    }, [tenants, messageForm.tenantId]);
+
+    const checkServer = async () => {
+        try {
+            await api.checkHealth();
+            setServerOnline(true);
+        } catch {
+            setServerOnline(false);
+        }
+    };
+
+    useEffect(() => {
         checkServer();
     }, []);
 
     const addParam = () => {
         setMessageForm(prev => {
             const components = [...(prev.templateParams || [])];
-            let bodyComponentIndex = components.findIndex(c => c.type === 'body');
+            const bodyIndex = components.findIndex(c => c.type === 'body');
 
-            if (bodyComponentIndex === -1) {
+            if (bodyIndex === -1) {
                 components.push({ type: 'body', parameters: [{ type: 'text', text: '' }] });
             } else {
-                components[bodyComponentIndex].parameters.push({ type: 'text', text: '' });
+                components[bodyIndex].parameters.push({ type: 'text', text: '' });
             }
 
             return { ...prev, templateParams: components };
@@ -108,177 +104,121 @@ const WhatsAppConsole = () => {
             const bodyIndex = components.findIndex(c => c.type === 'body');
             if (bodyIndex !== -1) {
                 components[bodyIndex].parameters = components[bodyIndex].parameters.filter((_, i) => i !== paramIndex);
-                if (components[bodyIndex].parameters.length === 0) {
-                    components.splice(bodyIndex, 1);
-                }
+                if (components[bodyIndex].parameters.length === 0) components.splice(bodyIndex, 1);
             }
             return { ...prev, templateParams: components };
         });
     };
 
-    const handleSend = async (e) => {
-        e.preventDefault();
+    const getBodyParams = () => {
+        const bodyComponent = messageForm.templateParams?.find(c => c.type === 'body');
+        return bodyComponent ? bodyComponent.parameters : [];
+    };
+
+    const handleSend = async (event) => {
+        event.preventDefault();
+        if (!selectedTenant) return;
+
+        const timestamp = new Date().toLocaleTimeString('ar-LY');
         setStatus('loading');
 
-        const timestamp = new Date().toLocaleTimeString();
-
         try {
-            if (messageForm.sendViaBackend && serverOnline) {
-                // Send via backend
-                const payload = {
-                    recipient: messageForm.recipient,
-                    type: messageForm.type,
-                    message: messageForm.message,
-                    templateName: messageForm.templateName,
-                    templateLanguage: messageForm.templateLanguage,
-                    templateParams: messageForm.templateParams,
-                    tenant_id: messageForm.tenantId || null,
-                    phone_number_id: messageForm.tenantId ? null : config.phoneId,
-                    access_token: messageForm.tenantId ? null : config.token,
-                };
+            const payload = {
+                recipient: messageForm.recipient,
+                type: messageForm.type,
+                message: messageForm.message,
+                templateName: messageForm.templateName,
+                templateLanguage: messageForm.templateLanguage,
+                templateParams: messageForm.templateParams,
+                tenant_id: selectedTenant.id,
+            };
 
-                const result = await api.sendMessage(payload);
-                setStatus('success');
-                setLogs(prev => [`[${timestamp}] ✅ Success (Backend): ${result.message_id}`, ...prev]);
-            } else {
-                // Direct call to Meta API
-                const url = `https://graph.facebook.com/v22.0/${config.phoneId}/messages`;
-
-                let payload = {
-                    messaging_product: 'whatsapp',
-                    to: messageForm.recipient,
-                };
-
-                if (messageForm.type === 'text') {
-                    payload.type = 'text';
-                    payload.text = { body: messageForm.message };
-                } else {
-                    payload.type = 'template';
-                    payload.template = {
-                        name: messageForm.templateName,
-                        language: { code: messageForm.templateLanguage },
-                    };
-
-                    if (messageForm.templateParams && messageForm.templateParams.length > 0) {
-                        payload.template.components = messageForm.templateParams;
-                    }
-                }
-
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(payload),
-                });
-
-                const data = await res.json();
-
-                if (res.ok) {
-                    setStatus('success');
-                    setLogs(prev => [`[${timestamp}] ✅ Success (Direct): ${data.messages?.[0]?.id}`, ...prev]);
-                } else {
-                    setStatus('error');
-                    setLogs(prev => [`[${timestamp}] ❌ Error: ${data.error?.message}`, ...prev]);
-                }
-            }
+            const result = await api.sendMessage(payload);
+            setStatus('success');
+            setLogs(prev => [`[${timestamp}] Success: ${result.message_id || 'تم الإرسال'}`, ...prev]);
         } catch (error) {
             setStatus('error');
-            setLogs(prev => [`[${timestamp}] ❌ Error: ${error.message || error.toString()}`, ...prev]);
+            setLogs(prev => [`[${timestamp}] Error: ${error.message || error.toString()}`, ...prev]);
         }
     };
 
-    const getBodyParams = () => {
-        const bodyComp = messageForm.templateParams?.find(c => c.type === 'body');
-        return bodyComp ? bodyComp.parameters : [];
+    const readiness = {
+        phone: !!selectedTenant?.phone_number_id,
+        waba: !!selectedTenant?.waba_id,
+        token: selectedTenant?.token_status === 'valid' || selectedTenant?.token_status === 'unchecked' || !selectedTenant?.token_status,
     };
+    const readyToSend = selectedTenant && readiness.phone && readiness.waba && serverOnline;
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
-            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, flexDirection: { xs: 'column', md: 'row' }, mb: 3, gap: 1.5 }}>
                 <Box>
                     <Typography variant="h4" fontWeight={700} gutterBottom>
-                        منصة واتساب المباشرة
+                        منصة واتساب للتشخيص
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        أداة تشخيص وإرسال مباشر للتفاعل مع Meta Graph API.
+                        إرسال اختبار عبر backend باستخدام بيانات العميل المخزنة. لا يتم حفظ أو استخدام tokens من المتصفح.
                     </Typography>
                 </Box>
-                <Chip
-                    icon={serverOnline ? <CheckCircleIcon /> : <ErrorIcon />}
-                    label={serverOnline === null ? "فحص الخادم..." : serverOnline ? "الخادم متصل" : "الخادم غير متصل"}
-                    color={serverOnline ? "success" : "error"}
-                    variant="outlined"
-                />
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Chip
+                        icon={serverOnline ? <CheckCircleIcon /> : <ErrorIcon />}
+                        label={serverOnline === null ? 'فحص الخادم' : serverOnline ? 'الخادم متصل' : 'الخادم غير متصل'}
+                        color={serverOnline ? 'success' : 'error'}
+                        variant="outlined"
+                    />
+                    <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<RefreshIcon />}
+                        onClick={() => { fetchTenants?.(); checkServer(); }}
+                    >
+                        تحديث
+                    </Button>
+                </Box>
             </Box>
 
             <Grid container spacing={3}>
-                <Grid size={{ xs: 12, md: 8 }}>
+                <Grid size={{ xs: 12, lg: 8 }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        {/* Configuration */}
-                        <Card elevation={2}>
+                        <Card>
                             <CardContent>
-                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <KeyIcon color="primary" />
-                                    بيانات الربط (Configuration)
-                                </Typography>
-
-                                <Grid container spacing={2} sx={{ mb: 2 }}>
-                                    <Grid size={{ xs: 12, sm: 6 }}>
-                                        <TextField
-                                            fullWidth
-                                            label="Phone Number ID"
-                                            value={config.phoneId}
-                                            onChange={e => setConfig({ ...config, phoneId: e.target.value })}
-                                            placeholder="10595..."
-                                            size="small"
-                                        />
-                                    </Grid>
-                                    <Grid size={{ xs: 12, sm: 6 }}>
-                                        <TextField
-                                            fullWidth
-                                            type="password"
-                                            label="Access Token"
-                                            value={config.token}
-                                            onChange={e => setConfig({ ...config, token: e.target.value })}
-                                            placeholder="EAA..."
-                                            size="small"
-                                        />
-                                    </Grid>
-                                </Grid>
-
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                                    <FormControlLabel
-                                        control={
-                                            <Checkbox
-                                                checked={messageForm.sendViaBackend}
-                                                onChange={(e) => setMessageForm({ ...messageForm, sendViaBackend: e.target.checked })}
-                                            />
-                                        }
-                                        label="إرسال عبر الخادم (Backend)"
-                                    />
-
-                                    {messageForm.sendViaBackend && tenants.length > 0 && (
-                                        <FormControl size="small" sx={{ minWidth: 200 }}>
+                                <Typography variant="h6" gutterBottom>جاهزية العميل</Typography>
+                                <Grid container spacing={2}>
+                                    <Grid size={{ xs: 12, md: 5 }}>
+                                        <FormControl fullWidth size="small">
+                                            <InputLabel>العميل</InputLabel>
                                             <Select
                                                 value={messageForm.tenantId}
+                                                label="العميل"
                                                 onChange={(e) => setMessageForm({ ...messageForm, tenantId: e.target.value })}
-                                                displayEmpty
+                                                disabled={tenantsLoading}
                                             >
-                                                <MenuItem value="">اختر عميل (اختياري)</MenuItem>
                                                 {tenants.map(t => (
-                                                    <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+                                                    <MenuItem key={t.id} value={String(t.id)}>
+                                                        {t.name} {t.phone_number_id ? '' : '(بدون رقم واتساب)'}
+                                                    </MenuItem>
                                                 ))}
                                             </Select>
                                         </FormControl>
-                                    )}
-                                </Box>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 7 }}>
+                                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                            <Chip label={readiness.phone ? 'Phone Number ID موجود' : 'Phone Number ID مفقود'} color={readiness.phone ? 'success' : 'warning'} variant="outlined" />
+                                            <Chip label={readiness.waba ? 'WABA ID موجود' : 'WABA ID مفقود'} color={readiness.waba ? 'success' : 'warning'} variant="outlined" />
+                                            <Chip label={`Token: ${selectedTenant?.token_status || 'unchecked'}`} color={readiness.token ? 'success' : 'error'} variant="outlined" />
+                                        </Box>
+                                    </Grid>
+                                </Grid>
+                                {!readyToSend && (
+                                    <Alert severity="warning" sx={{ mt: 2 }}>
+                                        اختر عميلا لديه Phone Number ID وWABA ID وتأكد من اتصال الخادم قبل إرسال الاختبار.
+                                    </Alert>
+                                )}
                             </CardContent>
                         </Card>
 
-                        {/* Message Tester */}
-                        <Card elevation={2}>
+                        <Card>
                             <CardContent>
                                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                                     <SmartphoneIcon color="primary" />
@@ -293,20 +233,16 @@ const WhatsAppConsole = () => {
                                                 label="رقم المستلم"
                                                 value={messageForm.recipient}
                                                 onChange={e => setMessageForm({ ...messageForm, recipient: e.target.value })}
-                                                placeholder="مثال: 20100000000"
+                                                placeholder="مثال: 2189XXXXXXXX"
                                                 required
                                             />
                                         </Grid>
 
                                         <Grid size={{ xs: 12 }}>
                                             <FormControl>
-                                                <RadioGroup
-                                                    row
-                                                    value={messageForm.type}
-                                                    onChange={(e) => setMessageForm({ ...messageForm, type: e.target.value })}
-                                                >
-                                                    <FormControlLabel value="text" control={<Radio />} label="نص (Text)" />
-                                                    <FormControlLabel value="template" control={<Radio />} label="قالب (Template)" />
+                                                <RadioGroup row value={messageForm.type} onChange={(e) => setMessageForm({ ...messageForm, type: e.target.value })}>
+                                                    <FormControlLabel value="text" control={<Radio />} label="نص" />
+                                                    <FormControlLabel value="template" control={<Radio />} label="قالب" />
                                                 </RadioGroup>
                                             </FormControl>
                                         </Grid>
@@ -326,47 +262,22 @@ const WhatsAppConsole = () => {
                                         ) : (
                                             <>
                                                 <Grid size={{ xs: 12, sm: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label="اسم القالب"
-                                                        value={messageForm.templateName}
-                                                        onChange={e => setMessageForm({ ...messageForm, templateName: e.target.value })}
-                                                        required
-                                                    />
+                                                    <TextField fullWidth label="اسم القالب" value={messageForm.templateName} onChange={e => setMessageForm({ ...messageForm, templateName: e.target.value })} required />
                                                 </Grid>
                                                 <Grid size={{ xs: 12, sm: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label="كود اللغة"
-                                                        value={messageForm.templateLanguage}
-                                                        onChange={e => setMessageForm({ ...messageForm, templateLanguage: e.target.value })}
-                                                        required
-                                                    />
+                                                    <TextField fullWidth label="كود اللغة" value={messageForm.templateLanguage} onChange={e => setMessageForm({ ...messageForm, templateLanguage: e.target.value })} required />
                                                 </Grid>
-
                                                 <Grid size={{ xs: 12 }}>
                                                     <Box sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                                            <Typography variant="subtitle2">المتغيرات (Body Parameters)</Typography>
-                                                            <Button size="small" startIcon={<AddIcon />} onClick={addParam}>
-                                                                إضافة
-                                                            </Button>
+                                                            <Typography variant="subtitle2">متغيرات Body</Typography>
+                                                            <Button size="small" startIcon={<AddIcon />} onClick={addParam}>إضافة</Button>
                                                         </Box>
-
                                                         {getBodyParams().map((param, index) => (
                                                             <Box key={index} sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                                                                <Typography variant="body2" color="text.secondary" sx={{ pt: 1, width: 30 }}>
-                                                                    {`{{${index + 1}}}`}
-                                                                </Typography>
-                                                                <TextField
-                                                                    fullWidth
-                                                                    size="small"
-                                                                    value={param.text}
-                                                                    onChange={(e) => updateParam(index, e.target.value)}
-                                                                />
-                                                                <IconButton size="small" onClick={() => removeParam(index)} color="error">
-                                                                    <DeleteIcon fontSize="small" />
-                                                                </IconButton>
+                                                                <Typography variant="body2" color="text.secondary" sx={{ pt: 1, width: 42 }}>{`{{${index + 1}}}`}</Typography>
+                                                                <TextField fullWidth size="small" value={param.text} onChange={(e) => updateParam(index, e.target.value)} />
+                                                                <IconButton size="small" onClick={() => removeParam(index)} color="error"><DeleteIcon fontSize="small" /></IconButton>
                                                             </Box>
                                                         ))}
                                                     </Box>
@@ -380,10 +291,10 @@ const WhatsAppConsole = () => {
                                                 variant="contained"
                                                 size="large"
                                                 fullWidth
-                                                disabled={status === 'loading'}
-                                                startIcon={status !== 'loading' && <SendIcon />}
+                                                disabled={status === 'loading' || !readyToSend}
+                                                startIcon={status === 'loading' ? <CircularProgress size={18} color="inherit" /> : <SendIcon />}
                                             >
-                                                {status === 'loading' ? 'جاري الاتصال...' : 'إرسال الآن'}
+                                                {status === 'loading' ? 'جاري الإرسال...' : 'إرسال عبر الخادم'}
                                             </Button>
                                         </Grid>
                                     </Grid>
@@ -393,33 +304,17 @@ const WhatsAppConsole = () => {
                     </Box>
                 </Grid>
 
-                <Grid size={{ xs: 12 }} md={4}>
-                    <Card elevation={2} sx={{ height: '100%', maxHeight: 600, display: 'flex', flexDirection: 'column' }}>
+                <Grid size={{ xs: 12, lg: 4 }}>
+                    <Card sx={{ height: '100%', minHeight: 420, display: 'flex', flexDirection: 'column' }}>
                         <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 2 }}>
                             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <TerminalIcon color="action" />
-                                سجلات التشغيل
+                                سجلات الاختبار
                             </Typography>
-
-                            <Box sx={{
-                                bgcolor: '#0d0d0d',
-                                borderRadius: 2,
-                                p: 2,
-                                flex: 1,
-                                overflowY: 'auto',
-                                fontFamily: 'monospace',
-                                fontSize: '0.875rem'
-                            }}>
-                                {logs.length === 0 && (
-                                    <Typography color="text.secondary" variant="body2">بانتظار العمليات...</Typography>
-                                )}
+                            <Box sx={{ bgcolor: '#0d0d0d', borderRadius: 1, p: 2, flex: 1, overflowY: 'auto', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                                {logs.length === 0 && <Typography color="text.secondary" variant="body2">بانتظار العمليات...</Typography>}
                                 {logs.map((log, i) => (
-                                    <Box key={i} sx={{
-                                        color: log.includes('Success') ? '#4ade80' : '#f87171',
-                                        borderBottom: '1px solid #333',
-                                        pb: 1,
-                                        mb: 1
-                                    }}>
+                                    <Box key={i} sx={{ color: log.includes('Success') ? '#4ade80' : '#f87171', borderBottom: '1px solid #333', pb: 1, mb: 1 }}>
                                         {log}
                                     </Box>
                                 ))}

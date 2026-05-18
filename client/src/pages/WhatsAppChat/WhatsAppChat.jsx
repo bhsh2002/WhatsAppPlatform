@@ -37,11 +37,6 @@ const WhatsAppChat = () => {
     const shouldStickToBottomRef = useRef(true);
 
     // Helpers
-    const getCredentials = () => ({
-        token: localStorage.getItem('ab_wa_token') || '',
-        phoneId: localStorage.getItem('ab_wa_phoneId') || '',
-    });
-
     const getDisplayName = (conv) => conv?.profile_name || conv?.contact || 'غير معروف';
 
     const formatDate = (dateString) => {
@@ -301,8 +296,8 @@ const WhatsAppChat = () => {
     const handleSendMessage = async () => {
         if (!newMessage.trim() || !selectedChat || sending) return;
 
-        const credentials = getCredentials();
-        if (!selectedChat.tenant_id && (!credentials.token || !credentials.phoneId)) {
+        if (!selectedChat.tenant_id) {
+            alert('لا يمكن الإرسال بدون عميل مرتبط بالمحادثة.');
             return;
         }
 
@@ -312,9 +307,7 @@ const WhatsAppChat = () => {
                 recipient: selectedChat.contact,
                 type: 'text',
                 message: newMessage,
-                tenant_id: selectedChat.tenant_id || null,
-                phone_number_id: selectedChat.tenant_id ? null : credentials.phoneId,
-                access_token: selectedChat.tenant_id ? null : credentials.token,
+                tenant_id: selectedChat.tenant_id,
             };
             await api.sendMessage(payload);
             setNewMessage('');
@@ -330,6 +323,10 @@ const WhatsAppChat = () => {
 
     const handleSendTemplate = async (templateData) => {
         if (!selectedChat || sending) return;
+        if (!selectedChat.tenant_id) {
+            alert('لا يمكن إرسال القوالب بدون عميل مرتبط بالمحادثة.');
+            return;
+        }
 
         try {
             setSending(true);
@@ -355,7 +352,6 @@ const WhatsAppChat = () => {
     const handleSendDocument = async (file, caption) => {
         if (!file || !selectedChat) return;
 
-        const credentials = getCredentials();
         try {
             setSendingDoc(true);
             const formData = new FormData();
@@ -367,8 +363,8 @@ const WhatsAppChat = () => {
             if (selectedChat.tenant_id) {
                 formData.append('tenant_id', selectedChat.tenant_id);
             } else {
-                formData.append('phone_number_id', credentials.phoneId);
-                formData.append('access_token', credentials.token);
+                alert('لا يمكن إرسال الملفات بدون عميل مرتبط بالمحادثة.');
+                return;
             }
 
             await api.sendMediaFile(formData);
@@ -386,7 +382,6 @@ const WhatsAppChat = () => {
     const handleSendImage = async (file, caption) => {
         if (!file || !selectedChat) return;
 
-        const credentials = getCredentials();
         try {
             setSendingDoc(true);
             const formData = new FormData();
@@ -398,8 +393,8 @@ const WhatsAppChat = () => {
             if (selectedChat.tenant_id) {
                 formData.append('tenant_id', selectedChat.tenant_id);
             } else {
-                formData.append('phone_number_id', credentials.phoneId);
-                formData.append('access_token', credentials.token);
+                alert('لا يمكن إرسال الصور بدون عميل مرتبط بالمحادثة.');
+                return;
             }
 
             await api.sendMediaFile(formData);
@@ -416,15 +411,16 @@ const WhatsAppChat = () => {
 
     const handleSendInteractive = async (data) => {
         if (!selectedChat) return;
+        if (!selectedChat.tenant_id) {
+            alert('لا يمكن إرسال الرسائل التفاعلية بدون عميل مرتبط بالمحادثة.');
+            return;
+        }
 
-        const credentials = getCredentials();
         try {
             setSendingInteractive(true);
             await api.sendInteractiveMessage({
                 recipient: selectedChat.contact,
-                tenant_id: selectedChat.tenant_id || null,
-                phone_number_id: selectedChat.tenant_id ? null : credentials.phoneId,
-                access_token: selectedChat.tenant_id ? null : credentials.token,
+                tenant_id: selectedChat.tenant_id,
                 ...data
             });
             await fetchMessages(selectedChat.contact, selectedChat.tenant_id);

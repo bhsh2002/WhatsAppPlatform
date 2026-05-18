@@ -199,10 +199,10 @@ const ContactManager = () => {
                 <Box>
                     <Typography variant="h4" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <ContactPhoneIcon fontSize="large" color="primary" />
-                        جهات الاتصال
+                        جهات اتصال WhatsApp
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        إدارة جهات الاتصال وتصنيفها وإضافة ملاحظات
+                        إدارة أرقام واتساب وتصنيفها وإضافة ملاحظات. هذه ليست قائمة جهات اتصال موحدة لفيسبوك.
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
@@ -334,11 +334,7 @@ const ContactManager = () => {
                                             </IconButton>
                                         </Tooltip>
                                         <Tooltip title="فتح المحادثة">
-                                            <IconButton
-                                                size="small"
-                                                color="primary"
-                                                onClick={() => navigate('/chat')}
-                                            >
+                                            <IconButton size="small" color="primary" onClick={() => navigate('/inbox')}>
                                                 <ChatIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
@@ -440,7 +436,7 @@ const ContactManager = () => {
                 <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <AddIcon color="primary" />
-                        إضافة جهة اتصال جديدة
+                        إضافة جهة اتصال WhatsApp جديدة
                     </Box>
                     <IconButton onClick={() => setShowAddDialog(false)} disabled={addSaving}>
                         <CloseIcon />

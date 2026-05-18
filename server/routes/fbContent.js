@@ -24,6 +24,84 @@ const logFacebookActivity = (page, eventType, description, status = 'success') =
     `).run(page.tenant_id, tenant?.name || '', eventType, description, status);
 };
 
+const graphUrl = (path, params = {}) => {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') {
+            search.set(key, String(value));
+        }
+    }
+    return `${META_API_BASE}/${path}${search.toString() ? `?${search.toString()}` : ''}`;
+};
+
+const graphPostForm = async (path, accessToken, params = {}) => {
+    const body = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') {
+            body.set(key, String(value));
+        }
+    }
+
+    return fetch(`${META_API_BASE}/${path}`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+    });
+};
+
+const normalizeLimit = (value, fallback = 25, max = 100) => {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(parsed, max);
+};
+
+const normalizeScheduledPublishTime = (value) => {
+    if (!value) return null;
+    if (Number.isFinite(Number(value))) return Math.floor(Number(value));
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        const error = new Error('وقت الجدولة غير صالح');
+        error.status = 400;
+        throw error;
+    }
+
+    return Math.floor(parsed.getTime() / 1000);
+};
+
+const POST_FIELDS = [
+    'id',
+    'message',
+    'created_time',
+    'full_picture',
+    'permalink_url',
+    'is_published',
+    'scheduled_publish_time',
+    'attachments{title,url,description,media,type}',
+    'likes.limit(0).summary(true)',
+    'comments.limit(0).summary(true)',
+    'reactions.limit(0).summary(true)',
+    'shares',
+].join(',');
+
+const COMMENT_FIELDS = [
+    'id',
+    'message',
+    'created_time',
+    'from{name,id,picture{url}}',
+    'like_count',
+    'can_like',
+    'user_likes',
+    'is_hidden',
+    'attachment',
+    'comment_count',
+    'parent{id}',
+    'comments.limit(0).summary(true)',
+].join(',');
+
 // ============================================
 // List posts for a linked page
 // ============================================
@@ -33,14 +111,13 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
         if (error) return res.status(status).json({ error });
 
-        const { limit = 25, after } = req.query;
-        const fields = [
-            'id', 'message', 'created_time', 'full_picture', 'permalink_url',
-            'is_published', 'scheduled_publish_time',
-            'attachments{title,url,description,media,type}',
-        ].join(',');
-        let url = `${META_API_BASE}/${page.page_id}/posts?fields=${fields}&limit=${limit}`;
-        if (after) url += `&after=${after}`;
+        const { after } = req.query;
+        const limit = normalizeLimit(req.query.limit, 25, 50);
+        const url = graphUrl(`${page.page_id}/posts`, {
+            fields: POST_FIELDS,
+            limit,
+            after,
+        });
 
         const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${accessToken}` },
@@ -78,18 +155,11 @@ router.post('/:linkedPageId/posts', async (req, res) => {
         if (published === false) {
             body.published = false;
             if (scheduled_publish_time) {
-                body.scheduled_publish_time = scheduled_publish_time;
+                body.scheduled_publish_time = normalizeScheduledPublishTime(scheduled_publish_time);
             }
         }
 
-        const response = await fetch(`${META_API_BASE}/${page.page_id}/feed`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
+        const response = await graphPostForm(`${page.page_id}/feed`, accessToken, body);
         const data = await response.json();
 
         if (!response.ok) {
@@ -100,6 +170,7 @@ router.post('/:linkedPageId/posts', async (req, res) => {
 
         res.status(201).json({ id: data.id });
     } catch (error) {
+        if (error.status) return res.status(error.status).json({ error: error.message });
         console.error('[FBContent] Create post error:', error);
         res.status(500).json({ error: 'فشل إنشاء المنشور' });
     }
@@ -127,7 +198,7 @@ router.post('/:linkedPageId/posts/photo', simpleUpload.single('source'), async (
             filePath = req.file.path;
             const form = new FormData();
             form.append('source', fs.createReadStream(filePath), req.file.originalname || 'photo.jpg');
-            if (caption) form.append('message', caption);
+            if (caption) form.append('caption', caption);
 
             apiResponse = await fetch(`${META_API_BASE}/${page.page_id}/photos`, {
                 method: 'POST',
@@ -141,13 +212,9 @@ router.post('/:linkedPageId/posts/photo', simpleUpload.single('source'), async (
             if (!url) {
                 return res.status(400).json({ error: 'رابط الصورة أو ملف الصورة مطلوب' });
             }
-            apiResponse = await fetch(`${META_API_BASE}/${page.page_id}/photos`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ url, caption: caption || undefined }),
+            apiResponse = await graphPostForm(`${page.page_id}/photos`, accessToken, {
+                url,
+                caption: caption || undefined,
             });
         }
 
@@ -242,9 +309,15 @@ router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {
         const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
         if (error) return res.status(status).json({ error });
 
-        const { limit = 50, after } = req.query;
-        let url = `${META_API_BASE}/${postId}/comments?fields=id,message,created_time,from{name,id,picture{url}},like_count,is_hidden,attachment,comment_count,parent{id}&limit=${limit}`;
-        if (after) url += `&after=${after}`;
+        const { after } = req.query;
+        const limit = normalizeLimit(req.query.limit, 25, 100);
+        const url = graphUrl(`${postId}/comments`, {
+            fields: COMMENT_FIELDS,
+            limit,
+            after,
+            filter: req.query.filter || 'toplevel',
+            summary: true,
+        });
 
         const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${accessToken}` },
@@ -263,6 +336,44 @@ router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {
     } catch (error) {
         console.error('[FBContent] List comments error:', error);
         res.status(500).json({ error: 'فشل جلب التعليقات' });
+    }
+});
+
+// ============================================
+// List replies on a comment
+// ============================================
+router.get('/:linkedPageId/comments/:commentId/replies', async (req, res) => {
+    try {
+        const { linkedPageId, commentId } = req.params;
+        const { accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        const { after } = req.query;
+        const limit = normalizeLimit(req.query.limit, 10, 50);
+        const url = graphUrl(`${commentId}/comments`, {
+            fields: COMMENT_FIELDS,
+            limit,
+            after,
+            summary: true,
+        });
+
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب الردود', details: data.error });
+        }
+
+        res.json({
+            replies: data.data || [],
+            paging: data.paging || null,
+            summary: data.summary || null,
+        });
+    } catch (error) {
+        console.error('[FBContent] List replies error:', error);
+        res.status(500).json({ error: 'فشل جلب الردود' });
     }
 });
 
@@ -337,6 +448,55 @@ router.post('/:linkedPageId/comments/:commentId/hide', async (req, res) => {
     } catch (error) {
         console.error('[FBContent] Hide comment error:', error);
         res.status(500).json({ error: 'فشل تحديث حالة التعليق' });
+    }
+});
+
+// ============================================
+// Like/unlike a comment
+// ============================================
+router.post('/:linkedPageId/comments/:commentId/like', async (req, res) => {
+    try {
+        const { linkedPageId, commentId } = req.params;
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        const response = await graphPostForm(`${commentId}/likes`, accessToken);
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل الإعجاب بالتعليق', details: data.error });
+        }
+
+        logFacebookActivity(page, 'fb_comment_liked', `إعجاب بتعليق في صفحة ${page.page_name || page.page_id}`);
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('[FBContent] Like comment error:', error);
+        res.status(500).json({ error: 'فشل الإعجاب بالتعليق' });
+    }
+});
+
+router.delete('/:linkedPageId/comments/:commentId/like', async (req, res) => {
+    try {
+        const { linkedPageId, commentId } = req.params;
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        const response = await fetch(`${META_API_BASE}/${commentId}/likes`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
+
+        if (!response.ok) {
+            return res.status(response.status).json({ error: data.error?.message || 'فشل إزالة الإعجاب', details: data.error });
+        }
+
+        logFacebookActivity(page, 'fb_comment_unliked', `إزالة إعجاب من تعليق في صفحة ${page.page_name || page.page_id}`);
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('[FBContent] Unlike comment error:', error);
+        res.status(500).json({ error: 'فشل إزالة الإعجاب' });
     }
 });
 

@@ -17,7 +17,10 @@ const BusinessManager = () => {
     const [permissionWarnings, setPermissionWarnings] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
     const [activeTab, setActiveTab] = useState('info');
+    const [claimAdAccountId, setClaimAdAccountId] = useState('');
+    const [claimLoading, setClaimLoading] = useState(false);
 
     useEffect(() => {
         const loadTenants = async () => {
@@ -47,15 +50,26 @@ const BusinessManager = () => {
         setPermissionWarnings([]);
     };
 
+    const selectedTenantData = tenants.find(t => String(t.id) === String(selectedTenant));
+    const businessScopes = (() => {
+        try {
+            return JSON.parse(selectedTenantData?.facebook_user_token_scopes || '[]');
+        } catch {
+            return [];
+        }
+    })();
+    const hasBusinessToken = !!selectedTenantData?.facebook_user_access_token_encrypted || selectedTenantData?.facebook_user_token_status === 'valid' || businessScopes.length > 0;
+    const hasBusinessManagement = businessScopes.includes('business_management');
+
     const handleSearch = async () => {
-        if (!businessId.trim()) return;
+        if (!businessId.trim() || !selectedTenant) return;
         try {
             setLoading(true);
             setError('');
             const [infoData, adData, assetsData] = await Promise.all([
-                api.getBusinessManagerInfo(businessId, selectedTenant || null).catch(() => null),
-                api.getAdAccounts(businessId, selectedTenant || null).catch(() => ({ ad_accounts: [] })),
-                api.getBusinessAssets(businessId, selectedTenant || null).catch(() => ({ pages: [], whatsapp_accounts: [] }))
+                api.getBusinessManagerInfo(businessId, selectedTenant).catch(err => ({ permission_error: err.message, id: businessId })),
+                api.getAdAccounts(businessId, selectedTenant).catch(err => ({ ad_accounts: [], permission_error: err.message })),
+                api.getBusinessAssets(businessId, selectedTenant).catch(err => ({ pages: [], whatsapp_accounts: [], permission_errors: { pages: err.message, whatsapp_accounts: null } }))
             ]);
             setInfo(infoData);
             setAdAccounts(adData?.ad_accounts || []);
@@ -70,6 +84,22 @@ const BusinessManager = () => {
             setError(err.message || 'فشل جلب البيانات');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleClaimAdAccount = async () => {
+        if (!businessId || !selectedTenant || !claimAdAccountId.trim()) return;
+        try {
+            setClaimLoading(true);
+            setError('');
+            await api.claimAdAccount(businessId, selectedTenant, claimAdAccountId.trim());
+            setSuccess('تم إرسال طلب المطالبة بالحساب الإعلاني إلى Meta');
+            setClaimAdAccountId('');
+            handleSearch();
+        } catch (err) {
+            setError(err.message || 'فشل المطالبة بالحساب الإعلاني');
+        } finally {
+            setClaimLoading(false);
         }
     };
 
@@ -88,7 +118,6 @@ const BusinessManager = () => {
                     <FormControl fullWidth size="small">
                         <InputLabel>العميل</InputLabel>
                         <Select value={selectedTenant} label="العميل" onChange={handleTenantChange}>
-                            <MenuItem value="">بدون عميل محدد</MenuItem>
                             {tenants.map(tenant => (
                                 <MenuItem key={tenant.id} value={String(tenant.id)}>
                                     {tenant.name} {tenant.business_id ? '' : '(بدون Business ID)'}
@@ -99,10 +128,15 @@ const BusinessManager = () => {
                     <TextField fullWidth label="معرف مدير الأعمال (Business ID)" value={businessId}
                         onChange={e => setBusinessId(e.target.value)} placeholder="أدخل Business ID" size="small" />
                     <Button variant="contained" startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}
-                        onClick={handleSearch} disabled={loading || !businessId.trim()} sx={{ minWidth: 120 }}>
+                        onClick={handleSearch} disabled={loading || !businessId.trim() || !selectedTenant} sx={{ minWidth: 120 }}>
                         بحث
                     </Button>
                 </Box>
+                <Alert severity={hasBusinessToken && hasBusinessManagement ? 'success' : 'warning'} sx={{ mt: 2 }}>
+                    {hasBusinessToken && hasBusinessManagement
+                        ? 'العميل المحدد لديه Facebook user token مع business_management حسب البيانات المخزنة.'
+                        : 'هذه الصفحة تتطلب عميلا محددا مع Facebook user token وصلاحية business_management. أعد التفويض من بوابة العميل عند الحاجة.'}
+                </Alert>
             </Paper>
 
             {info && (
@@ -146,33 +180,44 @@ const BusinessManager = () => {
                     )}
 
                     {activeTab === 'ads' && (
-                        <Paper>
-                            <TableContainer sx={{ overflowX: 'auto' }}>
-                                <Table>
-                                    <TableHead>
-                                        <TableRow>
-                                            <TableCell>الاسم</TableCell>
-                                            <TableCell>المعرف</TableCell>
-                                            <TableCell>الحالة</TableCell>
-                                            <TableCell>العملة</TableCell>
-                                            <TableCell>الإنفاق</TableCell>
-                                        </TableRow>
-                                    </TableHead>
-                                    <TableBody>
-                                        {adAccounts.map((acc, i) => (
-                                            <TableRow key={i}>
-                                                <TableCell>{acc.name || '-'}</TableCell>
-                                                <TableCell><Chip label={acc.account_id} size="small" /></TableCell>
-                                                <TableCell><Chip label={acc.account_status === 1 ? 'نشط' : 'غير نشط'} size="small" color={acc.account_status === 1 ? 'success' : 'default'} /></TableCell>
-                                                <TableCell>{acc.currency || '-'}</TableCell>
-                                                <TableCell>{acc.amount_spent ? (parseInt(acc.amount_spent) / 100).toFixed(2) : '0'}</TableCell>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <Paper sx={{ p: 2 }}>
+                                <Typography variant="subtitle2" sx={{ mb: 1 }}>المطالبة بحساب إعلاني</Typography>
+                                <Box sx={{ display: 'flex', gap: 1, flexDirection: { xs: 'column', md: 'row' } }}>
+                                    <TextField fullWidth size="small" label="Ad Account ID" value={claimAdAccountId} onChange={e => setClaimAdAccountId(e.target.value)} placeholder="act_123 أو 123" />
+                                    <Button variant="outlined" onClick={handleClaimAdAccount} disabled={claimLoading || !claimAdAccountId.trim() || !selectedTenant}>
+                                        {claimLoading ? <CircularProgress size={18} /> : 'مطالبة'}
+                                    </Button>
+                                </Box>
+                            </Paper>
+                            <Paper>
+                                <TableContainer sx={{ overflowX: 'auto' }}>
+                                    <Table>
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>الاسم</TableCell>
+                                                <TableCell>المعرف</TableCell>
+                                                <TableCell>الحالة</TableCell>
+                                                <TableCell>العملة</TableCell>
+                                                <TableCell>الإنفاق</TableCell>
                                             </TableRow>
-                                        ))}
-                                        {adAccounts.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}>لا توجد حسابات إعلانية</TableCell></TableRow>}
-                                    </TableBody>
-                                </Table>
-                            </TableContainer>
-                        </Paper>
+                                        </TableHead>
+                                        <TableBody>
+                                            {adAccounts.map((acc, i) => (
+                                                <TableRow key={i}>
+                                                    <TableCell>{acc.name || '-'}</TableCell>
+                                                    <TableCell><Chip label={acc.account_id} size="small" /></TableCell>
+                                                    <TableCell><Chip label={acc.account_status === 1 ? 'نشط' : 'غير نشط'} size="small" color={acc.account_status === 1 ? 'success' : 'default'} /></TableCell>
+                                                    <TableCell>{acc.currency || '-'}</TableCell>
+                                                    <TableCell>{acc.amount_spent ? (parseInt(acc.amount_spent, 10) / 100).toFixed(2) : '0'}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {adAccounts.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}>لا توجد حسابات إعلانية</TableCell></TableRow>}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            </Paper>
+                        </Box>
                     )}
 
                     {activeTab === 'assets' && assets && (
@@ -214,6 +259,9 @@ const BusinessManager = () => {
 
             <Snackbar open={!!error} autoHideDuration={5000} onClose={() => setError('')}>
                 <Alert severity="error" onClose={() => setError('')}>{error}</Alert>
+            </Snackbar>
+            <Snackbar open={!!success} autoHideDuration={3500} onClose={() => setSuccess('')}>
+                <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>
             </Snackbar>
         </Box>
     );

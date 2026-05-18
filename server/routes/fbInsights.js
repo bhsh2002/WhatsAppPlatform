@@ -15,9 +15,18 @@ const resolvePageCredentials = (linkedPageId) => {
 
 const safeMetricValue = (insightsData, metricName, period = 'days_28') => {
     const metric = (insightsData || []).find(m => m.name === metricName);
-    if (!metric || !metric.values || metric.values.length === 0) return 0;
+    if (!metric || !metric.values || metric.values.length === 0) return null;
     const periodValue = metric.values.find(v => v.period === period) || metric.values[0];
-    return periodValue?.value ?? 0;
+    return periodValue?.value ?? null;
+};
+
+const metaErrorMessage = (data, fallback) => data?.error?.message || fallback;
+
+const normalizeMetricNumber = (value) => {
+    if (typeof value === 'number') return value;
+    if (Array.isArray(value)) return value.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+    if (value && typeof value === 'object') return Object.values(value).reduce((sum, item) => sum + (Number(item) || 0), 0);
+    return null;
 };
 
 // ============================================
@@ -44,8 +53,11 @@ router.get('/:linkedPageId/overview', async (req, res) => {
             `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=days_28&access_token=${accessToken}`
         );
         const insightsData = await insightsResponse.json();
+        const insightsError = insightsResponse.ok
+            ? null
+            : metaErrorMessage(insightsData, 'تعذر جلب بعض مؤشرات الصفحة من Meta');
 
-        const insights = (insightsData.data || []);
+        const insights = insightsResponse.ok ? (insightsData.data || []) : [];
 
         const metrics = {
             views_28d: safeMetricValue(insights, 'page_views_total', 'days_28'),
@@ -61,6 +73,7 @@ router.get('/:linkedPageId/overview', async (req, res) => {
                 picture: metaData.picture?.data?.url || page.page_picture_url || null,
             },
             metrics,
+            insights_error: insightsError,
         });
     } catch (err) {
         console.error('[FBInsights] Overview error:', err);
@@ -88,7 +101,11 @@ router.get('/:linkedPageId/daily', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
-            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب البيانات اليومية', details: data.error });
+            return res.json({
+                daily: [],
+                insights_error: metaErrorMessage(data, 'تعذر جلب البيانات اليومية من Meta'),
+                details: data.error || null,
+            });
         }
 
         // Normalize: Meta returns one array per metric, we merge by date
@@ -101,16 +118,16 @@ router.get('/:linkedPageId/daily', async (req, res) => {
                 if (!dailyMap[date]) {
                     dailyMap[date] = { date, views: 0, reactions: 0, video_views: 0 };
                 }
-                const value = typeof entry.value === 'number' ? entry.value : (Array.isArray(entry.value) ? entry.value.reduce((s, v) => s + (v.value || 0), 0) : 0);
-                if (metric.name === 'page_views_total') dailyMap[date].views += value;
-                if (metric.name === 'page_actions_post_reactions_total') dailyMap[date].reactions += value;
-                if (metric.name === 'page_video_views') dailyMap[date].video_views += value;
+                const value = normalizeMetricNumber(entry.value);
+                if (metric.name === 'page_views_total') dailyMap[date].views += value || 0;
+                if (metric.name === 'page_actions_post_reactions_total') dailyMap[date].reactions += value || 0;
+                if (metric.name === 'page_video_views') dailyMap[date].video_views += value || 0;
             }
         }
 
         const daily = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
-        res.json({ daily });
+        res.json({ daily, insights_error: null });
     } catch (err) {
         console.error('[FBInsights] Daily error:', err);
         res.status(500).json({ error: 'فشل جلب البيانات اليومية' });
@@ -142,10 +159,7 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         const insightsLimit = Math.min(posts.length, 10);
 
         // Fetch insights for the most recent posts (max 10)
-        const postsWithInsights = [];
-
-        for (let i = 0; i < posts.length; i++) {
-            const post = posts[i];
+        const postsWithInsights = await Promise.all(posts.map(async (post, i) => {
             const postEntry = {
                 id: post.id,
                 message: post.message || '',
@@ -186,16 +200,18 @@ router.get('/:linkedPageId/posts', async (req, res) => {
                         }
 
                         postEntry.insights = { reactions, clicks };
+                    } else {
+                        postEntry.insights_error = metaErrorMessage(insightsData, 'تعذر جلب مؤشرات المنشور');
                     }
                 } catch (e) {
-                    // Insights for this post are best-effort
+                    postEntry.insights_error = e.message || 'تعذر جلب مؤشرات المنشور';
                 }
             }
 
-            postsWithInsights.push(postEntry);
-        }
+            return postEntry;
+        }));
 
-        res.json({ posts: postsWithInsights });
+        res.json({ posts: postsWithInsights, paging: postsData.paging || null });
     } catch (err) {
         console.error('[FBInsights] Posts error:', err);
         res.status(500).json({ error: 'فشل جلب أداء المنشورات' });

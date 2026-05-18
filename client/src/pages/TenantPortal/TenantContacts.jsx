@@ -168,10 +168,10 @@ const TenantContacts = () => {
                 <Box>
                     <Typography variant="h4" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <ContactPhoneIcon fontSize="large" color="secondary" />
-                        جهات الاتصال
+                        جهات اتصال WhatsApp
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        قائمة جهات الاتصال الخاصة بك مع إمكانية التصنيف والملاحظات
+                        قائمة أرقام واتساب الخاصة بك مع إمكانية التصنيف والملاحظات.
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
@@ -281,7 +281,7 @@ const TenantContacts = () => {
                                             </IconButton>
                                         </Tooltip>
                                         <Tooltip title="فتح المحادثة">
-                                            <IconButton size="small" color="secondary" onClick={() => navigate('/portal/chat')}>
+                                            <IconButton size="small" color="secondary" onClick={() => navigate('/portal/inbox')}>
                                                 <ChatIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
@@ -377,7 +377,7 @@ const TenantContacts = () => {
                 <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <AddIcon color="secondary" />
-                        إضافة جهة اتصال جديدة
+                        إضافة جهة اتصال WhatsApp جديدة
                     </Box>
                     <IconButton onClick={() => setShowAddDialog(false)} disabled={addSaving}>
                         <CloseIcon />

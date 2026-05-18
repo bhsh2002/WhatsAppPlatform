@@ -19,9 +19,11 @@ const FacebookInsights = () => {
 
     const [overview, setOverview] = useState(null);
     const [overviewLoading, setOverviewLoading] = useState(false);
+    const [overviewWarning, setOverviewWarning] = useState('');
 
     const [daily, setDaily] = useState([]);
     const [dailyLoading, setDailyLoading] = useState(false);
+    const [dailyWarning, setDailyWarning] = useState('');
     const [since, setSince] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 30);
@@ -31,6 +33,7 @@ const FacebookInsights = () => {
 
     const [posts, setPosts] = useState([]);
     const [postsLoading, setPostsLoading] = useState(false);
+    const [postsWarning, setPostsWarning] = useState('');
 
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
@@ -57,8 +60,10 @@ const FacebookInsights = () => {
             setOverviewLoading(true);
             const data = await api.getFbPageOverview(selectedPageId);
             setOverview(data);
+            setOverviewWarning(data.insights_error || '');
         } catch (err) {
-            console.error('Failed to load overview:', err);
+            setOverviewWarning('');
+            setSnackbar({ open: true, message: err.message || 'فشل جلب النظرة العامة', severity: 'error' });
         } finally {
             setOverviewLoading(false);
         }
@@ -70,8 +75,10 @@ const FacebookInsights = () => {
             setDailyLoading(true);
             const data = await api.getFbPageDaily(selectedPageId, { since, until });
             setDaily(data.daily || []);
+            setDailyWarning(data.insights_error || '');
         } catch (err) {
-            console.error('Failed to load daily:', err);
+            setDailyWarning('');
+            setSnackbar({ open: true, message: err.message || 'فشل جلب النشاط اليومي', severity: 'error' });
         } finally {
             setDailyLoading(false);
         }
@@ -83,8 +90,11 @@ const FacebookInsights = () => {
             setPostsLoading(true);
             const data = await api.getFbPostInsights(selectedPageId, { limit: 10 });
             setPosts(data.posts || []);
+            const failedCount = (data.posts || []).filter(post => post.insights_error).length;
+            setPostsWarning(failedCount ? `تعذر جلب مؤشرات ${failedCount} منشور من Meta.` : '');
         } catch (err) {
-            console.error('Failed to load posts:', err);
+            setPostsWarning('');
+            setSnackbar({ open: true, message: err.message || 'فشل جلب أداء المنشورات', severity: 'error' });
         } finally {
             setPostsLoading(false);
         }
@@ -154,6 +164,7 @@ const FacebookInsights = () => {
 
             {selectedPageId && (
                 <>
+                    {overviewWarning && <Alert severity="warning" sx={{ mb: 2 }}>{overviewWarning}</Alert>}
                     {/* KPI Cards */}
                     {overviewLoading ? (
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>
@@ -185,6 +196,7 @@ const FacebookInsights = () => {
                                 <Button size="small" variant="contained" onClick={loadDaily} disabled={dailyLoading}>تطبيق</Button>
                             </Box>
                         </Box>
+                        {dailyWarning && <Alert severity="warning" sx={{ mb: 2 }}>{dailyWarning}</Alert>}
                         {dailyLoading ? (
                             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} /></Box>
                         ) : daily.length === 0 ? (
@@ -218,6 +230,7 @@ const FacebookInsights = () => {
                     {/* Post Performance */}
                     <Paper sx={{ p: 3 }}>
                         <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>أداء المنشورات</Typography>
+                        {postsWarning && <Alert severity="warning" sx={{ mb: 2 }}>{postsWarning}</Alert>}
                         {postsLoading ? (
                             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={24} /></Box>
                         ) : posts.length === 0 ? (
@@ -255,14 +268,14 @@ const FacebookInsights = () => {
                                                             </Typography>
                                                         </Box>
                                                     ) : (
-                                                        <Typography variant="body2" color="text.secondary">—</Typography>
+                                                        <Typography variant="body2" color="text.secondary">{post.insights_error ? 'غير متاح' : '—'}</Typography>
                                                     )}
                                                 </TableCell>
                                                 <TableCell align="center">
                                                     {post.insights ? (
                                                         <Chip label={post.insights.clicks} size="small" color="primary" variant="outlined" />
                                                     ) : (
-                                                        <Typography variant="body2" color="text.secondary">—</Typography>
+                                                        <Typography variant="body2" color="text.secondary">{post.insights_error ? 'غير متاح' : '—'}</Typography>
                                                     )}
                                                 </TableCell>
                                                 <TableCell>

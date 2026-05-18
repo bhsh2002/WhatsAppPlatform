@@ -888,6 +888,66 @@ router.post('/:id/subscribe-webhook', async (req, res) => {
     }
 });
 
+const REQUIRED_WABA_WEBHOOK_FIELDS = ['messages', 'message_template_status_update', 'account_alerts'];
+
+const buildWabaWebhookEvidence = (tenantId) => {
+    const rows = db.prepare(`
+        SELECT id, event_type, payload, created_at
+        FROM webhook_logs
+        WHERE tenant_id = ? AND event_type = 'whatsapp_business_account'
+        ORDER BY created_at DESC
+        LIMIT 100
+    `).all(tenantId);
+
+    const evidence = {};
+    const mark = (field, row, subtype = null) => {
+        if (!field) return;
+        if (!evidence[field]) {
+            evidence[field] = {
+                field,
+                count: 0,
+                latest_at: null,
+                latest_log_id: null,
+                subtypes: {},
+            };
+        }
+        evidence[field].count += 1;
+        if (!evidence[field].latest_at || String(row.created_at) > String(evidence[field].latest_at)) {
+            evidence[field].latest_at = row.created_at;
+            evidence[field].latest_log_id = row.id;
+        }
+        if (subtype) {
+            evidence[field].subtypes[subtype] = (evidence[field].subtypes[subtype] || 0) + 1;
+        }
+    };
+
+    for (const row of rows) {
+        try {
+            const payload = JSON.parse(row.payload || '{}');
+            for (const entry of payload.entry || []) {
+                for (const change of entry.changes || []) {
+                    const field = change.field || 'unknown';
+                    const value = change.value || {};
+                    if (field === 'messages') {
+                        if (value.messages?.length) mark('messages', row, 'messages');
+                        if (value.statuses?.length) mark('messages', row, 'statuses');
+                        if (!value.messages?.length && !value.statuses?.length) mark('messages', row, 'other');
+                    } else {
+                        mark(field, row);
+                    }
+                }
+            }
+        } catch {
+            mark('unparseable', row);
+        }
+    }
+
+    return {
+        total_logs_checked: rows.length,
+        by_field: evidence,
+    };
+};
+
 // ============================================
 // Get webhook subscriptions
 // ============================================
@@ -917,8 +977,21 @@ router.get('/:id/webhook-subscriptions', async (req, res) => {
             });
         }
 
+        const subscriptions = data.data || [];
+        const subscribedFields = Array.from(new Set(
+            subscriptions.flatMap(sub => sub.subscribed_fields || sub.fields?.map(field => field.name).filter(Boolean) || [])
+        ));
+        const missingFields = REQUIRED_WABA_WEBHOOK_FIELDS.filter(field => !subscribedFields.includes(field));
+
         res.json({
-            subscriptions: data.data || [],
+            subscriptions,
+            required_fields: REQUIRED_WABA_WEBHOOK_FIELDS,
+            subscribed_fields: subscribedFields,
+            missing_fields: missingFields,
+            waba_id: tenant.waba_id,
+            phone_number_id: tenant.phone_number_id,
+            token_status: tenant.token_status || 'unchecked',
+            evidence: buildWabaWebhookEvidence(tenantId),
         });
     } catch (error) {
         console.error('Error getting webhook subscriptions:', error);
@@ -1001,4 +1074,3 @@ router.post('/:id/reject', (req, res) => {
 });
 
 export default router;
-

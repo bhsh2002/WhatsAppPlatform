@@ -101,7 +101,7 @@ const ChatSidebar = ({
                                 <CampaignIcon fontSize="small" />
                             </IconButton>
                         </Tooltip>
-                        <Tooltip title="جهات الاتصال">
+                        <Tooltip title="جهات اتصال WhatsApp">
                             <IconButton
                                 onClick={() => navigate(contactsPath)}
                                 size="small"

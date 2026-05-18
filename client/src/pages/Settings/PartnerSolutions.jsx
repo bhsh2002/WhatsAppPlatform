@@ -21,6 +21,9 @@ const PartnerSolutions = () => {
     const [addOpen, setAddOpen] = useState(false);
     const [adding, setAdding] = useState(false);
     const [newClient, setNewClient] = useState({ name: '', existing_client_business_id: '' });
+    const [actionLoading, setActionLoading] = useState('');
+    const [wabaDialog, setWabaDialog] = useState({ open: false, client: null, accounts: [] });
+    const [systemUserDialog, setSystemUserDialog] = useState({ open: false, client: null, name: '', role: 'ADMIN' });
 
     useEffect(() => {
         const loadTenants = async () => {
@@ -54,7 +57,7 @@ const PartnerSolutions = () => {
         try {
             setLoading(true);
             setError('');
-            const data = await api.getPartnerClients(businessId, selectedTenant || null);
+            const data = await api.getPartnerClients(businessId, selectedTenant);
             setClients(data.clients || []);
             setPermissionWarning(data.permission_error || '');
             setLoaded(true);
@@ -68,7 +71,7 @@ const PartnerSolutions = () => {
     const handleAdd = async () => {
         try {
             setAdding(true);
-            const payload = { business_id: businessId, tenant_id: selectedTenant || undefined };
+            const payload = { business_id: businessId, tenant_id: selectedTenant };
             if (newClient.existing_client_business_id) {
                 payload.existing_client_business_id = newClient.existing_client_business_id;
             } else {
@@ -83,6 +86,61 @@ const PartnerSolutions = () => {
             setError(err.message || 'فشل إضافة العميل');
         } finally {
             setAdding(false);
+        }
+    };
+
+    const selectedTenantData = tenants.find(t => String(t.id) === String(selectedTenant));
+    const businessScopes = (() => {
+        try {
+            return JSON.parse(selectedTenantData?.facebook_user_token_scopes || '[]');
+        } catch {
+            return [];
+        }
+    })();
+    const readyForPartner = !!selectedTenant && businessScopes.includes('business_management');
+
+    const handleRemoveClient = async (client) => {
+        if (!window.confirm(`إزالة العميل المُدار ${client.name || client.id}؟`)) return;
+        try {
+            setActionLoading(`remove:${client.id}`);
+            await api.removePartnerClient(businessId, selectedTenant, client.id);
+            setSuccess('تمت إزالة العميل المُدار');
+            loadClients();
+        } catch (err) {
+            setError(err.message || 'فشل إزالة العميل');
+        } finally {
+            setActionLoading('');
+        }
+    };
+
+    const handleLoadWaba = async (client) => {
+        try {
+            setActionLoading(`waba:${client.id}`);
+            const data = await api.getPartnerClientWaba(client.id, selectedTenant);
+            setWabaDialog({ open: true, client, accounts: data.whatsapp_accounts || [] });
+        } catch (err) {
+            setError(err.message || 'فشل جلب حسابات واتساب للعميل');
+        } finally {
+            setActionLoading('');
+        }
+    };
+
+    const handleCreateSystemUser = async () => {
+        const client = systemUserDialog.client;
+        if (!client || !systemUserDialog.name.trim()) return;
+        try {
+            setActionLoading(`system-user:${client.id}`);
+            await api.createPartnerSystemUser(client.id, {
+                tenant_id: selectedTenant,
+                name: systemUserDialog.name.trim(),
+                role: systemUserDialog.role,
+            });
+            setSuccess('تم إنشاء مستخدم النظام');
+            setSystemUserDialog({ open: false, client: null, name: '', role: 'ADMIN' });
+        } catch (err) {
+            setError(err.message || 'فشل إنشاء مستخدم النظام');
+        } finally {
+            setActionLoading('');
         }
     };
 
@@ -101,7 +159,6 @@ const PartnerSolutions = () => {
                     <FormControl fullWidth size="small">
                         <InputLabel>العميل</InputLabel>
                         <Select value={selectedTenant} label="العميل" onChange={handleTenantChange}>
-                            <MenuItem value="">بدون عميل محدد</MenuItem>
                             {tenants.map(tenant => (
                                 <MenuItem key={tenant.id} value={String(tenant.id)}>
                                     {tenant.name} {tenant.business_id ? '' : '(بدون Business ID)'}
@@ -112,8 +169,13 @@ const PartnerSolutions = () => {
                     <TextField fullWidth label="معرف النشاط التجاري (Business ID)" value={businessId}
                         onChange={e => setBusinessId(e.target.value)} size="small" />
                     <Button variant="contained" startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}
-                        onClick={loadClients} disabled={loading || !businessId.trim()} sx={{ minWidth: 120 }}>بحث</Button>
+                        onClick={loadClients} disabled={loading || !businessId.trim() || !selectedTenant} sx={{ minWidth: 120 }}>بحث</Button>
                 </Box>
+                <Alert severity={readyForPartner ? 'success' : 'warning'} sx={{ mt: 2 }}>
+                    {readyForPartner
+                        ? 'العميل المحدد لديه business_management حسب البيانات المخزنة. بعض عمليات الشركاء قد تتطلب حالة Partner لدى Meta.'
+                        : 'حلول الشركاء تتطلب عميلا محددا مع Facebook user token وصلاحية business_management.'}
+                </Alert>
             </Paper>
 
             {loaded && (
@@ -136,6 +198,7 @@ const PartnerSolutions = () => {
                                         <TableCell>المعرف</TableCell>
                                         <TableCell>حالة التحقق</TableCell>
                                         <TableCell>تاريخ الإنشاء</TableCell>
+                                        <TableCell align="right">إجراءات</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -150,11 +213,22 @@ const PartnerSolutions = () => {
                                                     color={client.verification_status === 'verified' ? 'success' : 'warning'} />
                                             </TableCell>
                                             <TableCell>{client.created_time ? new Date(client.created_time).toLocaleDateString('ar-LY') : '-'}</TableCell>
+                                            <TableCell align="right">
+                                                <Button size="small" onClick={() => handleLoadWaba(client)} disabled={actionLoading === `waba:${client.id}`}>
+                                                    WABA
+                                                </Button>
+                                                <Button size="small" startIcon={<PersonAdd />} onClick={() => setSystemUserDialog({ open: true, client, name: '', role: 'ADMIN' })}>
+                                                    System user
+                                                </Button>
+                                                <IconButton size="small" color="error" onClick={() => handleRemoveClient(client)} disabled={actionLoading === `remove:${client.id}`}>
+                                                    {actionLoading === `remove:${client.id}` ? <CircularProgress size={16} /> : <DeleteIcon fontSize="small" />}
+                                                </IconButton>
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                     {clients.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={4} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                                            <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary' }}>
                                                 لا يوجد عملاء مُدارون
                                             </TableCell>
                                         </TableRow>
@@ -184,6 +258,61 @@ const PartnerSolutions = () => {
                     <Button onClick={() => setAddOpen(false)}>إلغاء</Button>
                     <Button variant="contained" onClick={handleAdd} disabled={adding || (!newClient.name && !newClient.existing_client_business_id)}>
                         {adding ? 'جاري الإضافة...' : 'إضافة'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={wabaDialog.open} onClose={() => setWabaDialog({ open: false, client: null, accounts: [] })} maxWidth="sm" fullWidth>
+                <DialogTitle>حسابات واتساب للعميل</DialogTitle>
+                <DialogContent dividers>
+                    <Typography variant="subtitle2" sx={{ mb: 2 }}>
+                        {wabaDialog.client?.name || wabaDialog.client?.id}
+                    </Typography>
+                    {wabaDialog.accounts.length === 0 ? (
+                        <Alert severity="info">لا توجد حسابات WABA مرجعة من Meta لهذا العميل.</Alert>
+                    ) : (
+                        wabaDialog.accounts.map(account => (
+                            <Paper key={account.id} variant="outlined" sx={{ p: 1.5, mb: 1 }}>
+                                <Typography fontWeight={600}>{account.name || 'WABA'}</Typography>
+                                <Typography variant="body2" color="text.secondary">ID: {account.id} • {account.currency || '-'}</Typography>
+                            </Paper>
+                        ))
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setWabaDialog({ open: false, client: null, accounts: [] })}>إغلاق</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={systemUserDialog.open} onClose={() => setSystemUserDialog({ open: false, client: null, name: '', role: 'ADMIN' })} maxWidth="sm" fullWidth>
+                <DialogTitle>إنشاء مستخدم نظام</DialogTitle>
+                <DialogContent>
+                    <Alert severity="info" sx={{ mb: 2, mt: 1 }}>
+                        سيتم إنشاء مستخدم نظام على business الخاص بالعميل المحدد إذا كانت صلاحيات Meta تسمح بذلك.
+                    </Alert>
+                    <TextField
+                        fullWidth
+                        label="اسم مستخدم النظام"
+                        value={systemUserDialog.name}
+                        onChange={e => setSystemUserDialog(prev => ({ ...prev, name: e.target.value }))}
+                        sx={{ mb: 2 }}
+                    />
+                    <FormControl fullWidth>
+                        <InputLabel>الدور</InputLabel>
+                        <Select
+                            value={systemUserDialog.role}
+                            label="الدور"
+                            onChange={e => setSystemUserDialog(prev => ({ ...prev, role: e.target.value }))}
+                        >
+                            <MenuItem value="ADMIN">ADMIN</MenuItem>
+                            <MenuItem value="EMPLOYEE">EMPLOYEE</MenuItem>
+                        </Select>
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setSystemUserDialog({ open: false, client: null, name: '', role: 'ADMIN' })}>إلغاء</Button>
+                    <Button variant="contained" onClick={handleCreateSystemUser} disabled={actionLoading.startsWith('system-user') || !systemUserDialog.name.trim()}>
+                        {actionLoading.startsWith('system-user') ? 'جاري الإنشاء...' : 'إنشاء'}
                     </Button>
                 </DialogActions>
             </Dialog>

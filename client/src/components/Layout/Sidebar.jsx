@@ -16,7 +16,6 @@ import {
 import {
     Dashboard as DashboardIcon,
     People as PeopleIcon,
-    Chat as ChatIcon,
     Inbox as InboxIcon,
     WhatsApp as WhatsAppIcon,
     Assessment as AssessmentIcon,
@@ -37,7 +36,6 @@ import {
     Webhook as WebhookSubIcon,
     ContactPhone as ContactPhoneIcon,
     Campaign as CampaignIcon,
-    QuestionAnswer as QuestionAnswerIcon,
     BarChart as BarChartIcon,
     ReportProblem as ReportProblemIcon,
     SmartToy as SmartToyIcon,
@@ -62,7 +60,6 @@ const Sidebar = () => {
                 { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
                 { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
                 { label: 'صندوق الوارد', path: '/inbox', icon: <InboxIcon /> },
-                { label: 'جهات الاتصال', path: '/contacts', icon: <ContactPhoneIcon /> },
             ],
         },
         {
@@ -70,17 +67,18 @@ const Sidebar = () => {
             color: '#25D366',
             items: [
                 { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
+                { label: 'جهات اتصال WhatsApp', path: '/contacts', icon: <ContactPhoneIcon /> },
                 { label: 'البث الجماعي', path: '/broadcast', icon: <CampaignIcon /> },
                 { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
                 { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
-                { label: 'اشتراكات Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
+                { label: 'اشتراكات WABA Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
             ],
         },
         {
             title: 'Facebook / Meta',
             color: '#1877f2',
             items: [
-                { label: 'إدارة فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
+                { label: 'محتوى فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
                 { label: 'تحليلات فيسبوك', path: '/fb-insights', icon: <BarChartIcon /> },
                 { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
                 { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
@@ -103,7 +101,6 @@ const Sidebar = () => {
             items: [
                 { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
                 { label: 'صندوق الوارد', path: '/portal/inbox', icon: <InboxIcon /> },
-                { label: 'جهات الاتصال', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
                 { label: 'التحليلات', path: '/portal/analytics', icon: <AnalyticsIcon /> },
             ],
         },
@@ -111,6 +108,7 @@ const Sidebar = () => {
             title: 'WhatsApp',
             color: '#25D366',
             items: [
+                { label: 'جهات اتصال WhatsApp', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
                 { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
                 { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
                 { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <BusinessIcon /> },

@@ -59,7 +59,7 @@ router.get('/:businessId', async (req, res) => {
         const accessToken = requireBusinessAccessToken(res, tenantId);
         if (!accessToken) return;
 
-        const fields = 'name,id';
+        const fields = 'name,id,verification_status,created_time,timezone_id,two_factor_type';
         const response = await fetch(
             `${META_API_BASE}/${businessId}?fields=${fields}`,
             {
@@ -102,7 +102,7 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const accessToken = requireBusinessAccessToken(res, tenantId);
         if (!accessToken) return;
 
-        const fields = 'name,account_id,account_status,currency,timezone_name,balance';
+        const fields = 'name,account_id,account_status,currency,timezone_name,balance,amount_spent';
         const response = await fetch(
             `${META_API_BASE}/${businessId}/owned_ad_accounts?fields=${fields}&limit=50`,
             {
