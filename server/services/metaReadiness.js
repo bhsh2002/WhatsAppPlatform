@@ -851,3 +851,62 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         ...sections,
     };
 };
+
+export const saveMetaReviewSnapshot = (tenantId, readiness) => {
+    const status = readiness?.overall?.status || 'unknown';
+    const evidence = JSON.stringify({
+        generated_at: readiness.generated_at,
+        tenant: readiness.tenant,
+        overall: readiness.overall,
+        permission_matrix: readiness.permission_matrix,
+        webhook_evidence: readiness.webhook_evidence,
+        sections: {
+            permissions: readiness.permissions,
+            pages: readiness.pages,
+            content: readiness.content,
+            messenger: readiness.messenger,
+            business_asset_user_profile_access: readiness.business_asset_user_profile_access,
+            business: readiness.business,
+            whatsapp_events: readiness.whatsapp_events,
+        },
+    });
+
+    const result = db.prepare(`
+        INSERT INTO meta_review_checks (tenant_id, check_type, status, evidence)
+        VALUES (?, 'tenant_meta_review_readiness', ?, ?)
+    `).run(tenantId, status, evidence);
+
+    return {
+        id: result.lastInsertRowid,
+        tenant_id: tenantId,
+        check_type: 'tenant_meta_review_readiness',
+        status,
+        created_at: db.prepare('SELECT created_at FROM meta_review_checks WHERE id = ?').get(result.lastInsertRowid)?.created_at || null,
+    };
+};
+
+export const listMetaReviewSnapshots = (tenantId, limit = 10) => {
+    const rows = db.prepare(`
+        SELECT id, tenant_id, check_type, status, evidence, error_message, created_at
+        FROM meta_review_checks
+        WHERE tenant_id = ? AND check_type = 'tenant_meta_review_readiness'
+        ORDER BY created_at DESC
+        LIMIT ?
+    `).all(tenantId, limit);
+
+    return rows.map(row => {
+        const evidence = parseStoredObject(row.evidence) || {};
+        return {
+            id: row.id,
+            tenant_id: row.tenant_id,
+            check_type: row.check_type,
+            status: row.status,
+            error_message: row.error_message,
+            created_at: row.created_at,
+            generated_at: evidence.generated_at || null,
+            overall: evidence.overall || null,
+            permissions_ready_count: evidence.overall?.permissions_ready_count ?? null,
+            permissions_total_count: evidence.overall?.permissions_total_count ?? null,
+        };
+    });
+};

@@ -31,6 +31,8 @@ import {
     FACEBOOK_OAUTH_SCOPES as FACEBOOK_REVIEW_SCOPES,
     FACEBOOK_WEBHOOK_FIELDS,
     buildMetaReviewReadiness,
+    listMetaReviewSnapshots,
+    saveMetaReviewSnapshot,
 } from '../services/metaReadiness.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -3985,6 +3987,29 @@ router.get('/meta-review/readiness', async (req, res) => {
     } catch (error) {
         console.error('[TenantPortal] Meta review readiness error:', error);
         res.status(error.status || 500).json({ error: 'فشل جلب جاهزية مراجعة Meta' });
+    }
+});
+
+router.get('/meta-review/snapshots', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 10, 50);
+        res.json({ snapshots: listMetaReviewSnapshots(tenantId, limit) });
+    } catch (error) {
+        console.error('[TenantPortal] Meta review snapshots error:', error);
+        res.status(500).json({ error: 'فشل جلب لقطات جاهزية Meta' });
+    }
+});
+
+router.post('/meta-review/snapshot', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const readiness = await buildMetaReviewReadiness(tenantId);
+        const snapshot = saveMetaReviewSnapshot(tenantId, readiness);
+        res.status(201).json({ snapshot, readiness });
+    } catch (error) {
+        console.error('[TenantPortal] Meta review snapshot error:', error);
+        res.status(error.status || 500).json({ error: 'فشل حفظ لقطة جاهزية Meta' });
     }
 });
 

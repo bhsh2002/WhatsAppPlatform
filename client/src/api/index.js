@@ -1403,6 +1403,16 @@ class ApiService {
         return this.request('/api/portal/meta-review/readiness');
     }
 
+    async getMetaReviewSnapshots(limit = 10) {
+        return this.request(`/api/portal/meta-review/snapshots?limit=${limit}`);
+    }
+
+    async saveMetaReviewSnapshot() {
+        return this.request('/api/portal/meta-review/snapshot', {
+            method: 'POST',
+        });
+    }
+
     async connectFacebook(code, state) {
         return this.request('/api/portal/facebook/connect', {
             method: 'POST',

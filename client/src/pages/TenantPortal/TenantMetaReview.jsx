@@ -23,9 +23,11 @@ import {
     Facebook as FacebookIcon,
     FactCheck as FactCheckIcon,
     Forum as ForumIcon,
+    History as HistoryIcon,
     OpenInNew as OpenInNewIcon,
     PersonSearch as PersonSearchIcon,
     Refresh as RefreshIcon,
+    Save as SaveIcon,
     TrendingUp as TrendingUpIcon,
     Webhook as WebhookIcon,
 } from '@mui/icons-material';
@@ -222,8 +224,20 @@ const ReviewSectionCard = ({ title, icon, section, metrics, missingItems, action
 
 const TenantMetaReview = () => {
     const [readiness, setReadiness] = useState(null);
+    const [snapshots, setSnapshots] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [savingSnapshot, setSavingSnapshot] = useState(false);
     const [error, setError] = useState('');
+    const [snapshotMessage, setSnapshotMessage] = useState('');
+
+    const loadSnapshots = useCallback(async () => {
+        try {
+            const data = await api.getMetaReviewSnapshots(5);
+            setSnapshots(data.snapshots || []);
+        } catch {
+            setSnapshots([]);
+        }
+    }, []);
 
     const loadReadiness = useCallback(async () => {
         try {
@@ -231,14 +245,30 @@ const TenantMetaReview = () => {
             setError('');
             const data = await api.getMetaReviewReadiness();
             setReadiness(data);
+            await loadSnapshots();
         } catch (err) {
             setError(err.message || 'فشل تحميل جاهزية مراجعة Meta');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [loadSnapshots]);
 
     useEffect(() => { loadReadiness(); }, [loadReadiness]);
+
+    const handleSaveSnapshot = async () => {
+        try {
+            setSavingSnapshot(true);
+            setSnapshotMessage('');
+            const data = await api.saveMetaReviewSnapshot();
+            setReadiness(data.readiness);
+            await loadSnapshots();
+            setSnapshotMessage('تم حفظ لقطة جاهزية Meta كدليل مراجعة.');
+        } catch (err) {
+            setError(err.message || 'فشل حفظ لقطة جاهزية Meta');
+        } finally {
+            setSavingSnapshot(false);
+        }
+    };
 
     const sections = useMemo(() => {
         if (!readiness) return [];
@@ -369,6 +399,7 @@ const TenantMetaReview = () => {
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+            {snapshotMessage && <Alert severity="success" sx={{ mb: 3 }}>{snapshotMessage}</Alert>}
 
             {readiness && (
                 <>
@@ -393,7 +424,54 @@ const TenantMetaReview = () => {
                                 <> - الأذونات المثبتة: {readiness.overall.permissions_ready_count || 0} من {readiness.overall.permissions_total_count}</>
                             ) : null}
                         </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+                            <Button
+                                variant="contained"
+                                size="small"
+                                startIcon={savingSnapshot ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                                onClick={handleSaveSnapshot}
+                                disabled={savingSnapshot}
+                            >
+                                حفظ لقطة دليل
+                            </Button>
+                        </Box>
                     </Paper>
+
+                    {snapshots.length > 0 && (
+                        <Paper sx={{ p: 3, mb: 3 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                <HistoryIcon color="primary" />
+                                <Typography variant="h6" fontWeight={700}>آخر لقطات الجاهزية</Typography>
+                            </Box>
+                            <Stack spacing={1}>
+                                {snapshots.map(snapshot => (
+                                    <Box
+                                        key={snapshot.id}
+                                        sx={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            gap: 2,
+                                            border: 1,
+                                            borderColor: 'divider',
+                                            borderRadius: 1,
+                                            p: 1.25,
+                                        }}
+                                    >
+                                        <Box>
+                                            <Typography variant="body2" fontWeight={700}>
+                                                {formatDate(snapshot.created_at)}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                الأذونات المثبتة: {snapshot.permissions_ready_count ?? 0} من {snapshot.permissions_total_count ?? 0}
+                                            </Typography>
+                                        </Box>
+                                        <StatusChip status={snapshot.status} />
+                                    </Box>
+                                ))}
+                            </Stack>
+                        </Paper>
+                    )}
 
                     <PermissionMatrix permissions={readiness.permission_matrix} />
                     <WebhookEvidence evidence={readiness.webhook_evidence} />

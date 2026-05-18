@@ -26,7 +26,13 @@ export function cleanupExpiredData() {
     ).run();
     cleaned += activityResult.changes;
 
-    // 3. Expired revoked tokens (no longer needed after JWT expiry)
+    // 3. Meta review evidence snapshots older than 180 days
+    const metaReviewResult = db.prepare(
+        "DELETE FROM meta_review_checks WHERE created_at < datetime('now', '-180 days')"
+    ).run();
+    cleaned += metaReviewResult.changes;
+
+    // 4. Expired revoked tokens (no longer needed after JWT expiry)
     const tokenResult = db.prepare(
         "DELETE FROM revoked_tokens WHERE expires_at < datetime('now', 'localtime')"
     ).run();
