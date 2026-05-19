@@ -3,12 +3,12 @@ import {
     Box, Typography, Paper, Grid, Card, CardContent, CircularProgress,
     Alert, Snackbar, FormControl, InputLabel, Select, MenuItem, TextField,
     Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-    Chip, Avatar
+    Chip
 } from '@mui/material';
 import {
     BarChart as BarChartIcon, Visibility as ViewsIcon,
-    ThumbUp as ReactionsIcon, Videocam as VideoIcon,
-    People as FollowersIcon, Refresh as RefreshIcon
+    ThumbUp as ReactionsIcon, ChatBubble as CommentsIcon,
+    People as FollowersIcon, Refresh as RefreshIcon, Share as ShareIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -42,9 +42,7 @@ const FacebookInsights = () => {
             setPagesLoading(true);
             const data = await api.getFbAllPages();
             setAllPages(Array.isArray(data) ? data : []);
-            if (data.length > 0 && !selectedPageId) {
-                setSelectedPageId(data[0].id);
-            }
+            setSelectedPageId(prev => prev || (data.length > 0 ? data[0].id : ''));
         } catch (err) {
             console.error('Failed to load pages:', err);
         } finally {
@@ -125,8 +123,10 @@ const FacebookInsights = () => {
 
     const statCards = [
         { label: 'مشاهدات (28 يوم)', value: overview?.metrics?.views_28d ?? '—', color: '#2196f3', icon: <ViewsIcon /> },
-        { label: 'تفاعلات (28 يوم)', value: overview?.metrics?.reactions_28d ?? '—', color: '#4caf50', icon: <ReactionsIcon /> },
-        { label: 'مشاهدات فيديو (28 يوم)', value: overview?.metrics?.video_views_28d ?? '—', color: '#ff9800', icon: <VideoIcon /> },
+        { label: 'إعجابات منشورات', value: overview?.metrics?.post_likes_28d ?? '—', color: '#4caf50', icon: <ReactionsIcon /> },
+        { label: 'تعليقات منشورات', value: overview?.metrics?.post_comments_28d ?? '—', color: '#ff9800', icon: <CommentsIcon /> },
+        { label: 'مشاركات منشورات', value: overview?.metrics?.post_shares_28d ?? '—', color: '#00acc1', icon: <ShareIcon /> },
+        { label: 'إجمالي التفاعلات', value: overview?.metrics?.reactions_28d ?? '—', color: '#7e57c2', icon: <BarChartIcon /> },
         { label: 'متابعين', value: formatNumber(overview?.page?.followers_count) ?? '—', color: '#9c27b0', icon: <FollowersIcon /> },
     ];
 
@@ -171,7 +171,7 @@ const FacebookInsights = () => {
                     ) : (
                         <Grid container spacing={3} sx={{ mb: 4 }}>
                             {statCards.map((card, i) => (
-                                <Grid size={{ xs: 6, md: 3 }} key={i}>
+                                <Grid size={{ xs: 6, md: 2 }} key={i}>
                                     <Card sx={{ bgcolor: card.color + '10', border: `1px solid ${card.color}30` }}>
                                         <CardContent sx={{ textAlign: 'center' }}>
                                             <Box sx={{ color: card.color, mb: 1 }}>{card.icon}</Box>
@@ -241,6 +241,9 @@ const FacebookInsights = () => {
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>المنشور</TableCell>
+                                            <TableCell align="center">إعجابات</TableCell>
+                                            <TableCell align="center">تعليقات</TableCell>
+                                            <TableCell align="center">مشاركات</TableCell>
                                             <TableCell align="center">تفاعلات</TableCell>
                                             <TableCell align="center">نقرات</TableCell>
                                             <TableCell>التاريخ</TableCell>
@@ -259,21 +262,13 @@ const FacebookInsights = () => {
                                                         </Typography>
                                                     </Box>
                                                 </TableCell>
+                                                <TableCell align="center"><Chip label={formatNumber(post.engagement?.likes || 0)} size="small" color="success" variant="outlined" /></TableCell>
+                                                <TableCell align="center"><Chip label={formatNumber(post.engagement?.comments || 0)} size="small" color="warning" variant="outlined" /></TableCell>
+                                                <TableCell align="center"><Chip label={formatNumber(post.engagement?.shares || 0)} size="small" color="info" variant="outlined" /></TableCell>
+                                                <TableCell align="center"><Chip label={formatNumber(post.engagement?.reactions || 0)} size="small" color="secondary" /></TableCell>
                                                 <TableCell align="center">
-                                                    {post.insights ? (
-                                                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                                                            <Chip label={post.insights.reactions.total} size="small" color="success" />
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                👍{post.insights.reactions.like} ❤️{post.insights.reactions.love} 😮{post.insights.reactions.wow}
-                                                            </Typography>
-                                                        </Box>
-                                                    ) : (
-                                                        <Typography variant="body2" color="text.secondary">{post.insights_error ? 'غير متاح' : '—'}</Typography>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell align="center">
-                                                    {post.insights ? (
-                                                        <Chip label={post.insights.clicks} size="small" color="primary" variant="outlined" />
+                                                    {post.insights?.clicks !== null && post.insights?.clicks !== undefined ? (
+                                                        <Chip label={formatNumber(post.insights.clicks)} size="small" color="primary" variant="outlined" />
                                                     ) : (
                                                         <Typography variant="body2" color="text.secondary">{post.insights_error ? 'غير متاح' : '—'}</Typography>
                                                     )}

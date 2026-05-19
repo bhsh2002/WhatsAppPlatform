@@ -3666,6 +3666,54 @@ const normalizeMetricNumber = (value) => {
     return null;
 };
 
+const POST_ENGAGEMENT_FIELDS = [
+    'id',
+    'message',
+    'created_time',
+    'full_picture',
+    'permalink_url',
+    'likes.limit(0).summary(true)',
+    'comments.limit(0).summary(true)',
+    'reactions.limit(0).summary(true)',
+    'shares',
+].join(',');
+
+const summaryCount = (edge) => Number(edge?.summary?.total_count || 0);
+
+const extractPostEngagement = (post) => ({
+    likes: summaryCount(post.likes),
+    comments: summaryCount(post.comments),
+    reactions: summaryCount(post.reactions),
+    shares: Number(post.shares?.count || 0),
+});
+
+const fetchRecentPostEngagement = async (pageId, accessToken, days = 28) => {
+    const since = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+    const response = await fetch(
+        `${META_API_BASE}/${pageId}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=100&since=${since}&access_token=${accessToken}`
+    );
+    const data = await response.json();
+
+    if (!response.ok) {
+        return {
+            totals: { likes: null, comments: null, reactions: null, shares: null, posts: 0 },
+            error: metaErrorMessage(data, 'تعذر جلب تفاعل المنشورات من Meta'),
+        };
+    }
+
+    const totals = (data.data || []).reduce((acc, post) => {
+        const engagement = extractPostEngagement(post);
+        acc.likes += engagement.likes;
+        acc.comments += engagement.comments;
+        acc.reactions += engagement.reactions;
+        acc.shares += engagement.shares;
+        acc.posts += 1;
+        return acc;
+    }, { likes: 0, comments: 0, reactions: 0, shares: 0, posts: 0 });
+
+    return { totals, error: null };
+};
+
 router.get('/fb-insights/:linkedPageId/overview', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
@@ -3690,6 +3738,8 @@ router.get('/fb-insights/:linkedPageId/overview', async (req, res) => {
             ? null
             : metaErrorMessage(insightsData, 'تعذر جلب بعض مؤشرات الصفحة من Meta');
         const insights = insightsResponse.ok ? (insightsData.data || []) : [];
+        const recentEngagement = await fetchRecentPostEngagement(page.page_id, accessToken, 28);
+        const insightReactions = safeMetricValue(insights, 'page_actions_post_reactions_total', 'days_28');
 
         res.json({
             page: {
@@ -3700,10 +3750,14 @@ router.get('/fb-insights/:linkedPageId/overview', async (req, res) => {
             },
             metrics: {
                 views_28d: safeMetricValue(insights, 'page_views_total', 'days_28'),
-                reactions_28d: safeMetricValue(insights, 'page_actions_post_reactions_total', 'days_28'),
+                reactions_28d: insightReactions ?? recentEngagement.totals.reactions,
                 video_views_28d: safeMetricValue(insights, 'page_video_views', 'days_28'),
+                post_likes_28d: recentEngagement.totals.likes,
+                post_comments_28d: recentEngagement.totals.comments,
+                post_shares_28d: recentEngagement.totals.shares,
+                posts_count_28d: recentEngagement.totals.posts,
             },
-            insights_error: insightsError,
+            insights_error: insightsError || recentEngagement.error,
         });
     } catch (error) {
         console.error('[TenantPortal] Insights overview error:', error);
@@ -3765,7 +3819,7 @@ router.get('/fb-insights/:linkedPageId/posts', async (req, res) => {
         if (error) return res.status(status).json({ error });
 
         const postsResponse = await fetch(
-            `${META_API_BASE}/${page.page_id}/posts?fields=id,message,created_time,full_picture,permalink_url&limit=${limit}&access_token=${accessToken}`
+            `${META_API_BASE}/${page.page_id}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=${limit}&access_token=${accessToken}`
         );
         const postsData = await postsResponse.json();
 
@@ -3782,7 +3836,8 @@ router.get('/fb-insights/:linkedPageId/posts', async (req, res) => {
                 created_time: post.created_time || null,
                 full_picture: post.full_picture || null,
                 permalink_url: post.permalink_url || null,
-                insights: null,
+                engagement: extractPostEngagement(post),
+                insights: { clicks: null },
             };
 
             if (i < insightsLimit) {
@@ -3793,23 +3848,12 @@ router.get('/fb-insights/:linkedPageId/posts', async (req, res) => {
                     const insightsData = await insightsResponse.json();
 
                     if (insightsResponse.ok && insightsData.data) {
-                        const reactionsMetric = insightsData.data.find(m => m.name === 'post_reactions_by_type_total');
                         const clicksMetric = insightsData.data.find(m => m.name === 'post_clicks');
 
-                        let reactions = { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0, total: 0 };
-                        if (reactionsMetric?.values?.[0]?.value) {
-                            const rv = reactionsMetric.values[0].value;
-                            reactions = {
-                                like: rv.like || 0, love: rv.love || 0, haha: rv.haha || 0,
-                                wow: rv.wow || 0, sad: rv.sad || 0, angry: rv.angry || 0,
-                                total: Object.values(rv).reduce((s, v) => s + (v || 0), 0),
-                            };
-                        }
-
-                        let clicks = 0;
+                        let clicks = null;
                         if (clicksMetric?.values?.[0]?.value) clicks = clicksMetric.values[0].value;
 
-                        postEntry.insights = { reactions, clicks };
+                        postEntry.insights = { clicks };
                     } else {
                         postEntry.insights_error = metaErrorMessage(insightsData, 'تعذر جلب مؤشرات المنشور');
                     }
