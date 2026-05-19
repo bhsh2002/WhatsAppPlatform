@@ -3,7 +3,12 @@ import {
     Box, Typography, Paper, Grid, Card, CardContent, Chip, CircularProgress,
     Alert, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 } from '@mui/material';
-import { Analytics as AnalyticsIcon, TrendingUp, TrendingDown, Message as MessageIcon } from '@mui/icons-material';
+import {
+    TrendingUp,
+    TrendingDown,
+    Message as MessageIcon,
+    WhatsApp as WhatsAppIcon
+} from '@mui/icons-material';
 import api from '../../api';
 
 const TenantAnalytics = () => {
@@ -34,7 +39,7 @@ const TenantAnalytics = () => {
     }
 
     const statCards = [
-        { label: 'إجمالي الرسائل', value: stats?.totalMessages || 0, color: '#2196f3', icon: <MessageIcon /> },
+        { label: 'إجمالي رسائل WhatsApp', value: stats?.totalMessages || 0, color: '#2196f3', icon: <MessageIcon /> },
         { label: 'المرسلة', value: stats?.sentMessages || 0, color: '#4caf50', icon: <TrendingUp /> },
         { label: 'المستقبلة', value: stats?.receivedMessages || 0, color: '#ff9800', icon: <TrendingDown /> },
         { label: 'الفاشلة', value: stats?.failedMessages || 0, color: '#f44336', icon: <TrendingDown /> },
@@ -43,10 +48,10 @@ const TenantAnalytics = () => {
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                <AnalyticsIcon sx={{ fontSize: 32, color: 'secondary.main' }} />
+                <WhatsAppIcon sx={{ fontSize: 32, color: '#25D366' }} />
                 <Box>
-                    <Typography variant="h5" fontWeight={700}>التحليلات</Typography>
-                    <Typography variant="body2" color="text.secondary">إحصائيات الرسائل والمحادثات</Typography>
+                    <Typography variant="h5" fontWeight={700}>تحليلات WhatsApp</Typography>
+                    <Typography variant="body2" color="text.secondary">إحصائيات رسائل WhatsApp فقط. تحليلات Facebook موجودة في قسم Facebook / Meta.</Typography>
                 </Box>
             </Box>
 

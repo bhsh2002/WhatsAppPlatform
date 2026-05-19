@@ -79,40 +79,102 @@ router.get('/dashboard', (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
-        // Get message stats
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayStr = today.toISOString();
+        const count = (sql, ...params) => db.prepare(sql).get(...params)?.count || 0;
+        const scalar = (sql, ...params) => db.prepare(sql).get(...params)?.value || 0;
+
+        const whatsappConversations = count(`
+            SELECT COUNT(DISTINCT CASE WHEN direction = 'incoming' THEN sender ELSE recipient END) as count
+            FROM messages
+            WHERE tenant_id = ?
+        `, tenantId);
+        const messengerConversations = count(`
+            SELECT COUNT(*) as count
+            FROM fb_conversations
+            WHERE tenant_id = ? AND is_active = 1
+        `, tenantId);
+        const whatsappMessagesToday = count(`
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE tenant_id = ? AND date(created_at) = date('now', 'localtime')
+        `, tenantId);
+        const messengerMessagesToday = count(`
+            SELECT COUNT(*) as count
+            FROM fb_messages
+            WHERE tenant_id = ? AND date(created_at) = date('now', 'localtime')
+        `, tenantId);
+        const whatsappSentToday = count(`
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE tenant_id = ? AND direction = 'outgoing' AND date(created_at) = date('now', 'localtime')
+        `, tenantId);
+        const messengerSentToday = count(`
+            SELECT COUNT(*) as count
+            FROM fb_messages
+            WHERE tenant_id = ? AND direction = 'outgoing' AND date(created_at) = date('now', 'localtime')
+        `, tenantId);
+        const whatsappReceivedToday = count(`
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE tenant_id = ? AND direction = 'incoming' AND date(created_at) = date('now', 'localtime')
+        `, tenantId);
+        const messengerReceivedToday = count(`
+            SELECT COUNT(*) as count
+            FROM fb_messages
+            WHERE tenant_id = ? AND direction = 'incoming' AND date(created_at) = date('now', 'localtime')
+        `, tenantId);
+        const whatsappUnread = count(`
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE tenant_id = ? AND direction = 'incoming' AND status = 'received'
+        `, tenantId);
+        const messengerUnread = scalar(`
+            SELECT COALESCE(SUM(unread_count), 0) as value
+            FROM fb_conversations
+            WHERE tenant_id = ? AND is_active = 1
+        `, tenantId);
+        const linkedFacebookPages = count(`
+            SELECT COUNT(*) as count
+            FROM tenant_pages
+            WHERE tenant_id = ? AND is_active = 1
+        `, tenantId);
+        const facebookActionsWeek = count(`
+            SELECT COUNT(*) as count
+            FROM activity_logs
+            WHERE tenant_id = ?
+              AND event_type IN (
+                  'fb_post_created',
+                  'fb_post_edited',
+                  'fb_post_deleted',
+                  'fb_comment_replied',
+                  'fb_comment_hidden',
+                  'fb_comment_liked',
+                  'fb_comment_unliked',
+                  'fb_comment_deleted',
+                  'page_linked',
+                  'page_unlinked'
+              )
+              AND created_at >= datetime('now', '-7 days')
+        `, tenantId);
 
         const stats = {
-            totalConversations: db.prepare(`
-                SELECT COUNT(DISTINCT CASE WHEN direction = 'incoming' THEN sender ELSE recipient END) as count 
-                FROM messages WHERE tenant_id = ?
-            `).get(tenantId)?.count || 0,
-
-            messagesToday: db.prepare(`
-                SELECT COUNT(*) as count FROM messages 
-                WHERE tenant_id = ? AND created_at >= ?
-            `).get(tenantId, todayStr)?.count || 0,
-
-            sentToday: db.prepare(`
-                SELECT COUNT(*) as count FROM messages 
-                WHERE tenant_id = ? AND direction = 'outgoing' AND created_at >= ?
-            `).get(tenantId, todayStr)?.count || 0,
-
-            receivedToday: db.prepare(`
-                SELECT COUNT(*) as count FROM messages 
-                WHERE tenant_id = ? AND direction = 'incoming' AND created_at >= ?
-            `).get(tenantId, todayStr)?.count || 0,
-
-            templatesCount: db.prepare(`
-                SELECT COUNT(*) as count FROM templates WHERE tenant_id = ?
-            `).get(tenantId)?.count || 0,
-
-            unreadCount: db.prepare(`
-                SELECT COUNT(*) as count FROM messages 
-                WHERE tenant_id = ? AND direction = 'incoming' AND status = 'received'
-            `).get(tenantId)?.count || 0,
+            totalConversations: whatsappConversations + messengerConversations,
+            messagesToday: whatsappMessagesToday + messengerMessagesToday,
+            sentToday: whatsappSentToday + messengerSentToday,
+            receivedToday: whatsappReceivedToday + messengerReceivedToday,
+            unreadCount: whatsappUnread + messengerUnread,
+            templatesCount: count('SELECT COUNT(*) as count FROM templates WHERE tenant_id = ?', tenantId),
+            whatsappConversations,
+            whatsappMessagesToday,
+            whatsappSentToday,
+            whatsappReceivedToday,
+            whatsappUnread,
+            messengerConversations,
+            messengerMessagesToday,
+            messengerSentToday,
+            messengerReceivedToday,
+            messengerUnread,
+            linkedFacebookPages,
+            facebookActionsWeek,
         };
 
         // Get recent activity

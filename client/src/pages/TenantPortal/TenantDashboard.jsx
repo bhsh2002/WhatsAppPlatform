@@ -24,7 +24,9 @@ import {
     NotificationsActive as UnreadIcon,
     Refresh as RefreshIcon,
     History as HistoryIcon,
-    AccountBalanceWallet as CreditsIcon
+    AccountBalanceWallet as CreditsIcon,
+    WhatsApp as WhatsAppIcon,
+    Facebook as FacebookIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api';
@@ -68,6 +70,16 @@ const TenantDashboard = () => {
             'message_sent': 'إرسال رسالة',
             'message_received': 'رسالة واردة',
             'message_failed': 'فشل إرسال',
+            'page_linked': 'ربط صفحة فيسبوك',
+            'page_unlinked': 'إلغاء ربط صفحة فيسبوك',
+            'fb_post_created': 'إنشاء منشور فيسبوك',
+            'fb_post_edited': 'تعديل منشور فيسبوك',
+            'fb_post_deleted': 'حذف منشور فيسبوك',
+            'fb_comment_replied': 'رد على تعليق فيسبوك',
+            'fb_comment_hidden': 'إخفاء تعليق فيسبوك',
+            'fb_comment_liked': 'إعجاب بتعليق فيسبوك',
+            'fb_comment_unliked': 'إزالة إعجاب من تعليق فيسبوك',
+            'fb_comment_deleted': 'حذف تعليق فيسبوك',
         };
         return descriptions[event] || event;
     };
@@ -117,6 +129,7 @@ const TenantDashboard = () => {
 
     const stats = dashboardData?.stats || {};
     const recentActivity = dashboardData?.recentActivity || [];
+    const formatNumber = (value) => Number(value || 0).toLocaleString('ar-LY');
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -145,55 +158,55 @@ const TenantDashboard = () => {
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
                         title="إجمالي المحادثات"
-                        value={stats.totalConversations}
+                        value={formatNumber(stats.totalConversations)}
                         icon={<ChatIcon />}
                         color="primary"
-                        description="جميع المحادثات مع الزبائن"
+                        description="WhatsApp + Messenger"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
                         title="الرسائل المرسلة اليوم"
-                        value={stats.sentToday}
+                        value={formatNumber(stats.sentToday)}
                         icon={<SendIcon />}
                         color="success"
-                        description="الرسائل الصادرة اليوم"
+                        description="WhatsApp + Messenger"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
                         title="الرسائل الواردة اليوم"
-                        value={stats.receivedToday}
+                        value={formatNumber(stats.receivedToday)}
                         icon={<InboxIcon />}
                         color="info"
-                        description="الرسائل المستقبلة اليوم"
+                        description="WhatsApp + Messenger"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
                         title="رسائل غير مقروءة"
-                        value={stats.unreadCount}
+                        value={formatNumber(stats.unreadCount)}
                         icon={<UnreadIcon />}
                         color="warning"
-                        description="تحتاج انتباهك"
+                        description="WhatsApp + Messenger"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
                         title="القوالب"
-                        value={stats.templatesCount}
+                        value={formatNumber(stats.templatesCount)}
                         icon={<TemplateIcon />}
                         color="secondary"
-                        description="قوالب الرسائل المحفوظة"
+                        description="قوالب WhatsApp المحفوظة"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
                         title="رسائل اليوم"
-                        value={stats.messagesToday}
+                        value={formatNumber(stats.messagesToday)}
                         icon={<ChatIcon />}
                         color="primary"
-                        description="إجمالي الرسائل اليوم"
+                        description="WhatsApp + Messenger"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
@@ -206,6 +219,48 @@ const TenantDashboard = () => {
                             (dashboardData?.tenant?.credits ?? 999) >= 10 ? 'warning' : 'error'
                         }
                         description="رصيد إرسال الرسائل"
+                    />
+                </Grid>
+            </Grid>
+
+            <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+                ملخص القنوات
+            </Typography>
+            <Grid container spacing={3} sx={{ mb: 4 }}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="WhatsApp اليوم"
+                        value={formatNumber(stats.whatsappMessagesToday)}
+                        icon={<WhatsAppIcon />}
+                        color="success"
+                        description={`${formatNumber(stats.whatsappSentToday)} مرسلة / ${formatNumber(stats.whatsappReceivedToday)} واردة`}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="Messenger اليوم"
+                        value={formatNumber(stats.messengerMessagesToday)}
+                        icon={<FacebookIcon />}
+                        color="primary"
+                        description={`${formatNumber(stats.messengerSentToday)} مرسلة / ${formatNumber(stats.messengerReceivedToday)} واردة`}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="محادثات Messenger"
+                        value={formatNumber(stats.messengerConversations)}
+                        icon={<FacebookIcon />}
+                        color="info"
+                        description={`${formatNumber(stats.messengerUnread)} غير مقروءة`}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard
+                        title="صفحات Facebook"
+                        value={formatNumber(stats.linkedFacebookPages)}
+                        icon={<FacebookIcon />}
+                        color="secondary"
+                        description={`${formatNumber(stats.facebookActionsWeek)} إجراء Facebook هذا الأسبوع`}
                     />
                 </Grid>
             </Grid>
@@ -231,9 +286,9 @@ const TenantDashboard = () => {
                     <Button
                         color="primary"
                         endIcon={<HistoryIcon />}
-                        href="/portal/chat"
+                        href="/portal/inbox"
                     >
-                        عرض المحادثات
+                        عرض صندوق الوارد
                     </Button>
                 </Box>
 
