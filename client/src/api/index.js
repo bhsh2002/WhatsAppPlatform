@@ -916,6 +916,11 @@ class ApiService {
     // ============================================
     // Partner Solutions APIs
     // ============================================
+    async getPartnerEvidence(tenantId) {
+        const query = new URLSearchParams({ tenant_id: tenantId }).toString();
+        return this.request(`/api/partner/evidence?${query}`);
+    }
+
     async getPartnerClients(businessId, tenantId = null) {
         const query = new URLSearchParams({ business_id: businessId });
         if (tenantId) query.append('tenant_id', tenantId);

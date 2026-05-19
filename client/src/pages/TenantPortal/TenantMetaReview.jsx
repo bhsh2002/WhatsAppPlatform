@@ -128,7 +128,9 @@ const PermissionMatrix = ({ permissions }) => {
                             </Typography>
                             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                 <Chip
-                                    label={permission.granted ? 'ممنوح' : 'غير ممنوح'}
+                                    label={permission.feature
+                                        ? (permission.granted ? 'دليل موجود' : 'لا يوجد دليل')
+                                        : (permission.granted ? 'ممنوح' : 'غير ممنوح')}
                                     color={permission.granted ? 'success' : 'warning'}
                                     size="small"
                                     variant="outlined"
@@ -287,6 +289,21 @@ const TenantMetaReview = () => {
                 ],
             },
             {
+                title: 'دليل هوية Facebook',
+                icon: <PersonSearchIcon />,
+                section: readiness.identity,
+                missingItems: [
+                    !readiness.identity?.public_profile_ready ? 'public_profile' : null,
+                    !readiness.identity?.email_ready ? 'email evidence' : null,
+                ].filter(Boolean),
+                actionLabel: 'إعادة التفويض',
+                actionPath: readiness.identity?.action_path,
+                metrics: [
+                    { label: 'Public profile', value: readiness.identity?.public_profile_ready ? 'مثبت' : 'غير مثبت' },
+                    { label: 'Email', value: readiness.identity?.email_ready ? 'موجود' : readiness.identity?.email_granted ? 'ممنوح بلا بريد' : 'غير مثبت' },
+                ],
+            },
+            {
                 title: 'الصفحات و Webhooks',
                 icon: <WebhookIcon />,
                 section: readiness.pages,
@@ -334,6 +351,25 @@ const TenantMetaReview = () => {
                 metrics: [
                     { label: 'ملفات مستخدمين', value: readiness.business_asset_user_profile_access?.profile_records_count || 0 },
                     { label: 'الميزة', value: readiness.business_asset_user_profile_access?.feature_required || '-' },
+                ],
+            },
+            {
+                title: 'دليل الميزات',
+                icon: <FactCheckIcon />,
+                section: readiness.feature_evidence,
+                missingItems: readiness.feature_evidence?.status === 'ready'
+                    ? []
+                    : (readiness.feature_evidence?.features || [])
+                        .filter(feature => feature.status !== 'ready')
+                        .map(feature => feature.label),
+                actionLabel: 'عرض التفاصيل',
+                actionPath: readiness.feature_evidence?.action_path,
+                metrics: [
+                    {
+                        label: 'ميزات مثبتة',
+                        value: `${(readiness.feature_evidence?.features || []).filter(feature => feature.status === 'ready').length}/${readiness.feature_evidence?.features?.length || 0}`,
+                    },
+                    { label: 'آخر فشل Partner', value: formatDate(readiness.feature_evidence?.features?.find(feature => feature.key === 'manage_app_solution')?.last_failure_at) },
                 ],
             },
             {
@@ -492,6 +528,46 @@ const TenantMetaReview = () => {
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                             {section.adminPaths.map(path => (
                                                 <Chip key={path} label={`Admin: ${path}`} size="small" variant="outlined" />
+                                            ))}
+                                        </Stack>
+                                    )}
+                                    {section.section?.key === 'identity' && (
+                                        <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.25 }}>
+                                            <Typography variant="body2" fontWeight={700}>
+                                                {section.section.facebook_user?.name || 'لم تحفظ هوية Facebook بعد'}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" component="div">
+                                                {section.section.facebook_user?.email || 'البريد غير مرجع من Meta'}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" component="div">
+                                                ID: {section.section.facebook_user?.id || '-'}
+                                            </Typography>
+                                        </Box>
+                                    )}
+                                    {section.section?.key === 'feature_evidence' && (
+                                        <Stack spacing={1}>
+                                            {(section.section.features || []).map(feature => (
+                                                <Box
+                                                    key={feature.key}
+                                                    sx={{
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        gap: 1,
+                                                        border: 1,
+                                                        borderColor: 'divider',
+                                                        borderRadius: 1,
+                                                        p: 1,
+                                                    }}
+                                                >
+                                                    <Box>
+                                                        <Typography variant="body2" fontWeight={700}>{feature.label}</Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            آخر نجاح: {formatDate(feature.last_success_at)}
+                                                        </Typography>
+                                                    </Box>
+                                                    <StatusChip status={feature.status} />
+                                                </Box>
                                             ))}
                                         </Stack>
                                     )}

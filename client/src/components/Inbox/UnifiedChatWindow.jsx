@@ -233,6 +233,17 @@ const UnifiedChatWindow = ({
                             }}
                             variant="outlined"
                         />
+                        {selectedChat.channel === 'messenger' && (selectedChat.display_name || selectedChat.avatar_url) && (
+                            <Tooltip title="اسم أو صورة المستخدم دليل على Business Asset User Profile Access">
+                                <Chip
+                                    label="Profile API"
+                                    size="small"
+                                    sx={{ height: 20, fontSize: 11 }}
+                                    color="success"
+                                    variant="outlined"
+                                />
+                            </Tooltip>
+                        )}
                     </Box>
                     <Typography variant="caption" color="text.secondary" noWrap>
                         {selectedChat.tenant_name && `${selectedChat.tenant_name} • `}

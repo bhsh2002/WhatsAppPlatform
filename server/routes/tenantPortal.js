@@ -2265,7 +2265,7 @@ router.delete('/qr-codes/:qrCodeId', async (req, res) => {
 router.get('/conversions/history', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const tenant = db.prepare('SELECT dataset_id FROM tenants WHERE id = ?').get(tenantId);
+        const tenant = db.prepare('SELECT dataset_id, access_token, access_token_encrypted FROM tenants WHERE id = ?').get(tenantId);
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
 
@@ -2281,10 +2281,33 @@ router.get('/conversions/history', (req, res) => {
             totalEvents: total,
             sentEvents: db.prepare("SELECT COUNT(*) as count FROM conversion_events WHERE tenant_id = ? AND status = 'sent'").get(tenantId)?.count || 0,
             failedEvents: db.prepare("SELECT COUNT(*) as count FROM conversion_events WHERE tenant_id = ? AND status = 'failed'").get(tenantId)?.count || 0,
+            localOnlyEvents: db.prepare("SELECT COUNT(*) as count FROM conversion_events WHERE tenant_id = ? AND status = 'local_only'").get(tenantId)?.count || 0,
+            lastSuccessAt: db.prepare("SELECT MAX(created_at) as value FROM conversion_events WHERE tenant_id = ? AND status = 'sent'").get(tenantId)?.value || null,
+            lastFailureAt: db.prepare("SELECT MAX(created_at) as value FROM conversion_events WHERE tenant_id = ? AND status = 'failed'").get(tenantId)?.value || null,
             eventBreakdown: db.prepare(
                 'SELECT event_name, COUNT(*) as count FROM conversion_events WHERE tenant_id = ? GROUP BY event_name ORDER BY count DESC'
             ).all(tenantId),
         };
+        const lastFailedEvent = db.prepare(`
+            SELECT id, event_name, meta_response, created_at
+            FROM conversion_events
+            WHERE tenant_id = ? AND status = 'failed'
+            ORDER BY created_at DESC
+            LIMIT 1
+        `).get(tenantId);
+        const lastFailedMeta = lastFailedEvent?.meta_response ? (() => {
+            try { return JSON.parse(lastFailedEvent.meta_response); } catch { return null; }
+        })() : null;
+        const lastSentEvent = db.prepare(`
+            SELECT id, event_name, meta_response, created_at
+            FROM conversion_events
+            WHERE tenant_id = ? AND status = 'sent'
+            ORDER BY created_at DESC
+            LIMIT 1
+        `).get(tenantId);
+        const lastSentMeta = lastSentEvent?.meta_response ? (() => {
+            try { return JSON.parse(lastSentEvent.meta_response); } catch { return null; }
+        })() : null;
 
         res.json({
             events,
@@ -2293,7 +2316,23 @@ router.get('/conversions/history', (req, res) => {
             offset,
             stats,
             dataset_id: tenant?.dataset_id || null,
-            events_api_ready: !!tenant?.dataset_id,
+            whatsapp_token_present: !!getAccessToken(tenantId),
+            tenant_whatsapp_token_present: !!(tenant?.access_token || tenant?.access_token_encrypted),
+            events_api_ready: !!tenant?.dataset_id && !!getAccessToken(tenantId),
+            last_success: lastSentEvent ? {
+                id: lastSentEvent.id,
+                event_name: lastSentEvent.event_name,
+                created_at: lastSentEvent.created_at,
+                events_received: lastSentMeta?.events_received ?? null,
+                fbtrace_id: lastSentMeta?.fbtrace_id || null,
+            } : null,
+            last_failure: lastFailedEvent ? {
+                id: lastFailedEvent.id,
+                event_name: lastFailedEvent.event_name,
+                created_at: lastFailedEvent.created_at,
+                error_message: lastFailedMeta?.error?.message || null,
+                fbtrace_id: lastFailedMeta?.fbtrace_id || lastFailedMeta?.error?.fbtrace_id || null,
+            } : null,
         });
     } catch (error) {
         console.error('[TenantPortal] Conversions history error:', error);
@@ -2305,6 +2344,10 @@ router.post('/conversions/log-event', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const { phone, event_name, wamid, custom_data } = req.body;
+
+        if (!event_name) {
+            return res.status(400).json({ error: 'اسم الحدث مطلوب' });
+        }
 
         const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {
@@ -2335,6 +2378,15 @@ router.post('/conversions/log-event', async (req, res) => {
             });
         }
 
+        const normalizedPhone = phone ? String(phone).replace(/[^\d]/g, '') : '';
+        if (!normalizedPhone) {
+            return res.status(400).json({
+                error: 'يجب إدخال رقم هاتف صالح حتى يحتوي حدث WhatsApp Events API على user_data قابلة للمطابقة قبل الإرسال إلى Meta.',
+                permission_required: 'whatsapp_business_manage_events',
+                dataset_id: datasetId,
+            });
+        }
+
         const formattedEvent = {
             event_name,
             event_time: Math.floor(Date.now() / 1000),
@@ -2344,11 +2396,14 @@ router.post('/conversions/log-event', async (req, res) => {
             data_processing_options: [],
         };
 
-        if (phone) {
-            formattedEvent.user_data.phones = [crypto.createHash('sha256').update(phone.toLowerCase().trim()).digest('hex')];
+        formattedEvent.user_data.phones = [crypto.createHash('sha256').update(normalizedPhone).digest('hex')];
+        const normalizedCustomData = custom_data && typeof custom_data === 'object' && !Array.isArray(custom_data)
+            ? custom_data
+            : {};
+        if (Object.keys(normalizedCustomData).length > 0 || wamid) {
+            formattedEvent.custom_data = { ...normalizedCustomData };
+            if (wamid) formattedEvent.custom_data.wamid = wamid;
         }
-        if (wamid) formattedEvent.user_data.lead_id = wamid;
-        if (custom_data) formattedEvent.custom_data = custom_data;
 
         const response = await fetch(`${META_API_BASE}/${datasetId}/events`, {
             method: 'POST',
@@ -2806,7 +2861,20 @@ router.post('/unified/messenger/sync', async (req, res) => {
                     if (!userParticipant) continue;
 
                     const userPsid = userParticipant.id;
-                    const userName = userParticipant.name || null;
+                    let userName = userParticipant.name || null;
+                    let userProfilePic = null;
+                    try {
+                        const profileRes = await fetch(
+                            `${META_API_BASE}/${userPsid}?fields=name,first_name,last_name,profile_pic&access_token=${encodeURIComponent(accessToken)}`
+                        );
+                        const profileData = await profileRes.json();
+                        if (profileRes.ok && !profileData.error) {
+                            userName = profileData.name || [profileData.first_name, profileData.last_name].filter(Boolean).join(' ') || userName;
+                            userProfilePic = profileData.profile_pic || null;
+                        }
+                    } catch (profileErr) {
+                        console.warn(`[TenantPortal] Messenger profile fetch failed for ${userPsid}:`, profileErr.message);
+                    }
                     const messages = conv.messages?.data || [];
                     const lastMsg = messages.length > 0
                         ? messages.reduce((a, b) => (getTimestampMs(a.created_time) > getTimestampMs(b.created_time) ? a : b))
@@ -2822,7 +2890,7 @@ router.post('/unified/messenger/sync', async (req, res) => {
                         db.prepare(`
                             INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-                        `).run(tenantId, page.id, page.page_id, userPsid, userName, null, lastMsgText, lastMsgTime);
+                        `).run(tenantId, page.id, page.page_id, userPsid, userName, userProfilePic, lastMsgText, lastMsgTime);
 
                         dbConv = db.prepare(
                             'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
@@ -2836,9 +2904,18 @@ router.post('/unified/messenger/sync', async (req, res) => {
                                 UPDATE fb_conversations SET
                                     last_message = ?, last_message_time = ?,
                                     user_name = COALESCE(?, user_name),
+                                    user_profile_pic = COALESCE(?, user_profile_pic),
                                     updated_at = datetime('now', 'localtime')
                                 WHERE id = ?
-                            `).run(lastMsgText, lastMsgTime, userName, dbConv.id);
+                            `).run(lastMsgText, lastMsgTime, userName, userProfilePic, dbConv.id);
+                        } else if (userName || userProfilePic) {
+                            db.prepare(`
+                                UPDATE fb_conversations SET
+                                    user_name = COALESCE(?, user_name),
+                                    user_profile_pic = COALESCE(?, user_profile_pic),
+                                    updated_at = datetime('now', 'localtime')
+                                WHERE id = ?
+                            `).run(userName, userProfilePic, dbConv.id);
                         }
                     }
 
@@ -4137,6 +4214,7 @@ router.post('/facebook/connect', async (req, res) => {
         let tokenStatus = 'unchecked';
         let tokenExpiresAt = null;
         let tokenAppId = null;
+        let facebookUserProfile = null;
         try {
             const appAccessToken = `${META_APP_ID}|${META_APP_SECRET}`;
             const debugRes = await fetch(
@@ -4152,6 +4230,25 @@ router.post('/facebook/connect', async (req, res) => {
             tokenAppId = tokenData.app_id || null;
         } catch (e) {
             console.warn('[TenantPortal] Facebook token debug failed:', e.message);
+        }
+
+        try {
+            const profileRes = await fetch(
+                `${META_API_BASE}/me?fields=id,name,email,picture.width(100).height(100)&access_token=${encodeURIComponent(llData.access_token)}`
+            );
+            const profileData = await profileRes.json();
+            if (profileData.error) {
+                console.warn('[TenantPortal] Facebook profile fetch failed:', profileData.error.message);
+            } else {
+                facebookUserProfile = {
+                    id: profileData.id || null,
+                    name: profileData.name || null,
+                    email: profileData.email || null,
+                    picture_url: profileData.picture?.data?.url || null,
+                };
+            }
+        } catch (e) {
+            console.warn('[TenantPortal] Facebook profile fetch failed:', e.message);
         }
 
         db.prepare(`
@@ -4173,6 +4270,25 @@ router.post('/facebook/connect', async (req, res) => {
             tokenAppId,
             tenantId
         );
+
+        if (facebookUserProfile?.id) {
+            db.prepare(`
+                UPDATE tenants
+                SET facebook_user_id = ?,
+                    facebook_user_name = ?,
+                    facebook_user_email = ?,
+                    facebook_user_picture_url = ?,
+                    facebook_user_profile_updated_at = datetime('now', 'localtime'),
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ?
+            `).run(
+                facebookUserProfile.id,
+                facebookUserProfile.name,
+                facebookUserProfile.email,
+                facebookUserProfile.picture_url,
+                tenantId
+            );
+        }
 
         const pagesRes = await fetch(
             `${META_API_BASE}/me/accounts?fields=id,name,category,picture.width(100).height(100),access_token&access_token=${llData.access_token}`
@@ -4200,6 +4316,7 @@ router.post('/facebook/connect', async (req, res) => {
             link_state: linkState,
             granted_scopes: grantedScopes,
             missing_scopes: missingScopes,
+            facebook_user: facebookUserProfile,
         });
     } catch (error) {
         console.error('[TenantPortal] Facebook connect error:', error);
@@ -4213,7 +4330,12 @@ router.get('/facebook/diagnostics', async (req, res) => {
         const tenant = db.prepare(`
             SELECT facebook_user_access_token_encrypted,
                    facebook_user_token_scopes,
-                   facebook_user_token_updated_at
+                   facebook_user_token_updated_at,
+                   facebook_user_id,
+                   facebook_user_name,
+                   facebook_user_email,
+                   facebook_user_picture_url,
+                   facebook_user_profile_updated_at
             FROM tenants
             WHERE id = ?
         `).get(tenantId);
@@ -4256,6 +4378,16 @@ router.get('/facebook/diagnostics', async (req, res) => {
             missing_scopes: missingScopes,
             facebook_user_token_present: !!tenant?.facebook_user_access_token_encrypted,
             facebook_user_token_updated_at: tenant?.facebook_user_token_updated_at || null,
+            facebook_user_identity: {
+                id: tenant?.facebook_user_id || null,
+                name: tenant?.facebook_user_name || null,
+                email: tenant?.facebook_user_email || null,
+                picture_url: tenant?.facebook_user_picture_url || null,
+                updated_at: tenant?.facebook_user_profile_updated_at || null,
+                public_profile_ready: !!(tenant?.facebook_user_id && tenant?.facebook_user_name),
+                email_granted: grantedScopes.includes('email'),
+                email_ready: !!tenant?.facebook_user_email,
+            },
             required_webhook_fields: FACEBOOK_WEBHOOK_FIELDS,
             pages,
         });

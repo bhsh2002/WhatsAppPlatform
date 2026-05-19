@@ -18,12 +18,24 @@ const eventTypes = [
     { value: 'ViewContent', label: 'مشاهدة محتوى', icon: <Visibility /> },
 ];
 
+const parseMetaResponse = (value) => {
+    if (!value) return null;
+    try {
+        return typeof value === 'string' ? JSON.parse(value) : value;
+    } catch {
+        return null;
+    }
+};
+
 const TenantConversions = () => {
     const { tenant } = useAuth();
     const [events, setEvents] = useState([]);
     const [stats, setStats] = useState(null);
     const [datasetId, setDatasetId] = useState(tenant?.dataset_id || null);
     const [eventsApiReady, setEventsApiReady] = useState(!!tenant?.dataset_id);
+    const [whatsappTokenPresent, setWhatsappTokenPresent] = useState(false);
+    const [lastSuccess, setLastSuccess] = useState(null);
+    const [lastFailure, setLastFailure] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -41,6 +53,9 @@ const TenantConversions = () => {
             setStats(data.stats || null);
             setDatasetId(data.dataset_id || tenant?.dataset_id || null);
             setEventsApiReady(!!data.events_api_ready);
+            setWhatsappTokenPresent(!!data.whatsapp_token_present);
+            setLastSuccess(data.last_success || null);
+            setLastFailure(data.last_failure || null);
         } catch (err) {
             setError(err.message || 'فشل تحميل البيانات');
         } finally {
@@ -87,6 +102,7 @@ const TenantConversions = () => {
         { label: 'إجمالي الأحداث', value: stats?.totalEvents || 0, color: '#2196f3' },
         { label: 'أحداث مُرسلة', value: stats?.sentEvents || 0, color: '#4caf50' },
         { label: 'أحداث فاشلة', value: stats?.failedEvents || 0, color: '#f44336' },
+        { label: 'محلية فقط', value: stats?.localOnlyEvents || 0, color: '#607d8b' },
     ];
 
     return (
@@ -104,7 +120,7 @@ const TenantConversions = () => {
 
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 {statCards.map((card, i) => (
-                    <Grid size={{ xs: 12, md: 4 }} key={i}>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }} key={i}>
                         <Card sx={{ bgcolor: card.color + '10', border: `1px solid ${card.color}30` }}>
                             <CardContent sx={{ textAlign: 'center' }}>
                                 <Typography variant="h3" fontWeight={700} sx={{ color: card.color }}>{card.value}</Typography>
@@ -121,6 +137,18 @@ const TenantConversions = () => {
                 </Typography>
                 <Typography variant="caption" component="div">
                     Dataset ID: {datasetId || 'غير محدد'}
+                </Typography>
+                <Typography variant="caption" component="div">
+                    WhatsApp token: {whatsappTokenPresent ? 'موجود' : 'غير موجود'}
+                </Typography>
+                <Typography variant="caption" component="div">
+                    آخر نجاح: {lastSuccess?.created_at ? new Date(lastSuccess.created_at).toLocaleString('ar-LY') : 'لا يوجد'}
+                    {lastSuccess?.fbtrace_id ? ` | fbtrace_id: ${lastSuccess.fbtrace_id}` : ''}
+                </Typography>
+                <Typography variant="caption" component="div">
+                    آخر فشل: {lastFailure?.created_at ? new Date(lastFailure.created_at).toLocaleString('ar-LY') : 'لا يوجد'}
+                    {lastFailure?.error_message ? ` | ${lastFailure.error_message}` : ''}
+                    {lastFailure?.fbtrace_id ? ` | fbtrace_id: ${lastFailure.fbtrace_id}` : ''}
                 </Typography>
             </Alert>
 
@@ -144,6 +172,7 @@ const TenantConversions = () => {
                                 <TableCell>الهاتف</TableCell>
                                 <TableCell>البيانات المخصصة</TableCell>
                                 <TableCell>الحالة</TableCell>
+                                <TableCell>Meta</TableCell>
                                 <TableCell>التاريخ</TableCell>
                             </TableRow>
                         </TableHead>
@@ -161,12 +190,25 @@ const TenantConversions = () => {
                                         <Chip label={event.status} size="small"
                                             color={event.status === 'sent' ? 'success' : event.status === 'failed' ? 'error' : 'default'} />
                                     </TableCell>
+                                    <TableCell sx={{ maxWidth: 260 }}>
+                                        {(() => {
+                                            const meta = parseMetaResponse(event.meta_response);
+                                            const text = event.status === 'sent'
+                                                ? (meta?.fbtrace_id || meta?.events_received ? `events: ${meta?.events_received ?? '-'}${meta?.fbtrace_id ? ` | ${meta.fbtrace_id}` : ''}` : '-')
+                                                : (meta?.error?.message || meta?.error || '-');
+                                            return (
+                                                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                                    {text}
+                                                </Typography>
+                                            );
+                                        })()}
+                                    </TableCell>
                                     <TableCell>{new Date(event.created_at).toLocaleString('ar-LY')}</TableCell>
                                 </TableRow>
                             ))}
                             {events.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                                    <TableCell colSpan={6} align="center" sx={{ py: 6, color: 'text.secondary' }}>
                                         لا توجد أحداث مسجلة بعد
                                     </TableCell>
                                 </TableRow>
@@ -187,8 +229,9 @@ const TenantConversions = () => {
                             </TextField>
                         </Grid>
                         <Grid size={{ xs: 12 }}>
-                            <TextField fullWidth label="رقم الهاتف (اختياري)" value={form.phone}
-                                onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="218xxxxxxxxx" />
+                            <TextField fullWidth label={eventsApiReady ? 'رقم الهاتف (مطلوب للإرسال إلى Meta)' : 'رقم الهاتف (اختياري)'} value={form.phone}
+                                onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="218xxxxxxxxx"
+                                helperText={eventsApiReady ? 'لا يتم إرسال الحدث إلى Meta بدون user_data قابلة للمطابقة.' : ''} />
                         </Grid>
                         <Grid size={{ xs: 8 }}>
                             <TextField fullWidth label="القيمة (اختياري)" value={form.value} type="number"
@@ -206,7 +249,7 @@ const TenantConversions = () => {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setLogOpen(false)}>إلغاء</Button>
-                    <Button variant="contained" onClick={handleLog} disabled={logging}>
+                    <Button variant="contained" onClick={handleLog} disabled={logging || (eventsApiReady && !form.phone.trim())}>
                         {logging ? 'جاري التسجيل...' : 'تسجيل'}
                     </Button>
                 </DialogActions>

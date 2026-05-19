@@ -4,6 +4,8 @@ import { getAccessToken } from './credentials.js';
 import { decryptIfEncrypted } from './encryption.js';
 
 export const FACEBOOK_OAUTH_SCOPES = [
+    'public_profile',
+    'email',
     'pages_show_list',
     'pages_manage_metadata',
     'pages_messaging',
@@ -37,8 +39,8 @@ export const META_PERMISSION_MATRIX = [
         group: 'identity',
         action_path: '/portal/fb-pages',
         usage: 'تحديد مستخدم Facebook الذي قام بتفويض الربط.',
-        endpoint: 'GET /portal/facebook/auth-url, POST /portal/facebook/connect',
-        evidence_key: 'facebook_user_token',
+        endpoint: 'GET /me?fields=id,name,picture',
+        evidence_key: 'facebook_public_profile',
     },
     {
         key: 'email',
@@ -46,8 +48,8 @@ export const META_PERMISSION_MATRIX = [
         group: 'identity',
         action_path: '/portal/fb-pages',
         usage: 'ربط التفويض بحساب مستخدم واضح عند توفر البريد.',
-        endpoint: 'POST /portal/facebook/connect',
-        evidence_key: 'facebook_user_token',
+        endpoint: 'GET /me?fields=email',
+        evidence_key: 'facebook_email',
     },
     {
         key: 'pages_show_list',
@@ -130,6 +132,7 @@ export const META_PERMISSION_MATRIX = [
         usage: 'إدارة حساب واتساب والقوالب وبيانات النشاط التجاري.',
         endpoint: 'WhatsApp Business Management API',
         evidence_key: 'whatsapp_management',
+        feature: true,
     },
     {
         key: 'whatsapp_business_messaging',
@@ -139,6 +142,7 @@ export const META_PERMISSION_MATRIX = [
         usage: 'إرسال واستقبال رسائل WhatsApp داخل المنصة.',
         endpoint: 'POST /{phone-number-id}/messages',
         evidence_key: 'whatsapp_messages',
+        feature: true,
     },
     {
         key: 'whatsapp_business_manage_events',
@@ -148,16 +152,18 @@ export const META_PERMISSION_MATRIX = [
         usage: 'إرسال أحداث WhatsApp Events API إلى Dataset في Meta.',
         endpoint: 'POST /{dataset-id}/events',
         evidence_key: 'conversion_events',
+        feature: true,
     },
     {
         key: 'manage_app_solution',
         label: 'Manage App Solution',
         group: 'business',
-        action_path: '/portal/fb-pages',
+        action_path: '/partner-solutions',
         admin_paths: ['/partner-solutions'],
         usage: 'إدارة حلول الشركاء والربط مع أصول العملاء عند توفر حساب شريك.',
         endpoint: 'Partner Solutions / Managed Businesses APIs',
         evidence_key: 'partner_activity',
+        feature: true,
     },
     {
         key: 'business_asset_user_profile_access',
@@ -361,6 +367,18 @@ const getLatestActivity = (tenantId, eventTypes) => {
     `).get(tenantId, ...eventTypes);
 };
 
+const getLatestActivityByStatus = (tenantId, eventTypes, status) => {
+    if (!eventTypes.length) return null;
+    const placeholders = eventTypes.map(() => '?').join(',');
+    return db.prepare(`
+        SELECT event_type, status, description, created_at
+        FROM activity_logs
+        WHERE tenant_id = ? AND status = ? AND event_type IN (${placeholders})
+        ORDER BY created_at DESC
+        LIMIT 1
+    `).get(tenantId, status, ...eventTypes);
+};
+
 const tokenStatusFromDebugData = (tokenData) => {
     if (tokenData?.is_valid !== true) return 'invalid';
     const expiresAt = tokenData.expires_at;
@@ -418,13 +436,13 @@ export const debugFacebookUserToken = async (tenant) => {
 };
 
 const buildPermissionMatrix = ({ grantedScopes, evidence }) => META_PERMISSION_MATRIX.map(permission => {
-    const granted = permission.feature ? evidence.profile_records.ready : grantedScopes.includes(permission.key);
+    const evidenceItem = evidence[permission.evidence_key];
+    const granted = permission.feature ? !!evidenceItem?.ready : grantedScopes.includes(permission.key);
     let ready = granted;
     let lastSuccessAt = null;
     let lastFailureAt = null;
     let evidenceStatus = 'missing';
 
-    const evidenceItem = evidence[permission.evidence_key];
     if (evidenceItem) {
         evidenceStatus = evidenceItem.ready ? 'ready' : evidenceItem.partial ? 'action_required' : 'missing';
         lastSuccessAt = evidenceItem.last_success_at || null;
@@ -460,7 +478,12 @@ export const buildMetaReviewReadiness = async (tenantId) => {
                facebook_user_token_status,
                facebook_user_token_expires_at,
                facebook_user_token_checked_at,
-               facebook_user_token_app_id
+               facebook_user_token_app_id,
+               facebook_user_id,
+               facebook_user_name,
+               facebook_user_email,
+               facebook_user_picture_url,
+               facebook_user_profile_updated_at
         FROM tenants
         WHERE id = ?
     `).get(tenantId);
@@ -490,6 +513,16 @@ export const buildMetaReviewReadiness = async (tenantId) => {
 
     const missingScopes = missingItems(FACEBOOK_OAUTH_SCOPES, grantedScopes);
     const facebookUserTokenPresent = !!tenant.facebook_user_access_token_encrypted;
+    const facebookIdentity = {
+        id: tenant.facebook_user_id || null,
+        name: tenant.facebook_user_name || null,
+        email: tenant.facebook_user_email || null,
+        picture_url: tenant.facebook_user_picture_url || null,
+        updated_at: tenant.facebook_user_profile_updated_at || null,
+    };
+    const facebookPublicProfileReady = !!(facebookIdentity.id && facebookIdentity.name);
+    const facebookEmailGranted = grantedScopes.includes('email');
+    const facebookEmailReady = !!facebookIdentity.email;
 
     const pageRows = db.prepare(`
         SELECT id, platform, page_id, page_name, page_category, page_picture_url,
@@ -600,7 +633,21 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     ]);
     const postActivity = getLatestActivity(tenantId, ['fb_post_created', 'fb_post_edited', 'fb_post_deleted']);
     const commentActivity = getLatestActivity(tenantId, ['fb_comment_replied', 'fb_comment_hidden', 'fb_comment_deleted', 'fb_new_comment']);
-    const partnerActivity = getLatestActivity(tenantId, ['partner_client_added', 'partner_client_removed', 'partner_system_user_created']);
+    const partnerActivityTypes = [
+        'partner_client_added',
+        'partner_client_removed',
+        'partner_client_waba_loaded',
+        'partner_system_user_created',
+    ];
+    const partnerFailureTypes = [
+        'partner_client_add_failed',
+        'partner_client_remove_failed',
+        'partner_client_waba_failed',
+        'partner_system_user_failed',
+        'partner_clients_list_failed',
+    ];
+    const partnerActivity = getLatestActivityByStatus(tenantId, partnerActivityTypes, 'success');
+    const partnerFailure = getLatestActivity(tenantId, partnerFailureTypes);
 
     const messengerProductionEvidence =
         (webhookEvidence.by_field.messages?.production_count || 0) > 0 ||
@@ -625,6 +672,18 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     const assetProfileReady = (profileStats?.count || 0) > 0;
 
     const evidence = {
+        facebook_public_profile: {
+            ready: facebookPublicProfileReady,
+            partial: facebookUserTokenPresent,
+            last_success_at: facebookPublicProfileReady ? (facebookIdentity.updated_at || tenant.facebook_user_token_updated_at) : null,
+            last_failure_at: facebookUserTokenPresent && !facebookPublicProfileReady ? tenant.facebook_user_token_updated_at : null,
+        },
+        facebook_email: {
+            ready: facebookEmailReady,
+            partial: facebookEmailGranted || facebookUserTokenPresent,
+            last_success_at: facebookEmailReady ? (facebookIdentity.updated_at || tenant.facebook_user_token_updated_at) : null,
+            last_failure_at: facebookEmailGranted && !facebookEmailReady ? tenant.facebook_user_token_updated_at : null,
+        },
         facebook_user_token: {
             ready: facebookUserTokenPresent && liveFacebookUserToken?.status === 'valid',
             partial: facebookUserTokenPresent,
@@ -688,6 +747,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             ready: !!partnerActivity && businessReady,
             partial: businessReady,
             last_success_at: partnerActivity?.created_at || null,
+            last_failure_at: partnerFailure?.created_at || null,
         },
         profile_records: {
             ready: assetProfileReady,
@@ -718,6 +778,24 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             review_hint: missingScopes.length
                 ? 'أعد تفويض Facebook من صفحة الربط حتى تظهر الأذونات المطلوبة في debug_token.'
                 : 'كل أذونات Facebook المطلوبة موجودة في رمز المستخدم، مع تحقق live عند توفر إعدادات التطبيق.',
+        },
+        identity: {
+            key: 'identity',
+            title: 'Identity Evidence',
+            status: readinessStatus(facebookPublicProfileReady && facebookEmailReady, facebookPublicProfileReady || facebookUserTokenPresent),
+            action_path: '/portal/fb-pages',
+            required_permissions: ['public_profile', 'email'],
+            facebook_user: facebookIdentity,
+            public_profile_ready: facebookPublicProfileReady,
+            email_granted: facebookEmailGranted,
+            email_ready: facebookEmailReady,
+            token_present: facebookUserTokenPresent,
+            last_success_at: facebookIdentity.updated_at || null,
+            review_hint: facebookPublicProfileReady
+                ? (facebookEmailReady
+                    ? 'تم حفظ اسم/معرف/بريد مستخدم Facebook من OAuth ويمكن عرضه للمراجع.'
+                    : 'تم حفظ هوية مستخدم Facebook. البريد غير متاح من Meta رغم طلب email أو لم يرجع في التفويض.')
+                : 'أعد تفويض Facebook حتى يتم جلب GET /me وحفظ اسم ومعرف المستخدم كدليل public_profile.',
         },
         pages: {
             key: 'pages',
@@ -778,6 +856,30 @@ export const buildMetaReviewReadiness = async (tenantId) => {
                 ? 'يوجد دليل على استخدام اسم/صورة مستخدم Messenger داخل المحادثات.'
                 : 'يظهر هذا الدليل بعد استقبال Messenger webhook يحتوي PSID ثم جلب بيانات المستخدم للعرض داخل inbox.',
         },
+        feature_evidence: {
+            key: 'feature_evidence',
+            title: 'Feature Evidence',
+            status: readinessStatus(assetProfileReady && !!partnerActivity, messengerConfigured || businessReady || !!partnerFailure),
+            action_path: '/portal/meta-review',
+            features: [
+                {
+                    key: 'business_asset_user_profile_access',
+                    label: 'Business Asset User Profile Access',
+                    status: readinessStatus(assetProfileReady, messengerConfigured),
+                    last_success_at: evidence.profile_records.last_success_at || null,
+                    action_path: '/portal/inbox',
+                },
+                {
+                    key: 'manage_app_solution',
+                    label: 'Manage App Solution',
+                    status: readinessStatus(!!partnerActivity && businessReady, businessReady || !!partnerFailure),
+                    last_success_at: partnerActivity?.created_at || null,
+                    last_failure_at: partnerFailure?.created_at || null,
+                    action_path: '/partner-solutions',
+                },
+            ],
+            review_hint: 'هذه الميزات ليست مجرد OAuth scopes؛ يجب وجود دليل تشغيل فعلي من Messenger profile أو Partner Solutions.',
+        },
         business: {
             key: 'business',
             title: 'Business APIs',
@@ -817,6 +919,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
                 created_at: lastConversion.created_at,
                 events_received: lastConversionMeta?.events_received ?? null,
                 fbtrace_id: lastConversionMeta?.fbtrace_id || lastConversionMeta?.error?.fbtrace_id || null,
+                error_message: lastConversionMeta?.error?.message || null,
             } : null,
             review_hint: eventsReady
                 ? 'يوجد حدث conversion مرسل إلى Meta ويمكن استخدامه كدليل مراجعة.'
@@ -837,6 +940,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             waba_id_present: !!tenant.waba_id,
             business_id: tenant.business_id || null,
             dataset_id: tenant.dataset_id || null,
+            facebook_user: facebookIdentity,
         },
         overall: {
             status: readyCount === sectionValues.length ? 'ready' : 'action_required',
@@ -862,10 +966,12 @@ export const saveMetaReviewSnapshot = (tenantId, readiness) => {
         webhook_evidence: readiness.webhook_evidence,
         sections: {
             permissions: readiness.permissions,
+            identity: readiness.identity,
             pages: readiness.pages,
             content: readiness.content,
             messenger: readiness.messenger,
             business_asset_user_profile_access: readiness.business_asset_user_profile_access,
+            feature_evidence: readiness.feature_evidence,
             business: readiness.business,
             whatsapp_events: readiness.whatsapp_events,
         },

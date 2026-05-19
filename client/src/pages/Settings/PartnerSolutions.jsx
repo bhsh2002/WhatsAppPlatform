@@ -24,6 +24,7 @@ const PartnerSolutions = () => {
     const [actionLoading, setActionLoading] = useState('');
     const [wabaDialog, setWabaDialog] = useState({ open: false, client: null, accounts: [] });
     const [systemUserDialog, setSystemUserDialog] = useState({ open: false, client: null, name: '', role: 'ADMIN' });
+    const [partnerEvidence, setPartnerEvidence] = useState(null);
 
     useEffect(() => {
         const loadTenants = async () => {
@@ -42,6 +43,24 @@ const PartnerSolutions = () => {
         loadTenants();
     }, []);
 
+    useEffect(() => {
+        if (!selectedTenant) {
+            setPartnerEvidence(null);
+            return undefined;
+        }
+
+        let mounted = true;
+        api.getPartnerEvidence(selectedTenant)
+            .then(data => {
+                if (mounted) setPartnerEvidence(data);
+            })
+            .catch(() => {
+                if (mounted) setPartnerEvidence(null);
+            });
+
+        return () => { mounted = false; };
+    }, [selectedTenant]);
+
     const handleTenantChange = (event) => {
         const tenantId = event.target.value;
         setSelectedTenant(tenantId);
@@ -50,6 +69,16 @@ const PartnerSolutions = () => {
         setClients([]);
         setLoaded(false);
         setPermissionWarning('');
+    };
+
+    const refreshPartnerEvidence = async () => {
+        if (!selectedTenant) return;
+        try {
+            const data = await api.getPartnerEvidence(selectedTenant);
+            setPartnerEvidence(data);
+        } catch {
+            setPartnerEvidence(null);
+        }
     };
 
     const loadClients = async () => {
@@ -81,6 +110,7 @@ const PartnerSolutions = () => {
             setSuccess('تم إضافة العميل بنجاح');
             setAddOpen(false);
             setNewClient({ name: '', existing_client_business_id: '' });
+            refreshPartnerEvidence();
             loadClients();
         } catch (err) {
             setError(err.message || 'فشل إضافة العميل');
@@ -105,6 +135,7 @@ const PartnerSolutions = () => {
             setActionLoading(`remove:${client.id}`);
             await api.removePartnerClient(businessId, selectedTenant, client.id);
             setSuccess('تمت إزالة العميل المُدار');
+            refreshPartnerEvidence();
             loadClients();
         } catch (err) {
             setError(err.message || 'فشل إزالة العميل');
@@ -118,6 +149,7 @@ const PartnerSolutions = () => {
             setActionLoading(`waba:${client.id}`);
             const data = await api.getPartnerClientWaba(client.id, selectedTenant);
             setWabaDialog({ open: true, client, accounts: data.whatsapp_accounts || [] });
+            refreshPartnerEvidence();
         } catch (err) {
             setError(err.message || 'فشل جلب حسابات واتساب للعميل');
         } finally {
@@ -137,6 +169,7 @@ const PartnerSolutions = () => {
             });
             setSuccess('تم إنشاء مستخدم النظام');
             setSystemUserDialog({ open: false, client: null, name: '', role: 'ADMIN' });
+            refreshPartnerEvidence();
         } catch (err) {
             setError(err.message || 'فشل إنشاء مستخدم النظام');
         } finally {
@@ -176,6 +209,55 @@ const PartnerSolutions = () => {
                         ? 'العميل المحدد لديه business_management حسب البيانات المخزنة. بعض عمليات الشركاء قد تتطلب حالة Partner لدى Meta.'
                         : 'حلول الشركاء تتطلب عميلا محددا مع Facebook user token وصلاحية business_management.'}
                 </Alert>
+                {partnerEvidence && (
+                    <Paper variant="outlined" sx={{ mt: 2, p: 2 }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                            دليل جاهزية manage_app_solution
+                        </Typography>
+                        <Grid container spacing={1.5}>
+                            <Grid size={{ xs: 6, md: 3 }}>
+                                <Chip
+                                    label={partnerEvidence.readiness?.business_id_present ? 'Business ID موجود' : 'Business ID مفقود'}
+                                    color={partnerEvidence.readiness?.business_id_present ? 'success' : 'warning'}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            </Grid>
+                            <Grid size={{ xs: 6, md: 3 }}>
+                                <Chip
+                                    label={partnerEvidence.readiness?.facebook_user_token_present ? 'Facebook token موجود' : 'Facebook token مفقود'}
+                                    color={partnerEvidence.readiness?.facebook_user_token_present ? 'success' : 'warning'}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            </Grid>
+                            <Grid size={{ xs: 6, md: 3 }}>
+                                <Chip
+                                    label={partnerEvidence.readiness?.business_management_granted ? 'business_management ممنوح' : 'business_management ناقص'}
+                                    color={partnerEvidence.readiness?.business_management_granted ? 'success' : 'warning'}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            </Grid>
+                            <Grid size={{ xs: 6, md: 3 }}>
+                                <Chip
+                                    label={`Token: ${partnerEvidence.readiness?.facebook_user_token_status || 'unchecked'}`}
+                                    color={partnerEvidence.readiness?.facebook_user_token_status === 'valid' ? 'success' : 'warning'}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            </Grid>
+                        </Grid>
+                        <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
+                            آخر نجاح: {partnerEvidence.latest_success?.created_at ? new Date(partnerEvidence.latest_success.created_at).toLocaleString('ar-LY') : 'لا يوجد'}
+                            {partnerEvidence.latest_success?.description ? ` | ${partnerEvidence.latest_success.description}` : ''}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" component="div">
+                            آخر فشل: {partnerEvidence.latest_failure?.created_at ? new Date(partnerEvidence.latest_failure.created_at).toLocaleString('ar-LY') : 'لا يوجد'}
+                            {partnerEvidence.latest_failure?.description ? ` | ${partnerEvidence.latest_failure.description}` : ''}
+                        </Typography>
+                    </Paper>
+                )}
             </Paper>
 
             {loaded && (

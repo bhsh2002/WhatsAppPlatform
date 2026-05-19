@@ -144,6 +144,41 @@ const TenantFacebookPages = () => {
                 </Alert>
             )}
 
+            {diagnostics?.facebook_user_token_present && (
+                <Paper sx={{ p: 2, mb: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                        <Avatar src={diagnostics.facebook_user_identity?.picture_url || undefined} sx={{ bgcolor: '#1877f2' }}>
+                            {diagnostics.facebook_user_identity?.name?.charAt(0) || <FacebookIcon />}
+                        </Avatar>
+                        <Box sx={{ flex: 1, minWidth: 220 }}>
+                            <Typography variant="subtitle1" fontWeight={700}>
+                                {diagnostics.facebook_user_identity?.name || 'هوية مستخدم Facebook غير محفوظة'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                {diagnostics.facebook_user_identity?.email || 'البريد غير متاح من Meta'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" component="div">
+                                ID: {diagnostics.facebook_user_identity?.id || '-'} | آخر تحديث: {formatDate(diagnostics.facebook_user_identity?.updated_at)}
+                            </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Chip
+                                label={diagnostics.facebook_user_identity?.public_profile_ready ? 'public_profile مثبت' : 'public_profile يحتاج إعادة تفويض'}
+                                color={diagnostics.facebook_user_identity?.public_profile_ready ? 'success' : 'warning'}
+                                size="small"
+                                variant="outlined"
+                            />
+                            <Chip
+                                label={diagnostics.facebook_user_identity?.email_ready ? 'email مثبت' : diagnostics.facebook_user_identity?.email_granted ? 'email ممنوح بدون بريد مرجع' : 'email غير ممنوح'}
+                                color={diagnostics.facebook_user_identity?.email_ready ? 'success' : 'warning'}
+                                size="small"
+                                variant="outlined"
+                            />
+                        </Box>
+                    </Box>
+                </Paper>
+            )}
+
             {pages.length === 0 ? (
                 <Paper sx={{ p: 6, textAlign: 'center' }}>
                     <FacebookIcon sx={{ fontSize: 60, color: 'grey.300', mb: 2 }} />

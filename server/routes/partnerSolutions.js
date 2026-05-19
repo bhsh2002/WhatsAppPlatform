@@ -48,6 +48,93 @@ const requireBusinessAccessToken = (res, tenantId) => {
     return result.accessToken;
 };
 
+const PARTNER_SUCCESS_EVENTS = [
+    'partner_client_added',
+    'partner_client_removed',
+    'partner_client_waba_loaded',
+    'partner_system_user_created',
+];
+
+const PARTNER_FAILURE_EVENTS = [
+    'partner_clients_list_failed',
+    'partner_client_add_failed',
+    'partner_client_remove_failed',
+    'partner_client_waba_failed',
+    'partner_system_user_failed',
+];
+
+const logPartnerActivity = (tenantId, eventType, description, status = 'success') => {
+    if (!tenantId) return;
+    const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+    db.prepare(`
+        INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+        VALUES (?, ?, ?, ?, ?)
+    `).run(tenantId, tenant?.name || 'Unknown', eventType, description, status);
+};
+
+const getLatestPartnerActivity = (tenantId, eventTypes, status = null) => {
+    const placeholders = eventTypes.map(() => '?').join(',');
+    const statusClause = status ? 'AND status = ?' : '';
+    const params = status ? [tenantId, status, ...eventTypes] : [tenantId, ...eventTypes];
+    return db.prepare(`
+        SELECT event_type, description, status, created_at
+        FROM activity_logs
+        WHERE tenant_id = ? ${statusClause} AND event_type IN (${placeholders})
+        ORDER BY created_at DESC
+        LIMIT 1
+    `).get(...params);
+};
+
+// ============================================
+// Partner readiness/evidence for Meta Review
+// ============================================
+router.get('/evidence', (req, res) => {
+    try {
+        const tenantId = req.query.tenant_id;
+        if (!tenantId) {
+            return res.status(400).json({ error: 'tenant_id مطلوب' });
+        }
+
+        const tenant = db.prepare(`
+            SELECT id, name, business_id, facebook_user_access_token_encrypted,
+                   facebook_user_token_scopes, facebook_user_token_status,
+                   facebook_user_token_app_id, facebook_user_token_checked_at,
+                   facebook_user_token_updated_at
+            FROM tenants
+            WHERE id = ?
+        `).get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        const scopes = parseStoredArray(tenant.facebook_user_token_scopes);
+        const latestSuccess = getLatestPartnerActivity(tenantId, PARTNER_SUCCESS_EVENTS, 'success');
+        const latestFailure = getLatestPartnerActivity(tenantId, PARTNER_FAILURE_EVENTS);
+
+        res.json({
+            tenant: {
+                id: tenant.id,
+                name: tenant.name,
+                business_id: tenant.business_id || null,
+            },
+            readiness: {
+                business_id_present: !!tenant.business_id,
+                facebook_user_token_present: !!tenant.facebook_user_access_token_encrypted,
+                facebook_user_token_status: tenant.facebook_user_token_status || 'unchecked',
+                business_management_granted: scopes.includes('business_management'),
+                app_id: tenant.facebook_user_token_app_id || null,
+                checked_at: tenant.facebook_user_token_checked_at || null,
+                updated_at: tenant.facebook_user_token_updated_at || null,
+            },
+            latest_success: latestSuccess || null,
+            latest_failure: latestFailure || null,
+        });
+    } catch (error) {
+        console.error('[Partner] Evidence error:', error);
+        res.status(500).json({ error: 'فشل جلب دليل حلول الشركاء' });
+    }
+});
+
 // ============================================
 // List managed businesses (clients)
 // ============================================
@@ -72,6 +159,7 @@ router.get('/clients', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            logPartnerActivity(tenantId, 'partner_clients_list_failed', data.error?.message || 'فشل جلب العملاء المُدارين', 'error');
             // Permission error — return empty list with explanation
             if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
                 return res.json({
@@ -138,24 +226,19 @@ router.post('/clients', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            logPartnerActivity(tenant_id, 'partner_client_add_failed', data.error?.message || 'فشل إضافة العميل', 'error');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل إضافة العميل',
                 details: data.error
             });
         }
 
-        // Log activity
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenant_id);
-            db.prepare(`
-                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                VALUES (?, ?, 'partner_client_added', 'إضافة عميل شريك جديد', 'success')
-            `).run(tenant_id, tenant?.name || 'Unknown');
-        }
+        logPartnerActivity(tenant_id, 'partner_client_added', 'إضافة عميل شريك جديد', 'success');
 
         res.json({ success: true, data });
     } catch (error) {
         console.error('[Partner] Add client error:', error);
+        logPartnerActivity(req.body?.tenant_id, 'partner_client_add_failed', error.message || 'فشل إضافة العميل', 'error');
         res.status(500).json({ error: 'فشل إضافة العميل' });
     }
 });
@@ -191,23 +274,19 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            logPartnerActivity(tenant_id, 'partner_client_remove_failed', data.error?.message || 'فشل إزالة العميل', 'error');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل إزالة العميل',
                 details: data.error
             });
         }
 
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenant_id);
-            db.prepare(`
-                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                VALUES (?, ?, 'partner_client_removed', 'إزالة عميل شريك مُدار', 'success')
-            `).run(tenant_id, tenant?.name || 'Unknown');
-        }
+        logPartnerActivity(tenant_id, 'partner_client_removed', 'إزالة عميل شريك مُدار', 'success');
 
         res.json({ success: true });
     } catch (error) {
         console.error('[Partner] Remove client error:', error);
+        logPartnerActivity(req.query?.tenant_id, 'partner_client_remove_failed', error.message || 'فشل إزالة العميل', 'error');
         res.status(500).json({ error: 'فشل إزالة العميل' });
     }
 });
@@ -233,11 +312,14 @@ router.get('/clients/:clientBusinessId/waba', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            logPartnerActivity(tenantId, 'partner_client_waba_failed', data.error?.message || 'فشل جلب حسابات واتساب للعميل', 'error');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل جلب حسابات واتساب للعميل',
                 details: data.error
             });
         }
+
+        logPartnerActivity(tenantId, 'partner_client_waba_loaded', 'جلب حسابات WABA لعميل شريك', 'success');
 
         res.json({
             whatsapp_accounts: data.data || [],
@@ -282,23 +364,19 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            logPartnerActivity(tenant_id, 'partner_system_user_failed', data.error?.message || 'فشل إنشاء مستخدم نظام', 'error');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل إنشاء مستخدم نظام',
                 details: data.error
             });
         }
 
-        if (tenant_id) {
-            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenant_id);
-            db.prepare(`
-                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                VALUES (?, ?, 'partner_system_user_created', 'إنشاء مستخدم نظام لعميل شريك', 'success')
-            `).run(tenant_id, tenant?.name || 'Unknown');
-        }
+        logPartnerActivity(tenant_id, 'partner_system_user_created', 'إنشاء مستخدم نظام لعميل شريك', 'success');
 
         res.json({ success: true, data });
     } catch (error) {
         console.error('[Partner] Create system user error:', error);
+        logPartnerActivity(req.body?.tenant_id, 'partner_system_user_failed', error.message || 'فشل إنشاء مستخدم نظام', 'error');
         res.status(500).json({ error: 'فشل إنشاء مستخدم نظام' });
     }
 });
