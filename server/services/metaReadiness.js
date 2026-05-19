@@ -633,7 +633,23 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     ]);
     const postActivity = getLatestActivity(tenantId, ['fb_post_created', 'fb_post_edited', 'fb_post_deleted']);
     const commentActivity = getLatestActivity(tenantId, ['fb_comment_replied', 'fb_comment_hidden', 'fb_comment_deleted', 'fb_new_comment']);
+    const businessActivityTypes = [
+        'business_info_loaded',
+        'business_assets_loaded',
+        'business_ad_accounts_loaded',
+        'business_ad_account_claimed',
+    ];
+    const businessFailureTypes = [
+        'business_info_failed',
+        'business_assets_failed',
+        'business_ad_accounts_failed',
+        'business_ad_account_claim_failed',
+    ];
+    const businessActivity = getLatestActivityByStatus(tenantId, businessActivityTypes, 'success');
+    const businessFailure = getLatestActivity(tenantId, businessFailureTypes);
+
     const partnerActivityTypes = [
+        'partner_clients_listed',
         'partner_client_added',
         'partner_client_removed',
         'partner_client_waba_loaded',
@@ -666,10 +682,12 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     const messengerConfigured = messengerScopesReady && messengerWebhookPages.length > 0;
     const messengerHasEvidence = (conversationStats?.count || 0) > 0 || (messageStats?.count || 0) > 0 || messengerProductionEvidence;
     const businessScopeReady = hasAllItems(BUSINESS_REVIEW_SCOPES, grantedScopes);
-    const businessReady = !!tenant.business_id && facebookUserTokenPresent && businessScopeReady && liveFacebookUserToken?.status === 'valid';
+    const businessConfigured = !!tenant.business_id && facebookUserTokenPresent && businessScopeReady && liveFacebookUserToken?.status === 'valid';
+    const businessReady = businessConfigured && !!businessActivity;
     const eventsConfigured = !!tenant.dataset_id && effectiveWhatsAppTokenPresent;
     const eventsReady = eventsConfigured && lastConversion?.status === 'sent';
     const assetProfileReady = (profileStats?.count || 0) > 0;
+    const partnerOperationalBlocked = !!partnerFailure && /غير مؤهل|Partner|Business غير موجود|وصول الأصل/i.test(partnerFailure.description || '');
 
     const evidence = {
         facebook_public_profile: {
@@ -724,8 +742,9 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         },
         business_token: {
             ready: businessReady,
-            partial: !!tenant.business_id || facebookUserTokenPresent || businessScopeReady,
-            last_success_at: tenant.facebook_user_token_updated_at || null,
+            partial: businessConfigured || !!tenant.business_id || facebookUserTokenPresent || businessScopeReady,
+            last_success_at: businessActivity?.created_at || null,
+            last_failure_at: businessFailure?.created_at || null,
         },
         whatsapp_management: {
             ready: !!tenant.waba_id && effectiveWhatsAppTokenPresent,
@@ -744,8 +763,8 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             last_failure_at: conversionStats?.last_failed_at || null,
         },
         partner_activity: {
-            ready: !!partnerActivity && businessReady,
-            partial: businessReady,
+            ready: !!partnerActivity && businessConfigured,
+            partial: businessConfigured || partnerOperationalBlocked || !!partnerFailure,
             last_success_at: partnerActivity?.created_at || null,
             last_failure_at: partnerFailure?.created_at || null,
         },
@@ -757,6 +776,64 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     };
 
     const permission_matrix = buildPermissionMatrix({ grantedScopes, evidence });
+    const businessActionReason = !tenant.business_id
+        ? 'business_id_missing'
+        : !facebookUserTokenPresent
+            ? 'facebook_user_token_missing'
+            : !businessScopeReady
+                ? 'business_management_missing'
+                : liveFacebookUserToken?.status !== 'valid'
+                    ? 'facebook_user_token_invalid'
+                    : !businessActivity
+                        ? 'business_api_evidence_missing'
+                        : null;
+    const whatsappDatasetAction = !tenant.dataset_id
+        ? 'save_dataset_id'
+        : !effectiveWhatsAppTokenPresent
+            ? 'connect_whatsapp_token'
+            : !eventsReady
+                ? 'send_test_event'
+                : null;
+    const remainingActions = [
+        evidence.post_management.ready ? null : {
+            key: 'pages_manage_posts',
+            label: 'إنشاء دليل pages_manage_posts',
+            status: evidence.post_management.partial ? 'action_required' : 'missing',
+            reason: 'أنشئ منشور اختبار من إدارة محتوى Facebook حتى يسجل النظام fb_post_created.',
+            action_path: '/portal/fb-content',
+        },
+        businessReady ? null : {
+            key: 'business_management',
+            label: 'إكمال دليل Business APIs',
+            status: businessConfigured ? 'action_required' : 'missing',
+            reason: businessActionReason === 'business_id_missing'
+                ? 'احفظ Business ID للعميل ثم افتح Business Manager لجلب معلوماته من Meta.'
+                : businessActionReason === 'business_api_evidence_missing'
+                    ? 'افتح Business Manager واضغط بحث لتسجيل نجاح فعلي من Meta.'
+                    : 'تحقق من Facebook user token وصلاحية business_management.',
+            action_path: '/business-manager',
+        },
+        evidence.partner_activity.ready ? null : {
+            key: 'manage_app_solution',
+            label: 'إثبات Manage App Solution',
+            status: partnerOperationalBlocked ? 'action_required' : evidence.partner_activity.partial ? 'action_required' : 'missing',
+            reason: partnerOperationalBlocked
+                ? 'آخر رد من Meta يشير إلى قيد تشغيلي في حساب Partner أو وصول الأصل، وليس نقص كود.'
+                : 'نفذ عملية ناجحة في Partner Solutions مثل جلب العملاء المُدارين أو WABA.',
+            action_path: '/partner-solutions',
+        },
+        eventsReady ? null : {
+            key: 'whatsapp_business_manage_events',
+            label: 'إرسال حدث WhatsApp Events API',
+            status: eventsConfigured ? 'action_required' : 'missing',
+            reason: whatsappDatasetAction === 'save_dataset_id'
+                ? 'احفظ Dataset ID من صفحة أحداث التحويل.'
+                : whatsappDatasetAction === 'send_test_event'
+                    ? 'أرسل حدث اختبار برقم هاتف صالح حتى يرجع fbtrace_id من Meta.'
+                    : 'تأكد من وجود WhatsApp access token صالح.',
+            action_path: '/portal/conversions',
+        },
+    ].filter(Boolean);
 
     const sections = {
         permissions: {
@@ -823,6 +900,14 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             linked_pages_ready: pagesWithToken.length,
             supported_actions: ['read_posts', 'create_posts', 'edit_posts', 'delete_posts', 'read_comments', 'reply_comments', 'hide_comments', 'delete_comments'],
             latest_activity: contentActivity || null,
+            post_management: {
+                status: evidence.post_management.ready ? 'ready' : evidence.post_management.partial ? 'action_required' : 'missing',
+                action_path: '/portal/fb-content',
+                last_success_at: evidence.post_management.last_success_at || null,
+            },
+            post_management_status: evidence.post_management.ready ? 'ready' : evidence.post_management.partial ? 'action_required' : 'missing',
+            post_management_action_path: '/portal/fb-content',
+            post_management_last_success_at: evidence.post_management.last_success_at || null,
             feed_comment_evidence: webhookEvidence.by_event_key['feed:comment:add'] || null,
             review_hint: contentReady
                 ? 'مسار إدارة المحتوى جاهز ويوجد دليل نشاط أو Webhook feed حقيقي.'
@@ -859,7 +944,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         feature_evidence: {
             key: 'feature_evidence',
             title: 'Feature Evidence',
-            status: readinessStatus(assetProfileReady && !!partnerActivity, messengerConfigured || businessReady || !!partnerFailure),
+            status: readinessStatus(assetProfileReady && !!partnerActivity, messengerConfigured || businessConfigured || !!partnerFailure),
             action_path: '/portal/meta-review',
             features: [
                 {
@@ -872,9 +957,11 @@ export const buildMetaReviewReadiness = async (tenantId) => {
                 {
                     key: 'manage_app_solution',
                     label: 'Manage App Solution',
-                    status: readinessStatus(!!partnerActivity && businessReady, businessReady || !!partnerFailure),
+                    status: readinessStatus(!!partnerActivity && businessConfigured, businessConfigured || !!partnerFailure),
                     last_success_at: partnerActivity?.created_at || null,
                     last_failure_at: partnerFailure?.created_at || null,
+                    operational_blocked: partnerOperationalBlocked,
+                    action_reason: partnerOperationalBlocked ? 'partner_operational_blocked' : 'partner_success_missing',
                     action_path: '/partner-solutions',
                 },
             ],
@@ -891,9 +978,14 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             business_id_present: !!tenant.business_id,
             facebook_user_token_present: facebookUserTokenPresent,
             live_token_status: liveFacebookUserToken?.status || 'unchecked',
+            last_success_at: businessActivity?.created_at || null,
+            last_failure_at: businessFailure?.created_at || null,
+            action_reason: businessActionReason,
+            latest_activity: businessActivity || null,
+            latest_failure: businessFailure || null,
             review_hint: businessReady
-                ? 'Business ID ورمز مستخدم Facebook وصلاحية business_management جاهزة لمسارات Business Manager.'
-                : 'يتطلب Business ID ورمز مستخدم Facebook صالح يحتوي business_management، ولا يتم استخدام WhatsApp token كبديل.',
+                ? 'Business ID ورمز مستخدم Facebook وصلاحية business_management جاهزة ويوجد دليل نجاح من Business Manager.'
+                : 'يتطلب Business ID ورمز مستخدم Facebook صالح يحتوي business_management، ثم نجاح فعلي من Business Manager.',
         },
         whatsapp_events: {
             key: 'whatsapp_events',
@@ -905,6 +997,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             dataset_id: tenant.dataset_id || null,
             tenant_whatsapp_token_present: tenantWhatsAppTokenPresent,
             effective_whatsapp_token_present: effectiveWhatsAppTokenPresent,
+            dataset_action: whatsappDatasetAction,
             events_total: conversionStats?.total || 0,
             events_sent: conversionStats?.sent || 0,
             events_failed: conversionStats?.failed || 0,
@@ -951,6 +1044,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             permissions_total_count: permission_matrix.length,
         },
         permission_matrix,
+        remaining_actions: remainingActions,
         webhook_evidence: webhookEvidence,
         ...sections,
     };
@@ -963,6 +1057,7 @@ export const saveMetaReviewSnapshot = (tenantId, readiness) => {
         tenant: readiness.tenant,
         overall: readiness.overall,
         permission_matrix: readiness.permission_matrix,
+        remaining_actions: readiness.remaining_actions,
         webhook_evidence: readiness.webhook_evidence,
         sections: {
             permissions: readiness.permissions,

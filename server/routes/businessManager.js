@@ -48,6 +48,26 @@ const requireBusinessAccessToken = (res, tenantId) => {
     return result.accessToken;
 };
 
+const logBusinessActivity = (tenantId, eventType, description, status = 'success') => {
+    if (!tenantId) return;
+    const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+    db.prepare(`
+        INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+        VALUES (?, ?, ?, ?, ?)
+    `).run(tenantId, tenant?.name || 'Unknown', eventType, description, status);
+};
+
+const classifyBusinessError = (error) => {
+    const message = error?.message || '';
+    if (error?.code === 100 || /Unsupported post request|does not exist|cannot be loaded/i.test(message)) {
+        return { code: 'BUSINESS_NOT_FOUND_OR_DENIED', label: 'Business غير موجود أو لا يملك المستخدم وصولا إليه' };
+    }
+    if (error?.type === 'OAuthException' || /permission|permissions|permission/i.test(message)) {
+        return { code: 'MISSING_PERMISSION', label: 'صلاحية business_management أو وصول الأصل غير كاف' };
+    }
+    return { code: 'META_ERROR', label: message || 'خطأ من Meta' };
+};
+
 // ============================================
 // Get Business Manager info
 // ============================================
@@ -70,23 +90,29 @@ router.get('/:businessId', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            const classified = classifyBusinessError(data.error);
+            logBusinessActivity(tenantId, 'business_info_failed', classified.label, 'error');
             // Permission error — return minimal info
             if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
                 return res.json({
                     id: businessId,
                     name: 'غير متاح',
-                    permission_error: 'صلاحيات محدودة — بعض المعلومات غير متاحة'
+                    permission_error: classified.label,
+                    reason_code: classified.code,
                 });
             }
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل جلب معلومات مدير الأعمال',
-                details: data.error
+                details: data.error,
+                reason_code: classified.code,
             });
         }
 
+        logBusinessActivity(tenantId, 'business_info_loaded', `جلب معلومات Business Manager: ${data.name || businessId}`, 'success');
         res.json(data);
     } catch (error) {
         console.error('[BusinessManager] Info error:', error);
+        logBusinessActivity(req.query.tenant_id, 'business_info_failed', error.message || 'فشل جلب معلومات مدير الأعمال', 'error');
         res.status(500).json({ error: 'فشل جلب معلومات مدير الأعمال' });
     }
 });
@@ -113,20 +139,25 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            const classified = classifyBusinessError(data.error);
+            logBusinessActivity(tenantId, 'business_ad_accounts_failed', classified.label, 'error');
             // If permission error, return empty list instead of failing
             if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
                 return res.json({
                     ad_accounts: [],
                     paging: null,
-                    permission_error: 'يحتاج صلاحية business_management للوصول للحسابات الإعلانية'
+                    permission_error: classified.label,
+                    reason_code: classified.code,
                 });
             }
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل جلب الحسابات الإعلانية',
-                details: data.error
+                details: data.error,
+                reason_code: classified.code,
             });
         }
 
+        logBusinessActivity(tenantId, 'business_ad_accounts_loaded', `جلب الحسابات الإعلانية: ${(data.data || []).length}`, 'success');
         res.json({
             ad_accounts: data.data || [],
             paging: data.paging || null
@@ -167,15 +198,20 @@ router.post('/:businessId/claim-ad-account', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            const classified = classifyBusinessError(data.error);
+            logBusinessActivity(tenant_id, 'business_ad_account_claim_failed', classified.label, 'error');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل المطالبة بالحساب الإعلاني',
-                details: data.error
+                details: data.error,
+                reason_code: classified.code,
             });
         }
 
+        logBusinessActivity(tenant_id, 'business_ad_account_claimed', `المطالبة بحساب إعلاني: ${adaccount_id}`, 'success');
         res.json({ success: true, data });
     } catch (error) {
         console.error('[BusinessManager] Claim ad account error:', error);
+        logBusinessActivity(req.body?.tenant_id, 'business_ad_account_claim_failed', error.message || 'فشل المطالبة بالحساب الإعلاني', 'error');
         res.status(500).json({ error: 'فشل المطالبة بالحساب الإعلاني' });
     }
 });
@@ -220,6 +256,16 @@ router.get('/:businessId/assets', async (req, res) => {
             parseSafe(wabaRes)
         ]);
 
+        const permissionErrors = [pagesData.permission_error, wabaData.permission_error].filter(Boolean);
+        logBusinessActivity(
+            tenantId,
+            permissionErrors.length ? 'business_assets_failed' : 'business_assets_loaded',
+            permissionErrors.length
+                ? permissionErrors.join(' | ')
+                : `جلب أصول Business Manager: صفحات ${(pagesData.data || []).length}، WABA ${(wabaData.data || []).length}`,
+            permissionErrors.length ? 'error' : 'success'
+        );
+
         res.json({
             pages: pagesData.data || [],
             whatsapp_accounts: wabaData.data || [],
@@ -230,6 +276,7 @@ router.get('/:businessId/assets', async (req, res) => {
         });
     } catch (error) {
         console.error('[BusinessManager] Assets error:', error);
+        logBusinessActivity(req.query.tenant_id, 'business_assets_failed', error.message || 'فشل جلب أصول الأعمال', 'error');
         res.status(500).json({ error: 'فشل جلب أصول الأعمال' });
     }
 });

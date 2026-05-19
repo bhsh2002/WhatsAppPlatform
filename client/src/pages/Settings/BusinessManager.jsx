@@ -21,6 +21,7 @@ const BusinessManager = () => {
     const [activeTab, setActiveTab] = useState('info');
     const [claimAdAccountId, setClaimAdAccountId] = useState('');
     const [claimLoading, setClaimLoading] = useState(false);
+    const [savingBusinessId, setSavingBusinessId] = useState(false);
 
     useEffect(() => {
         const loadTenants = async () => {
@@ -60,6 +61,7 @@ const BusinessManager = () => {
     })();
     const hasBusinessToken = !!selectedTenantData?.facebook_user_access_token_encrypted || selectedTenantData?.facebook_user_token_status === 'valid' || businessScopes.length > 0;
     const hasBusinessManagement = businessScopes.includes('business_management');
+    const businessIdSaved = !!selectedTenantData?.business_id && String(selectedTenantData.business_id) === String(businessId).trim();
 
     const handleSearch = async () => {
         if (!businessId.trim() || !selectedTenant) return;
@@ -84,6 +86,26 @@ const BusinessManager = () => {
             setError(err.message || 'فشل جلب البيانات');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSaveBusinessId = async () => {
+        if (!selectedTenant || !businessId.trim()) return;
+        try {
+            setSavingBusinessId(true);
+            setError('');
+            const result = await api.updateTenantMetaSettings(selectedTenant, { business_id: businessId.trim() });
+            setTenants(prev => prev.map(tenant => (
+                String(tenant.id) === String(selectedTenant)
+                    ? { ...tenant, business_id: result.tenant?.business_id || businessId.trim() }
+                    : tenant
+            )));
+            setSuccess('تم حفظ Business ID لهذا العميل');
+            await handleSearch();
+        } catch (err) {
+            setError(err.message || 'فشل حفظ Business ID');
+        } finally {
+            setSavingBusinessId(false);
         }
     };
 
@@ -127,11 +149,24 @@ const BusinessManager = () => {
                     </FormControl>
                     <TextField fullWidth label="معرف مدير الأعمال (Business ID)" value={businessId}
                         onChange={e => setBusinessId(e.target.value)} placeholder="أدخل Business ID" size="small" />
+                    <Button
+                        variant="outlined"
+                        onClick={handleSaveBusinessId}
+                        disabled={savingBusinessId || !businessId.trim() || !selectedTenant || businessIdSaved}
+                        sx={{ minWidth: 150 }}
+                    >
+                        {savingBusinessId ? <CircularProgress size={18} /> : 'حفظ Business ID'}
+                    </Button>
                     <Button variant="contained" startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}
                         onClick={handleSearch} disabled={loading || !businessId.trim() || !selectedTenant} sx={{ minWidth: 120 }}>
                         بحث
                     </Button>
                 </Box>
+                {!businessIdSaved && businessId.trim() && selectedTenant && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        هذا Business ID غير محفوظ لهذا العميل بعد. احفظه أولا حتى يظهر في Meta Review.
+                    </Alert>
+                )}
                 <Alert severity={hasBusinessToken && hasBusinessManagement ? 'success' : 'warning'} sx={{ mt: 2 }}>
                     {hasBusinessToken && hasBusinessManagement
                         ? 'العميل المحدد لديه Facebook user token مع business_management حسب البيانات المخزنة.'

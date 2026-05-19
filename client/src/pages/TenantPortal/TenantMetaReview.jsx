@@ -284,7 +284,10 @@ const TenantMetaReview = () => {
                 actionLabel: 'إعادة التفويض',
                 actionPath: readiness.permissions?.action_path,
                 metrics: [
-                    { label: 'الممنوحة', value: `${readiness.permissions?.granted_scopes?.length || 0}/${readiness.permissions?.requested_scopes?.length || 0}` },
+                    {
+                        label: 'Facebook requested / granted total',
+                        value: `${readiness.permissions?.requested_scopes?.length || 0} / ${readiness.permissions?.granted_scopes?.length || 0}`,
+                    },
                     { label: 'آخر تفويض', value: formatDate(readiness.permissions?.facebook_user_token_updated_at) },
                 ],
             },
@@ -473,6 +476,49 @@ const TenantMetaReview = () => {
                         </Box>
                     </Paper>
 
+                    {readiness.remaining_actions?.length > 0 && (
+                        <Paper sx={{ p: 3, mb: 3 }}>
+                            <Typography variant="h6" fontWeight={700} gutterBottom>
+                                الأشياء المتبقية
+                            </Typography>
+                            <Stack spacing={1.5}>
+                                {readiness.remaining_actions.map(item => (
+                                    <Box
+                                        key={item.key}
+                                        sx={{
+                                            display: 'flex',
+                                            flexDirection: { xs: 'column', md: 'row' },
+                                            justifyContent: 'space-between',
+                                            alignItems: { xs: 'flex-start', md: 'center' },
+                                            gap: 2,
+                                            border: 1,
+                                            borderColor: 'divider',
+                                            borderRadius: 1,
+                                            p: 1.5,
+                                        }}
+                                    >
+                                        <Box>
+                                            <Typography variant="subtitle2" fontWeight={700}>{item.label}</Typography>
+                                            <Typography variant="body2" color="text.secondary">{item.reason}</Typography>
+                                        </Box>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <StatusChip status={item.status} />
+                                            <Button
+                                                component={RouterLink}
+                                                to={item.action_path}
+                                                size="small"
+                                                variant="outlined"
+                                                endIcon={<OpenInNewIcon />}
+                                            >
+                                                فتح
+                                            </Button>
+                                        </Stack>
+                                    </Box>
+                                ))}
+                            </Stack>
+                        </Paper>
+                    )}
+
                     {snapshots.length > 0 && (
                         <Paper sx={{ p: 3, mb: 3 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
@@ -565,6 +611,11 @@ const TenantMetaReview = () => {
                                                         <Typography variant="caption" color="text.secondary">
                                                             آخر نجاح: {formatDate(feature.last_success_at)}
                                                         </Typography>
+                                                        {feature.operational_blocked && (
+                                                            <Typography variant="caption" color="warning.main" component="div">
+                                                                قيد تشغيلي من Meta أو حساب Partner
+                                                            </Typography>
+                                                        )}
                                                     </Box>
                                                     <StatusChip status={feature.status} />
                                                 </Box>

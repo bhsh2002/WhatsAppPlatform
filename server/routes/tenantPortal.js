@@ -2262,10 +2262,77 @@ router.delete('/qr-codes/:qrCodeId', async (req, res) => {
 // ============================================
 // Conversions (Tenant)
 // ============================================
+router.get('/conversions/datasets', async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const tenant = db.prepare('SELECT waba_id FROM tenants WHERE id = ?').get(tenantId);
+        const accessToken = getAccessToken(tenantId);
+
+        if (!tenant?.waba_id) {
+            return res.status(400).json({ error: 'WABA ID غير متوفر لهذا العميل' });
+        }
+        if (!accessToken) {
+            return res.status(400).json({ error: 'بيانات اعتماد WhatsApp/Meta مفقودة' });
+        }
+
+        const response = await fetch(`${META_API_BASE}/${tenant.waba_id}/dataset`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                error: data.error?.message || 'فشل جلب Datasets من Meta',
+                details: data.error,
+            });
+        }
+
+        res.json({
+            waba_id: tenant.waba_id,
+            datasets: Array.isArray(data.data) ? data.data : [data].filter(item => item?.id),
+        });
+    } catch (error) {
+        console.error('[TenantPortal] Conversion datasets error:', error);
+        res.status(500).json({ error: 'فشل جلب Datasets' });
+    }
+});
+
+router.patch('/meta-settings', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { dataset_id } = req.body;
+        const tenant = db.prepare('SELECT id, name FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+
+        if (!('dataset_id' in req.body)) {
+            return res.status(400).json({ error: 'dataset_id مطلوب' });
+        }
+
+        const normalizedDatasetId = dataset_id === null ? null : String(dataset_id || '').trim();
+        db.prepare(`
+            UPDATE tenants
+            SET dataset_id = ?, updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `).run(normalizedDatasetId || null, tenantId);
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'meta_settings_updated', 'تحديث Dataset ID لأحداث WhatsApp', 'success')
+        `).run(tenantId, tenant.name);
+
+        res.json({ success: true, dataset_id: normalizedDatasetId || null });
+    } catch (error) {
+        console.error('[TenantPortal] Meta settings update error:', error);
+        res.status(500).json({ error: 'فشل تحديث إعدادات Meta' });
+    }
+});
+
 router.get('/conversions/history', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const tenant = db.prepare('SELECT dataset_id, access_token, access_token_encrypted FROM tenants WHERE id = ?').get(tenantId);
+        const tenant = db.prepare('SELECT dataset_id, waba_id, access_token, access_token_encrypted FROM tenants WHERE id = ?').get(tenantId);
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
 
@@ -2316,6 +2383,7 @@ router.get('/conversions/history', (req, res) => {
             offset,
             stats,
             dataset_id: tenant?.dataset_id || null,
+            waba_id: tenant?.waba_id || null,
             whatsapp_token_present: !!getAccessToken(tenantId),
             tenant_whatsapp_token_present: !!(tenant?.access_token || tenant?.access_token_encrypted),
             events_api_ready: !!tenant?.dataset_id && !!getAccessToken(tenantId),

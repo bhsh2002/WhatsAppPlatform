@@ -32,6 +32,11 @@ const TenantConversions = () => {
     const [events, setEvents] = useState([]);
     const [stats, setStats] = useState(null);
     const [datasetId, setDatasetId] = useState(tenant?.dataset_id || null);
+    const [datasetInput, setDatasetInput] = useState(tenant?.dataset_id || '');
+    const [wabaId, setWabaId] = useState(tenant?.waba_id || null);
+    const [datasets, setDatasets] = useState([]);
+    const [datasetsLoading, setDatasetsLoading] = useState(false);
+    const [datasetSaving, setDatasetSaving] = useState(false);
     const [eventsApiReady, setEventsApiReady] = useState(!!tenant?.dataset_id);
     const [whatsappTokenPresent, setWhatsappTokenPresent] = useState(false);
     const [lastSuccess, setLastSuccess] = useState(null);
@@ -52,6 +57,8 @@ const TenantConversions = () => {
             setEvents(data.events || []);
             setStats(data.stats || null);
             setDatasetId(data.dataset_id || tenant?.dataset_id || null);
+            setDatasetInput(data.dataset_id || tenant?.dataset_id || '');
+            setWabaId(data.waba_id || tenant?.waba_id || null);
             setEventsApiReady(!!data.events_api_ready);
             setWhatsappTokenPresent(!!data.whatsapp_token_present);
             setLastSuccess(data.last_success || null);
@@ -61,7 +68,7 @@ const TenantConversions = () => {
         } finally {
             setLoading(false);
         }
-    }, [tenant?.dataset_id]);
+    }, [tenant?.dataset_id, tenant?.waba_id]);
 
     useEffect(() => { loadData(); }, [loadData]);
 
@@ -87,6 +94,40 @@ const TenantConversions = () => {
             setError(err.message || 'فشل تسجيل الحدث');
         } finally {
             setLogging(false);
+        }
+    };
+
+    const handleLoadDatasets = async () => {
+        try {
+            setDatasetsLoading(true);
+            setError('');
+            const data = await api.getPortalConversionDatasets();
+            setDatasets(data.datasets || []);
+            if (!datasetInput && data.datasets?.[0]?.id) {
+                setDatasetInput(data.datasets[0].id);
+            }
+            if (!data.datasets?.length) {
+                setSuccess('لم ترجع Meta أي Dataset لهذا WABA. يمكنك إدخال Dataset ID يدويا.');
+            }
+        } catch (err) {
+            setError(err.message || 'فشل جلب Datasets من Meta. يمكنك إدخال Dataset ID يدويا.');
+        } finally {
+            setDatasetsLoading(false);
+        }
+    };
+
+    const handleSaveDataset = async () => {
+        try {
+            setDatasetSaving(true);
+            setError('');
+            const data = await api.updatePortalMetaSettings({ dataset_id: datasetInput.trim() || null });
+            setDatasetId(data.dataset_id || null);
+            setSuccess(data.dataset_id ? 'تم حفظ Dataset ID' : 'تم مسح Dataset ID');
+            await loadData();
+        } catch (err) {
+            setError(err.message || 'فشل حفظ Dataset ID');
+        } finally {
+            setDatasetSaving(false);
         }
     };
 
@@ -151,6 +192,68 @@ const TenantConversions = () => {
                     {lastFailure?.fbtrace_id ? ` | fbtrace_id: ${lastFailure.fbtrace_id}` : ''}
                 </Typography>
             </Alert>
+
+            <Paper sx={{ p: 3, mb: 3 }}>
+                <Typography variant="h6" fontWeight={700} gutterBottom>
+                    إعداد Dataset ID
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    WABA ID: {wabaId || 'غير محدد'} — يجب حفظ Dataset ID ثم إرسال حدث ناجح حتى تصبح WhatsApp Events API جاهزة في Meta Review.
+                </Typography>
+                <Grid container spacing={2} alignItems="center">
+                    <Grid size={{ xs: 12, md: 5 }}>
+                        <TextField
+                            fullWidth
+                            size="small"
+                            label="Dataset ID"
+                            value={datasetInput}
+                            onChange={e => setDatasetInput(e.target.value)}
+                            placeholder="أدخل Dataset ID أو اختره من القائمة"
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 3 }}>
+                        <TextField
+                            fullWidth
+                            select
+                            size="small"
+                            label="Datasets من Meta"
+                            value=""
+                            disabled={!datasets.length}
+                            onChange={e => setDatasetInput(e.target.value)}
+                        >
+                            <MenuItem value="" disabled>{datasets.length ? 'اختر Dataset' : 'لا توجد بيانات محملة'}</MenuItem>
+                            {datasets.map(dataset => (
+                                <MenuItem key={dataset.id} value={dataset.id}>
+                                    {dataset.name || dataset.id}
+                                </MenuItem>
+                            ))}
+                        </TextField>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 4 }}>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Button
+                                variant="outlined"
+                                onClick={handleLoadDatasets}
+                                disabled={datasetsLoading || !wabaId}
+                            >
+                                {datasetsLoading ? <CircularProgress size={18} /> : 'جلب Datasets'}
+                            </Button>
+                            <Button
+                                variant="contained"
+                                onClick={handleSaveDataset}
+                                disabled={datasetSaving}
+                            >
+                                {datasetSaving ? <CircularProgress size={18} color="inherit" /> : 'حفظ Dataset ID'}
+                            </Button>
+                        </Box>
+                    </Grid>
+                </Grid>
+                {datasetId && (
+                    <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
+                        Dataset الحالي المحفوظ: {datasetId}
+                    </Typography>
+                )}
+            </Paper>
 
             {stats?.eventBreakdown?.length > 0 && (
                 <Paper sx={{ p: 3, mb: 3 }}>

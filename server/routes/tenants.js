@@ -69,6 +69,56 @@ router.post('/:id/check-token', async (req, res) => {
     }
 });
 
+// Update non-secret Meta settings used by review readiness.
+router.patch('/:id/meta-settings', (req, res) => {
+    try {
+        const tenantId = req.params.id;
+        const existing = db.prepare('SELECT id, name FROM tenants WHERE id = ?').get(tenantId);
+        if (!existing) {
+            return res.status(404).json({ error: 'Tenant not found' });
+        }
+
+        const allowedFields = ['business_id', 'dataset_id'];
+        const setClauses = [];
+        const values = [];
+        const changed = [];
+
+        for (const field of allowedFields) {
+            if (field in req.body) {
+                const value = req.body[field] === null ? null : String(req.body[field] || '').trim();
+                setClauses.push(`${field} = ?`);
+                values.push(value || null);
+                changed.push(field);
+            }
+        }
+
+        if (setClauses.length === 0) {
+            return res.status(400).json({ error: 'No Meta settings to update' });
+        }
+
+        setClauses.push("updated_at = datetime('now', 'localtime')");
+        values.push(tenantId);
+
+        db.prepare(`UPDATE tenants SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'meta_settings_updated', ?, 'success')
+        `).run(tenantId, existing.name, `تحديث إعدادات Meta: ${changed.join(', ')}`);
+
+        const updated = db.prepare(`
+            SELECT id, name, business_id, dataset_id, updated_at
+            FROM tenants
+            WHERE id = ?
+        `).get(tenantId);
+
+        res.json({ success: true, tenant: updated, updated_fields: changed });
+    } catch (error) {
+        console.error('Error updating Meta settings:', error);
+        res.status(500).json({ error: 'Failed to update Meta settings' });
+    }
+});
+
 // ============================================
 // Dynamic routes — after static routes
 // ============================================

@@ -149,6 +149,13 @@ class ApiService {
         });
     }
 
+    async updateTenantMetaSettings(id, data) {
+        return this.request(`/api/tenants/${id}/meta-settings`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
     async deleteTenant(id) {
         return this.request(`/api/tenants/${id}`, {
             method: 'DELETE',
@@ -535,6 +542,17 @@ class ApiService {
 
     async getPortalConversionHistory() {
         return this.request('/api/portal/conversions/history');
+    }
+
+    async getPortalConversionDatasets() {
+        return this.request('/api/portal/conversions/datasets');
+    }
+
+    async updatePortalMetaSettings(data) {
+        return this.request('/api/portal/meta-settings', {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
     }
 
     async logPortalConversionEvent(data) {
