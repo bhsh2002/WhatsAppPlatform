@@ -1,6 +1,6 @@
 import express from 'express';
-import FormData from 'form-data';
 import fs from 'fs';
+import { Blob } from 'buffer';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
@@ -50,6 +50,15 @@ const graphPostForm = async (path, accessToken, params = {}) => {
         },
         body,
     });
+};
+
+const buildNativeFileForm = (file, caption) => {
+    const form = new globalThis.FormData();
+    const buffer = fs.readFileSync(file.path);
+    const blob = new Blob([buffer], { type: file.mimetype || 'application/octet-stream' });
+    form.append('source', blob, file.originalname || 'photo.jpg');
+    if (caption) form.append('caption', caption);
+    return form;
 };
 
 const normalizeLimit = (value, fallback = 25, max = 100) => {
@@ -196,15 +205,12 @@ router.post('/:linkedPageId/posts/photo', simpleUpload.single('source'), async (
 
         if (isFileUpload) {
             filePath = req.file.path;
-            const form = new FormData();
-            form.append('source', fs.createReadStream(filePath), req.file.originalname || 'photo.jpg');
-            if (caption) form.append('caption', caption);
+            const form = buildNativeFileForm(req.file, caption);
 
             apiResponse = await fetch(`${META_API_BASE}/${page.page_id}/photos`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
-                    ...form.getHeaders(),
                 },
                 body: form,
             });

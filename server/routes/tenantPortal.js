@@ -3,6 +3,7 @@ import db, { generateApiKey } from '../db/database.js';
 import crypto from 'crypto';
 import FormData from 'form-data';
 import fs from 'fs';
+import { Blob } from 'buffer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { META_API_BASE, META_APP_ID, META_APP_SECRET, FACEBOOK_REDIRECT_URI, WA_EMBEDDED_SIGNUP_CONFIG_ID, META_API_VERSION } from '../config/index.js';
@@ -2900,6 +2901,15 @@ const graphPostForm = async (path, accessToken, params = {}) => {
     });
 };
 
+const buildNativeFileForm = (file, caption) => {
+    const form = new globalThis.FormData();
+    const buffer = fs.readFileSync(file.path);
+    const blob = new Blob([buffer], { type: file.mimetype || 'application/octet-stream' });
+    form.append('source', blob, file.originalname || 'photo.jpg');
+    if (caption) form.append('caption', caption);
+    return form;
+};
+
 const normalizeLimit = (value, fallback = 25, max = 100) => {
     const parsed = parseInt(value, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -3039,15 +3049,12 @@ router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source
 
         if (isFileUpload) {
             filePath = req.file.path;
-            const form = new FormData();
-            form.append('source', fs.createReadStream(filePath), req.file.originalname || 'photo.jpg');
-            if (caption) form.append('caption', caption);
+            const form = buildNativeFileForm(req.file, caption);
 
             apiResponse = await fetch(`${META_API_BASE}/${page.page_id}/photos`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
-                    ...form.getHeaders(),
                 },
                 body: form,
             });
