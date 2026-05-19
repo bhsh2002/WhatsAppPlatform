@@ -163,7 +163,8 @@ router.get('/me', authMiddleware, (req, res) => {
 
         res.json({ user, tenant });
     } catch (error) {
-        return res.status(401).json({ error: 'رمز غير صالح' });
+        console.error('[Auth] Me error:', error);
+        return res.status(500).json({ error: 'فشل جلب بيانات الجلسة' });
     }
 });
 

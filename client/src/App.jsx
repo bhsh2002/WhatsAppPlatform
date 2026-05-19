@@ -33,6 +33,7 @@ import TenantContacts from './pages/TenantPortal/TenantContacts';
 import TenantBroadcast from './pages/TenantPortal/TenantBroadcast';
 import TenantInbox from './pages/TenantPortal/TenantInbox';
 import TenantFacebookPages from './pages/TenantPortal/TenantFacebookPages';
+import TenantWhatsAppConnect from './pages/TenantPortal/TenantWhatsAppConnect';
 import TenantContentManager from './pages/TenantPortal/TenantContentManager';
 import TenantAutomation from './pages/TenantPortal/TenantAutomation';
 import TenantFbInsights from './pages/TenantPortal/TenantFbInsights';
@@ -363,6 +364,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantBroadcast /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/whatsapp-connect"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantWhatsAppConnect /></MainLayout>
           </ProtectedRoute>
         }
       />

@@ -108,6 +108,7 @@ const Sidebar = () => {
             title: 'WhatsApp',
             color: '#25D366',
             items: [
+                { label: 'ربط WhatsApp', path: '/portal/whatsapp-connect', icon: <WhatsAppIcon /> },
                 { label: 'جهات اتصال WhatsApp', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
                 { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
                 { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },

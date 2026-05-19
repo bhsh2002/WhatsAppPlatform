@@ -3,6 +3,40 @@ import api from '../api';
 
 const AuthContext = createContext();
 
+const AUTH_TOKEN_KEY = 'auth_token';
+const AUTH_USER_KEY = 'auth_user';
+const AUTH_TENANT_KEY = 'auth_tenant';
+
+const readCachedSession = () => {
+    try {
+        const cachedUser = localStorage.getItem(AUTH_USER_KEY);
+        const cachedTenant = localStorage.getItem(AUTH_TENANT_KEY);
+        return {
+            user: cachedUser ? JSON.parse(cachedUser) : null,
+            tenant: cachedTenant ? JSON.parse(cachedTenant) : null,
+        };
+    } catch {
+        return { user: null, tenant: null };
+    }
+};
+
+const writeCachedSession = (user, tenant) => {
+    if (user) {
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    }
+    if (tenant) {
+        localStorage.setItem(AUTH_TENANT_KEY, JSON.stringify(tenant));
+    } else {
+        localStorage.removeItem(AUTH_TENANT_KEY);
+    }
+};
+
+const clearStoredSession = () => {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(AUTH_TENANT_KEY);
+};
+
 // eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);
 
@@ -14,8 +48,9 @@ export const AuthProvider = ({ children }) => {
 
     // Check if user is logged in on mount
     useEffect(() => {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem(AUTH_TOKEN_KEY);
         if (token) {
+            api.setAuthToken(token);
             verifyToken(token);
         } else {
             setLoading(false);
@@ -29,11 +64,27 @@ export const AuthProvider = ({ children }) => {
             setUser(data.user);
             setTenant(data.tenant || null);
             api.setAuthToken(token);
+            writeCachedSession(data.user, data.tenant || null);
         } catch (err) {
             console.error('Token verification failed:', err);
-            localStorage.removeItem('auth_token');
-            setUser(null);
-            setTenant(null);
+            if (err.status === 401 || err.status === 403) {
+                clearStoredSession();
+                api.setAuthToken(null);
+                setUser(null);
+                setTenant(null);
+            } else {
+                const cached = readCachedSession();
+                if (cached.user) {
+                    setUser(cached.user);
+                    setTenant(cached.tenant || null);
+                    api.setAuthToken(token);
+                    setError('تعذر التحقق من الجلسة حالياً. سيتم استخدام آخر جلسة محفوظة حتى يستجيب الخادم.');
+                } else {
+                    setUser(null);
+                    setTenant(null);
+                    setError('تعذر التحقق من الجلسة حالياً. أعد تحميل الصفحة عند توفر الخادم.');
+                }
+            }
         } finally {
             setLoading(false);
         }
@@ -45,10 +96,11 @@ export const AuthProvider = ({ children }) => {
             setLoading(true);
             const data = await api.login(username, password);
 
-            localStorage.setItem('auth_token', data.token);
+            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
             api.setAuthToken(data.token);
             setUser(data.user);
             setTenant(data.tenant || null);
+            writeCachedSession(data.user, data.tenant || null);
 
             return { success: true };
         } catch (err) {
@@ -65,10 +117,11 @@ export const AuthProvider = ({ children }) => {
             setLoading(true);
             const data = await api.register(userData);
 
-            localStorage.setItem('auth_token', data.token);
+            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
             api.setAuthToken(data.token);
             setUser(data.user);
             setTenant(data.tenant || null);
+            writeCachedSession(data.user, data.tenant || null);
 
             return { success: true };
         } catch (err) {
@@ -80,7 +133,7 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const logout = useCallback(() => {
-        localStorage.removeItem('auth_token');
+        clearStoredSession();
         api.setAuthToken(null);
         setUser(null);
         setTenant(null);
@@ -118,4 +171,3 @@ export const AuthProvider = ({ children }) => {
         </AuthContext.Provider>
     );
 };
-

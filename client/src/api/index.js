@@ -62,10 +62,21 @@ class ApiService {
 
         try {
             const response = await fetch(url, config);
-            const data = await response.json();
+            const text = await response.text();
+            let data = {};
+            if (text) {
+                try {
+                    data = JSON.parse(text);
+                } catch {
+                    data = { error: text };
+                }
+            }
 
             if (!response.ok) {
-                throw new Error(data.error || `HTTP ${response.status}`);
+                const error = new Error(data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                error.data = data;
+                throw error;
             }
 
             return data;
