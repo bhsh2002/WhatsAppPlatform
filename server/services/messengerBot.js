@@ -180,6 +180,24 @@ function getFlowNode(flowId, nodeKey = 'start') {
     `).get(flowId, nodeKey);
 }
 
+function getFlowProductListNode(flowId, tenantId) {
+    if (!flowId) return null;
+    return db.prepare(`
+        SELECT f.*, n.id AS node_id, n.node_key, n.node_type, n.title, n.body, n.config_json
+        FROM bot_flows f
+        JOIN bot_flow_nodes n ON n.flow_id = f.id
+        WHERE f.id = ?
+          AND f.tenant_id = ?
+          AND f.status = 'active'
+          AND n.node_type = 'product_list'
+        ORDER BY
+          CASE WHEN n.node_key = 'products' THEN 0 ELSE 1 END,
+          n.sort_order ASC,
+          n.id ASC
+        LIMIT 1
+    `).get(flowId, tenantId);
+}
+
 function attachProductImages(products = []) {
     const rows = Array.isArray(products) ? products : [products].filter(Boolean);
     if (!rows.length) return Array.isArray(products) ? [] : null;
@@ -1000,6 +1018,23 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
         const parts = value.split(':');
         const category = parts[2] || null;
         const detailConfig = parseJson(session.context_json, {}).product_detail_config || {};
+        const configuredProductNode = getFlowProductListNode(session.active_flow_id, conversation.tenant_id);
+        if (configuredProductNode) {
+            const configuredProductNodeConfig = parseJson(configuredProductNode.config_json, {});
+            return renderNode({
+                linkedPage,
+                conversation,
+                session,
+                node: {
+                    ...configuredProductNode,
+                    config_json: serializeJson({
+                        ...configuredProductNodeConfig,
+                        category: category || configuredProductNodeConfig.category || null,
+                    }),
+                },
+                context: { category },
+            });
+        }
         return renderNode({
             linkedPage,
             conversation,

@@ -395,12 +395,17 @@ function buildTemplate(templateKey) {
             nodes: [{
                 ...emptyNode(0),
                 node_type: 'service_menu',
-                include_products_reply: true,
+                include_products_reply: false,
                 body: 'اختر الخدمة المناسبة.',
                 buttons: [
-                    { ...emptyButton, title: 'عرض المنتجات', action: 'products' },
+                    { ...emptyButton, title: 'عرض المنتجات', action: 'node', node_key: 'products' },
                     { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
                 ],
+            }, {
+                ...emptyNode(1),
+                node_key: 'products',
+                node_type: 'product_list',
+                body: 'هذه المنتجات المتاحة حاليا.',
             }],
         };
     }
@@ -416,9 +421,14 @@ function buildTemplate(templateKey) {
                 node_type: 'quick_replies',
                 body: 'لم أفهم طلبك بدقة. اختر أحد الخيارات.',
                 buttons: [
-                    { ...emptyButton, title: 'المنتجات', action: 'products' },
+                    { ...emptyButton, title: 'المنتجات', action: 'node', node_key: 'products' },
                     { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
                 ],
+            }, {
+                ...emptyNode(1),
+                node_key: 'products',
+                node_type: 'product_list',
+                body: 'هذه المنتجات المتاحة حاليا.',
             }],
         };
     }
@@ -441,10 +451,10 @@ function buildTemplate(templateKey) {
         nodes: [{
             ...emptyNode(0),
             node_type: 'service_menu',
-            include_products_reply: true,
+            include_products_reply: false,
             body: 'مرحبا، كيف يمكننا مساعدتك؟',
             buttons: [
-                { ...emptyButton, title: 'عرض المنتجات', action: 'products' },
+                { ...emptyButton, title: 'عرض المنتجات', action: 'node', node_key: 'products' },
                 { ...emptyButton, title: 'الخدمات', action: 'node', node_key: 'services' },
                 { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
             ],
@@ -454,9 +464,14 @@ function buildTemplate(templateKey) {
             node_type: 'quick_replies',
             body: 'اختر نوع الخدمة.',
             buttons: [
-                { ...emptyButton, title: 'المنتجات', action: 'products' },
+                { ...emptyButton, title: 'المنتجات', action: 'node', node_key: 'products' },
                 { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
             ],
+        }, {
+            ...emptyNode(2),
+            node_key: 'products',
+            node_type: 'product_list',
+            body: 'هذه المنتجات المتاحة حاليا.',
         }],
     };
 }
@@ -1559,9 +1574,16 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                         </TextField>
                                                                     </Grid>
                                                                     {button.action === 'products' && (
-                                                                        <Grid size={{ xs: 12, md: 3 }}>
-                                                                            <TextField fullWidth size="small" label="تصنيف اختياري" value={button.category} onChange={e => updateButton(nodeIndex, buttonIndex, { category: e.target.value })} />
-                                                                        </Grid>
+                                                                        <>
+                                                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                                                <TextField fullWidth size="small" label="تصنيف اختياري" value={button.category} onChange={e => updateButton(nodeIndex, buttonIndex, { category: e.target.value })} />
+                                                                            </Grid>
+                                                                            <Grid size={{ xs: 12 }}>
+                                                                                <Alert severity="info" sx={{ py: 0 }}>
+                                                                                    هذا اختصار عام. للتحكم الكامل في البطاقات والتفاصيل، استخدم فعل “الانتقال لخطوة” واختر خطوة من نوع “قائمة منتجات”.
+                                                                                </Alert>
+                                                                            </Grid>
+                                                                        </>
                                                                     )}
                                                                     {button.action === 'node' && (
                                                                         <Grid size={{ xs: 12, md: 3 }}>
