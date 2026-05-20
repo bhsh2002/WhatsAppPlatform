@@ -128,6 +128,8 @@ const BillingManager = () => {
         () => tenants.find((tenant) => String(tenant.id) === String(selectedTenantId)),
         [tenants, selectedTenantId],
     );
+    const latestMetaSnapshot = metaComparison?.latest_snapshot || metaSnapshots[0] || null;
+    const metaDisplayCurrency = latestMetaSnapshot?.currency || metaSummary?.by_category?.[0]?.currency || '';
 
     const fetchAll = async () => {
         try {
@@ -681,20 +683,20 @@ const BillingManager = () => {
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, md: 3 }}>
                         <StatCard
-                            title="تكلفة Meta المؤكدة"
-                            value={money(metaSummary?.totals?.final_amount, metaSummary?.by_category?.[0]?.currency)}
+                            title="تكلفة Meta من آخر مزامنة"
+                            value={money(latestMetaSnapshot?.meta_cost_amount, metaDisplayCurrency)}
                             icon={<InvoiceIcon />}
                             color="error"
-                            caption="من status delivered/read"
+                            caption={latestMetaSnapshot ? `${latestMetaSnapshot.period_start} → ${latestMetaSnapshot.period_end}` : 'لم تتم مزامنة الاستهلاك بعد'}
                         />
                     </Grid>
                     <Grid size={{ xs: 12, md: 3 }}>
                         <StatCard
-                            title="تكلفة Meta التقديرية"
-                            value={money(metaSummary?.totals?.estimated_amount, metaSummary?.by_category?.[0]?.currency)}
+                            title="تكلفة محلية مؤكدة"
+                            value={money(metaSummary?.totals?.final_amount, metaDisplayCurrency)}
                             icon={<PriceIcon />}
                             color="warning"
-                            caption="من rate card المخزن"
+                            caption="من usage events وstatus delivered/read"
                         />
                     </Grid>
                     <Grid size={{ xs: 12, md: 3 }}>

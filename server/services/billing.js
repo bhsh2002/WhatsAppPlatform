@@ -1674,9 +1674,12 @@ export async function syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, 
         throw new BillingError('نطاق التاريخ غير صالح', { status: 400, code: 'INVALID_PERIOD' });
     }
 
-    const messageGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAY' : 'MONTH';
-    const conversationGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAILY' : 'MONTHLY';
-    const pricingGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAILY' : 'MONTHLY';
+    const requestedGranularity = String(granularity || 'MONTHLY').toUpperCase();
+    // Meta pricing_analytics can return empty aggregates for MONTHLY in some WABAs.
+    // Pull daily points and aggregate locally so monthly comparisons stay reliable.
+    const messageGranularity = 'DAY';
+    const conversationGranularity = 'DAILY';
+    const pricingGranularity = 'DAILY';
     const analyticsField = `analytics.start(${startTs}).end(${endTs}).granularity(${messageGranularity})`;
     const pricingField = `pricing_analytics.start(${startTs}).end(${endTs}).granularity(${pricingGranularity}).phone_numbers([]).dimensions(["PRICING_CATEGORY","PRICING_TYPE","COUNTRY","PHONE","TIER"])`;
     const conversationField = `conversation_analytics.start(${startTs}).end(${endTs}).granularity(${conversationGranularity}).phone_numbers([]).metric_types(["COST","CONVERSATION"]).dimensions(["CONVERSATION_CATEGORY","CONVERSATION_TYPE","COUNTRY","PHONE"])`;
@@ -1713,6 +1716,8 @@ export async function syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, 
         message_analytics_ok: messagesOk,
         pricing_analytics_ok: pricingOk,
         conversation_analytics_ok: conversationsOk,
+        requested_granularity: requestedGranularity,
+        fetched_granularity: 'DAILY',
         pricing_volume: pricingTotals.volume,
         pricing_breakdown: pricingTotals.by_category_type,
         local,
