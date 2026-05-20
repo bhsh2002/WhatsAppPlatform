@@ -1,0 +1,98 @@
+const SUPPORTED_WHATSAPP_BUSINESS_EVENTS = [
+    'Purchase',
+    'LeadSubmitted',
+    'InitiateCheckout',
+    'AddToCart',
+    'ViewContent',
+    'OrderCreated',
+    'OrderShipped',
+];
+
+export { SUPPORTED_WHATSAPP_BUSINESS_EVENTS };
+
+export function normalizePhone(value) {
+    return value ? String(value).replace(/[^\d]/g, '') : '';
+}
+
+export function normalizeCtwaClid(value) {
+    return value ? String(value).trim() : '';
+}
+
+export function parseCustomData(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+export function getLatestCtwaAttribution(db, tenantId, phone) {
+    const normalizedPhone = normalizePhone(phone);
+    if (!tenantId || !normalizedPhone) return null;
+
+    return db.prepare(`
+        SELECT last_ctwa_clid, last_ctwa_source_id, last_ctwa_source_type,
+               last_ctwa_source_url, last_ctwa_received_at
+        FROM contacts
+        WHERE tenant_id = ? AND phone = ? AND last_ctwa_clid IS NOT NULL
+        LIMIT 1
+    `).get(tenantId, normalizedPhone) || null;
+}
+
+export function buildWhatsAppBusinessEvent({ eventName, wabaId, ctwaClid, customData, eventTime }) {
+    if (!SUPPORTED_WHATSAPP_BUSINESS_EVENTS.includes(eventName)) {
+        throw Object.assign(new Error(`نوع الحدث غير مدعوم في WhatsApp Business Messaging Events API: ${eventName}`), {
+            statusCode: 400,
+            reason: 'unsupported_event_name',
+            supportedEvents: SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
+        });
+    }
+
+    const normalizedWabaId = wabaId ? String(wabaId).trim() : '';
+    if (!normalizedWabaId) {
+        throw Object.assign(new Error('WABA ID مطلوب لإرسال WhatsApp Business Messaging Events API.'), {
+            statusCode: 400,
+            reason: 'missing_waba_id',
+        });
+    }
+
+    const normalizedCtwaClid = normalizeCtwaClid(ctwaClid);
+    if (!normalizedCtwaClid) {
+        throw Object.assign(new Error('ctwa_clid مطلوب. يجب أن يأتي من referral داخل WhatsApp webhook عند دخول المستخدم من إعلان Click-to-WhatsApp.'), {
+            statusCode: 400,
+            reason: 'missing_ctwa_clid',
+        });
+    }
+
+    const event = {
+        event_name: eventName,
+        event_time: eventTime || Math.floor(Date.now() / 1000),
+        action_source: 'business_messaging',
+        messaging_channel: 'whatsapp',
+        user_data: {
+            whatsapp_business_account_id: normalizedWabaId,
+            ctwa_clid: normalizedCtwaClid,
+        },
+        data_processing_options: [],
+    };
+
+    const normalizedCustomData = parseCustomData(customData);
+    if (Object.keys(normalizedCustomData).length > 0) {
+        event.custom_data = normalizedCustomData;
+    }
+
+    return event;
+}
+
+export function normalizeMetaError(metaResponse) {
+    if (!metaResponse) return null;
+    const error = metaResponse.error || metaResponse;
+    if (!error || typeof error !== 'object') return null;
+
+    return {
+        message: error.message || null,
+        type: error.type || null,
+        code: error.code ?? null,
+        subcode: error.error_subcode ?? null,
+        user_title: error.error_user_title || null,
+        user_message: error.error_user_msg || null,
+        fbtrace_id: error.fbtrace_id || metaResponse.fbtrace_id || null,
+        error_data: error.error_data || null,
+    };
+}

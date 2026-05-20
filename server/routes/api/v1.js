@@ -9,6 +9,15 @@ import { META_API_BASE } from '../../config/index.js';
 import { simpleUpload as upload, uploadDir, cleanupFile } from '../../config/upload.js';
 import { buildRichTemplateContent, normalizeTemplateComponents, parseTemplateShortcut } from '../../services/messaging.js';
 import { normalizeFilename } from '../../services/filenames.js';
+import {
+    SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
+    buildWhatsAppBusinessEvent,
+    getLatestCtwaAttribution,
+    normalizeCtwaClid,
+    normalizeMetaError,
+    normalizePhone,
+    parseCustomData,
+} from '../../services/whatsappEvents.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -634,25 +643,16 @@ router.post('/events', async (req, res) => {
             return res.status(400).json({ error: 'Dataset ID not configured for this tenant' });
         }
 
-        const hashData = (value) => {
-            if (!value) return null;
-            return crypto.createHash('sha256').update(value.toString().toLowerCase().trim()).digest('hex');
-        };
-
         const formattedEvents = events.map(event => {
-            const formatted = {
-                event_name: event.event_name,
-                event_time: event.event_time || Math.floor(Date.now() / 1000),
-                action_source: event.action_source || 'business_messaging',
-                messaging_channel: 'whatsapp',
-                user_data: {}
-            };
-
-            if (event.phone) formatted.user_data.phones = [hashData(event.phone)];
-            if (event.email) formatted.user_data.emails = [hashData(event.email)];
-            if (event.custom_data) formatted.custom_data = event.custom_data;
-
-            return formatted;
+            const storedAttribution = getLatestCtwaAttribution(db, tenantId, normalizePhone(event.phone));
+            const resolvedCtwaClid = normalizeCtwaClid(event.ctwa_clid) || storedAttribution?.last_ctwa_clid || '';
+            return buildWhatsAppBusinessEvent({
+                eventName: event.event_name,
+                wabaId: tenant.waba_id,
+                ctwaClid: resolvedCtwaClid,
+                customData: parseCustomData(event.custom_data),
+                eventTime: event.event_time || Math.floor(Date.now() / 1000),
+            });
         });
 
         const response = await fetch(`${META_API_BASE}/${tenant.dataset_id}/events`, {
@@ -669,9 +669,11 @@ router.post('/events', async (req, res) => {
 
         // Save all events locally
         for (const event of events) {
+            const storedAttribution = getLatestCtwaAttribution(db, tenantId, normalizePhone(event.phone));
+            const resolvedCtwaClid = normalizeCtwaClid(event.ctwa_clid) || storedAttribution?.last_ctwa_clid || '';
             db.prepare(`
-                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response, ctwa_clid)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 tenantId,
                 tenant.dataset_id,
@@ -681,14 +683,17 @@ router.post('/events', async (req, res) => {
                 event.wamid || null,
                 event.custom_data ? JSON.stringify(event.custom_data) : null,
                 status,
-                JSON.stringify(data)
+                JSON.stringify(data),
+                resolvedCtwaClid || null
             );
         }
 
         if (!response.ok) {
+            const metaError = normalizeMetaError(data);
             return res.status(response.status).json({
-                error: data.error?.message || 'Failed to send events',
-                details: data.error
+                error: metaError?.message || data.error?.message || 'Failed to send events',
+                details: data.error,
+                fbtrace_id: metaError?.fbtrace_id || null,
             });
         }
 
@@ -699,7 +704,10 @@ router.post('/events', async (req, res) => {
         });
     } catch (error) {
         console.error('[API v1] Send events error:', error);
-        res.status(500).json({ error: 'Failed to send conversion events', message: error.message });
+        res.status(error.statusCode || 500).json({
+            error: error.message || 'Failed to send conversion events',
+            supported_events: error.supportedEvents || SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
+        });
     }
 });
 

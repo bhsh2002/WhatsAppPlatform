@@ -11,11 +11,11 @@ import { useAuth } from '../../context/AuthContext';
 const eventTypes = [
     { value: 'Purchase', label: 'شراء', icon: <ShoppingCart /> },
     { value: 'AddToCart', label: 'إضافة لعربة التسوق', icon: <ShoppingCart /> },
-    { value: 'Lead', label: 'عميل محتمل', icon: <PersonAdd /> },
-    { value: 'CompleteRegistration', label: 'إكمال تسجيل', icon: <PersonAdd /> },
+    { value: 'LeadSubmitted', label: 'عميل محتمل مرسل', icon: <PersonAdd /> },
     { value: 'InitiateCheckout', label: 'بدء الدفع', icon: <ShoppingCart /> },
-    { value: 'Subscribe', label: 'اشتراك', icon: <PersonAdd /> },
     { value: 'ViewContent', label: 'مشاهدة محتوى', icon: <Visibility /> },
+    { value: 'OrderCreated', label: 'إنشاء طلب', icon: <ShoppingCart /> },
+    { value: 'OrderShipped', label: 'شحن طلب', icon: <ShoppingCart /> },
 ];
 
 const parseMetaResponse = (value) => {
@@ -25,6 +25,32 @@ const parseMetaResponse = (value) => {
     } catch {
         return null;
     }
+};
+
+const formatMetaResponse = (value, status) => {
+    const meta = parseMetaResponse(value);
+    if (!meta) return '-';
+
+    if (status === 'sent') {
+        const parts = [];
+        if (meta.events_received !== undefined) parts.push(`events: ${meta.events_received}`);
+        if (meta.fbtrace_id) parts.push(`fbtrace_id: ${meta.fbtrace_id}`);
+        return parts.join(' | ') || '-';
+    }
+
+    const error = meta.error || meta;
+    if (!error || typeof error !== 'object') return String(error || '-');
+
+    const parts = [];
+    if (error.message) parts.push(error.message);
+    if (error.code !== undefined) parts.push(`code: ${error.code}`);
+    if (error.error_subcode !== undefined) parts.push(`subcode: ${error.error_subcode}`);
+    if (error.error_user_msg) parts.push(error.error_user_msg);
+    if (error.fbtrace_id || meta.fbtrace_id) parts.push(`fbtrace_id: ${error.fbtrace_id || meta.fbtrace_id}`);
+    if (error.error_data?.blame_field_specs) {
+        parts.push(`field: ${JSON.stringify(error.error_data.blame_field_specs)}`);
+    }
+    return parts.join(' | ') || '-';
 };
 
 const TenantConversions = () => {
@@ -47,7 +73,7 @@ const TenantConversions = () => {
     const [logOpen, setLogOpen] = useState(false);
     const [logging, setLogging] = useState(false);
     const [form, setForm] = useState({
-        event_name: 'Purchase', phone: '', value: '', currency: 'LYD'
+        event_name: 'Purchase', phone: '', ctwa_clid: '', value: '', currency: 'LYD'
     });
 
     const loadData = useCallback(async () => {
@@ -78,6 +104,7 @@ const TenantConversions = () => {
             const payload = {
                 event_name: form.event_name,
                 phone: form.phone || undefined,
+                ctwa_clid: form.ctwa_clid || undefined,
             };
             if (form.value) {
                 payload.custom_data = { value: parseFloat(form.value), currency: form.currency };
@@ -88,7 +115,7 @@ const TenantConversions = () => {
                 : (result.note || 'تم حفظ الحدث محلياً')
             );
             setLogOpen(false);
-            setForm({ event_name: 'Purchase', phone: '', value: '', currency: 'LYD' });
+            setForm({ event_name: 'Purchase', phone: '', ctwa_clid: '', value: '', currency: 'LYD' });
             loadData();
         } catch (err) {
             setError(err.message || 'فشل تسجيل الحدث');
@@ -189,7 +216,12 @@ const TenantConversions = () => {
                 <Typography variant="caption" component="div">
                     آخر فشل: {lastFailure?.created_at ? new Date(lastFailure.created_at).toLocaleString('ar-LY') : 'لا يوجد'}
                     {lastFailure?.error_message ? ` | ${lastFailure.error_message}` : ''}
+                    {lastFailure?.error_code ? ` | code: ${lastFailure.error_code}` : ''}
+                    {lastFailure?.error_subcode ? ` | subcode: ${lastFailure.error_subcode}` : ''}
                     {lastFailure?.fbtrace_id ? ` | fbtrace_id: ${lastFailure.fbtrace_id}` : ''}
+                </Typography>
+                <Typography variant="caption" component="div">
+                    أحداث WhatsApp Business Messaging تحتاج `ctwa_clid` من إعلان Click-to-WhatsApp. رقم الهاتف يستخدم للبحث عن آخر CTWA محفوظ للمحادثة فقط.
                 </Typography>
             </Alert>
 
@@ -273,6 +305,7 @@ const TenantConversions = () => {
                             <TableRow>
                                 <TableCell>الحدث</TableCell>
                                 <TableCell>الهاتف</TableCell>
+                                <TableCell>CTWA</TableCell>
                                 <TableCell>البيانات المخصصة</TableCell>
                                 <TableCell>الحالة</TableCell>
                                 <TableCell>Meta</TableCell>
@@ -286,6 +319,9 @@ const TenantConversions = () => {
                                         <Chip label={event.event_name} size="small" color="primary" variant="outlined" />
                                     </TableCell>
                                     <TableCell>{event.phone || '-'}</TableCell>
+                                    <TableCell>
+                                        {event.ctwa_clid ? <Chip label="موجود" size="small" color="success" variant="outlined" /> : '-'}
+                                    </TableCell>
                                     <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         {event.custom_data || '-'}
                                     </TableCell>
@@ -294,24 +330,16 @@ const TenantConversions = () => {
                                             color={event.status === 'sent' ? 'success' : event.status === 'failed' ? 'error' : 'default'} />
                                     </TableCell>
                                     <TableCell sx={{ maxWidth: 260 }}>
-                                        {(() => {
-                                            const meta = parseMetaResponse(event.meta_response);
-                                            const text = event.status === 'sent'
-                                                ? (meta?.fbtrace_id || meta?.events_received ? `events: ${meta?.events_received ?? '-'}${meta?.fbtrace_id ? ` | ${meta.fbtrace_id}` : ''}` : '-')
-                                                : (meta?.error?.message || meta?.error || '-');
-                                            return (
-                                                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
-                                                    {text}
-                                                </Typography>
-                                            );
-                                        })()}
+                                        <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                            {formatMetaResponse(event.meta_response, event.status)}
+                                        </Typography>
                                     </TableCell>
                                     <TableCell>{new Date(event.created_at).toLocaleString('ar-LY')}</TableCell>
                                 </TableRow>
                             ))}
                             {events.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={6} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                                    <TableCell colSpan={7} align="center" sx={{ py: 6, color: 'text.secondary' }}>
                                         لا توجد أحداث مسجلة بعد
                                     </TableCell>
                                 </TableRow>
@@ -332,9 +360,14 @@ const TenantConversions = () => {
                             </TextField>
                         </Grid>
                         <Grid size={{ xs: 12 }}>
-                            <TextField fullWidth label={eventsApiReady ? 'رقم الهاتف (مطلوب للإرسال إلى Meta)' : 'رقم الهاتف (اختياري)'} value={form.phone}
+                            <TextField fullWidth label={eventsApiReady ? 'رقم الهاتف أو ctwa_clid مطلوب' : 'رقم الهاتف (اختياري)'} value={form.phone}
                                 onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="218xxxxxxxxx"
-                                helperText={eventsApiReady ? 'لا يتم إرسال الحدث إلى Meta بدون user_data قابلة للمطابقة.' : ''} />
+                                helperText={eventsApiReady ? 'يستخدم للبحث عن آخر ctwa_clid محفوظ من webhook لهذه المحادثة. لا يرسل رقم الهاتف إلى Meta في هذا المسار.' : ''} />
+                        </Grid>
+                        <Grid size={{ xs: 12 }}>
+                            <TextField fullWidth label="ctwa_clid (اختياري إذا كان محفوظا للمحادثة)" value={form.ctwa_clid}
+                                onChange={e => setForm({ ...form, ctwa_clid: e.target.value })} placeholder="Click-to-WhatsApp click id"
+                                helperText="استخدمه يدويا إذا لم تكن المحادثة الحالية تحتوي referral محفوظا من إعلان Click-to-WhatsApp." />
                         </Grid>
                         <Grid size={{ xs: 8 }}>
                             <TextField fullWidth label="القيمة (اختياري)" value={form.value} type="number"
@@ -352,7 +385,7 @@ const TenantConversions = () => {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setLogOpen(false)}>إلغاء</Button>
-                    <Button variant="contained" onClick={handleLog} disabled={logging || (eventsApiReady && !form.phone.trim())}>
+                    <Button variant="contained" onClick={handleLog} disabled={logging || (eventsApiReady && !form.phone.trim() && !form.ctwa_clid.trim())}>
                         {logging ? 'جاري التسجيل...' : 'تسجيل'}
                     </Button>
                 </DialogActions>

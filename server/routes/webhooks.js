@@ -19,6 +19,25 @@ const APP_SECRET = process.env.META_APP_SECRET;
 if (!VERIFY_TOKEN) console.warn('⚠️ WARNING: WEBHOOK_VERIFY_TOKEN is missing. Webhook verification will fail.');
 if (!APP_SECRET) console.warn('⚠️ WARNING: META_APP_SECRET is missing. Incoming webhooks cannot be securely verified.');
 
+const extractReferralInfo = (message) => {
+    const referral = message?.referral;
+    if (!referral) {
+        return {
+            ctwa_clid: null,
+            source_id: null,
+            source_type: null,
+            source_url: null,
+        };
+    }
+
+    return {
+        ctwa_clid: referral.ctwa_clid ? String(referral.ctwa_clid).trim() : null,
+        source_id: referral.source_id ? String(referral.source_id).trim() : null,
+        source_type: referral.source_type ? String(referral.source_type).trim() : null,
+        source_url: referral.source_url ? String(referral.source_url).trim() : null,
+    };
+};
+
 // ============================================
 // Helper: Log webhook failure to dead-letter queue
 // ============================================
@@ -265,6 +284,7 @@ router.post('/', async (req, res) => {
                         value.messages.forEach(message => {
                             // Extract media info if present
                             const mediaInfo = extractMediaInfo(message);
+                            const referralInfo = extractReferralInfo(message);
 
                             const messageData = {
                                 tenant_id: tenant?.id || null,
@@ -277,11 +297,19 @@ router.post('/', async (req, res) => {
                                 wamid: message.id,
                                 media_id: mediaInfo.id,
                                 media_mime_type: mediaInfo.mimeType,
+                                referral_ctwa_clid: referralInfo.ctwa_clid,
+                                referral_source_id: referralInfo.source_id,
+                                referral_source_type: referralInfo.source_type,
+                                referral_source_url: referralInfo.source_url,
                             };
 
                             db.prepare(`
-                INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid, media_id, media_mime_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (
+                    tenant_id, direction, sender, recipient, message_type, content, status, wamid,
+                    media_id, media_mime_type, referral_ctwa_clid, referral_source_id,
+                    referral_source_type, referral_source_url
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).run(
                                 messageData.tenant_id,
                                 messageData.direction,
@@ -292,8 +320,41 @@ router.post('/', async (req, res) => {
                                 messageData.status,
                                 messageData.wamid,
                                 messageData.media_id,
-                                messageData.media_mime_type
+                                messageData.media_mime_type,
+                                messageData.referral_ctwa_clid,
+                                messageData.referral_source_id,
+                                messageData.referral_source_type,
+                                messageData.referral_source_url
                             );
+
+                            if (tenant?.id && message.from && referralInfo.ctwa_clid) {
+                                db.prepare(`
+                                    INSERT INTO contacts (
+                                        tenant_id, phone, profile_name, last_customer_message_at, updated_at,
+                                        last_ctwa_clid, last_ctwa_source_id, last_ctwa_source_type,
+                                        last_ctwa_source_url, last_ctwa_received_at
+                                    )
+                                    VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), ?, ?, ?, ?, datetime('now', 'localtime'))
+                                    ON CONFLICT(tenant_id, phone) DO UPDATE SET
+                                        profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
+                                        last_customer_message_at = datetime('now', 'localtime'),
+                                        updated_at = datetime('now', 'localtime'),
+                                        last_ctwa_clid = excluded.last_ctwa_clid,
+                                        last_ctwa_source_id = excluded.last_ctwa_source_id,
+                                        last_ctwa_source_type = excluded.last_ctwa_source_type,
+                                        last_ctwa_source_url = excluded.last_ctwa_source_url,
+                                        last_ctwa_received_at = datetime('now', 'localtime')
+                                `).run(
+                                    tenant.id,
+                                    message.from,
+                                    value.contacts?.[0]?.profile?.name || null,
+                                    referralInfo.ctwa_clid,
+                                    referralInfo.source_id,
+                                    referralInfo.source_type,
+                                    referralInfo.source_url
+                                );
+                                console.log('[Webhook] Stored WhatsApp CTWA attribution for contact:', message.from);
+                            }
 
 // Log activity
                             if (tenant) {
@@ -311,6 +372,7 @@ router.post('/', async (req, res) => {
                                     type: message.type,
                                     content: extractMessageContent(message),
                                     profile_name: value.contacts?.[0]?.profile?.name || null,
+                                    referral: referralInfo.ctwa_clid ? referralInfo : undefined,
                                     timestamp: new Date().toISOString()
                                 });
                             }

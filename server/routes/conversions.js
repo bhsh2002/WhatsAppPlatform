@@ -1,18 +1,18 @@
 import express from 'express';
-import crypto from 'crypto';
 import db from '../db/database.js';
 import { getAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import {
+    SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
+    buildWhatsAppBusinessEvent,
+    getLatestCtwaAttribution,
+    normalizeCtwaClid,
+    normalizeMetaError,
+    normalizePhone,
+    parseCustomData,
+} from '../services/whatsappEvents.js';
 
 const router = express.Router();
-
-// ============================================
-// Helper: Hash data for privacy (SHA-256)
-// ============================================
-const hashData = (value) => {
-    if (!value) return null;
-    return crypto.createHash('sha256').update(value.toString().toLowerCase().trim()).digest('hex');
-};
 
 // ============================================
 // Helper: Get credentials
@@ -82,49 +82,20 @@ router.post('/events/:datasetId', async (req, res) => {
             return res.status(400).json({ error: 'يجب توفير حدث واحد على الأقل' });
         }
 
-        // Validate and format events
-        const validEventNames = [
-            'Purchase', 'AddToCart', 'Lead', 'CompleteRegistration',
-            'InitiateCheckout', 'Subscribe', 'ViewContent', 'Search',
-            'AddPaymentInfo', 'AddToWishlist', 'Contact', 'CustomizeProduct',
-            'FindLocation', 'Schedule', 'StartTrial', 'SubmitApplication'
-        ];
+        const resolveEventCtwa = (event) => (
+            normalizeCtwaClid(event.ctwa_clid)
+            || getLatestCtwaAttribution(db, tenant_id, normalizePhone(event.phone))?.last_ctwa_clid
+            || ''
+        );
 
         const formattedEvents = events.map(event => {
-            if (!event.event_name || !validEventNames.includes(event.event_name)) {
-                throw new Error(`نوع الحدث غير صالح: ${event.event_name}. الأنواع المسموحة: ${validEventNames.join(', ')}`);
-            }
-
-            const formattedEvent = {
-                event_name: event.event_name,
-                event_time: event.event_time || Math.floor(Date.now() / 1000),
-                action_source: event.action_source || 'business_messaging',
-                messaging_channel: 'whatsapp',
-                user_data: {},
-                data_processing_options: [],
-            };
-
-            // Hash phone number if provided
-            if (event.phone) {
-                formattedEvent.user_data.phones = [hashData(event.phone)];
-            }
-
-            // Hash email if provided
-            if (event.email) {
-                formattedEvent.user_data.emails = [hashData(event.email)];
-            }
-
-            // WAMID for message attribution — must be at event level, not in user_data
-            if (event.wamid) {
-                formattedEvent.wamid = event.wamid;
-            }
-
-            // Custom data (value, currency, content, etc.)
-            if (event.custom_data) {
-                formattedEvent.custom_data = event.custom_data;
-            }
-
-            return formattedEvent;
+            return buildWhatsAppBusinessEvent({
+                eventName: event.event_name,
+                wabaId: tenant?.waba_id,
+                ctwaClid: resolveEventCtwa(event),
+                customData: parseCustomData(event.custom_data),
+                eventTime: event.event_time || Math.floor(Date.now() / 1000),
+            });
         });
 
         // Send to Meta Conversions API
@@ -148,8 +119,8 @@ router.post('/events/:datasetId', async (req, res) => {
             // Save failed events to local DB
             for (const event of events) {
                 db.prepare(`
-                    INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'failed', ?)
+                    INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response, ctwa_clid)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?)
                 `).run(
                     tenant_id || null,
                     datasetId,
@@ -158,21 +129,24 @@ router.post('/events/:datasetId', async (req, res) => {
                     event.phone || null,
                     event.wamid || null,
                     event.custom_data ? JSON.stringify(event.custom_data) : null,
-                    JSON.stringify(data.error || data)
+                    JSON.stringify(data.error || data),
+                    resolveEventCtwa(event) || null
                 );
             }
 
+            const metaError = normalizeMetaError(data);
             return res.status(response.status).json({
-                error: data.error?.message || 'فشل إرسال الأحداث',
-                details: data.error
+                error: metaError?.message || data.error?.message || 'فشل إرسال الأحداث',
+                details: data.error,
+                fbtrace_id: metaError?.fbtrace_id || null,
             });
         }
 
         // Save successful events to local DB
         for (const event of events) {
             db.prepare(`
-                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?)
+                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response, ctwa_clid)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?)
             `).run(
                 tenant_id || null,
                 datasetId,
@@ -181,7 +155,8 @@ router.post('/events/:datasetId', async (req, res) => {
                 event.phone || null,
                 event.wamid || null,
                 event.custom_data ? JSON.stringify(event.custom_data) : null,
-                JSON.stringify(data)
+                JSON.stringify(data),
+                resolveEventCtwa(event) || null
             );
         }
 
@@ -201,8 +176,9 @@ router.post('/events/:datasetId', async (req, res) => {
         });
     } catch (error) {
         console.error('[Conversions] Send events error:', error);
-        res.status(error.message?.includes('نوع الحدث') ? 400 : 500).json({
-            error: error.message || 'فشل إرسال الأحداث'
+        res.status(error.statusCode || (error.message?.includes('نوع الحدث') ? 400 : 500)).json({
+            error: error.message || 'فشل إرسال الأحداث',
+            supported_events: error.supportedEvents || SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
         });
     }
 });
@@ -277,7 +253,7 @@ router.get('/events/history', (req, res) => {
 router.post('/log-event', async (req, res) => {
     try {
         const tenantId = req.user?.tenant_id || req.body.tenant_id;
-        const { phone, event_name, wamid, custom_data } = req.body;
+        const { phone, event_name, wamid, custom_data, ctwa_clid } = req.body;
 
         if (!tenantId) {
             return res.status(403).json({ error: 'صلاحية الوصول مقتصرة على العملاء' });
@@ -292,15 +268,16 @@ router.post('/log-event', async (req, res) => {
         if (!datasetId) {
             // Save locally only if no dataset configured
             db.prepare(`
-                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status)
-                VALUES (?, 'local', ?, ?, ?, ?, ?, 'local_only')
+                INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, ctwa_clid)
+                VALUES (?, 'local', ?, ?, ?, ?, ?, 'local_only', ?)
             `).run(
                 tenantId,
                 event_name,
                 new Date().toISOString(),
                 phone || null,
                 wamid || null,
-                custom_data ? JSON.stringify(custom_data) : null
+                custom_data ? JSON.stringify(custom_data) : null,
+                normalizeCtwaClid(ctwa_clid) || null
             );
 
             return res.json({
@@ -309,19 +286,14 @@ router.post('/log-event', async (req, res) => {
             });
         }
 
-        // If dataset is configured, send to Meta
-        const formattedEvent = {
-            event_name,
-            event_time: Math.floor(Date.now() / 1000),
-            action_source: 'business_messaging',
-            messaging_channel: 'whatsapp',
-            user_data: {},
-            data_processing_options: [],
-        };
-
-        if (phone) formattedEvent.user_data.phones = [hashData(phone)];
-        if (wamid) formattedEvent.user_data.lead_id = wamid;
-        if (custom_data) formattedEvent.custom_data = custom_data;
+        const storedAttribution = getLatestCtwaAttribution(db, tenantId, normalizePhone(phone));
+        const resolvedCtwaClid = normalizeCtwaClid(ctwa_clid) || storedAttribution?.last_ctwa_clid || '';
+        const formattedEvent = buildWhatsAppBusinessEvent({
+            eventName: event_name,
+            wabaId: tenant.waba_id,
+            ctwaClid: resolvedCtwaClid,
+            customData: parseCustomData(custom_data),
+        });
 
         const response = await fetch(
             `${META_API_BASE}/${datasetId}/events`,
@@ -340,8 +312,8 @@ router.post('/log-event', async (req, res) => {
 
         // Save to local DB
         db.prepare(`
-            INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO conversion_events (tenant_id, dataset_id, event_name, event_time, phone, wamid, custom_data, status, meta_response, ctwa_clid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             tenantId,
             datasetId,
@@ -351,7 +323,8 @@ router.post('/log-event', async (req, res) => {
             wamid || null,
             custom_data ? JSON.stringify(custom_data) : null,
             status,
-            JSON.stringify(data)
+            JSON.stringify(data),
+            resolvedCtwaClid || null
         );
 
         if (response.ok) {
@@ -362,14 +335,19 @@ router.post('/log-event', async (req, res) => {
 
             res.json({ success: true, data });
         } else {
+            const metaError = normalizeMetaError(data);
             res.status(response.status).json({
-                error: data.error?.message || 'فشل إرسال الحدث',
-                details: data.error
+                error: metaError?.message || data.error?.message || 'فشل إرسال الحدث',
+                details: data.error,
+                fbtrace_id: metaError?.fbtrace_id || null,
             });
         }
     } catch (error) {
         console.error('[Conversions] Log event error:', error);
-        res.status(500).json({ error: 'فشل تسجيل الحدث' });
+        res.status(error.statusCode || 500).json({
+            error: error.message || 'فشل تسجيل الحدث',
+            supported_events: error.supportedEvents || SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
+        });
     }
 });
 
