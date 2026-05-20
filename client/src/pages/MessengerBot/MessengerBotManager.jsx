@@ -99,9 +99,11 @@ const emptyNode = (index = 0) => ({
     include_menu: true,
     include_products_reply: false,
     include_handoff_reply: true,
+    reply_display: 'quick_replies',
     menu_label: 'القائمة الرئيسية',
     products_reply_label: 'منتجات أخرى',
     handoff_reply_label: 'موظف بشري',
+    card_action_label: 'اختيار',
     card_show_image: true,
     card_show_price: true,
     card_show_description: true,
@@ -118,6 +120,7 @@ const emptyNode = (index = 0) => ({
 
 const emptyButton = {
     title: '',
+    subtitle: '',
     action: 'menu',
     category: '',
     node_key: '',
@@ -151,6 +154,7 @@ function normalizePayloadAction(item = {}) {
     if (item.action) {
         return {
             title: item.title || '',
+            subtitle: item.subtitle || item.description || '',
             action: item.action,
             category: item.category || '',
             node_key: item.node_key || '',
@@ -160,16 +164,16 @@ function normalizePayloadAction(item = {}) {
     }
 
     const payload = String(item.payload || '').trim();
-    if (payload === 'BOT:PRODUCTS') return { ...emptyButton, title: item.title || '', action: 'products' };
+    if (payload === 'BOT:PRODUCTS') return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'products' };
     if (payload.startsWith('BOT:PRODUCTS:')) {
-        return { ...emptyButton, title: item.title || '', action: 'products', category: payload.split(':').slice(2).join(':'), image_url: item.image_url || '' };
+        return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'products', category: payload.split(':').slice(2).join(':'), image_url: item.image_url || '' };
     }
     if (payload.startsWith('BOT:NODE:')) {
-        return { ...emptyButton, title: item.title || '', action: 'node', node_key: payload.split(':')[2] || '', image_url: item.image_url || '' };
+        return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'node', node_key: payload.split(':')[2] || '', image_url: item.image_url || '' };
     }
-    if (payload.startsWith('BOT:HANDOFF')) return { ...emptyButton, title: item.title || '', action: 'handoff', image_url: item.image_url || '' };
-    if (payload === 'BOT:MENU') return { ...emptyButton, title: item.title || '', action: 'menu', image_url: item.image_url || '' };
-    return { ...emptyButton, title: item.title || '', action: 'custom', custom_payload: payload, image_url: item.image_url || '' };
+    if (payload.startsWith('BOT:HANDOFF')) return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'handoff', image_url: item.image_url || '' };
+    if (payload === 'BOT:MENU') return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'menu', image_url: item.image_url || '' };
+    return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'custom', custom_payload: payload, image_url: item.image_url || '' };
 }
 
 function nodeToForm(node, index = 0) {
@@ -189,9 +193,11 @@ function nodeToForm(node, index = 0) {
             ? config.include_products_reply !== false
             : config.include_products_reply === true,
         include_handoff_reply: config.include_handoff_reply !== false,
+        reply_display: config.reply_display === 'cards' ? 'cards' : 'quick_replies',
         menu_label: config.menu_label || 'القائمة الرئيسية',
         products_reply_label: config.products_reply_label || 'منتجات أخرى',
         handoff_reply_label: config.handoff_reply_label || 'موظف بشري',
+        card_action_label: config.card_action_label || 'اختيار',
         card_show_image: config.card_show_image !== false,
         card_show_price: config.card_show_price !== false,
         card_show_description: config.card_show_description !== false,
@@ -237,6 +243,7 @@ function buttonToPayload(button) {
     if (!title) return null;
     const action = button.action || 'menu';
     const result = { title, action };
+    if (button.subtitle) result.subtitle = String(button.subtitle || '').trim();
     if (action === 'products') result.category = String(button.category || '').trim() || null;
     if (action === 'node') result.node_key = String(button.node_key || '').trim();
     if (action === 'custom') result.custom_payload = String(button.custom_payload || '').trim();
@@ -259,9 +266,11 @@ function buildFlowPayload(form) {
                 include_menu: node.include_menu,
                 include_products_reply: node.include_products_reply,
                 include_handoff_reply: node.include_handoff_reply,
+                reply_display: node.reply_display,
                 menu_label: node.menu_label,
                 products_reply_label: node.products_reply_label,
                 handoff_reply_label: node.handoff_reply_label,
+                card_action_label: node.card_action_label,
             };
             if (node.node_type === 'product_list') {
                 config.category = node.category || null;
@@ -1292,6 +1301,30 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                             <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>قائمة الردود الافتراضية</Typography>
                                                             <Grid container spacing={1}>
                                                                 <Grid size={{ xs: 12, md: 4 }}>
+                                                                    <TextField
+                                                                        select
+                                                                        fullWidth
+                                                                        size="small"
+                                                                        label="طريقة عرض الردود"
+                                                                        value={node.reply_display}
+                                                                        onChange={e => updateNode(nodeIndex, { reply_display: e.target.value })}
+                                                                    >
+                                                                        <MenuItem value="quick_replies">Quick Replies</MenuItem>
+                                                                        <MenuItem value="cards">بطاقات</MenuItem>
+                                                                    </TextField>
+                                                                </Grid>
+                                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                                    <TextField
+                                                                        fullWidth
+                                                                        size="small"
+                                                                        label="نص زر البطاقة"
+                                                                        value={node.card_action_label}
+                                                                        onChange={e => updateNode(nodeIndex, { card_action_label: e.target.value })}
+                                                                        disabled={node.reply_display !== 'cards'}
+                                                                    />
+                                                                </Grid>
+                                                                <Grid size={{ xs: 12 }}><Divider /></Grid>
+                                                                <Grid size={{ xs: 12, md: 4 }}>
                                                                     <FormControlLabel control={<Switch checked={Boolean(node.include_menu)} onChange={e => updateNode(nodeIndex, { include_menu: e.target.checked })} />} label="إظهار القائمة الرئيسية" />
                                                                     <TextField fullWidth size="small" label="نص القائمة الرئيسية" value={node.menu_label} onChange={e => updateNode(nodeIndex, { menu_label: e.target.value })} />
                                                                 </Grid>
@@ -1322,6 +1355,11 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     <Grid size={{ xs: 12, md: 3 }}>
                                                                         <TextField fullWidth size="small" label="عنوان الزر" value={button.title} onChange={e => updateButton(nodeIndex, buttonIndex, { title: e.target.value })} />
                                                                     </Grid>
+                                                                    {node.reply_display === 'cards' && (
+                                                                        <Grid size={{ xs: 12, md: 3 }}>
+                                                                            <TextField fullWidth size="small" label="وصف البطاقة" value={button.subtitle} onChange={e => updateButton(nodeIndex, buttonIndex, { subtitle: e.target.value })} />
+                                                                        </Grid>
+                                                                    )}
                                                                     <Grid size={{ xs: 12, md: 2 }}>
                                                                         <TextField select fullWidth size="small" label="الفعل" value={button.action} onChange={e => updateButton(nodeIndex, buttonIndex, { action: e.target.value })}>
                                                                             {Object.entries(actionLabels).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}

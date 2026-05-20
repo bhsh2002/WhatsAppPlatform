@@ -8,6 +8,7 @@ services:
       - "3031:3031"
     volumes:
       - ./server/db:/app/db
+      - ./server/uploads:/app/uploads
       - ./server/.env:/app/.env
     restart: always
     networks:

@@ -295,6 +295,61 @@ function buildQuickReply(item = {}) {
     return quickReply;
 }
 
+function buildCardButton(item = {}, config = {}) {
+    return {
+        type: 'postback',
+        title: trimForMeta(item.action_label || config.card_action_label || 'اختيار', 20),
+        payload: trimForMeta(resolveConfiguredPayload(item), 1000),
+    };
+}
+
+function defaultReplyItems(config = {}) {
+    const items = [];
+    if (flag(config, 'include_products_reply', false)) {
+        items.push({
+            title: configLabel(config, 'products_reply_label', 'منتجات أخرى'),
+            action: 'products',
+        });
+    }
+    if (flag(config, 'include_handoff_reply', false)) {
+        items.push({
+            title: configLabel(config, 'handoff_reply_label', 'موظف بشري'),
+            action: 'handoff',
+        });
+    }
+    if (flag(config, 'include_menu', true)) {
+        items.push({
+            title: configLabel(config, 'menu_label', 'القائمة الرئيسية'),
+            action: 'menu',
+        });
+    }
+    return items;
+}
+
+function buildCardReplyMessage({ body, items = [], config = {} }) {
+    const configuredItems = [...items, ...defaultReplyItems(config)]
+        .filter(item => item?.title)
+        .slice(0, MAX_GENERIC_ELEMENTS);
+    if (!configuredItems.length) {
+        return buildTextMessage(body || 'اختر أحد الخيارات.');
+    }
+
+    return {
+        attachment: {
+            type: 'template',
+            payload: {
+                template_type: 'generic',
+                elements: configuredItems.map(item => ({
+                    title: trimForMeta(item.title, 80),
+                    subtitle: trimForMeta(item.subtitle || item.description || body || '', 80),
+                    image_url: isHttpUrl(item.image_url) ? item.image_url : undefined,
+                    buttons: [buildCardButton(item, config)],
+                })),
+            },
+        },
+    };
+}
+
 function resolveConfiguredPayload(item = {}) {
     if (item.payload) return item.payload;
     if (item.action === 'products') return item.category ? `BOT:PRODUCTS:${item.category}` : 'BOT:PRODUCTS';
@@ -338,8 +393,12 @@ function buildDefaultQuickReplies(config = {}, defaults = {}) {
     return withMainMenuQuickReply(replies, config);
 }
 
+function serviceItemsFromConfig(config = {}) {
+    return Array.isArray(config.items) ? config.items : [];
+}
+
 function buildServiceQuickReplies(config = {}) {
-    const items = Array.isArray(config.items) ? config.items : [];
+    const items = serviceItemsFromConfig(config);
     const replies = items
         .filter(item => item?.title)
         .slice(0, MAX_QUICK_REPLIES - 3)
@@ -352,6 +411,21 @@ function buildServiceQuickReplies(config = {}) {
         replies.push({ content_type: 'text', title: configLabel(config, 'handoff_reply_label', 'موظف بشري'), payload: 'BOT:HANDOFF' });
     }
     return withMainMenuQuickReply(replies, config);
+}
+
+function buildReplyMessage({ body, config = {}, sourceKey = 'quick_replies' }) {
+    const items = Array.isArray(config[sourceKey]) ? config[sourceKey] : [];
+    if (config.reply_display === 'cards') {
+        return buildCardReplyMessage({ body, items, config });
+    }
+    return buildTextMessage(body, quickRepliesFromConfig(config));
+}
+
+function buildServiceMessage({ body, config = {} }) {
+    if (config.reply_display === 'cards') {
+        return buildCardReplyMessage({ body, items: serviceItemsFromConfig(config), config });
+    }
+    return buildTextMessage(body, buildServiceQuickReplies(config));
 }
 
 function buildProductCards(products, config = {}) {
@@ -654,7 +728,7 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
             linkedPage,
             conversation,
             session,
-            message: buildTextMessage(body, buildServiceQuickReplies(config)),
+            message: buildServiceMessage({ body, config }),
             previewText: body,
             metadata: { node_type: nodeType },
         });
@@ -665,7 +739,7 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
             linkedPage,
             conversation,
             session,
-            message: buildTextMessage(body, quickRepliesFromConfig(config)),
+            message: buildReplyMessage({ body, config }),
             previewText: body,
             metadata: { node_type: nodeType },
         });
@@ -697,7 +771,7 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
         linkedPage,
         conversation,
         session,
-        message: buildTextMessage(body, quickRepliesFromConfig(config)),
+        message: buildReplyMessage({ body, config }),
         previewText: body,
         metadata: { node_type: nodeType },
     });
