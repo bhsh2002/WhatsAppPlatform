@@ -267,6 +267,15 @@ function moneyText(product) {
     return `${price.toLocaleString('ar-LY')} ${product.currency || 'LYD'}`;
 }
 
+function flag(config = {}, key, fallback = true) {
+    if (!Object.prototype.hasOwnProperty.call(config, key)) return fallback;
+    return config[key] !== false && config[key] !== 0 && config[key] !== '0';
+}
+
+function configLabel(config = {}, key, fallback) {
+    return trimForMeta(config[key] || fallback, 20);
+}
+
 function quickRepliesFromConfig(config = {}) {
     const replies = Array.isArray(config.quick_replies) ? config.quick_replies : [];
     const mapped = replies
@@ -302,9 +311,31 @@ function withMainMenuQuickReply(replies = [], config = {}) {
     const hasMenu = replies.some(reply => reply.payload === 'BOT:MENU');
     const next = hasMenu ? replies : [
         ...replies,
-        { content_type: 'text', title: 'القائمة الرئيسية', payload: 'BOT:MENU' },
+        { content_type: 'text', title: configLabel(config, 'menu_label', 'القائمة الرئيسية'), payload: 'BOT:MENU' },
     ];
     return next.slice(0, MAX_QUICK_REPLIES);
+}
+
+function buildDefaultQuickReplies(config = {}, defaults = {}) {
+    const replies = [];
+    const includeProducts = flag(config, 'include_products_reply', Boolean(defaults.includeProducts));
+    const includeHandoff = flag(config, 'include_handoff_reply', Boolean(defaults.includeHandoff));
+
+    if (includeProducts) {
+        replies.push({
+            content_type: 'text',
+            title: configLabel(config, 'products_reply_label', 'منتجات أخرى'),
+            payload: 'BOT:PRODUCTS',
+        });
+    }
+    if (includeHandoff) {
+        replies.push({
+            content_type: 'text',
+            title: configLabel(config, 'handoff_reply_label', 'موظف بشري'),
+            payload: 'BOT:HANDOFF',
+        });
+    }
+    return withMainMenuQuickReply(replies, config);
 }
 
 function buildServiceQuickReplies(config = {}) {
@@ -314,39 +345,52 @@ function buildServiceQuickReplies(config = {}) {
         .slice(0, MAX_QUICK_REPLIES - 3)
         .map(item => buildQuickReply(item));
 
-    replies.push({ content_type: 'text', title: 'المنتجات', payload: 'BOT:PRODUCTS' });
-    replies.push({ content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' });
+    if (flag(config, 'include_products_reply', true)) {
+        replies.push({ content_type: 'text', title: configLabel(config, 'products_reply_label', 'المنتجات'), payload: 'BOT:PRODUCTS' });
+    }
+    if (flag(config, 'include_handoff_reply', true)) {
+        replies.push({ content_type: 'text', title: configLabel(config, 'handoff_reply_label', 'موظف بشري'), payload: 'BOT:HANDOFF' });
+    }
     return withMainMenuQuickReply(replies, config);
 }
 
-function buildProductCards(products) {
+function buildProductCards(products, config = {}) {
     return products.slice(0, MAX_GENERIC_ELEMENTS).map(product => {
-        const buttons = [
-            {
+        const buttons = [];
+        if (flag(config, 'card_show_details_button', true)) {
+            buttons.push({
                 type: 'postback',
-                title: 'تفاصيل',
+                title: configLabel(config, 'card_details_label', 'تفاصيل'),
                 payload: `BOT:PRODUCT:${product.id}`,
-            },
-            {
+            });
+        }
+        if (flag(config, 'card_show_inquiry_button', true)) {
+            buttons.push({
                 type: 'postback',
-                title: 'استفسار',
+                title: configLabel(config, 'card_inquiry_label', 'استفسار'),
                 payload: `BOT:HANDOFF:PRODUCT:${product.id}`,
-            },
-        ];
+            });
+        }
 
-        if (isHttpUrl(product.product_url)) {
+        if (flag(config, 'card_show_link_button', true) && isHttpUrl(product.product_url)) {
             buttons.push({
                 type: 'web_url',
-                title: 'فتح الرابط',
+                title: configLabel(config, 'card_link_label', 'فتح الرابط'),
                 url: product.product_url,
             });
         }
 
+        const subtitleParts = [];
+        if (flag(config, 'card_show_price', true)) subtitleParts.push(moneyText(product));
+        if (flag(config, 'card_show_category', false)) subtitleParts.push(product.category);
+        if (flag(config, 'card_show_sku', false)) subtitleParts.push(product.sku);
+        if (flag(config, 'card_show_description', true)) subtitleParts.push(product.description);
+
         return {
             title: trimForMeta(product.name, 80),
-            subtitle: trimForMeta([moneyText(product), product.description].filter(Boolean).join(' - '), 80),
-            image_url: isHttpUrl(product.image_url) ? product.image_url : undefined,
-            default_action: isHttpUrl(product.product_url)
+            subtitle: trimForMeta(subtitleParts.filter(Boolean).join(' - '), 80),
+            image_url: flag(config, 'card_show_image', true) && isHttpUrl(product.image_url) ? product.image_url : undefined,
+            default_action: flag(config, 'card_show_link_button', true) && isHttpUrl(product.product_url)
                 ? { type: 'web_url', url: product.product_url, webview_height_ratio: 'full' }
                 : undefined,
             buttons: buttons.slice(0, 3),
@@ -360,11 +404,11 @@ function buildTextMessage(text, quickReplies = []) {
     return message;
 }
 
-function buildProductListMessage({ products, emptyText }) {
+function buildProductListMessage({ products, emptyText, config = {} }) {
     if (!products.length) {
-        return buildTextMessage(emptyText || 'لا توجد منتجات متاحة حاليا.', withMainMenuQuickReply([
-            { content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' },
-        ]));
+        return buildTextMessage(emptyText || 'لا توجد منتجات متاحة حاليا.', buildDefaultQuickReplies(config, {
+            includeHandoff: true,
+        }));
     }
 
     return {
@@ -372,12 +416,12 @@ function buildProductListMessage({ products, emptyText }) {
             type: 'template',
             payload: {
                 template_type: 'generic',
-                elements: buildProductCards(products),
+                elements: buildProductCards(products, config),
             },
         },
-        quick_replies: withMainMenuQuickReply([
-            { content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' },
-        ]),
+        quick_replies: buildDefaultQuickReplies(config, {
+            includeHandoff: true,
+        }),
     };
 }
 
@@ -582,7 +626,7 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
             category,
             limit: config.limit || MAX_GENERIC_ELEMENTS,
         });
-        const message = buildProductListMessage({ products, emptyText: config.empty_text });
+        const message = buildProductListMessage({ products, emptyText: config.empty_text, config });
         return sendBotMessage({
             linkedPage,
             conversation,

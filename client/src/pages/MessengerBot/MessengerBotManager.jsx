@@ -97,6 +97,22 @@ const emptyNode = (index = 0) => ({
     empty_text: '',
     limit: 10,
     include_menu: true,
+    include_products_reply: false,
+    include_handoff_reply: true,
+    menu_label: 'القائمة الرئيسية',
+    products_reply_label: 'منتجات أخرى',
+    handoff_reply_label: 'موظف بشري',
+    card_show_image: true,
+    card_show_price: true,
+    card_show_description: true,
+    card_show_category: false,
+    card_show_sku: false,
+    card_show_details_button: true,
+    card_show_inquiry_button: true,
+    card_show_link_button: true,
+    card_details_label: 'تفاصيل',
+    card_inquiry_label: 'استفسار',
+    card_link_label: 'فتح الرابط',
     buttons: [],
 });
 
@@ -169,6 +185,24 @@ function nodeToForm(node, index = 0) {
         empty_text: config.empty_text || '',
         limit: config.limit || 10,
         include_menu: config.include_menu !== false,
+        include_products_reply: node?.node_type === 'service_menu'
+            ? config.include_products_reply !== false
+            : config.include_products_reply === true,
+        include_handoff_reply: config.include_handoff_reply !== false,
+        menu_label: config.menu_label || 'القائمة الرئيسية',
+        products_reply_label: config.products_reply_label || 'منتجات أخرى',
+        handoff_reply_label: config.handoff_reply_label || 'موظف بشري',
+        card_show_image: config.card_show_image !== false,
+        card_show_price: config.card_show_price !== false,
+        card_show_description: config.card_show_description !== false,
+        card_show_category: config.card_show_category === true,
+        card_show_sku: config.card_show_sku === true,
+        card_show_details_button: config.card_show_details_button !== false,
+        card_show_inquiry_button: config.card_show_inquiry_button !== false,
+        card_show_link_button: config.card_show_link_button !== false,
+        card_details_label: config.card_details_label || 'تفاصيل',
+        card_inquiry_label: config.card_inquiry_label || 'استفسار',
+        card_link_label: config.card_link_label || 'فتح الرابط',
         buttons: buttons.map(normalizePayloadAction),
     };
 }
@@ -221,11 +255,29 @@ function buildFlowPayload(form) {
         description: form.description,
         nodes: form.nodes.map((node, index) => {
             const buttons = node.buttons.map(buttonToPayload).filter(Boolean);
-            const config = { include_menu: node.include_menu };
+            const config = {
+                include_menu: node.include_menu,
+                include_products_reply: node.include_products_reply,
+                include_handoff_reply: node.include_handoff_reply,
+                menu_label: node.menu_label,
+                products_reply_label: node.products_reply_label,
+                handoff_reply_label: node.handoff_reply_label,
+            };
             if (node.node_type === 'product_list') {
                 config.category = node.category || null;
                 config.limit = Number(node.limit) || 10;
                 config.empty_text = node.empty_text || 'لا توجد منتجات متاحة حاليا.';
+                config.card_show_image = node.card_show_image;
+                config.card_show_price = node.card_show_price;
+                config.card_show_description = node.card_show_description;
+                config.card_show_category = node.card_show_category;
+                config.card_show_sku = node.card_show_sku;
+                config.card_show_details_button = node.card_show_details_button;
+                config.card_show_inquiry_button = node.card_show_inquiry_button;
+                config.card_show_link_button = node.card_show_link_button;
+                config.card_details_label = node.card_details_label;
+                config.card_inquiry_label = node.card_inquiry_label;
+                config.card_link_label = node.card_link_label;
             }
             if (node.node_type === 'service_menu') {
                 config.items = buttons;
@@ -266,6 +318,7 @@ function buildTemplate(templateKey) {
             nodes: [{
                 ...emptyNode(0),
                 node_type: 'service_menu',
+                include_products_reply: true,
                 body: 'اختر الخدمة المناسبة.',
                 buttons: [
                     { ...emptyButton, title: 'عرض المنتجات', action: 'products' },
@@ -311,6 +364,7 @@ function buildTemplate(templateKey) {
         nodes: [{
             ...emptyNode(0),
             node_type: 'service_menu',
+            include_products_reply: true,
             body: 'مرحبا، كيف يمكننا مساعدتك؟',
             buttons: [
                 { ...emptyButton, title: 'عرض المنتجات', action: 'products' },
@@ -1194,7 +1248,64 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                         <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="تصنيف المنتجات" value={node.category} onChange={e => updateNode(nodeIndex, { category: e.target.value })} helperText="اتركه فارغا لعرض أحدث المنتجات" /></Grid>
                                                         <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="number" label="العدد" value={node.limit} onChange={e => updateNode(nodeIndex, { limit: e.target.value })} /></Grid>
                                                         <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رسالة عدم توفر منتجات" value={node.empty_text} onChange={e => updateNode(nodeIndex, { empty_text: e.target.value })} /></Grid>
+                                                        <Grid size={{ xs: 12 }}>
+                                                            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>بطاقة المنتج</Typography>
+                                                                <Grid container spacing={1}>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_image)} onChange={e => updateNode(nodeIndex, { card_show_image: e.target.checked })} />} label="الصورة" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_price)} onChange={e => updateNode(nodeIndex, { card_show_price: e.target.checked })} />} label="السعر" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_description)} onChange={e => updateNode(nodeIndex, { card_show_description: e.target.checked })} />} label="الوصف" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_category)} onChange={e => updateNode(nodeIndex, { card_show_category: e.target.checked })} />} label="التصنيف" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_sku)} onChange={e => updateNode(nodeIndex, { card_show_sku: e.target.checked })} />} label="SKU" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12 }}><Divider /></Grid>
+                                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_details_button)} onChange={e => updateNode(nodeIndex, { card_show_details_button: e.target.checked })} />} label="زر التفاصيل" />
+                                                                        <TextField fullWidth size="small" label="نص زر التفاصيل" value={node.card_details_label} onChange={e => updateNode(nodeIndex, { card_details_label: e.target.value })} />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_inquiry_button)} onChange={e => updateNode(nodeIndex, { card_show_inquiry_button: e.target.checked })} />} label="زر الاستفسار" />
+                                                                        <TextField fullWidth size="small" label="نص زر الاستفسار" value={node.card_inquiry_label} onChange={e => updateNode(nodeIndex, { card_inquiry_label: e.target.value })} />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_link_button)} onChange={e => updateNode(nodeIndex, { card_show_link_button: e.target.checked })} />} label="زر الرابط" />
+                                                                        <TextField fullWidth size="small" label="نص زر الرابط" value={node.card_link_label} onChange={e => updateNode(nodeIndex, { card_link_label: e.target.value })} />
+                                                                    </Grid>
+                                                                </Grid>
+                                                            </Paper>
+                                                        </Grid>
                                                     </>
+                                                )}
+
+                                                {node.node_type !== 'handoff' && node.node_type !== 'end' && (
+                                                    <Grid size={{ xs: 12 }}>
+                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                            <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>قائمة الردود الافتراضية</Typography>
+                                                            <Grid container spacing={1}>
+                                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_menu)} onChange={e => updateNode(nodeIndex, { include_menu: e.target.checked })} />} label="إظهار القائمة الرئيسية" />
+                                                                    <TextField fullWidth size="small" label="نص القائمة الرئيسية" value={node.menu_label} onChange={e => updateNode(nodeIndex, { menu_label: e.target.value })} />
+                                                                </Grid>
+                                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_products_reply)} onChange={e => updateNode(nodeIndex, { include_products_reply: e.target.checked })} />} label="إظهار المنتجات" />
+                                                                    <TextField fullWidth size="small" label="نص زر المنتجات" value={node.products_reply_label} onChange={e => updateNode(nodeIndex, { products_reply_label: e.target.value })} />
+                                                                </Grid>
+                                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_handoff_reply)} onChange={e => updateNode(nodeIndex, { include_handoff_reply: e.target.checked })} />} label="إظهار موظف بشري" />
+                                                                    <TextField fullWidth size="small" label="نص زر الموظف" value={node.handoff_reply_label} onChange={e => updateNode(nodeIndex, { handoff_reply_label: e.target.value })} />
+                                                                </Grid>
+                                                            </Grid>
+                                                        </Paper>
+                                                    </Grid>
                                                 )}
 
                                                 {node.node_type !== 'product_list' && node.node_type !== 'handoff' && node.node_type !== 'end' && (
@@ -1202,10 +1313,6 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1 }}>
                                                             <Typography variant="subtitle2" fontWeight={800}>الأزرار</Typography>
                                                             <Stack direction="row" spacing={1} alignItems="center">
-                                                                <FormControlLabel
-                                                                    control={<Switch checked={Boolean(node.include_menu)} onChange={e => updateNode(nodeIndex, { include_menu: e.target.checked })} />}
-                                                                    label="زر القائمة الرئيسية"
-                                                                />
                                                                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addButton(nodeIndex)}>إضافة زر</Button>
                                                             </Stack>
                                                         </Stack>
