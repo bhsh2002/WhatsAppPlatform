@@ -38,6 +38,7 @@ import TenantContentManager from './pages/TenantPortal/TenantContentManager';
 import TenantAutomation from './pages/TenantPortal/TenantAutomation';
 import TenantFbInsights from './pages/TenantPortal/TenantFbInsights';
 import TenantMetaReview from './pages/TenantPortal/TenantMetaReview';
+import TenantBilling from './pages/TenantPortal/TenantBilling';
 
 // Admin Feature Pages
 import BusinessManager from './pages/Settings/BusinessManager';
@@ -53,6 +54,7 @@ import BroadcastManager from './pages/Broadcast/BroadcastManager';
 import WebhookFailures from './pages/Admin/WebhookFailures';
 import UnifiedInbox from './pages/Inbox/UnifiedInbox';
 import AutomationManager from './pages/Automation/AutomationManager';
+import BillingManager from './pages/Billing/BillingManager';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -196,6 +198,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/billing"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><BillingManager /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/settings"
         element={
           <ProtectedRoute requireAdmin>
@@ -292,6 +302,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantInbox /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/billing"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantBilling /></MainLayout>
           </ProtectedRoute>
         }
       />

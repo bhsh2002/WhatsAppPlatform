@@ -39,7 +39,8 @@ import {
     BarChart as BarChartIcon,
     ReportProblem as ReportProblemIcon,
     SmartToy as SmartToyIcon,
-    FactCheck as FactCheckIcon
+    FactCheck as FactCheckIcon,
+    AccountBalanceWallet as BillingIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -60,6 +61,7 @@ const Sidebar = () => {
                 { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
                 { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
                 { label: 'صندوق الوارد', path: '/inbox', icon: <InboxIcon /> },
+                { label: 'الفوترة والتسعير', path: '/billing', icon: <BillingIcon /> },
             ],
         },
         {
@@ -101,6 +103,7 @@ const Sidebar = () => {
             items: [
                 { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
                 { label: 'صندوق الوارد', path: '/portal/inbox', icon: <InboxIcon /> },
+                { label: 'الرصيد والفوترة', path: '/portal/billing', icon: <BillingIcon /> },
             ],
         },
         {

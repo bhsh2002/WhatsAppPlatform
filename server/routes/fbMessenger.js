@@ -9,6 +9,13 @@ import {
     normalizeMessengerTimestamp,
     selectMessengerMessages,
 } from '../services/messengerMessages.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    handleBillingError,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from '../services/billing.js';
 
 const router = express.Router();
 
@@ -94,6 +101,7 @@ router.get('/:linkedPageId/conversations/:conversationId/messages', (req, res) =
 // Send a text reply
 // ============================================
 router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res) => {
+    let billingReservation = null;
     try {
         const { linkedPageId, conversationId } = req.params;
         const { message } = req.body;
@@ -109,6 +117,14 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
         if (!conv) {
             return res.status(404).json({ error: 'المحادثة غير موجودة' });
         }
+
+        billingReservation = reserveBilling({
+            tenantId: conv.tenant_id,
+            operationKey: BILLING_OPERATIONS.MESSENGER_REPLY,
+            quantity: 1,
+            referenceType: 'messenger_message',
+            metadata: { linked_page_id: linkedPageId, conversation_id: conversationId, user_psid: conv.user_psid },
+        });
 
         // Send via Meta Send API
         const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
@@ -127,6 +143,7 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
         const sendData = await sendResponse.json();
 
         if (!sendResponse.ok || sendData.error) {
+            releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger reply failed');
             // Outside 24-hour messaging window
             if (sendData.error?.code === 10) {
                 return res.status(403).json({
@@ -142,6 +159,10 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
         }
 
         const mid = sendData.message_id;
+        commitBilling(billingReservation, {
+            referenceId: mid,
+            description: 'خصم رد Messenger',
+        });
 
         const createdAt = normalizeMessengerTimestamp();
         insertMessengerMessage(db, {
@@ -183,6 +204,14 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
 
         res.status(201).json({ id: mid, conversation_id: conv.id });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[FBMessenger] Billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[FBMessenger] Send message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }
@@ -330,6 +359,7 @@ const VALID_MESSAGE_TAGS = [
 ];
 
 router.post('/:linkedPageId/conversations/:conversationId/utility-message', async (req, res) => {
+    let billingReservation = null;
     try {
         const { linkedPageId, conversationId } = req.params;
         const { message, tag } = req.body;
@@ -353,6 +383,14 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
             return res.status(404).json({ error: 'المحادثة غير موجودة' });
         }
 
+        billingReservation = reserveBilling({
+            tenantId: conv.tenant_id,
+            operationKey: BILLING_OPERATIONS.MESSENGER_UTILITY,
+            quantity: 1,
+            referenceType: 'messenger_message',
+            metadata: { linked_page_id: linkedPageId, conversation_id: conversationId, user_psid: conv.user_psid, tag },
+        });
+
         // Send via Meta Send API with MESSAGE_TAG
         const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
             method: 'POST',
@@ -371,6 +409,7 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
         const sendData = await sendResponse.json();
 
         if (!sendResponse.ok || sendData.error) {
+            releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger utility failed');
             return res.status(sendResponse.status || 400).json({
                 error: sendData.error?.message || 'فشل إرسال الرسالة',
                 details: sendData.error,
@@ -378,6 +417,10 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
         }
 
         const mid = sendData.message_id;
+        commitBilling(billingReservation, {
+            referenceId: mid,
+            description: `خصم رسالة Messenger موسومة: ${tag}`,
+        });
 
         const createdAt = normalizeMessengerTimestamp();
         insertMessengerMessage(db, {
@@ -410,6 +453,14 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
 
         res.status(201).json({ id: mid, conversation_id: conv.id, tag });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[FBMessenger] Utility billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[FBMessenger] Utility message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }

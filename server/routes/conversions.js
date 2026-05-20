@@ -11,6 +11,13 @@ import {
     normalizePhone,
     parseCustomData,
 } from '../services/whatsappEvents.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    handleBillingError,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from '../services/billing.js';
 
 const router = express.Router();
 
@@ -69,6 +76,7 @@ router.get('/datasets/:wabaId', async (req, res) => {
 // Send conversion event(s) to Meta
 // ============================================
 router.post('/events/:datasetId', async (req, res) => {
+    let billingReservation = null;
     try {
         const { datasetId } = req.params;
         const { tenant_id, events } = req.body;
@@ -98,6 +106,14 @@ router.post('/events/:datasetId', async (req, res) => {
             });
         });
 
+        billingReservation = reserveBilling({
+            tenantId: tenant_id || null,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_EVENT_CONVERSION,
+            quantity: events.length,
+            referenceType: 'conversion_event',
+            metadata: { dataset_id: datasetId, event_count: events.length },
+        });
+
         // Send to Meta Conversions API
         const response = await fetch(
             `${META_API_BASE}/${datasetId}/events`,
@@ -116,6 +132,7 @@ router.post('/events/:datasetId', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta conversion events failed');
             // Save failed events to local DB
             for (const event of events) {
                 db.prepare(`
@@ -162,6 +179,12 @@ router.post('/events/:datasetId', async (req, res) => {
 
         // Log activity
         if (tenant_id && tenant) {
+            commitBilling(billingReservation, {
+                quantity: data.events_received || events.length,
+                referenceId: data.fbtrace_id || null,
+                description: `خصم إرسال ${data.events_received || events.length} حدث WhatsApp Events API`,
+            });
+
             db.prepare(`
                 INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                 VALUES (?, ?, 'conversion_events_sent', ?, 'success')
@@ -175,6 +198,14 @@ router.post('/events/:datasetId', async (req, res) => {
             data
         });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Conversions] Billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Conversions] Send events error:', error);
         res.status(error.statusCode || (error.message?.includes('نوع الحدث') ? 400 : 500)).json({
             error: error.message || 'فشل إرسال الأحداث',
@@ -251,6 +282,7 @@ router.get('/events/history', (req, res) => {
 // Log event from conversation (tenant portal)
 // ============================================
 router.post('/log-event', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user?.tenant_id || req.body.tenant_id;
         const { phone, event_name, wamid, custom_data, ctwa_clid } = req.body;
@@ -295,6 +327,14 @@ router.post('/log-event', async (req, res) => {
             customData: parseCustomData(custom_data),
         });
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_EVENT_CONVERSION,
+            quantity: 1,
+            referenceType: 'conversion_event',
+            metadata: { dataset_id: datasetId, event_name },
+        });
+
         const response = await fetch(
             `${META_API_BASE}/${datasetId}/events`,
             {
@@ -328,6 +368,11 @@ router.post('/log-event', async (req, res) => {
         );
 
         if (response.ok) {
+            commitBilling(billingReservation, {
+                referenceId: data.fbtrace_id || null,
+                description: `خصم إرسال حدث WhatsApp Events API: ${event_name}`,
+            });
+
             db.prepare(`
                 INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                 VALUES (?, ?, 'conversion_event_logged', ?, 'success')
@@ -335,6 +380,7 @@ router.post('/log-event', async (req, res) => {
 
             res.json({ success: true, data });
         } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta conversion event failed');
             const metaError = normalizeMetaError(data);
             res.status(response.status).json({
                 error: metaError?.message || data.error?.message || 'فشل إرسال الحدث',
@@ -343,6 +389,14 @@ router.post('/log-event', async (req, res) => {
             });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Conversions] Log event billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Conversions] Log event error:', error);
         res.status(error.statusCode || 500).json({
             error: error.message || 'فشل تسجيل الحدث',

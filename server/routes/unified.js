@@ -10,6 +10,13 @@ import {
     selectMessengerMessages,
 } from '../services/messengerMessages.js';
 import { enrichTemplateFallbackMessages } from '../services/messaging.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    handleBillingError,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from '../services/billing.js';
 
 const router = express.Router();
 
@@ -173,6 +180,7 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
 });
 
 router.post('/conversations/:channel/:id/send', async (req, res) => {
+    let billingReservation = null;
     try {
         const { channel } = req.params;
         const contactId = decodeURIComponent(req.params.id);
@@ -197,6 +205,13 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
             }
 
             const formattedNumber = contactId.replace(/\+/g, '').trim();
+            billingReservation = reserveBilling({
+                tenantId: credentials.tenant?.id || tenant_id || null,
+                operationKey: BILLING_OPERATIONS.WHATSAPP_TEXT,
+                quantity: 1,
+                referenceType: 'message',
+                metadata: { channel: 'whatsapp', recipient: formattedNumber },
+            });
 
             const response = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/messages`, {
                 method: 'POST',
@@ -216,6 +231,11 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
             if (response.ok) {
                 const messageId = data.messages?.[0]?.id;
+                commitBilling(billingReservation, {
+                    referenceId: messageId,
+                    description: 'خصم إرسال رسالة WhatsApp من الصندوق الموحد',
+                });
+
                 db.prepare(`
                     INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
                     VALUES (?, 'outgoing', ?, ?, 'text', ?, 'sent', ?)
@@ -234,6 +254,7 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: messageId });
             } else {
+                releaseBilling(billingReservation, data.error?.message || 'Meta WhatsApp send failed');
                 console.error('[Unified] WA send error:', data.error);
                 res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرسالة' });
             }
@@ -251,6 +272,13 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
             ).get(contactId, linked_page_id);
 
             const userPsid = contactId;
+            billingReservation = reserveBilling({
+                tenantId: page.tenant_id,
+                operationKey: BILLING_OPERATIONS.MESSENGER_REPLY,
+                quantity: 1,
+                referenceType: 'messenger_message',
+                metadata: { linked_page_id, conversation_id: conv?.id || null, user_psid: userPsid },
+            });
 
             const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
                 method: 'POST',
@@ -269,6 +297,10 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
             if (sendResponse.ok) {
                 const mid = sendData.message_id;
+                commitBilling(billingReservation, {
+                    referenceId: mid,
+                    description: 'خصم رد Messenger من الصندوق الموحد',
+                });
 
                 if (conv) {
                     const createdAt = normalizeMessengerTimestamp();
@@ -311,6 +343,7 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: mid });
             } else {
+                releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger send failed');
                 console.error('[Unified] Messenger send error:', sendData.error);
                 // Outside 24-hour messaging window
                 if (sendData.error?.code === 10) {
@@ -326,6 +359,14 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
             res.status(400).json({ error: 'Invalid channel' });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Unified] Billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Unified] Send message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }

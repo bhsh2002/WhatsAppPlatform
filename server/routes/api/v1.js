@@ -18,6 +18,13 @@ import {
     normalizePhone,
     parseCustomData,
 } from '../../services/whatsappEvents.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    handleBillingError,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from '../../services/billing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,6 +73,7 @@ router.get('/health', (req, res) => {
 // Send Text Message
 // ============================================
 router.post('/messages/send', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.tenantId;
         const { recipient, type = 'text', message, template_language } = req.body;
@@ -135,6 +143,14 @@ router.post('/messages/send', async (req, res) => {
             payload.text = { body: message };
         }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: effectiveType === 'template' ? BILLING_OPERATIONS.WHATSAPP_TEMPLATE : BILLING_OPERATIONS.WHATSAPP_TEXT,
+            quantity: 1,
+            referenceType: 'api_message',
+            metadata: { recipient: normalizedRecipient, message_type: effectiveType, api_version: 'v1' },
+        });
+
         // Send to Meta
         const response = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/messages`, {
             method: 'POST',
@@ -149,6 +165,7 @@ router.post('/messages/send', async (req, res) => {
 
         if (!response.ok) {
             console.error('[API v1] Meta error:', data);
+            releaseBilling(billingReservation, data.error?.message || 'Meta send failed');
             return res.status(response.status).json({ 
                 error: data.error?.message || 'Failed to send message',
                 details: data.error 
@@ -157,6 +174,13 @@ router.post('/messages/send', async (req, res) => {
 
         // Save to database
         const messageId = data.messages?.[0]?.id;
+        commitBilling(billingReservation, {
+            referenceId: messageId,
+            description: effectiveType === 'template'
+                ? `خصم إرسال قالب WhatsApp عبر API: ${templateName}`
+                : 'خصم إرسال رسالة WhatsApp نصية عبر API',
+        });
+
         let content = message;
         if (effectiveType === 'template') {
             content = buildRichTemplateContent(template, normalizedTemplateComponents)
@@ -190,6 +214,14 @@ router.post('/messages/send', async (req, res) => {
         });
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[API v1] Billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[API v1] Send message error:', error);
         res.status(500).json({ error: 'Failed to send message', message: error.message });
     }
@@ -199,6 +231,7 @@ router.post('/messages/send', async (req, res) => {
 // Send Media (via URL)
 // ============================================
 router.post('/messages/send-media', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.tenantId;
         const { recipient, type, media_url, caption } = req.body;
@@ -235,6 +268,14 @@ router.post('/messages/send-media', async (req, res) => {
             payload[type].caption = caption;
         }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_MEDIA,
+            quantity: 1,
+            referenceType: 'api_message',
+            metadata: { recipient: normalizedRecipient, message_type: type, media_source: 'url', api_version: 'v1' },
+        });
+
         const response = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -248,6 +289,7 @@ router.post('/messages/send-media', async (req, res) => {
 
         if (!response.ok) {
             console.error('[API v1] Send media error:', data);
+            releaseBilling(billingReservation, data.error?.message || 'Meta media send failed');
             return res.status(response.status).json({ 
                 error: data.error?.message || 'Failed to send media',
                 details: data.error 
@@ -255,6 +297,10 @@ router.post('/messages/send-media', async (req, res) => {
         }
 
         const messageId = data.messages?.[0]?.id;
+        commitBilling(billingReservation, {
+            referenceId: messageId,
+            description: `خصم إرسال وسائط WhatsApp عبر API: ${type}`,
+        });
 
         // Save to database
         db.prepare(`
@@ -269,6 +315,14 @@ router.post('/messages/send-media', async (req, res) => {
         });
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[API v1] Media billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[API v1] Send media error:', error);
         res.status(500).json({ error: 'Failed to send media', message: error.message });
     }
@@ -278,6 +332,7 @@ router.post('/messages/send-media', async (req, res) => {
 // Send Document (upload)
 // ============================================
 router.post('/messages/send-document', upload.single('file'), async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.tenantId;
         const { recipient, caption, filename } = req.body;
@@ -345,6 +400,14 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
             }
         };
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_MEDIA,
+            quantity: 1,
+            referenceType: 'api_message',
+            metadata: { recipient: normalizedRecipient, message_type: 'document', media_source: 'file', api_version: 'v1' },
+        });
+
         const response = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -358,6 +421,7 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
 
         if (!response.ok) {
             console.error('[API v1] Send document error:', data);
+            releaseBilling(billingReservation, data.error?.message || 'Meta document send failed');
             return res.status(response.status).json({ 
                 error: data.error?.message || 'Failed to send document',
                 details: data.error 
@@ -365,6 +429,10 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
         }
 
         const messageId = data.messages?.[0]?.id;
+        commitBilling(billingReservation, {
+            referenceId: messageId,
+            description: 'خصم إرسال مستند WhatsApp عبر API',
+        });
 
         // Save to database
         db.prepare(`
@@ -388,6 +456,14 @@ router.post('/messages/send-document', upload.single('file'), async (req, res) =
         });
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[API v1] Document billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[API v1] Send document error:', error);
         if (req.file) {
             try { fs.unlinkSync(req.file.path); } catch (e) {}
@@ -530,6 +606,7 @@ router.get('/templates/:id', (req, res) => {
 // Send Interactive Message
 // ============================================
 router.post('/messages/send-interactive', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.tenantId;
         const { recipient, interactive_type, body_text, header_text, footer_text, buttons, sections, list_button_text } = req.body;
@@ -590,6 +667,14 @@ router.post('/messages/send-interactive', async (req, res) => {
             interactive
         };
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_INTERACTIVE,
+            quantity: 1,
+            referenceType: 'api_message',
+            metadata: { recipient: normalizedRecipient, interactive_type, api_version: 'v1' },
+        });
+
         const response = await fetch(`${META_API_BASE}/${credentials.phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -602,6 +687,7 @@ router.post('/messages/send-interactive', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta interactive send failed');
             return res.status(response.status).json({
                 error: data.error?.message || 'Failed to send interactive message',
                 details: data.error
@@ -609,6 +695,10 @@ router.post('/messages/send-interactive', async (req, res) => {
         }
 
         const messageId = data.messages?.[0]?.id;
+        commitBilling(billingReservation, {
+            referenceId: messageId,
+            description: `خصم إرسال رسالة WhatsApp تفاعلية عبر API (${interactive_type})`,
+        });
 
         db.prepare(`
             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
@@ -617,6 +707,14 @@ router.post('/messages/send-interactive', async (req, res) => {
 
         res.json({ success: true, message_id: messageId, recipient: normalizedRecipient });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[API v1] Interactive billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[API v1] Send interactive error:', error);
         res.status(500).json({ error: 'Failed to send interactive message', message: error.message });
     }
@@ -626,6 +724,7 @@ router.post('/messages/send-interactive', async (req, res) => {
 // Send Conversion Event
 // ============================================
 router.post('/events', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.tenantId;
         const { events } = req.body;
@@ -653,6 +752,14 @@ router.post('/events', async (req, res) => {
                 customData: parseCustomData(event.custom_data),
                 eventTime: event.event_time || Math.floor(Date.now() / 1000),
             });
+        });
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_EVENT_CONVERSION,
+            quantity: events.length,
+            referenceType: 'conversion_event',
+            metadata: { dataset_id: tenant.dataset_id, event_count: events.length, api_version: 'v1' },
         });
 
         const response = await fetch(`${META_API_BASE}/${tenant.dataset_id}/events`, {
@@ -689,6 +796,7 @@ router.post('/events', async (req, res) => {
         }
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta conversion events failed');
             const metaError = normalizeMetaError(data);
             return res.status(response.status).json({
                 error: metaError?.message || data.error?.message || 'Failed to send events',
@@ -697,12 +805,26 @@ router.post('/events', async (req, res) => {
             });
         }
 
+        commitBilling(billingReservation, {
+            quantity: data.events_received || events.length,
+            referenceId: data.fbtrace_id || null,
+            description: `خصم إرسال ${data.events_received || events.length} حدث WhatsApp Events API عبر API`,
+        });
+
         res.json({
             success: true,
             events_received: data.events_received || events.length,
             fbtrace_id: data.fbtrace_id
         });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[API v1] Events billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[API v1] Send events error:', error);
         res.status(error.statusCode || 500).json({
             error: error.message || 'Failed to send conversion events',

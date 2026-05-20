@@ -3,6 +3,17 @@ import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { checkSingleTenant } from '../services/tokenMonitor.js';
 import { getAccessToken } from '../services/credentials.js';
+import {
+    createInvoice,
+    ensureTenantBillingAccount,
+    getBillingSummary,
+    getInvoices,
+    getLedger,
+    handleBillingError,
+    recordAdjustment,
+    recordPayment,
+    updateTenantBillingAccount,
+} from '../services/billing.js';
 
 const router = express.Router();
 
@@ -166,6 +177,7 @@ router.post('/', (req, res) => {
         );
 
         const newTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(result.lastInsertRowid);
+        ensureTenantBillingAccount(newTenant.id);
 
         // Log activity
         db.prepare(`
@@ -186,7 +198,7 @@ router.post('/', (req, res) => {
 // Update tenant
 router.put('/:id', (req, res) => {
     try {
-        const { name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id, business_id, dataset_id } = req.body;
+        const { name, phone, status, tier, quality, phone_number_id, access_token, waba_id, business_id, dataset_id } = req.body;
 
         const existing = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
         if (!existing) {
@@ -196,7 +208,7 @@ router.put('/:id', (req, res) => {
         // Build dynamic UPDATE — only include fields present in the request body.
         // This allows clearing fields by sending null explicitly,
         // while absent fields remain unchanged.
-        const clearableFields = ['name', 'phone', 'status', 'tier', 'credits', 'quality',
+        const clearableFields = ['name', 'phone', 'status', 'tier', 'quality',
             'phone_number_id', 'access_token', 'waba_id', 'business_id', 'dataset_id'];
         
         const setClauses = [];
@@ -217,6 +229,12 @@ router.put('/:id', (req, res) => {
         values.push(req.params.id);
         
         db.prepare(`UPDATE tenants SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+
+        if ('credits' in req.body) {
+            updateTenantBillingAccount(req.params.id, {
+                wallet_balance_credits: parseInt(req.body.credits, 10) || 0,
+            });
+        }
 
         const updatedTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
 
@@ -380,7 +398,7 @@ router.put('/:id/account/password', async (req, res) => {
 router.post('/:id/credits', (req, res) => {
     try {
         const tenantId = req.params.id;
-        const { amount } = req.body;
+        const { amount, amount_lyd, note, method, reference } = req.body;
 
         if (!amount || typeof amount !== 'number' || amount <= 0) {
             return res.status(400).json({ error: 'المبلغ يجب أن يكون رقماً موجباً' });
@@ -391,10 +409,15 @@ router.post('/:id/credits', (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
-        db.prepare("UPDATE tenants SET credits = credits + ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
-            .run(amount, tenantId);
-
-        const updated = db.prepare('SELECT credits FROM tenants WHERE id = ?').get(tenantId);
+        const result = recordPayment({
+            tenantId,
+            credits: amount,
+            amountLyd: amount_lyd || 0,
+            method: method || 'legacy_credit_topup',
+            reference: reference || null,
+            note: note || `إضافة ${amount} رصيد`,
+            createdBy: req.user?.id || null,
+        });
 
         // Log activity
         db.prepare(`
@@ -404,12 +427,122 @@ router.post('/:id/credits', (req, res) => {
 
         res.json({
             success: true,
-            credits: updated.credits,
+            credits: result.summary?.balances?.available_credits ?? amount,
+            billing: result.summary,
             added: amount,
         });
     } catch (error) {
+        if (handleBillingError(res, error)) return;
         console.error('Error adding credits:', error);
         res.status(500).json({ error: 'فشل إضافة الرصيد' });
+    }
+});
+
+// Billing account summary for a tenant
+router.get('/:id/billing', (req, res) => {
+    try {
+        const tenant = db.prepare('SELECT id FROM tenants WHERE id = ?').get(req.params.id);
+        if (!tenant) {
+            return res.status(404).json({ error: 'العميل غير موجود' });
+        }
+        res.json(getBillingSummary(req.params.id));
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('Error fetching tenant billing:', error);
+        res.status(500).json({ error: 'فشل جلب حساب الفوترة' });
+    }
+});
+
+router.patch('/:id/billing/account', (req, res) => {
+    try {
+        const summary = updateTenantBillingAccount(req.params.id, req.body);
+        res.json({ success: true, summary });
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('Error updating tenant billing account:', error);
+        res.status(500).json({ error: 'فشل تحديث حساب الفوترة' });
+    }
+});
+
+router.post('/:id/billing/payments', (req, res) => {
+    try {
+        const result = recordPayment({
+            tenantId: req.params.id,
+            credits: req.body.credits,
+            amountLyd: req.body.amount_lyd || 0,
+            method: req.body.method || 'manual',
+            reference: req.body.reference || null,
+            note: req.body.note || null,
+            invoiceId: req.body.invoice_id || null,
+            createdBy: req.user?.id || null,
+        });
+        res.status(201).json(result);
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('Error recording tenant payment:', error);
+        res.status(500).json({ error: 'فشل تسجيل الدفعة' });
+    }
+});
+
+router.post('/:id/billing/adjustments', (req, res) => {
+    try {
+        const result = recordAdjustment({
+            tenantId: req.params.id,
+            creditsDelta: req.body.credits_delta,
+            reason: req.body.reason,
+            createdBy: req.user?.id || null,
+        });
+        res.status(201).json(result);
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('Error recording tenant billing adjustment:', error);
+        res.status(500).json({ error: 'فشل تسجيل تعديل الرصيد' });
+    }
+});
+
+router.get('/:id/billing/ledger', (req, res) => {
+    try {
+        const ledger = getLedger(req.params.id, {
+            limit: req.query.limit || 50,
+            offset: req.query.offset || 0,
+            channel: req.query.channel || null,
+            operation: req.query.operation || null,
+        });
+        res.json({ ledger });
+    } catch (error) {
+        console.error('Error fetching tenant billing ledger:', error);
+        res.status(500).json({ error: 'فشل جلب سجل الرصيد' });
+    }
+});
+
+router.get('/:id/billing/invoices', (req, res) => {
+    try {
+        const invoices = getInvoices(req.params.id, {
+            limit: req.query.limit || 20,
+            offset: req.query.offset || 0,
+        });
+        res.json({ invoices });
+    } catch (error) {
+        console.error('Error fetching tenant billing invoices:', error);
+        res.status(500).json({ error: 'فشل جلب الفواتير' });
+    }
+});
+
+router.post('/:id/billing/invoices', (req, res) => {
+    try {
+        const invoice = createInvoice({
+            tenantId: req.params.id,
+            periodStart: req.body.period_start,
+            periodEnd: req.body.period_end,
+            dueDate: req.body.due_date,
+            notes: req.body.notes,
+            createdBy: req.user?.id || null,
+        });
+        res.status(201).json({ invoice });
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('Error creating tenant billing invoice:', error);
+        res.status(500).json({ error: 'فشل إنشاء الفاتورة' });
     }
 });
 

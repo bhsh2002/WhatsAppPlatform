@@ -1142,6 +1142,94 @@ class ApiService {
     }
 
     // ============================================
+    // Billing / Pricing
+    // ============================================
+    async getBillingPlans() {
+        return this.request('/api/billing/plans');
+    }
+
+    async createBillingPlan(data) {
+        return this.request('/api/billing/plans', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateBillingPlan(id, data) {
+        return this.request(`/api/billing/plans/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getBillingPrices() {
+        return this.request('/api/billing/prices');
+    }
+
+    async updateBillingPrice(id, data) {
+        return this.request(`/api/billing/prices/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getTenantBilling(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/billing`);
+    }
+
+    async updateTenantBillingAccount(tenantId, data) {
+        return this.request(`/api/tenants/${tenantId}/billing/account`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async recordTenantPayment(tenantId, data) {
+        return this.request(`/api/tenants/${tenantId}/billing/payments`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async recordTenantAdjustment(tenantId, data) {
+        return this.request(`/api/tenants/${tenantId}/billing/adjustments`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getTenantBillingLedger(tenantId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/tenants/${tenantId}/billing/ledger${query ? '?' + query : ''}`);
+    }
+
+    async getTenantBillingInvoices(tenantId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/tenants/${tenantId}/billing/invoices${query ? '?' + query : ''}`);
+    }
+
+    async createTenantBillingInvoice(tenantId, data = {}) {
+        return this.request(`/api/tenants/${tenantId}/billing/invoices`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getPortalBillingSummary() {
+        return this.request('/api/portal/billing/summary');
+    }
+
+    async getPortalBillingLedger(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/billing/ledger${query ? '?' + query : ''}`);
+    }
+
+    async getPortalBillingInvoices(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/billing/invoices${query ? '?' + query : ''}`);
+    }
+
+    // ============================================
     // Token Health (Admin)
     // ============================================
     async getTokenHealthSummary() {

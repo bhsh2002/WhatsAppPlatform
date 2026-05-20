@@ -44,6 +44,16 @@ import {
     normalizePhone,
     parseCustomData,
 } from '../services/whatsappEvents.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    getBillingSummary,
+    getInvoices as getBillingInvoices,
+    getLedger as getBillingLedger,
+    handleBillingError,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from '../services/billing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -210,6 +220,48 @@ router.get('/dashboard', (req, res) => {
     } catch (error) {
         console.error('[TenantPortal] Dashboard error:', error);
         res.status(500).json({ error: 'فشل جلب البيانات' });
+    }
+});
+
+// ============================================
+// Billing Summary
+// ============================================
+router.get('/billing/summary', (req, res) => {
+    try {
+        const summary = getBillingSummary(req.user.tenant_id);
+        res.json(summary);
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('[TenantPortal] Billing summary error:', error);
+        res.status(500).json({ error: 'فشل جلب بيانات الرصيد والفوترة' });
+    }
+});
+
+router.get('/billing/ledger', (req, res) => {
+    try {
+        const ledger = getBillingLedger(req.user.tenant_id, {
+            limit: req.query.limit || 10,
+            offset: req.query.offset || 0,
+            channel: req.query.channel || null,
+            operation: req.query.operation || null,
+        });
+        res.json({ ledger });
+    } catch (error) {
+        console.error('[TenantPortal] Billing ledger error:', error);
+        res.status(500).json({ error: 'فشل جلب سجل الرصيد' });
+    }
+});
+
+router.get('/billing/invoices', (req, res) => {
+    try {
+        const invoices = getBillingInvoices(req.user.tenant_id, {
+            limit: req.query.limit || 20,
+            offset: req.query.offset || 0,
+        });
+        res.json({ invoices });
+    } catch (error) {
+        console.error('[TenantPortal] Billing invoices error:', error);
+        res.status(500).json({ error: 'فشل جلب الفواتير' });
     }
 });
 
@@ -451,6 +503,7 @@ router.get('/messages/window/:phone', (req, res) => {
 // Send Message
 // ============================================
 router.post('/messages/send', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { recipient, type, message, templateId } = req.body;
@@ -487,15 +540,6 @@ router.post('/messages/send', async (req, res) => {
         if (tenant.status === 'Suspended') {
             if (file) fs.unlinkSync(file.path);
             return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الملفات. تواصل مع المدير.' });
-        }
-
-        // Credit check
-        if (tenant.credits !== null && tenant.credits <= 0) {
-            return res.status(402).json({
-                error: 'رصيد الرسائل غير كافٍ. تواصل مع المدير لإعادة الشحن.',
-                code: 'INSUFFICIENT_CREDITS',
-                credits: tenant.credits,
-            });
         }
 
         // 24h conversation window enforcement (non-template messages only)
@@ -580,6 +624,14 @@ router.post('/messages/send', async (req, res) => {
 
         console.log('[TenantPortal] Sending message:', JSON.stringify(payload, null, 2));
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: effectiveType === 'template' ? BILLING_OPERATIONS.WHATSAPP_TEMPLATE : BILLING_OPERATIONS.WHATSAPP_TEXT,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient, message_type: effectiveType },
+        });
+
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -642,9 +694,12 @@ router.post('/messages/send', async (req, res) => {
         );
 
         if (response.ok) {
-            // Deduct 1 credit on successful send
-            db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0')
-                .run(tenantId);
+            commitBilling(billingReservation, {
+                referenceId: data.messages?.[0]?.id || null,
+                description: effectiveType === 'template'
+                    ? `خصم إرسال قالب WhatsApp: ${selectedTemplate?.name || templateName || templateId}`
+                    : 'خصم إرسال رسالة WhatsApp نصية',
+            });
             
             // Emit SSE events for real-time UI update
             eventBus.emitNewMessage({
@@ -661,9 +716,18 @@ router.post('/messages/send', async (req, res) => {
             
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta send failed');
             res.status(response.status).json({ success: false, error: data.error?.message, data });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Send message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }
@@ -745,6 +809,7 @@ router.post('/media/upload-to-meta', mediaUpload.single('file'), async (req, res
 // Send Document (PDF, DOC, XLS, etc.)
 // ============================================
 router.post('/messages/send-document', documentUpload.single('file'), async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { recipient, caption, filename } = req.body;
@@ -851,6 +916,14 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
 
         console.log('[TenantPortal] Sending document:', JSON.stringify(payload, null, 2));
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_MEDIA,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient: formattedRecipient, message_type: 'document' },
+        });
+
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -864,11 +937,17 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
 
         if (!response.ok) {
             console.error('[TenantPortal] Send document error:', data);
+            releaseBilling(billingReservation, data.error?.message || 'Meta document send failed');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل إرسال الملف',
                 data
             });
         }
+
+        commitBilling(billingReservation, {
+            referenceId: data.messages?.[0]?.id || null,
+            description: 'خصم إرسال مستند WhatsApp',
+        });
 
         // 3. Save to database
         // Store filename in content, caption can be appended if provided
@@ -915,6 +994,14 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
         });
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Document billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Send document error:', error);
         // Cleanup file if it exists
         if (req.file) {
@@ -930,6 +1017,7 @@ router.post('/messages/send-document', documentUpload.single('file'), async (req
 // Send Image/Media
 // ============================================
 router.post('/messages/send-image', mediaUpload.single('file'), async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { recipient, caption } = req.body;
@@ -1026,6 +1114,14 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
             payload.document.filename = displayFilename;
         }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_MEDIA,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient: formattedRecipient, message_type: mediaType },
+        });
+
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -1038,11 +1134,17 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta media send failed');
             return res.status(response.status).json({
                 error: data.error?.message || 'فشل إرسال الملف',
                 data
             });
         }
+
+        commitBilling(billingReservation, {
+            referenceId: data.messages?.[0]?.id || null,
+            description: `خصم إرسال وسائط WhatsApp: ${mediaType}`,
+        });
 
         // 3. Save to database
         db.prepare(`
@@ -1085,6 +1187,14 @@ router.post('/messages/send-image', mediaUpload.single('file'), async (req, res)
         });
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Media billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Send image error:', error);
         if (req.file) {
             try { fs.unlinkSync(req.file.path); } catch (e) { }
@@ -1141,6 +1251,7 @@ router.get('/media/:mediaId/download', async (req, res) => {
 // Send Interactive Message
 // ============================================
 router.post('/messages/send-interactive', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { recipient, interactive_type, body_text, header_text, footer_text, buttons, sections, list_button_text } = req.body;
@@ -1198,6 +1309,14 @@ router.post('/messages/send-interactive', async (req, res) => {
 
         console.log('[TenantPortal] Sending interactive:', JSON.stringify(payload, null, 2));
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_INTERACTIVE,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient, interactive_type },
+        });
+
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -1208,6 +1327,15 @@ router.post('/messages/send-interactive', async (req, res) => {
         });
 
         const data = await response.json();
+
+        if (response.ok) {
+            commitBilling(billingReservation, {
+                referenceId: data.messages?.[0]?.id || null,
+                description: `خصم إرسال رسالة WhatsApp تفاعلية (${interactive_type})`,
+            });
+        } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta interactive send failed');
+        }
 
         // Save to database
         db.prepare(`
@@ -1248,6 +1376,14 @@ router.post('/messages/send-interactive', async (req, res) => {
             res.status(response.status).json({ success: false, error: data.error?.message, data });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Interactive billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Send interactive error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة التفاعلية' });
     }
@@ -1257,6 +1393,7 @@ router.post('/messages/send-interactive', async (req, res) => {
 // Broadcast (Tenant) — Async with job tracking
 // ============================================
 router.post('/broadcast', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { recipients, template_name, template_language, template_params } = req.body;
@@ -1287,16 +1424,18 @@ router.post('/broadcast', async (req, res) => {
             return res.status(403).json({ error: 'حسابك معلّق. تواصل مع المدير.' });
         }
 
-        if (tenant.credits < recipients.length) {
-            return res.status(400).json({ 
-                error: `رصيد غير كافي. متاح: ${tenant.credits}، مطلوب: ${recipients.length}` 
-            });
-        }
-
         const template = db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, template_name);
         if (!template) {
             return res.status(400).json({ error: 'القالب غير موجود' });
         }
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+            quantity: recipients.length,
+            referenceType: 'broadcast',
+            metadata: { template_name, recipient_count: recipients.length },
+        });
 
         // Create broadcast job
         const jobResult = db.prepare(`
@@ -1313,10 +1452,18 @@ router.post('/broadcast', async (req, res) => {
         setImmediate(() => processTenantBroadcastJob(jobId, {
             tenantId, recipients, template_name, template_language, template_params,
             variable_mapping: req.body.variable_mapping,
-            phoneNumberId, accessToken, tenant,
+            phoneNumberId, accessToken, tenant, billingReservation,
         }));
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Broadcast billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Broadcast error:', error);
         res.status(500).json({ error: 'فشل البث' });
     }
@@ -1355,7 +1502,7 @@ router.get('/broadcast-jobs/:id', (req, res) => {
 // Background tenant broadcast processor
 async function processTenantBroadcastJob(jobId, params) {
     const { tenantId, recipients, template_name, template_language, template_params,
-            variable_mapping, phoneNumberId, accessToken, tenant } = params;
+            variable_mapping, phoneNumberId, accessToken, tenant, billingReservation } = params;
 
     try {
         db.prepare("UPDATE broadcast_jobs SET status = 'running' WHERE id = ?").run(jobId);
@@ -1441,7 +1588,13 @@ async function processTenantBroadcastJob(jobId, params) {
         }
 
         if (sent > 0) {
-            db.prepare('UPDATE tenants SET credits = credits - ? WHERE id = ?').run(sent, tenantId);
+            commitBilling(billingReservation, {
+                quantity: sent,
+                referenceId: String(jobId),
+                description: `خصم بث WhatsApp: ${template_name} (${sent} مستلم)`,
+            });
+        } else {
+            releaseBilling(billingReservation, 'No successful broadcast recipients');
         }
 
         db.prepare(`
@@ -1460,6 +1613,13 @@ async function processTenantBroadcastJob(jobId, params) {
 
     } catch (error) {
         console.error('[TenantPortal] Broadcast job error:', error);
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Broadcast billing release error:', releaseError);
+            }
+        }
         db.prepare(`
             UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now', 'localtime') WHERE id = ?
         `).run(error.message, jobId);
@@ -2429,6 +2589,7 @@ router.get('/conversions/history', (req, res) => {
 });
 
 router.post('/conversions/log-event', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { phone, event_name, wamid, custom_data, ctwa_clid } = req.body;
@@ -2520,6 +2681,14 @@ router.post('/conversions/log-event', async (req, res) => {
             });
         }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_EVENT_CONVERSION,
+            quantity: 1,
+            referenceType: 'conversion_event',
+            metadata: { dataset_id: datasetId, event_name },
+        });
+
         const response = await fetch(`${META_API_BASE}/${datasetId}/events`, {
             method: 'POST',
             headers: {
@@ -2539,6 +2708,11 @@ router.post('/conversions/log-event', async (req, res) => {
             custom_data ? JSON.stringify(custom_data) : null, status, JSON.stringify(data), resolvedCtwaClid || null);
 
         if (response.ok) {
+            commitBilling(billingReservation, {
+                referenceId: data.fbtrace_id || null,
+                description: `خصم إرسال حدث WhatsApp Events API: ${event_name}`,
+            });
+
             res.json({
                 success: true,
                 sent_to_meta: true,
@@ -2549,6 +2723,7 @@ router.post('/conversions/log-event', async (req, res) => {
                 data,
             });
         } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta conversion event failed');
             const metaError = normalizeMetaError(data);
             res.status(response.status).json({
                 error: metaError?.message || data.error?.message || 'فشل إرسال الحدث',
@@ -2559,6 +2734,14 @@ router.post('/conversions/log-event', async (req, res) => {
             });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Conversion billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Log event error:', error);
         res.status(500).json({ error: 'فشل تسجيل الحدث' });
     }
@@ -2790,6 +2973,7 @@ router.get('/unified/:channel/:id/messages', async (req, res) => {
  * Send a text message via WhatsApp or Messenger
  */
 router.post('/unified/:channel/:id/send', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { channel } = req.params;
@@ -2818,6 +3002,13 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
             }
 
             const formattedNumber = contactId.replace(/\+/g, '').trim();
+            billingReservation = reserveBilling({
+                tenantId,
+                operationKey: BILLING_OPERATIONS.WHATSAPP_TEXT,
+                quantity: 1,
+                referenceType: 'message',
+                metadata: { channel: 'whatsapp', recipient: formattedNumber },
+            });
 
             const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
                 method: 'POST',
@@ -2837,6 +3028,11 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
 
             if (response.ok) {
                 const messageId = data.messages?.[0]?.id;
+                commitBilling(billingReservation, {
+                    referenceId: messageId,
+                    description: 'خصم إرسال رسالة WhatsApp من صندوق الوارد',
+                });
+
                 db.prepare(`
                     INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
                     VALUES (?, 'outgoing', ?, ?, 'text', ?, 'sent', ?)
@@ -2855,6 +3051,7 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: messageId });
             } else {
+                releaseBilling(billingReservation, data.error?.message || 'Meta WhatsApp send failed');
                 res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرسالة' });
             }
         } else if (channel === 'messenger') {
@@ -2880,6 +3077,14 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                 'SELECT * FROM fb_conversations WHERE user_psid = ? AND linked_page_id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1'
             ).get(contactId, linked_page_id, tenantId);
 
+            billingReservation = reserveBilling({
+                tenantId,
+                operationKey: BILLING_OPERATIONS.MESSENGER_REPLY,
+                quantity: 1,
+                referenceType: 'messenger_message',
+                metadata: { linked_page_id, conversation_id: conv?.id || null, user_psid: contactId },
+            });
+
             const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
                 method: 'POST',
                 headers: {
@@ -2897,6 +3102,10 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
 
             if (sendResponse.ok) {
                 const mid = sendData.message_id;
+                commitBilling(billingReservation, {
+                    referenceId: mid,
+                    description: 'خصم رد Messenger من صندوق الوارد',
+                });
 
                 if (conv) {
                     const createdAt = normalizeMessengerTimestamp();
@@ -2927,6 +3136,7 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: mid });
             } else {
+                releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger send failed');
                 // Outside 24-hour messaging window
                 if (sendData.error?.code === 10) {
                     res.status(403).json({
@@ -2941,6 +3151,14 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
             res.status(400).json({ error: 'القناة غير صالحة' });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Unified billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Unified send error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }
@@ -3253,6 +3471,7 @@ router.get('/fb-content/:linkedPageId/posts', async (req, res) => {
 });
 
 router.post('/fb-content/:linkedPageId/posts', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId } = req.params;
@@ -3272,12 +3491,26 @@ router.post('/fb-content/:linkedPageId/posts', async (req, res) => {
             if (scheduled_publish_time) body.scheduled_publish_time = normalizeScheduledPublishTime(scheduled_publish_time);
         }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_POST_CREATE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, type: 'post' },
+        });
+
         const response = await graphPostForm(`${page.page_id}/feed`, accessToken, body);
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta post create failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل إنشاء المنشور', details: data.error });
         }
+
+        commitBilling(billingReservation, {
+            referenceId: data.id || null,
+            description: `خصم إنشاء منشور Facebook على ${page.page_name || page.page_id}`,
+        });
 
         const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
         db.prepare(`
@@ -3287,6 +3520,14 @@ router.post('/fb-content/:linkedPageId/posts', async (req, res) => {
 
         res.status(201).json({ id: data.id });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Create post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         if (error.status) return res.status(error.status).json({ error: error.message });
         console.error('[TenantPortal] Create post error:', error);
         res.status(500).json({ error: 'فشل إنشاء المنشور' });
@@ -3295,6 +3536,7 @@ router.post('/fb-content/:linkedPageId/posts', async (req, res) => {
 
 router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source'), async (req, res) => {
     let filePath = null;
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId } = req.params;
@@ -3306,8 +3548,19 @@ router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source
 
         const isFileUpload = !!req.file;
         const { caption, url } = req.body;
-        let apiResponse;
+        if (!isFileUpload && !url) {
+            return res.status(400).json({ error: 'رابط الصورة أو ملف الصورة مطلوب' });
+        }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_PHOTO_POST_CREATE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, type: 'photo', source: isFileUpload ? 'file' : 'url' },
+        });
+
+        let apiResponse;
         if (isFileUpload) {
             filePath = req.file.path;
             const form = buildNativeFileForm(req.file, caption);
@@ -3320,9 +3573,6 @@ router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source
                 body: form,
             });
         } else {
-            if (!url) {
-                return res.status(400).json({ error: 'رابط الصورة أو ملف الصورة مطلوب' });
-            }
             apiResponse = await graphPostForm(`${page.page_id}/photos`, accessToken, {
                 url,
                 caption: caption || undefined,
@@ -3332,11 +3582,25 @@ router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source
         const data = await apiResponse.json();
 
         if (!apiResponse.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta photo post failed');
             return res.status(apiResponse.status).json({ error: data.error?.message || 'فشل إنشاء منشور الصورة', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: data.post_id || data.id || null,
+            description: `خصم نشر صورة Facebook على ${page.page_name || page.page_id}`,
+        });
+
         res.status(201).json({ id: data.id, post_id: data.post_id || null });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Photo post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Photo post error:', error);
         res.status(500).json({ error: 'فشل إنشاء منشور الصورة' });
     } finally {
@@ -3345,6 +3609,7 @@ router.post('/fb-content/:linkedPageId/posts/photo', simpleUpload.single('source
 });
 
 router.put('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, postId } = req.params;
@@ -3355,6 +3620,14 @@ router.put('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
         if (!message) {
             return res.status(400).json({ error: 'نص المنشور مطلوب' });
         }
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_POST_EDIT,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, post_id: postId },
+        });
 
         const response = await fetch(`${META_API_BASE}/${postId}`, {
             method: 'POST',
@@ -3367,22 +3640,45 @@ router.put('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta post edit failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل تعديل المنشور', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: postId,
+            description: `خصم تعديل منشور Facebook على ${page.page_name || page.page_id}`,
+        });
+
         res.json({ success: true });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Edit post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Edit post error:', error);
         res.status(500).json({ error: 'فشل تعديل المنشور' });
     }
 });
 
 router.delete('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, postId } = req.params;
         const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
         if (error) return res.status(status).json({ error });
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_POST_DELETE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, post_id: postId },
+        });
 
         const response = await fetch(`${META_API_BASE}/${postId}`, {
             method: 'DELETE',
@@ -3391,11 +3687,25 @@ router.delete('/fb-content/:linkedPageId/posts/:postId', async (req, res) => {
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta post delete failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل حذف المنشور', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: postId,
+            description: `خصم حذف منشور Facebook من ${page.page_name || page.page_id}`,
+        });
+
         res.json({ success: true });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Delete post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Delete post error:', error);
         res.status(500).json({ error: 'فشل حذف المنشور' });
     }
@@ -3475,6 +3785,7 @@ router.get('/fb-content/:linkedPageId/comments/:commentId/replies', async (req, 
 });
 
 router.post('/fb-content/:linkedPageId/comments/:commentId/reply', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, commentId } = req.params;
@@ -3485,6 +3796,14 @@ router.post('/fb-content/:linkedPageId/comments/:commentId/reply', async (req, r
         if (!message) {
             return res.status(400).json({ error: 'نص الرد مطلوب' });
         }
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_COMMENT_REPLY,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, comment_id: commentId },
+        });
 
         const response = await fetch(`${META_API_BASE}/${commentId}/comments`, {
             method: 'POST',
@@ -3497,17 +3816,32 @@ router.post('/fb-content/:linkedPageId/comments/:commentId/reply', async (req, r
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta comment reply failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرد', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: data.id || null,
+            description: `خصم رد على تعليق Facebook في ${page.page_name || page.page_id}`,
+        });
+
         res.status(201).json({ id: data.id, message: data.message });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Reply billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Reply error:', error);
         res.status(500).json({ error: 'فشل إرسال الرد' });
     }
 });
 
 router.post('/fb-content/:linkedPageId/comments/:commentId/hide', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, commentId } = req.params;
@@ -3518,6 +3852,14 @@ router.post('/fb-content/:linkedPageId/comments/:commentId/hide', async (req, re
         if (is_hidden === undefined) {
             return res.status(400).json({ error: 'is_hidden مطلوب' });
         }
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_COMMENT_HIDE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, comment_id: commentId, is_hidden: !!is_hidden },
+        });
 
         const response = await fetch(`${META_API_BASE}/${commentId}`, {
             method: 'POST',
@@ -3530,43 +3872,89 @@ router.post('/fb-content/:linkedPageId/comments/:commentId/hide', async (req, re
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta comment hide failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل تحديث حالة التعليق', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: commentId,
+            description: `خصم ${is_hidden ? 'إخفاء' : 'إظهار'} تعليق Facebook في ${page.page_name || page.page_id}`,
+        });
+
         res.json({ success: true, is_hidden: !!is_hidden });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Hide comment billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Hide comment error:', error);
         res.status(500).json({ error: 'فشل تحديث حالة التعليق' });
     }
 });
 
 router.post('/fb-content/:linkedPageId/comments/:commentId/like', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, commentId } = req.params;
-        const { accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
         if (error) return res.status(status).json({ error });
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_COMMENT_LIKE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, comment_id: commentId },
+        });
 
         const response = await graphPostForm(`${commentId}/likes`, accessToken);
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta comment like failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل الإعجاب بالتعليق', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: commentId,
+            description: `خصم إعجاب تعليق Facebook في ${page.page_name || page.page_id}`,
+        });
+
         res.json({ success: true, data });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Like comment billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Like comment error:', error);
         res.status(500).json({ error: 'فشل الإعجاب بالتعليق' });
     }
 });
 
 router.delete('/fb-content/:linkedPageId/comments/:commentId/like', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, commentId } = req.params;
-        const { accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
+        const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
         if (error) return res.status(status).json({ error });
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_COMMENT_UNLIKE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, comment_id: commentId },
+        });
 
         const response = await fetch(`${META_API_BASE}/${commentId}/likes`, {
             method: 'DELETE',
@@ -3576,22 +3964,45 @@ router.delete('/fb-content/:linkedPageId/comments/:commentId/like', async (req, 
         const data = text ? JSON.parse(text) : {};
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta comment unlike failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل إزالة الإعجاب', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: commentId,
+            description: `خصم إزالة إعجاب تعليق Facebook في ${page.page_name || page.page_id}`,
+        });
+
         res.json({ success: true, data });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Unlike comment billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Unlike comment error:', error);
         res.status(500).json({ error: 'فشل إزالة الإعجاب' });
     }
 });
 
 router.delete('/fb-content/:linkedPageId/comments/:commentId', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, commentId } = req.params;
         const { page, accessToken, error, status } = resolveTenantPage(linkedPageId, tenantId);
         if (error) return res.status(status).json({ error });
+
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_COMMENT_DELETE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, comment_id: commentId },
+        });
 
         const response = await fetch(`${META_API_BASE}/${commentId}`, {
             method: 'DELETE',
@@ -3600,11 +4011,25 @@ router.delete('/fb-content/:linkedPageId/comments/:commentId', async (req, res) 
         const data = await response.json();
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta comment delete failed');
             return res.status(response.status).json({ error: data.error?.message || 'فشل حذف التعليق', details: data.error });
         }
 
+        commitBilling(billingReservation, {
+            referenceId: commentId,
+            description: `خصم حذف تعليق Facebook من ${page.page_name || page.page_id}`,
+        });
+
         res.json({ success: true });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Delete comment billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Delete comment error:', error);
         res.status(500).json({ error: 'فشل حذف التعليق' });
     }
@@ -4158,6 +4583,7 @@ router.get('/fb-messenger/message-tags', (req, res) => {
 });
 
 router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message', async (req, res) => {
+    let billingReservation = null;
     try {
         const tenantId = req.user.tenant_id;
         const { linkedPageId, convId } = req.params;
@@ -4180,6 +4606,14 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
             return res.status(404).json({ error: 'المحادثة غير موجودة' });
         }
 
+        billingReservation = reserveBilling({
+            tenantId,
+            operationKey: BILLING_OPERATIONS.MESSENGER_UTILITY,
+            quantity: 1,
+            referenceType: 'messenger_message',
+            metadata: { linked_page_id: linkedPageId, conversation_id: convId, user_psid: conv.user_psid, tag },
+        });
+
         const sendResponse = await fetch(`${META_API_BASE}/${page.page_id}/messages`, {
             method: 'POST',
             headers: {
@@ -4197,6 +4631,7 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
         const sendData = await sendResponse.json();
 
         if (!sendResponse.ok || sendData.error) {
+            releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger utility failed');
             return res.status(sendResponse.status || 400).json({
                 error: sendData.error?.message || 'فشل إرسال الرسالة',
                 details: sendData.error,
@@ -4204,6 +4639,10 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
         }
 
         const mid = sendData.message_id;
+        commitBilling(billingReservation, {
+            referenceId: mid,
+            description: `خصم رسالة Messenger موسومة: ${tag}`,
+        });
 
         const createdAt = normalizeMessengerTimestamp();
         insertMessengerMessage(db, {
@@ -4234,6 +4673,14 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
 
         res.status(201).json({ id: mid, conversation_id: conv.id, tag });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[TenantPortal] Utility billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[TenantPortal] Utility message error:', error);
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }

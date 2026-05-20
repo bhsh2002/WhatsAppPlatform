@@ -17,6 +17,13 @@ import {
     parseTemplateShortcut,
 } from '../services/messaging.js';
 import { normalizeFilename } from '../services/filenames.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    handleBillingError,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from '../services/billing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +63,7 @@ router.get('/window-status/:phone', (req, res) => {
 // Send message via Meta API
 // ============================================
 router.post('/send', async (req, res) => {
+    let billingReservation = null;
     try {
         const { tenant_id, recipient, type, message } = req.body;
         const shortcut = parseTemplateShortcut(req.body.message);
@@ -154,6 +162,14 @@ router.post('/send', async (req, res) => {
 
         console.log('[Messages] Sending to Meta:', JSON.stringify(payload, null, 2));
 
+        billingReservation = reserveBilling({
+            tenantId: tenant?.id || tenant_id || null,
+            operationKey: effectiveType === 'template' ? BILLING_OPERATIONS.WHATSAPP_TEMPLATE : BILLING_OPERATIONS.WHATSAPP_TEXT,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient, message_type: effectiveType },
+        });
+
         // Send to Meta API
         const response = await fetch(`${META_API_BASE}/${reqPhoneId}/messages`, {
             method: 'POST',
@@ -225,8 +241,12 @@ router.post('/send', async (req, res) => {
             
             // Deduct credit on successful send (if tenant specified)
             if (response.ok && tenant_id) {
-                db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0')
-                    .run(tenant_id);
+                commitBilling(billingReservation, {
+                    referenceId: data.messages?.[0]?.id || null,
+                    description: effectiveType === 'template'
+                        ? `خصم إرسال قالب WhatsApp: ${templateName}`
+                        : 'خصم إرسال رسالة WhatsApp نصية',
+                });
             }
         }
 
@@ -237,6 +257,7 @@ router.post('/send', async (req, res) => {
                 data
             });
         } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta send failed');
             res.status(response.status).json({
                 success: false,
                 error: data.error?.message || 'Failed to send message',
@@ -244,6 +265,14 @@ router.post('/send', async (req, res) => {
             });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Messages] Send error:', error);
         res.status(500).json({ error: 'Failed to send message', details: error.message });
     }
@@ -582,6 +611,7 @@ router.post('/media/upload-to-meta', upload.single('file'), async (req, res) => 
 
 // Send media message
 router.post('/send-media', async (req, res) => {
+    let billingReservation = null;
     try {
         const { tenant_id, recipient, type, mediaUrl, caption } = req.body;
         const hasDocumentFilename = type === 'document' && Boolean(req.body.filename);
@@ -624,6 +654,14 @@ router.post('/send-media', async (req, res) => {
         }
 
         console.log('[Messages] Sending media to Meta:', JSON.stringify(payload, null, 2));
+
+        billingReservation = reserveBilling({
+            tenantId: tenant?.id || tenant_id || null,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_MEDIA,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient, message_type: type, media_source: 'url' },
+        });
 
         const response = await fetch(`${META_API_BASE}/${reqPhoneId}/messages`, {
             method: 'POST',
@@ -668,15 +706,27 @@ router.post('/send-media', async (req, res) => {
 
         // Deduct credit if tenant specified
         if (tenant_id && response.ok) {
-            db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
+            commitBilling(billingReservation, {
+                referenceId: data.messages?.[0]?.id || null,
+                description: `خصم إرسال وسائط WhatsApp: ${type}`,
+            });
         }
 
         if (response.ok) {
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta media send failed');
             res.status(response.status).json({ success: false, error: data.error?.message, data });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Media billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Messages] Send media error:', error);
         res.status(500).json({ error: 'Failed to send media message' });
     }
@@ -684,6 +734,7 @@ router.post('/send-media', async (req, res) => {
 
 // Upload media to Meta and send message
 router.post('/send-media-file', upload.single('file'), async (req, res) => {
+    let billingReservation = null;
     try {
         const { tenant_id, recipient, type, caption } = req.body;
         const file = req.file;
@@ -765,6 +816,14 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             payload.document.filename = displayFilename;
         }
 
+        billingReservation = reserveBilling({
+            tenantId: credentials.tenant?.id || tenant_id || null,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_MEDIA,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient, message_type: type, media_source: 'file' },
+        });
+
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
             method: 'POST',
             headers: {
@@ -784,8 +843,14 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
         }
 
         if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta media file send failed');
             return res.status(response.status).json({ success: false, error: data.error?.message, data });
         }
+
+        commitBilling(billingReservation, {
+            referenceId: data.messages?.[0]?.id || null,
+            description: `خصم إرسال ملف WhatsApp: ${type}`,
+        });
 
         // Save to database
         const messageRecord = {
@@ -819,14 +884,17 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
             messageRecord.media_mime_type
         );
 
-        // Deduct credit if tenant specified
-        if (tenant_id && response.ok) {
-            db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
-        }
-
         res.json({ success: true, message_id: data.messages?.[0]?.id, data });
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Media file billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Messages] Send media file error:', error);
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(500).json({ error: 'Failed to process media file' });
@@ -835,6 +903,7 @@ router.post('/send-media-file', upload.single('file'), async (req, res) => {
 
 // Send interactive message (buttons or list)
 router.post('/send-interactive', async (req, res) => {
+    let billingReservation = null;
     try {
         const { tenant_id, recipient, interactive_type, body_text, header_text, footer_text, buttons, sections, list_button_text } = req.body;
 
@@ -890,6 +959,14 @@ router.post('/send-interactive', async (req, res) => {
 
         console.log('[Messages] Sending interactive to Meta:', JSON.stringify(payload, null, 2));
 
+        billingReservation = reserveBilling({
+            tenantId: tenant?.id || tenant_id || null,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_INTERACTIVE,
+            quantity: 1,
+            referenceType: 'message',
+            metadata: { recipient, interactive_type },
+        });
+
         const response = await fetch(`${META_API_BASE}/${reqPhoneId}/messages`, {
             method: 'POST',
             headers: {
@@ -924,16 +1001,28 @@ router.post('/send-interactive', async (req, res) => {
             
             // Deduct credit if tenant specified
             if (response.ok && tenant_id) {
-                db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
+                commitBilling(billingReservation, {
+                    referenceId: data.messages?.[0]?.id || null,
+                    description: `خصم إرسال رسالة WhatsApp تفاعلية (${interactive_type})`,
+                });
             }
         }
 
         if (response.ok) {
             res.json({ success: true, message_id: data.messages?.[0]?.id, data });
         } else {
+            releaseBilling(billingReservation, data.error?.message || 'Meta interactive send failed');
             res.status(response.status).json({ success: false, error: data.error?.message, data });
         }
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Interactive billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Messages] Send interactive error:', error);
         res.status(500).json({ error: 'Failed to send interactive message' });
     }
@@ -943,6 +1032,7 @@ router.post('/send-interactive', async (req, res) => {
 // Broadcast (Admin) — Async with job tracking
 // ============================================
 router.post('/broadcast', async (req, res) => {
+    let billingReservation = null;
     try {
         const { tenant_id, recipients, template_name, template_language, template_params } = req.body;
 
@@ -965,18 +1055,17 @@ router.post('/broadcast', async (req, res) => {
         const { tenant, phoneNumberId, accessToken: resolvedToken } = credentials;
         const finalAccessToken = resolvedToken;
 
-        if (tenant && tenant.credits !== null && tenant.credits < recipients.length) {
-            return res.status(402).json({
-                error: `رصيد غير كافٍ. مطلوب ${recipients.length}، متاح ${tenant.credits}`,
-                code: 'INSUFFICIENT_CREDITS',
-                required: recipients.length,
-                available: tenant.credits,
-            });
-        }
-
         if (!phoneNumberId || !finalAccessToken) {
             return res.status(400).json({ error: 'Missing API credentials' });
         }
+
+        billingReservation = reserveBilling({
+            tenantId: tenant?.id || tenant_id || null,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+            quantity: recipients.length,
+            referenceType: 'broadcast',
+            metadata: { template_name, recipient_count: recipients.length },
+        });
 
         // Create broadcast job
         const jobResult = db.prepare(`
@@ -993,10 +1082,18 @@ router.post('/broadcast', async (req, res) => {
         setImmediate(() => processBroadcastJob(jobId, {
             tenant_id, recipients, template_name, template_language, template_params,
             variable_mapping: req.body.variable_mapping,
-            phoneNumberId, finalAccessToken, tenant,
+            phoneNumberId, finalAccessToken, tenant, billingReservation,
         }));
 
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Broadcast billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Messages] Broadcast error:', error);
         res.status(500).json({ error: 'Failed to broadcast' });
     }
@@ -1033,7 +1130,7 @@ router.get('/broadcast-jobs/:id', (req, res) => {
 // Background broadcast processor
 async function processBroadcastJob(jobId, params) {
     const { tenant_id, recipients, template_name, template_language, template_params,
-            variable_mapping, phoneNumberId, finalAccessToken, tenant } = params;
+            variable_mapping, phoneNumberId, finalAccessToken, tenant, billingReservation } = params;
 
     try {
         db.prepare("UPDATE broadcast_jobs SET status = 'running' WHERE id = ?").run(jobId);
@@ -1119,10 +1216,14 @@ async function processBroadcastJob(jobId, params) {
             }
         }
 
-        // Deduct credits
         if (tenant_id && sent > 0) {
-            db.prepare('UPDATE tenants SET credits = credits - ? WHERE id = ? AND credits >= ?')
-                .run(sent, tenant_id, sent);
+            commitBilling(billingReservation, {
+                quantity: sent,
+                referenceId: String(jobId),
+                description: `خصم بث WhatsApp: ${template_name} (${sent} مستلم)`,
+            });
+        } else if (billingReservation) {
+            releaseBilling(billingReservation, 'No successful broadcast recipients');
         }
 
         // Log activity
@@ -1144,6 +1245,13 @@ async function processBroadcastJob(jobId, params) {
 
     } catch (error) {
         console.error('[Messages] Broadcast job error:', error);
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Broadcast billing release error:', releaseError);
+            }
+        }
         db.prepare(`
             UPDATE broadcast_jobs SET status = 'failed', error = ?, completed_at = datetime('now', 'localtime') WHERE id = ?
         `).run(error.message, jobId);
@@ -1233,6 +1341,7 @@ router.put('/contacts/:id', (req, res) => {
 
 // Create a new contact manually
 router.post('/contacts', async (req, res) => {
+    let billingReservation = null;
     try {
         const { tenant_id, phone, profile_name, label, notes, verify } = req.body;
 
@@ -1309,6 +1418,13 @@ router.post('/contacts', async (req, res) => {
         };
 
         console.log('[Messages] Verifying contact via template:', formattedPhone);
+        billingReservation = reserveBilling({
+            tenantId: tenant_id,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_CONTACT_VERIFICATION_TEMPLATE,
+            quantity: 1,
+            referenceType: 'contact_verification',
+            metadata: { phone: formattedPhone, template_name: template.name },
+        });
 
         const response = await fetch(`${META_API_BASE}/${creds.phoneNumberId}/messages`, {
             method: 'POST',
@@ -1325,6 +1441,7 @@ router.post('/contacts', async (req, res) => {
             const errorMsg = data.error?.message || data.error?.error_string || 'Unknown error';
             const isNotFound = data.error?.code === 131026 || errorMsg.includes('not found') || errorMsg.includes('not a valid');
             console.error('[Messages] Contact verification failed:', errorMsg);
+            releaseBilling(billingReservation, errorMsg);
             return res.status(400).json({
                 error: isNotFound ? 'Number not found on WhatsApp' : 'Failed to verify number',
                 details: errorMsg,
@@ -1334,6 +1451,11 @@ router.post('/contacts', async (req, res) => {
 
         const waId = data.contacts?.[0]?.wa_id || formattedPhone;
         const messageId = data.messages?.[0]?.id || null;
+
+        commitBilling(billingReservation, {
+            referenceId: messageId,
+            description: `خصم قالب تحقق جهة اتصال WhatsApp: ${template.name}`,
+        });
 
         const result = db.prepare(`
             INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
@@ -1358,8 +1480,6 @@ router.post('/contacts', async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).run(tenant_id, 'outgoing', creds.phoneNumberId, waId, 'template', storedContent, 'sent', messageId);
 
-        db.prepare('UPDATE tenants SET credits = credits - 1 WHERE id = ? AND credits > 0').run(tenant_id);
-
         eventBus.emitNewMessage({
             tenant_id: tenant_id,
             direction: 'outgoing',
@@ -1374,6 +1494,14 @@ router.post('/contacts', async (req, res) => {
 
         res.status(201).json({ contact: newContact, template_sent: true });
     } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[Messages] Contact verification billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
         console.error('[Messages] Contact create error:', error);
         res.status(500).json({ error: 'Failed to create contact' });
     }
