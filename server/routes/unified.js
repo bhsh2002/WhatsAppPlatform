@@ -40,6 +40,11 @@ router.get('/conversations', (req, res) => {
                     t.message_type as last_message_type,
                     c.profile_name as display_name,
                     c.profile_picture_url as avatar_url,
+                    c.last_ctwa_clid,
+                    c.last_ctwa_source_id,
+                    c.last_ctwa_source_type,
+                    c.last_ctwa_source_url,
+                    c.last_ctwa_received_at,
                     (SELECT COUNT(*) FROM messages m2
                      WHERE m2.sender = t.contact
                      AND m2.direction = 'incoming'

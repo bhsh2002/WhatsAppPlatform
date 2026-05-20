@@ -161,6 +161,15 @@ const TenantContacts = () => {
         return <Chip label={label} size="small" color={opt?.color || 'default'} />;
     };
 
+    const openConversation = (contact) => {
+        const query = new URLSearchParams({
+            channel: 'whatsapp',
+            contact: contact.phone,
+        });
+        if (contact.profile_name) query.set('name', contact.profile_name);
+        navigate(`/portal/inbox?${query.toString()}`);
+    };
+
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             {/* Header */}
@@ -240,6 +249,7 @@ const TenantContacts = () => {
                             <TableCell>رقم الهاتف</TableCell>
                             <TableCell>الاسم</TableCell>
                             <TableCell>التصنيف</TableCell>
+                            <TableCell>CTWA</TableCell>
                             <TableCell>عدد الرسائل</TableCell>
                             <TableCell>آخر تحديث</TableCell>
                             <TableCell align="right">إجراءات</TableCell>
@@ -248,13 +258,13 @@ const TenantContacts = () => {
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                                     <CircularProgress />
                                 </TableCell>
                             </TableRow>
                         ) : contacts.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                                     <Typography color="text.secondary">لا توجد جهات اتصال بعد</Typography>
                                 </TableCell>
                             </TableRow>
@@ -266,6 +276,15 @@ const TenantContacts = () => {
                                     </TableCell>
                                     <TableCell>{contact.profile_name || '—'}</TableCell>
                                     <TableCell>{getLabelChip(contact.label)}</TableCell>
+                                    <TableCell>
+                                        {contact.last_ctwa_clid ? (
+                                            <Tooltip title={`آخر CTWA: ${contact.last_ctwa_received_at ? new Date(contact.last_ctwa_received_at).toLocaleString('ar-LY') : 'غير محدد'}`}>
+                                                <Chip label="موجود" size="small" color="success" variant="outlined" />
+                                            </Tooltip>
+                                        ) : (
+                                            <Chip label="لا يوجد" size="small" variant="outlined" />
+                                        )}
+                                    </TableCell>
                                     <TableCell>
                                         <Chip label={contact.message_count || 0} size="small" variant="outlined" color="secondary" />
                                     </TableCell>
@@ -281,7 +300,7 @@ const TenantContacts = () => {
                                             </IconButton>
                                         </Tooltip>
                                         <Tooltip title="فتح المحادثة">
-                                            <IconButton size="small" color="secondary" onClick={() => navigate('/portal/inbox')}>
+                                            <IconButton size="small" color="secondary" onClick={() => openConversation(contact)}>
                                                 <ChatIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
@@ -329,6 +348,26 @@ const TenantContacts = () => {
                             <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
                                 <Typography variant="caption" color="text.secondary">رقم الهاتف</Typography>
                                 <Typography variant="h6" fontFamily="monospace">{editContact.phone}</Typography>
+                            </Box>
+
+                            <Box sx={{ p: 2, bgcolor: editContact.last_ctwa_clid ? 'rgba(46, 125, 50, 0.08)' : 'grey.50', borderRadius: 2 }}>
+                                <Typography variant="caption" color="text.secondary">Click-to-WhatsApp</Typography>
+                                <Typography variant="body2" fontWeight={700}>
+                                    {editContact.last_ctwa_clid ? 'ctwa_clid محفوظ' : 'لا يوجد ctwa_clid محفوظ'}
+                                </Typography>
+                                {editContact.last_ctwa_clid && (
+                                    <>
+                                        <Typography variant="caption" component="div" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', mt: 0.5 }}>
+                                            {editContact.last_ctwa_clid}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary" component="div">
+                                            {editContact.last_ctwa_source_type || 'source'}{editContact.last_ctwa_source_url ? ` • ${editContact.last_ctwa_source_url}` : ''}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary" component="div">
+                                            آخر وصول: {editContact.last_ctwa_received_at ? new Date(editContact.last_ctwa_received_at).toLocaleString('ar-LY') : 'غير محدد'}
+                                        </Typography>
+                                    </>
+                                )}
                             </Box>
 
                             <FormControl fullWidth>

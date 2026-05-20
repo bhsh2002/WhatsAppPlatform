@@ -208,6 +208,18 @@ const ChatWindow = ({
         setAttachMenuAnchor(null);
     };
 
+    const hasCtwa = !!selectedChat.last_ctwa_clid;
+    const ctwaDetails = hasCtwa
+        ? [
+            selectedChat.last_ctwa_source_type,
+            selectedChat.last_ctwa_source_url,
+            selectedChat.last_ctwa_received_at
+                ? new Date(selectedChat.last_ctwa_received_at).toLocaleString('ar-LY')
+                : null,
+            selectedChat.last_ctwa_clid,
+        ].filter(Boolean).join(' • ')
+        : 'لا يوجد ctwa_clid محفوظ لهذه المحادثة';
+
     return (
         <Box sx={{ height: '100%', width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#efeae2' }}>
             {/* Chat Header */}
@@ -232,9 +244,26 @@ const ChatWindow = ({
                         <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
                             {getDisplayName(selectedChat)}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                            {selectedChat.contact}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                            <Typography variant="caption" color="text.secondary">
+                                {selectedChat.contact}
+                            </Typography>
+                            <Tooltip title={ctwaDetails}>
+                                <Chip
+                                    label={hasCtwa ? 'CTWA محفوظ' : 'لا يوجد CTWA'}
+                                    size="small"
+                                    color={hasCtwa ? 'success' : 'default'}
+                                    variant="outlined"
+                                    sx={{ height: 20, fontSize: 11 }}
+                                />
+                            </Tooltip>
+                        </Box>
+                        {hasCtwa && (
+                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: { xs: 220, md: 520 } }}>
+                                {selectedChat.last_ctwa_source_type || 'source'}
+                                {selectedChat.last_ctwa_received_at ? ` • ${new Date(selectedChat.last_ctwa_received_at).toLocaleString('ar-LY')}` : ''}
+                            </Typography>
+                        )}
                     </Box>
 
                     <IconButton><SearchIcon /></IconButton>

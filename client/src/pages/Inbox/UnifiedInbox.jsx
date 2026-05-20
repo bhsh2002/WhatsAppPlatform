@@ -11,6 +11,7 @@ import {
     Schedule as ScheduleIcon,
     Error as ErrorIcon
 } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import UnifiedSidebar from '../../components/Inbox/UnifiedSidebar';
 import UnifiedChatWindow from '../../components/Inbox/UnifiedChatWindow';
@@ -24,6 +25,10 @@ import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 const UnifiedInbox = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+    const [searchParams] = useSearchParams();
+    const initialChannel = ['whatsapp', 'messenger'].includes(searchParams.get('channel'))
+        ? searchParams.get('channel')
+        : '';
 
     const [conversations, setConversations] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
@@ -35,7 +40,7 @@ const UnifiedInbox = () => {
     const [sendingInteractive, setSendingInteractive] = useState(false);
     const [newMessage, setNewMessage] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-    const [channelFilter, setChannelFilter] = useState('');
+    const [channelFilter, setChannelFilter] = useState(initialChannel);
     const [templates, setTemplates] = useState([]);
     const [windowStatus, setWindowStatus] = useState(null);
     const [syncing, setSyncing] = useState(false);
@@ -73,6 +78,13 @@ const UnifiedInbox = () => {
         fetchConversations();
         api.getMediaToken(); // Pre-fetch media token for image/doc URLs
     }, [fetchConversations]);
+
+    useEffect(() => {
+        const channel = searchParams.get('channel');
+        if (['whatsapp', 'messenger'].includes(channel) && channelFilter !== channel) {
+            setChannelFilter(channel);
+        }
+    }, [channelFilter, searchParams]);
 
     const fetchMessages = useCallback(async (conv) => {
         const requestedKey = getUnifiedConversationKey(conv);
@@ -187,6 +199,37 @@ const UnifiedInbox = () => {
         setNewMessage('');
         setUtilityFallback(null);
     }, []);
+
+    useEffect(() => {
+        const requestedChannel = searchParams.get('channel') || 'whatsapp';
+        const requestedContact = searchParams.get('contact');
+        if (requestedChannel !== 'whatsapp' || !requestedContact || loading) return;
+
+        const normalizedContact = requestedContact.replace(/\+/g, '').trim();
+        const requestedTenantId = searchParams.get('tenant_id');
+        const found = conversations.find(conv =>
+            conv.channel === 'whatsapp'
+            && String(conv.contact_id) === normalizedContact
+            && (!requestedTenantId || String(conv.tenant_id) === requestedTenantId)
+        );
+        const nextChat = found || {
+            channel: 'whatsapp',
+            contact_id: normalizedContact,
+            display_name: searchParams.get('name') || normalizedContact,
+            avatar_url: null,
+            tenant_id: requestedTenantId ? Number(requestedTenantId) : null,
+            tenant_name: null,
+            last_ctwa_clid: null,
+            last_ctwa_source_id: null,
+            last_ctwa_source_type: null,
+            last_ctwa_source_url: null,
+            last_ctwa_received_at: null,
+        };
+
+        if (!isSameUnifiedConversation(selectedChatRef.current, nextChat)) {
+            handleSelectChat(nextChat);
+        }
+    }, [conversations, handleSelectChat, loading, searchParams]);
 
     // Smart scroll (matching TenantChat behavior)
     useEffect(() => {
@@ -530,6 +573,11 @@ const UnifiedInbox = () => {
         profile_name: selectedChat.display_name,
         profile_picture_url: selectedChat.avatar_url || null,
         tenant_id: selectedChat.tenant_id,
+        last_ctwa_clid: selectedChat.last_ctwa_clid || null,
+        last_ctwa_source_id: selectedChat.last_ctwa_source_id || null,
+        last_ctwa_source_type: selectedChat.last_ctwa_source_type || null,
+        last_ctwa_source_url: selectedChat.last_ctwa_source_url || null,
+        last_ctwa_received_at: selectedChat.last_ctwa_received_at || null,
     } : null;
 
     return (
