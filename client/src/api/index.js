@@ -45,8 +45,9 @@ class ApiService {
         } else {
             url = `${this.baseUrl}${endpoint}${endpoint.endsWith('/') ? '' : '/'}`;
         }
+        const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
         const headers = {
-            'Content-Type': 'application/json',
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
             ...options.headers,
         };
 
@@ -1192,6 +1193,13 @@ class ApiService {
         });
     }
 
+    async importMetaBillingRates(formData) {
+        return this.request('/api/billing/meta/rates/import', {
+            method: 'POST',
+            body: formData,
+        });
+    }
+
     async getMetaBillingSummary(params = {}) {
         const query = new URLSearchParams(params).toString();
         return this.request(`/api/billing/meta/summary${query ? '?' + query : ''}`);
@@ -1200,6 +1208,23 @@ class ApiService {
     async getMetaBillingUsage(params = {}) {
         const query = new URLSearchParams(params).toString();
         return this.request(`/api/billing/meta/usage${query ? '?' + query : ''}`);
+    }
+
+    async getMetaUsageSnapshots(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/usage/snapshots${query ? '?' + query : ''}`);
+    }
+
+    async getMetaUsageComparison(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/usage/comparison${query ? '?' + query : ''}`);
+    }
+
+    async syncMetaUsage(data) {
+        return this.request('/api/billing/meta/usage/sync', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
     }
 
     async getMetaInvoices(params = {}) {

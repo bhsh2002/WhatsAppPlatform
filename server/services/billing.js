@@ -1,4 +1,6 @@
 import db from '../db/database.js';
+import { META_API_BASE } from '../config/index.js';
+import { getAccessToken } from './credentials.js';
 
 export const BILLING_OPERATIONS = Object.freeze({
     WHATSAPP_TEXT: 'whatsapp.text',
@@ -66,7 +68,7 @@ const META_PRICED_WHATSAPP_OPERATIONS = new Set([
 
 const normalizeMetaCategory = (value) => {
     const category = String(value || '').trim().toLowerCase();
-    if (['marketing', 'utility', 'authentication', 'service'].includes(category)) {
+    if (['marketing', 'utility', 'authentication', 'authentication_international', 'service'].includes(category)) {
         return category;
     }
     return category || null;
@@ -88,6 +90,22 @@ function sqlDate(value = null) {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return String(value);
     return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function normalizeSqlDate(value, endOfDay = false) {
+    if (!value) return null;
+    const raw = String(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        return `${raw} ${endOfDay ? '23:59:59' : '00:00:00'}`;
+    }
+    return sqlDate(raw);
+}
+
+function toUnixSeconds(value, endOfDay = false) {
+    const normalized = normalizeSqlDate(value, endOfDay);
+    const parsed = new Date(normalized.replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return null;
+    return Math.floor(parsed.getTime() / 1000);
 }
 
 function hoursSince(value) {
@@ -1393,6 +1411,264 @@ export function listMetaInvoices({ tenantId = null, limit = 50, offset = 0 } = {
         ORDER BY COALESCE(mi.period_end, mi.created_at) DESC, mi.id DESC
         LIMIT ? OFFSET ?
     `).all(...params);
+}
+
+export function listMetaUsageSnapshots({ tenantId = null, limit = 10, offset = 0 } = {}) {
+    const clauses = [];
+    const params = [];
+    if (tenantId) {
+        clauses.push('mus.tenant_id = ?');
+        params.push(tenantId);
+    }
+    params.push(Math.max(toInt(limit, 10), 1), Math.max(toInt(offset), 0));
+
+    return db.prepare(`
+        SELECT mus.*, t.name AS tenant_name
+        FROM meta_usage_snapshots mus
+        LEFT JOIN tenants t ON t.id = mus.tenant_id
+        ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+        ORDER BY mus.created_at DESC, mus.id DESC
+        LIMIT ? OFFSET ?
+    `).all(...params);
+}
+
+function buildWabaFieldUrl(wabaId, field, accessToken) {
+    const params = new URLSearchParams({
+        fields: field,
+        access_token: accessToken,
+    });
+    return `${META_API_BASE}/${wabaId}?${params.toString()}`;
+}
+
+async function fetchWabaField(wabaId, field, accessToken) {
+    const response = await fetch(buildWabaFieldUrl(wabaId, field, accessToken));
+    const data = await response.json();
+    if (!response.ok) {
+        const error = new Error(data.error?.message || 'Meta analytics request failed');
+        error.status = response.status;
+        error.data = data;
+        throw error;
+    }
+    return data;
+}
+
+function sumMessageAnalytics(data) {
+    const points = data?.analytics?.data_points || [];
+    return points.reduce((acc, point) => ({
+        sent: acc.sent + toInt(point.sent),
+        delivered: acc.delivered + toInt(point.delivered),
+    }), { sent: 0, delivered: 0 });
+}
+
+function flattenConversationPoints(data) {
+    const groups = data?.conversation_analytics?.data || [];
+    return groups.flatMap((group) => Array.isArray(group.data_points) ? group.data_points : []);
+}
+
+function sumConversationAnalytics(data) {
+    const points = flattenConversationPoints(data);
+    return points.reduce((acc, point) => ({
+        conversations: acc.conversations + toInt(point.conversation),
+        cost: acc.cost + (Number(point.cost) || 0),
+        currency: acc.currency || point.currency || null,
+    }), { conversations: 0, cost: 0, currency: null });
+}
+
+function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
+    const startSql = normalizeSqlDate(periodStart);
+    const endSql = normalizeSqlDate(periodEnd, true);
+
+    const usage = db.prepare(`
+        SELECT
+            COALESCE(SUM(quantity), 0) AS sent,
+            COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
+            COALESCE(SUM(meta_final_amount), 0) AS final_amount
+        FROM billing_usage_events
+        WHERE tenant_id = ?
+          AND channel = 'whatsapp'
+          AND status = 'committed'
+          AND committed_at >= ?
+          AND committed_at <= ?
+    `).get(tenantId, startSql, endSql);
+
+    const delivered = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM messages
+        WHERE tenant_id = ?
+          AND direction = 'outgoing'
+          AND status IN ('delivered', 'read')
+          AND created_at >= ?
+          AND created_at <= ?
+    `).get(tenantId, startSql, endSql);
+
+    const invoice = db.prepare(`
+        SELECT COALESCE(SUM(total_amount), 0) AS total
+        FROM meta_invoices
+        WHERE tenant_id = ?
+          AND (
+              (period_start IS NULL AND period_end IS NULL)
+              OR (date(COALESCE(period_start, ?)) <= date(?) AND date(COALESCE(period_end, ?)) >= date(?))
+          )
+    `).get(tenantId, periodStart, periodEnd, periodEnd, periodStart);
+
+    return {
+        local_sent: toInt(usage?.sent),
+        local_delivered: toInt(delivered?.count),
+        local_estimated_amount: Number(usage?.estimated_amount) || 0,
+        local_final_amount: Number(usage?.final_amount) || 0,
+        invoice_total_amount: Number(invoice?.total) || 0,
+    };
+}
+
+export async function syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, granularity = 'MONTHLY', createdBy = null } = {}) {
+    if (!tenantId || !periodStart || !periodEnd) {
+        throw new BillingError('tenant_id و period_start و period_end مطلوبة لمزامنة استهلاك Meta', {
+            status: 400,
+            code: 'META_USAGE_SYNC_FIELDS_REQUIRED',
+        });
+    }
+
+    const tenant = db.prepare('SELECT id, name, waba_id FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant) {
+        throw new BillingError('العميل غير موجود', { status: 404, code: 'TENANT_NOT_FOUND' });
+    }
+    if (!tenant.waba_id) {
+        throw new BillingError('WABA ID غير موجود لهذا العميل', { status: 400, code: 'WABA_ID_REQUIRED' });
+    }
+
+    const accessToken = getAccessToken(tenantId);
+    if (!accessToken) {
+        throw new BillingError('رمز WhatsApp Business token مطلوب لمزامنة الاستهلاك', {
+            status: 400,
+            code: 'WHATSAPP_TOKEN_REQUIRED',
+            permission_required: 'whatsapp_business_management',
+        });
+    }
+
+    const startTs = toUnixSeconds(periodStart);
+    const endTs = toUnixSeconds(periodEnd, true);
+    if (!startTs || !endTs || endTs <= startTs) {
+        throw new BillingError('نطاق التاريخ غير صالح', { status: 400, code: 'INVALID_PERIOD' });
+    }
+
+    const messageGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAY' : 'MONTH';
+    const conversationGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAILY' : 'MONTHLY';
+    const analyticsField = `analytics.start(${startTs}).end(${endTs}).granularity(${messageGranularity})`;
+    const conversationField = `conversation_analytics.start(${startTs}).end(${endTs}).granularity(${conversationGranularity}).phone_numbers([]).metric_types(["COST","CONVERSATION"]).dimensions(["CONVERSATION_CATEGORY","CONVERSATION_TYPE","COUNTRY","PHONE"])`;
+
+    const [messagesResult, conversationsResult] = await Promise.allSettled([
+        fetchWabaField(tenant.waba_id, analyticsField, accessToken),
+        fetchWabaField(tenant.waba_id, conversationField, accessToken),
+    ]);
+
+    const messagesOk = messagesResult.status === 'fulfilled';
+    const conversationsOk = conversationsResult.status === 'fulfilled';
+    const rawMeta = {
+        messages: messagesOk ? messagesResult.value : messagesResult.reason?.data || { error: messagesResult.reason?.message },
+        conversations: conversationsOk ? conversationsResult.value : conversationsResult.reason?.data || { error: conversationsResult.reason?.message },
+    };
+
+    const messageTotals = messagesOk ? sumMessageAnalytics(messagesResult.value) : { sent: 0, delivered: 0 };
+    const conversationTotals = conversationsOk ? sumConversationAnalytics(conversationsResult.value) : { conversations: 0, cost: 0, currency: null };
+    const local = getLocalMetaReconciliation({ tenantId, periodStart, periodEnd });
+    const status = messagesOk && conversationsOk ? 'synced' : (messagesOk || conversationsOk ? 'partial' : 'failed');
+    const errorMessage = [
+        messagesOk ? null : `messages: ${messagesResult.reason?.message || 'failed'}`,
+        conversationsOk ? null : `conversations: ${conversationsResult.reason?.message || 'failed'}`,
+    ].filter(Boolean).join('; ') || null;
+
+    const summary = {
+        message_analytics_ok: messagesOk,
+        conversation_analytics_ok: conversationsOk,
+        local,
+        note: conversationsOk
+            ? 'Meta cost is approximate and may differ from invoices.'
+            : 'Meta COST may be unavailable for some billing setups, especially partner-billed WABAs.',
+    };
+
+    const inserted = db.prepare(`
+        INSERT INTO meta_usage_snapshots (
+            tenant_id, waba_id, period_start, period_end, granularity, status, currency,
+            meta_sent, meta_delivered, meta_conversations, meta_cost_amount,
+            local_sent, local_delivered, local_estimated_amount, local_final_amount,
+            invoice_total_amount, diff_sent, diff_delivered, diff_cost_amount,
+            summary_json, raw_meta_json, error_message, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        tenantId,
+        tenant.waba_id,
+        periodStart,
+        periodEnd,
+        String(granularity || 'MONTHLY').toUpperCase(),
+        status,
+        conversationTotals.currency,
+        messageTotals.sent,
+        messageTotals.delivered,
+        conversationTotals.conversations,
+        conversationTotals.cost,
+        local.local_sent,
+        local.local_delivered,
+        local.local_estimated_amount,
+        local.local_final_amount,
+        local.invoice_total_amount,
+        messageTotals.sent - local.local_sent,
+        messageTotals.delivered - local.local_delivered,
+        conversationTotals.cost - local.local_final_amount,
+        serializeJson(summary),
+        serializeJson(rawMeta),
+        errorMessage,
+        createdBy || null
+    );
+
+    return db.prepare(`
+        SELECT mus.*, t.name AS tenant_name
+        FROM meta_usage_snapshots mus
+        LEFT JOIN tenants t ON t.id = mus.tenant_id
+        WHERE mus.id = ?
+    `).get(inserted.lastInsertRowid);
+}
+
+export function getMetaUsageComparison({ tenantId, periodStart = null, periodEnd = null } = {}) {
+    const params = [tenantId];
+    let periodWhere = '';
+    if (periodStart && periodEnd) {
+        periodWhere = 'AND period_start = ? AND period_end = ?';
+        params.push(periodStart, periodEnd);
+    }
+
+    const latestSnapshot = db.prepare(`
+        SELECT *
+        FROM meta_usage_snapshots
+        WHERE tenant_id = ?
+          ${periodWhere}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+    `).get(...params) || null;
+
+    const start = periodStart || latestSnapshot?.period_start || db.prepare("SELECT date('now', 'start of month') AS value").get().value;
+    const end = periodEnd || latestSnapshot?.period_end || db.prepare("SELECT date('now') AS value").get().value;
+    const local = tenantId ? getLocalMetaReconciliation({ tenantId, periodStart: start, periodEnd: end }) : null;
+
+    return {
+        tenant_id: tenantId || null,
+        period_start: start,
+        period_end: end,
+        latest_snapshot: latestSnapshot,
+        local,
+        comparison: latestSnapshot ? {
+            meta_sent: latestSnapshot.meta_sent,
+            local_sent: local?.local_sent || 0,
+            diff_sent: latestSnapshot.meta_sent - (local?.local_sent || 0),
+            meta_delivered: latestSnapshot.meta_delivered,
+            local_delivered: local?.local_delivered || 0,
+            diff_delivered: latestSnapshot.meta_delivered - (local?.local_delivered || 0),
+            meta_cost_amount: latestSnapshot.meta_cost_amount,
+            local_final_amount: local?.local_final_amount || 0,
+            invoice_total_amount: local?.invoice_total_amount || 0,
+            diff_meta_vs_local_cost: latestSnapshot.meta_cost_amount - (local?.local_final_amount || 0),
+            diff_invoice_vs_local_cost: (local?.invoice_total_amount || 0) - (local?.local_final_amount || 0),
+        } : null,
+    };
 }
 
 export function createMetaInvoice({ tenantId = null, businessId = null, wabaId = null, invoiceNumber = null, periodStart = null, periodEnd = null, currency = 'USD', subtotalAmount = 0, taxAmount = 0, totalAmount = null, status = 'received', invoiceUrl = null, notes = null, metadata = null, createdBy = null } = {}) {

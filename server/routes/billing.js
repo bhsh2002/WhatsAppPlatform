@@ -1,6 +1,8 @@
 import express from 'express';
+import fs from 'fs';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
+import { generalUpload as upload, cleanupFile } from '../config/upload.js';
 import { getFacebookUserAccessToken } from '../services/credentials.js';
 import {
     createMetaInvoice,
@@ -8,14 +10,130 @@ import {
     createInvoice,
     getMetaCostSummary,
     getMetaUsage,
+    getMetaUsageComparison,
     handleBillingError,
     listMetaInvoices,
     listMetaRates,
+    listMetaUsageSnapshots,
+    syncMetaUsageSnapshot,
     updateMetaRate,
     updateTenantBillingAccount,
 } from '../services/billing.js';
 
 const router = express.Router();
+
+const parseCsv = (text) => {
+    const rows = [];
+    let row = [];
+    let value = '';
+    let quoted = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+        const next = text[i + 1];
+        if (char === '"' && quoted && next === '"') {
+            value += '"';
+            i += 1;
+        } else if (char === '"') {
+            quoted = !quoted;
+        } else if (char === ',' && !quoted) {
+            row.push(value.trim());
+            value = '';
+        } else if ((char === '\n' || char === '\r') && !quoted) {
+            if (char === '\r' && next === '\n') i += 1;
+            row.push(value.trim());
+            if (row.some((cell) => cell !== '')) rows.push(row);
+            row = [];
+            value = '';
+        } else {
+            value += char;
+        }
+    }
+
+    if (value || row.length) {
+        row.push(value.trim());
+        if (row.some((cell) => cell !== '')) rows.push(row);
+    }
+
+    if (rows.length === 0) return [];
+    const headers = rows[0].map((header) => String(header || '').trim().toLowerCase().replace(/\s+/g, '_'));
+    return rows.slice(1).map((cells) => headers.reduce((acc, header, index) => {
+        acc[header] = cells[index] ?? '';
+        return acc;
+    }, {}));
+};
+
+const firstValue = (row, fields) => {
+    for (const field of fields) {
+        if (row[field] !== undefined && row[field] !== '') return row[field];
+    }
+    return '';
+};
+
+const normalizeRateRows = (rows, defaults = {}) => {
+    const categoryColumns = ['marketing', 'utility', 'authentication', 'authentication_international', 'service'];
+    const normalized = [];
+
+    for (const row of rows) {
+        const common = {
+            country_calling_code: firstValue(row, ['country_calling_code', 'calling_code', 'country_code', 'prefix', 'dial_code']) || defaults.country_calling_code,
+            market_name: firstValue(row, ['market_name', 'market', 'country', 'region']) || defaults.market_name,
+            currency: firstValue(row, ['currency', 'currency_code']) || defaults.currency || 'USD',
+            effective_from: firstValue(row, ['effective_from', 'effective_date', 'start_date']) || defaults.effective_from,
+            effective_to: firstValue(row, ['effective_to', 'end_date']) || defaults.effective_to,
+            volume_tier_min: firstValue(row, ['volume_tier_min', 'tier_min']) || defaults.volume_tier_min || 1,
+            volume_tier_max: firstValue(row, ['volume_tier_max', 'tier_max']) || defaults.volume_tier_max,
+            source: defaults.source || 'csv_import',
+            notes: firstValue(row, ['notes', 'note']) || defaults.notes,
+        };
+
+        const explicitCategory = firstValue(row, ['category', 'message_category', 'product']);
+        const explicitRate = firstValue(row, ['rate_amount', 'rate', 'price', 'cost', 'amount']);
+        if (explicitCategory && explicitRate !== '') {
+            normalized.push({ ...common, category: explicitCategory, rate_amount: explicitRate });
+            continue;
+        }
+
+        for (const category of categoryColumns) {
+            if (row[category] !== undefined && row[category] !== '') {
+                normalized.push({ ...common, category, rate_amount: row[category] });
+            }
+        }
+    }
+
+    return normalized.filter((row) => row.country_calling_code && row.category && row.rate_amount !== '');
+};
+
+const upsertMetaRate = (rateData) => {
+    const normalizedRateData = {
+        ...rateData,
+        currency: String(rateData.currency || 'USD').toUpperCase(),
+        effective_from: rateData.effective_from || db.prepare("SELECT date('now') AS value").get().value,
+        volume_tier_min: parseInt(rateData.volume_tier_min, 10) || 1,
+    };
+    try {
+        return { action: 'created', rate: createMetaRate(normalizedRateData) };
+    } catch (error) {
+        if (error.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
+        const existing = db.prepare(`
+            SELECT id
+            FROM meta_whatsapp_rates
+            WHERE country_calling_code = ?
+              AND currency = ?
+              AND LOWER(category) = LOWER(?)
+              AND effective_from = ?
+              AND volume_tier_min = ?
+        `).get(
+            normalizedRateData.country_calling_code,
+            normalizedRateData.currency,
+            normalizedRateData.category,
+            normalizedRateData.effective_from,
+            normalizedRateData.volume_tier_min
+        );
+        if (!existing) throw error;
+        return { action: 'updated', rate: updateMetaRate(existing.id, normalizedRateData) };
+    }
+};
 
 router.get('/plans', (req, res) => {
     try {
@@ -225,6 +343,59 @@ router.patch('/meta/rates/:id', (req, res) => {
     }
 });
 
+router.post('/meta/rates/import', upload.single('file'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'ملف CSV مطلوب' });
+        }
+        const text = fs.readFileSync(req.file.path, 'utf8');
+        const rows = parseCsv(text);
+        const rates = normalizeRateRows(rows, {
+            currency: req.body.currency,
+            effective_from: req.body.effective_from,
+            source: req.body.source || 'csv_import',
+        });
+
+        if (rates.length === 0) {
+            return res.status(400).json({
+                error: 'لم يتم العثور على أسعار صالحة في CSV',
+                expected_columns: [
+                    'country_calling_code',
+                    'market_name',
+                    'currency',
+                    'category + rate_amount',
+                    'أو أعمدة marketing/utility/authentication/service',
+                ],
+            });
+        }
+
+        let created = 0;
+        let updated = 0;
+        const errors = [];
+
+        for (const rate of rates) {
+            try {
+                const result = upsertMetaRate(rate);
+                if (result.action === 'created') created += 1;
+                else updated += 1;
+            } catch (error) {
+                errors.push({
+                    country_calling_code: rate.country_calling_code,
+                    category: rate.category,
+                    error: error.message,
+                });
+            }
+        }
+
+        res.json({ imported: rates.length, created, updated, failed: errors.length, errors });
+    } catch (error) {
+        console.error('[Billing] Meta rates import error:', error);
+        res.status(500).json({ error: 'فشل استيراد أسعار Meta' });
+    } finally {
+        cleanupFile(req.file?.path);
+    }
+});
+
 router.get('/meta/summary', (req, res) => {
     try {
         res.json(getMetaCostSummary({
@@ -251,6 +422,55 @@ router.get('/meta/usage', (req, res) => {
     } catch (error) {
         console.error('[Billing] Meta usage error:', error);
         res.status(500).json({ error: 'فشل جلب استخدام Meta' });
+    }
+});
+
+router.get('/meta/usage/snapshots', (req, res) => {
+    try {
+        res.json({
+            snapshots: listMetaUsageSnapshots({
+                tenantId: req.query.tenant_id || null,
+                limit: req.query.limit || 10,
+                offset: req.query.offset || 0,
+            }),
+        });
+    } catch (error) {
+        console.error('[Billing] Meta usage snapshots fetch error:', error);
+        res.status(500).json({ error: 'فشل جلب لقطات استهلاك Meta' });
+    }
+});
+
+router.get('/meta/usage/comparison', (req, res) => {
+    try {
+        if (!req.query.tenant_id) {
+            return res.status(400).json({ error: 'tenant_id مطلوب للمقارنة' });
+        }
+        res.json(getMetaUsageComparison({
+            tenantId: req.query.tenant_id,
+            periodStart: req.query.period_start || null,
+            periodEnd: req.query.period_end || null,
+        }));
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('[Billing] Meta usage comparison error:', error);
+        res.status(500).json({ error: 'فشل مقارنة استهلاك Meta' });
+    }
+});
+
+router.post('/meta/usage/sync', async (req, res) => {
+    try {
+        const snapshot = await syncMetaUsageSnapshot({
+            tenantId: req.body.tenant_id,
+            periodStart: req.body.period_start || req.body.start_date,
+            periodEnd: req.body.period_end || req.body.end_date,
+            granularity: req.body.granularity || 'MONTHLY',
+            createdBy: req.user?.id || null,
+        });
+        res.status(201).json({ snapshot });
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('[Billing] Meta usage sync error:', error);
+        res.status(500).json({ error: 'فشل مزامنة استهلاك Meta' });
     }
 });
 

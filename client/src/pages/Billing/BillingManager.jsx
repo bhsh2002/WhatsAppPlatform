@@ -39,6 +39,7 @@ import {
     Refresh as RefreshIcon,
     Save as SaveIcon,
     CloudSync as SyncIcon,
+    UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -71,6 +72,8 @@ const BillingManager = () => {
     const [metaSummary, setMetaSummary] = useState(null);
     const [metaUsage, setMetaUsage] = useState([]);
     const [metaInvoices, setMetaInvoices] = useState([]);
+    const [metaSnapshots, setMetaSnapshots] = useState([]);
+    const [metaComparison, setMetaComparison] = useState(null);
     const [tenants, setTenants] = useState([]);
     const [selectedTenantId, setSelectedTenantId] = useState('');
     const [billing, setBilling] = useState(null);
@@ -114,6 +117,12 @@ const BillingManager = () => {
         start_date: '',
         end_date: '',
     });
+    const [metaUsageSyncForm, setMetaUsageSyncForm] = useState({
+        period_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
+        period_end: new Date().toISOString().slice(0, 10),
+        granularity: 'MONTHLY',
+    });
+    const [importResult, setImportResult] = useState(null);
 
     const selectedTenant = useMemo(
         () => tenants.find((tenant) => String(tenant.id) === String(selectedTenantId)),
@@ -168,10 +177,18 @@ const BillingManager = () => {
             api.getMetaBillingUsage({ ...params, limit: 25 }),
             api.getMetaInvoices({ ...params, limit: 20 }),
         ]);
+        const [snapshotsData, comparisonData] = tenantId
+            ? await Promise.all([
+                api.getMetaUsageSnapshots({ tenant_id: tenantId, limit: 5 }),
+                api.getMetaUsageComparison({ tenant_id: tenantId }),
+            ])
+            : [{ snapshots: [] }, null];
         setMetaRates(ratesData.rates || []);
         setMetaSummary(summaryData || null);
         setMetaUsage(usageData.usage || []);
         setMetaInvoices(invoicesData.invoices || []);
+        setMetaSnapshots(snapshotsData.snapshots || []);
+        setMetaComparison(comparisonData || null);
     };
 
     useEffect(() => {
@@ -339,6 +356,40 @@ const BillingManager = () => {
             await fetchMetaBilling();
         } catch (err) {
             setError(err.message || 'فشل مزامنة فواتير Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const syncMetaUsage = async () => {
+        if (!selectedTenantId) return;
+        setSaving(true);
+        try {
+            await api.syncMetaUsage({
+                tenant_id: selectedTenantId,
+                ...metaUsageSyncForm,
+            });
+            await fetchMetaBilling();
+        } catch (err) {
+            setError(err.message || 'فشل مزامنة استهلاك Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const importMetaRates = async (file) => {
+        if (!file) return;
+        setSaving(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('currency', metaRateForm.currency || 'USD');
+            formData.append('effective_from', metaRateForm.effective_from || '');
+            const result = await api.importMetaBillingRates(formData);
+            setImportResult(result);
+            await fetchMetaBilling();
+        } catch (err) {
+            setError(err.message || 'فشل استيراد أسعار Meta');
         } finally {
             setSaving(false);
         }
@@ -665,6 +716,63 @@ const BillingManager = () => {
                         />
                     </Grid>
 
+                    <Grid size={{ xs: 12 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+                                <Box>
+                                    <Typography variant="h6" fontWeight={700}>مزامنة استهلاك Meta والمطابقة</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        يجلب WABA analytics من Meta ثم يقارنها بالاستهلاك المحلي وفواتير Meta المسجلة.
+                                    </Typography>
+                                </Box>
+                                <Button startIcon={<SyncIcon />} variant="contained" onClick={syncMetaUsage} disabled={saving || !selectedTenantId || !metaUsageSyncForm.period_start || !metaUsageSyncForm.period_end}>
+                                    مزامنة الاستهلاك
+                                </Button>
+                            </Box>
+                            <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 12, sm: 4 }}>
+                                    <TextField fullWidth type="date" label="من" InputLabelProps={{ shrink: true }} value={metaUsageSyncForm.period_start} onChange={(e) => setMetaUsageSyncForm({ ...metaUsageSyncForm, period_start: e.target.value })} />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 4 }}>
+                                    <TextField fullWidth type="date" label="إلى" InputLabelProps={{ shrink: true }} value={metaUsageSyncForm.period_end} onChange={(e) => setMetaUsageSyncForm({ ...metaUsageSyncForm, period_end: e.target.value })} />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 4 }}>
+                                    <FormControl fullWidth>
+                                        <InputLabel>التجميع</InputLabel>
+                                        <Select value={metaUsageSyncForm.granularity} label="التجميع" onChange={(e) => setMetaUsageSyncForm({ ...metaUsageSyncForm, granularity: e.target.value })}>
+                                            <MenuItem value="MONTHLY">شهري</MenuItem>
+                                            <MenuItem value="DAILY">يومي</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                            </Grid>
+                            {metaComparison?.comparison && (
+                                <Grid container spacing={1.5} sx={{ mt: 2 }}>
+                                    <Grid size={{ xs: 12, md: 3 }}>
+                                        <Alert severity={Math.abs(metaComparison.comparison.diff_sent) > 0 ? 'warning' : 'success'}>
+                                            Meta sent: {number(metaComparison.comparison.meta_sent)} / المحلي: {number(metaComparison.comparison.local_sent)}
+                                        </Alert>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 3 }}>
+                                        <Alert severity={Math.abs(metaComparison.comparison.diff_delivered) > 0 ? 'warning' : 'success'}>
+                                            Meta delivered: {number(metaComparison.comparison.meta_delivered)} / المحلي: {number(metaComparison.comparison.local_delivered)}
+                                        </Alert>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 3 }}>
+                                        <Alert severity={Math.abs(metaComparison.comparison.diff_meta_vs_local_cost) > 0.01 ? 'warning' : 'success'}>
+                                            Meta cost: {money(metaComparison.comparison.meta_cost_amount)}
+                                        </Alert>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 3 }}>
+                                        <Alert severity={Math.abs(metaComparison.comparison.diff_invoice_vs_local_cost) > 0.01 ? 'warning' : 'info'}>
+                                            Invoice total: {money(metaComparison.comparison.invoice_total_amount)}
+                                        </Alert>
+                                    </Grid>
+                                </Grid>
+                            )}
+                        </Paper>
+                    </Grid>
+
                     <Grid size={{ xs: 12, lg: 5 }}>
                         <Paper sx={{ p: 2 }}>
                             <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>إضافة سعر Meta WhatsApp</Typography>
@@ -685,6 +793,7 @@ const BillingManager = () => {
                                             <MenuItem value="marketing">marketing</MenuItem>
                                             <MenuItem value="utility">utility</MenuItem>
                                             <MenuItem value="authentication">authentication</MenuItem>
+                                            <MenuItem value="authentication_international">authentication international</MenuItem>
                                             <MenuItem value="service">service</MenuItem>
                                         </Select>
                                     </FormControl>
@@ -702,6 +811,15 @@ const BillingManager = () => {
                             <Button sx={{ mt: 2 }} variant="contained" onClick={createMetaRate} disabled={saving || !metaRateForm.country_calling_code || !metaRateForm.category}>
                                 إضافة سعر Meta
                             </Button>
+                            <Button sx={{ mt: 2, mx: 1 }} variant="outlined" startIcon={<UploadIcon />} component="label" disabled={saving}>
+                                استيراد CSV
+                                <input hidden type="file" accept=".csv,text/csv" onChange={(e) => importMetaRates(e.target.files?.[0])} />
+                            </Button>
+                            {importResult && (
+                                <Alert severity={importResult.failed > 0 ? 'warning' : 'success'} sx={{ mt: 2 }}>
+                                    تم الاستيراد: {number(importResult.imported)}، إنشاء: {number(importResult.created)}، تحديث: {number(importResult.updated)}، فشل: {number(importResult.failed)}
+                                </Alert>
+                            )}
                         </Paper>
                     </Grid>
 
@@ -823,6 +941,44 @@ const BillingManager = () => {
                                     </Paper>
                                 ))}
                             </Box>
+                        </Paper>
+                    </Grid>
+
+                    <Grid size={{ xs: 12 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>آخر لقطات مطابقة Meta</Typography>
+                            <TableContainer>
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>الوقت</TableCell>
+                                            <TableCell>الفترة</TableCell>
+                                            <TableCell>الحالة</TableCell>
+                                            <TableCell>Meta sent</TableCell>
+                                            <TableCell>Local sent</TableCell>
+                                            <TableCell>Meta cost</TableCell>
+                                            <TableCell>Local final</TableCell>
+                                            <TableCell>Invoice</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {metaSnapshots.map((snapshot) => (
+                                            <TableRow key={snapshot.id}>
+                                                <TableCell>{snapshot.created_at}</TableCell>
+                                                <TableCell>{snapshot.period_start} → {snapshot.period_end}</TableCell>
+                                                <TableCell>
+                                                    <Chip size="small" label={snapshot.status} color={snapshot.status === 'synced' ? 'success' : snapshot.status === 'partial' ? 'warning' : 'error'} />
+                                                </TableCell>
+                                                <TableCell>{number(snapshot.meta_sent)}</TableCell>
+                                                <TableCell>{number(snapshot.local_sent)}</TableCell>
+                                                <TableCell>{money(snapshot.meta_cost_amount, snapshot.currency)}</TableCell>
+                                                <TableCell>{money(snapshot.local_final_amount, snapshot.currency)}</TableCell>
+                                                <TableCell>{money(snapshot.invoice_total_amount, snapshot.currency)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
                         </Paper>
                     </Grid>
                 </Grid>
