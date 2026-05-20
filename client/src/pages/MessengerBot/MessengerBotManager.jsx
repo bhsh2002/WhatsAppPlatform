@@ -80,6 +80,8 @@ const triggerHelp = {
     menu: 'يعمل عند ضغط زر القائمة الرئيسية داخل ردود البوت.',
 };
 
+const productTemplateHelp = 'المتغيرات: {name}, {price}, {currency}, {description}, {category}, {sku}, {url}';
+
 const actionLabels = {
     products: 'فتح المنتجات',
     node: 'الانتقال لخطوة',
@@ -103,7 +105,10 @@ const emptyNode = (index = 0) => ({
     menu_label: 'القائمة الرئيسية',
     products_reply_label: 'منتجات أخرى',
     handoff_reply_label: 'موظف بشري',
+    reply_cards_text: 'اختر الخطوة التالية.',
     card_action_label: 'اختيار',
+    card_title_template: '{name}',
+    card_subtitle_template: '',
     card_show_image: true,
     card_show_price: true,
     card_show_description: true,
@@ -115,6 +120,11 @@ const emptyNode = (index = 0) => ({
     card_details_label: 'تفاصيل',
     card_inquiry_label: 'استفسار',
     card_link_label: 'فتح الرابط',
+    detail_title_template: '{name}',
+    detail_subtitle_template: '',
+    detail_body_template: '',
+    detail_not_found_text: 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.',
+    detail_handoff_text_template: 'تم تحويل استفسارك عن "{name}" إلى أحد الموظفين.',
     detail_show_images: true,
     detail_show_price: true,
     detail_show_description: true,
@@ -211,7 +221,10 @@ function nodeToForm(node, index = 0) {
         menu_label: config.menu_label || 'القائمة الرئيسية',
         products_reply_label: config.products_reply_label || 'منتجات أخرى',
         handoff_reply_label: config.handoff_reply_label || 'موظف بشري',
+        reply_cards_text: config.reply_cards_text || 'اختر الخطوة التالية.',
         card_action_label: config.card_action_label || 'اختيار',
+        card_title_template: config.card_title_template || '{name}',
+        card_subtitle_template: config.card_subtitle_template || '',
         card_show_image: config.card_show_image !== false,
         card_show_price: config.card_show_price !== false,
         card_show_description: config.card_show_description !== false,
@@ -223,6 +236,11 @@ function nodeToForm(node, index = 0) {
         card_details_label: config.card_details_label || 'تفاصيل',
         card_inquiry_label: config.card_inquiry_label || 'استفسار',
         card_link_label: config.card_link_label || 'فتح الرابط',
+        detail_title_template: config.detail_title_template || '{name}',
+        detail_subtitle_template: config.detail_subtitle_template || '',
+        detail_body_template: config.detail_body_template || '',
+        detail_not_found_text: config.detail_not_found_text || 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.',
+        detail_handoff_text_template: config.detail_handoff_text_template || 'تم تحويل استفسارك عن "{name}" إلى أحد الموظفين.',
         detail_show_images: config.detail_show_images !== false,
         detail_show_price: config.detail_show_price !== false,
         detail_show_description: config.detail_show_description !== false,
@@ -298,12 +316,15 @@ function buildFlowPayload(form) {
                 menu_label: node.menu_label,
                 products_reply_label: node.products_reply_label,
                 handoff_reply_label: node.handoff_reply_label,
+                reply_cards_text: node.reply_cards_text,
                 card_action_label: node.card_action_label,
             };
             if (node.node_type === 'product_list') {
                 config.category = node.category || null;
                 config.limit = Number(node.limit) || 10;
                 config.empty_text = node.empty_text || 'لا توجد منتجات متاحة حاليا.';
+                config.card_title_template = node.card_title_template;
+                config.card_subtitle_template = node.card_subtitle_template;
                 config.card_show_image = node.card_show_image;
                 config.card_show_price = node.card_show_price;
                 config.card_show_description = node.card_show_description;
@@ -315,6 +336,11 @@ function buildFlowPayload(form) {
                 config.card_details_label = node.card_details_label;
                 config.card_inquiry_label = node.card_inquiry_label;
                 config.card_link_label = node.card_link_label;
+                config.detail_title_template = node.detail_title_template;
+                config.detail_subtitle_template = node.detail_subtitle_template;
+                config.detail_body_template = node.detail_body_template;
+                config.detail_not_found_text = node.detail_not_found_text;
+                config.detail_handoff_text_template = node.detail_handoff_text_template;
                 config.detail_show_images = node.detail_show_images;
                 config.detail_show_price = node.detail_show_price;
                 config.detail_show_description = node.detail_show_description;
@@ -1303,6 +1329,27 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
                                                                 <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>بطاقة المنتج</Typography>
                                                                 <Grid container spacing={1}>
+                                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            size="small"
+                                                                            label="قالب عنوان البطاقة"
+                                                                            value={node.card_title_template}
+                                                                            onChange={e => updateNode(nodeIndex, { card_title_template: e.target.value })}
+                                                                            helperText={productTemplateHelp}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            size="small"
+                                                                            label="قالب وصف البطاقة"
+                                                                            value={node.card_subtitle_template}
+                                                                            onChange={e => updateNode(nodeIndex, { card_subtitle_template: e.target.value })}
+                                                                            helperText={`اتركه فارغا لاستخدام مفاتيح السعر/الوصف/التصنيف بالأسفل. ${productTemplateHelp}`}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
                                                                         <FormControlLabel control={<Switch checked={Boolean(node.card_show_image)} onChange={e => updateNode(nodeIndex, { card_show_image: e.target.checked })} />} label="الصورة" />
                                                                     </Grid>
@@ -1338,6 +1385,58 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
                                                                 <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>تفاصيل المنتج عند الضغط على تفاصيل</Typography>
                                                                 <Grid container spacing={1}>
+                                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            size="small"
+                                                                            label="قالب عنوان التفاصيل"
+                                                                            value={node.detail_title_template}
+                                                                            onChange={e => updateNode(nodeIndex, { detail_title_template: e.target.value })}
+                                                                            helperText={productTemplateHelp}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            size="small"
+                                                                            label="قالب وصف تفاصيل البطاقة"
+                                                                            value={node.detail_subtitle_template}
+                                                                            onChange={e => updateNode(nodeIndex, { detail_subtitle_template: e.target.value })}
+                                                                            helperText={`يستخدم عند عرض الصور كبطاقات. ${productTemplateHelp}`}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            multiline
+                                                                            minRows={2}
+                                                                            size="small"
+                                                                            label="قالب نص التفاصيل"
+                                                                            value={node.detail_body_template}
+                                                                            onChange={e => updateNode(nodeIndex, { detail_body_template: e.target.value })}
+                                                                            helperText={`يستخدم عند إخفاء الصور أو عدم توفرها. ${productTemplateHelp}`}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            size="small"
+                                                                            label="نص المنتج غير المتاح"
+                                                                            value={node.detail_not_found_text}
+                                                                            onChange={e => updateNode(nodeIndex, { detail_not_found_text: e.target.value })}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                                        <TextField
+                                                                            fullWidth
+                                                                            size="small"
+                                                                            label="قالب رسالة التحويل لموظف"
+                                                                            value={node.detail_handoff_text_template}
+                                                                            onChange={e => updateNode(nodeIndex, { detail_handoff_text_template: e.target.value })}
+                                                                            helperText={productTemplateHelp}
+                                                                        />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
                                                                         <FormControlLabel control={<Switch checked={Boolean(node.detail_show_images)} onChange={e => updateNode(nodeIndex, { detail_show_images: e.target.checked })} />} label="الصور" />
                                                                     </Grid>
@@ -1404,6 +1503,16 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                         label="نص زر البطاقة"
                                                                         value={node.card_action_label}
                                                                         onChange={e => updateNode(nodeIndex, { card_action_label: e.target.value })}
+                                                                        disabled={node.reply_display !== 'cards'}
+                                                                    />
+                                                                </Grid>
+                                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                                    <TextField
+                                                                        fullWidth
+                                                                        size="small"
+                                                                        label="نص/وصف بطاقات الرد"
+                                                                        value={node.reply_cards_text}
+                                                                        onChange={e => updateNode(nodeIndex, { reply_cards_text: e.target.value })}
                                                                         disabled={node.reply_display !== 'cards'}
                                                                     />
                                                                 </Grid>

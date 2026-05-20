@@ -261,10 +261,58 @@ function getProduct(tenantId, productId) {
     return attachProductImages(product);
 }
 
-function moneyText(product) {
+function priceText(product) {
     const price = Number(product.price || 0);
-    if (!price) return product.category || '';
+    if (!price) return '';
     return `${price.toLocaleString('ar-LY')} ${product.currency || 'LYD'}`;
+}
+
+function moneyText(product) {
+    return priceText(product) || product.category || '';
+}
+
+function productTemplateValue(product = {}, key) {
+    const values = {
+        name: product.name,
+        price: priceText(product),
+        currency: product.currency || 'LYD',
+        description: product.description,
+        category: product.category,
+        sku: product.sku,
+        url: product.product_url,
+    };
+    return String(values[key] || '');
+}
+
+function renderProductTemplate(template, product, fallback = '') {
+    const source = String(template || '').trim();
+    if (!source) return fallback;
+    const rendered = source
+        .replace(/\{(name|price|currency|description|category|sku|url)\}/g, (_, key) => productTemplateValue(product, key))
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    return rendered || fallback;
+}
+
+function productCardSubtitle(product, config = {}) {
+    const subtitleParts = [];
+    if (flag(config, 'card_show_price', true)) subtitleParts.push(moneyText(product));
+    if (flag(config, 'card_show_category', false)) subtitleParts.push(product.category);
+    if (flag(config, 'card_show_sku', false)) subtitleParts.push(product.sku);
+    if (flag(config, 'card_show_description', true)) subtitleParts.push(product.description);
+    const fallback = subtitleParts.filter(Boolean).join(' - ');
+    return renderProductTemplate(config.card_subtitle_template, product, fallback);
+}
+
+function productDetailBodyParts(product, config = {}) {
+    const bodyParts = [product.name];
+    if (flag(config, 'detail_show_price', true)) bodyParts.push(moneyText(product));
+    if (flag(config, 'detail_show_category', false)) bodyParts.push(product.category);
+    if (flag(config, 'detail_show_sku', false)) bodyParts.push(product.sku);
+    if (flag(config, 'detail_show_description', true)) bodyParts.push(product.description);
+    if (flag(config, 'detail_show_link_text', true) && isHttpUrl(product.product_url)) bodyParts.push(product.product_url);
+    return bodyParts.filter(Boolean);
 }
 
 function flag(config = {}, key, fallback = true) {
@@ -333,6 +381,7 @@ function buildCardReplyMessage({ body, items = [], config = {} }) {
     if (!configuredItems.length) {
         return buildTextMessage(body || 'اختر أحد الخيارات.');
     }
+    const cardSubtitle = config.reply_cards_text || body || '';
 
     return {
         attachment: {
@@ -341,7 +390,7 @@ function buildCardReplyMessage({ body, items = [], config = {} }) {
                 template_type: 'generic',
                 elements: configuredItems.map(item => ({
                     title: trimForMeta(item.title, 80),
-                    subtitle: trimForMeta(item.subtitle || item.description || body || '', 80),
+                    subtitle: trimForMeta(item.subtitle || item.description || cardSubtitle, 80),
                     image_url: isHttpUrl(item.image_url) ? item.image_url : undefined,
                     buttons: [buildCardButton(item, config)],
                 })),
@@ -458,15 +507,9 @@ function buildProductCards(products, config = {}) {
             });
         }
 
-        const subtitleParts = [];
-        if (flag(config, 'card_show_price', true)) subtitleParts.push(moneyText(product));
-        if (flag(config, 'card_show_category', false)) subtitleParts.push(product.category);
-        if (flag(config, 'card_show_sku', false)) subtitleParts.push(product.sku);
-        if (flag(config, 'card_show_description', true)) subtitleParts.push(product.description);
-
         return {
-            title: trimForMeta(product.name, 80),
-            subtitle: trimForMeta(subtitleParts.filter(Boolean).join(' - '), 80),
+            title: trimForMeta(renderProductTemplate(config.card_title_template, product, product.name), 80),
+            subtitle: trimForMeta(productCardSubtitle(product, config), 80),
             image_url: flag(config, 'card_show_image', true) && isHttpUrl(product.image_url) ? product.image_url : undefined,
             default_action: flag(config, 'card_show_link_button', true) && isHttpUrl(product.product_url)
                 ? { type: 'web_url', url: product.product_url, webview_height_ratio: 'full' }
@@ -553,23 +596,46 @@ function buildProductDetailQuickReplies(product, config = {}) {
 
 function buildProductDetailMessage(product, config = {}) {
     if (!product) {
-        return buildTextMessage('لم يتم العثور على هذا المنتج أو لم يعد متاحا.', [
-            { content_type: 'text', title: 'عرض المنتجات', payload: 'BOT:PRODUCTS' },
-            { content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' },
-        ]);
+        const replies = [];
+        if (flag(config, 'detail_include_products_reply', true)) {
+            replies.push({
+                content_type: 'text',
+                title: configLabel(config, 'detail_products_label', 'منتجات أخرى'),
+                payload: 'BOT:PRODUCTS',
+            });
+        }
+        if (flag(config, 'detail_include_menu', true)) {
+            replies.push({
+                content_type: 'text',
+                title: configLabel(config, 'detail_menu_label', 'القائمة الرئيسية'),
+                payload: 'BOT:MENU',
+            });
+        }
+        if (flag(config, 'detail_show_inquiry_button', true)) {
+            replies.push({
+                content_type: 'text',
+                title: configLabel(config, 'detail_inquiry_label', 'استفسار'),
+                payload: 'BOT:HANDOFF',
+            });
+        }
+        return buildTextMessage(
+            config.detail_not_found_text || 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.',
+            replies.slice(0, MAX_QUICK_REPLIES)
+        );
     }
 
     const images = (product.images || [])
         .map(image => image.image_url)
         .filter(isHttpUrl)
         .slice(0, MAX_GENERIC_ELEMENTS);
-    const bodyParts = [product.name];
-    if (flag(config, 'detail_show_price', true)) bodyParts.push(moneyText(product));
-    if (flag(config, 'detail_show_category', false)) bodyParts.push(product.category);
-    if (flag(config, 'detail_show_sku', false)) bodyParts.push(product.sku);
-    if (flag(config, 'detail_show_description', true)) bodyParts.push(product.description);
-    if (flag(config, 'detail_show_link_text', true) && isHttpUrl(product.product_url)) bodyParts.push(product.product_url);
-    const body = bodyParts.filter(Boolean).join('\n');
+    const bodyParts = productDetailBodyParts(product, config);
+    const detailTitle = renderProductTemplate(config.detail_title_template, product, product.name);
+    const detailSubtitle = renderProductTemplate(
+        config.detail_subtitle_template,
+        product,
+        bodyParts.slice(1).join(' - ')
+    );
+    const body = renderProductTemplate(config.detail_body_template, product, bodyParts.join('\n'));
     const quickReplies = buildProductDetailQuickReplies(product, config);
 
     if (flag(config, 'detail_show_images', true) && images.length > 0) {
@@ -595,9 +661,9 @@ function buildProductDetailMessage(product, config = {}) {
                             });
                         }
                         return {
-                            title: trimForMeta(index === 0 ? product.name : `${product.name} - صورة ${index + 1}`, 80),
+                            title: trimForMeta(index === 0 ? detailTitle : `${detailTitle} - صورة ${index + 1}`, 80),
                             subtitle: trimForMeta(index === 0
-                                ? bodyParts.slice(1).filter(Boolean).join(' - ')
+                                ? detailSubtitle
                                 : `صورة ${index + 1} من ${images.length}`, 80),
                             image_url: imageUrl,
                             buttons: buttons.slice(0, 3),
@@ -882,6 +948,14 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
     if (value.startsWith('BOT:HANDOFF')) {
         const productId = value.split(':')[3] || null;
         const product = productId ? getProduct(conversation.tenant_id, productId) : null;
+        const detailConfig = parseJson(session.context_json, {}).product_detail_config || {};
+        const productHandoffText = product
+            ? renderProductTemplate(
+                detailConfig.detail_handoff_text_template,
+                product,
+                `تم تحويل استفسارك عن "${product.name}" إلى أحد الموظفين.`
+            )
+            : 'تم تحويلك إلى أحد الموظفين.';
         updateSession(session.id, {
             status: 'handoff',
             context_json: { ...parseJson(session.context_json, {}), handoff_product_id: productId },
@@ -900,9 +974,7 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
             linkedPage,
             conversation,
             session,
-            message: buildTextMessage(product
-                ? `تم تحويل استفسارك عن "${product.name}" إلى أحد الموظفين.`
-                : 'تم تحويلك إلى أحد الموظفين.'),
+            message: buildTextMessage(productHandoffText),
             previewText: 'تحويل إلى موظف بشري',
             metadata: { payload: value, handoff: true, product_id: productId },
         });
@@ -927,6 +999,7 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
     if (value.startsWith('BOT:PRODUCTS')) {
         const parts = value.split(':');
         const category = parts[2] || null;
+        const detailConfig = parseJson(session.context_json, {}).product_detail_config || {};
         return renderNode({
             linkedPage,
             conversation,
@@ -934,7 +1007,10 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
             node: {
                 node_type: 'product_list',
                 node_key: 'products',
-                config_json: serializeJson({ category }),
+                config_json: serializeJson({
+                    ...detailConfig,
+                    category: category || detailConfig.category || null,
+                }),
             },
             context: { category },
         });
@@ -1066,6 +1142,7 @@ export async function processMessengerBotEvent({
                 limit: MAX_GENERIC_ELEMENTS,
             });
             if (products.length > 0) {
+                const productConfig = parseJson(session.context_json, {}).product_detail_config || {};
                 recordBotEvent({
                     tenantId: linkedPage.tenant_id,
                     linkedPageId: linkedPage.id,
@@ -1080,10 +1157,25 @@ export async function processMessengerBotEvent({
                     linkedPage,
                     conversation,
                     session,
-                    message: buildProductListMessage({ products }),
+                    message: buildProductListMessage({
+                        products,
+                        config: productConfig,
+                        includeReplies: productConfig.reply_display !== 'cards',
+                    }),
                     previewText: `نتائج بحث المنتجات: ${products.length}`,
                     metadata: { node_type: 'product_search', query: messageText, products_count: products.length },
                 });
+                const followup = buildProductListFollowupMessage(productConfig);
+                if (followup) {
+                    await sendBotMessage({
+                        linkedPage,
+                        conversation,
+                        session,
+                        message: followup,
+                        previewText: productConfig.reply_cards_text || 'خيارات متابعة',
+                        metadata: { node_type: 'product_search', reply_display: 'cards' },
+                    });
+                }
                 return { handled: true, reason: 'product_search', result };
             }
         }
