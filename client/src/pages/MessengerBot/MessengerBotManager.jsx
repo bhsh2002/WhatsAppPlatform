@@ -383,10 +383,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             ) : (
                 <>
                     <Grid container spacing={2} sx={{ mb: 2 }}>
-                        <Grid item xs={6} md={3}><StatBox title="المنتجات النشطة" value={summary?.products?.active || 0} /></Grid>
-                        <Grid item xs={6} md={3}><StatBox title="كل المنتجات" value={summary?.products?.total || 0} color="info" /></Grid>
-                        <Grid item xs={6} md={3}><StatBox title="Flows فعالة" value={summary?.flows?.active || 0} color="success" /></Grid>
-                        <Grid item xs={6} md={3}><StatBox title="صفحات Messenger" value={pages.length} color="secondary" /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="المنتجات النشطة" value={summary?.products?.active || 0} /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="كل المنتجات" value={summary?.products?.total || 0} color="info" /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="Flows فعالة" value={summary?.flows?.active || 0} color="success" /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="صفحات Messenger" value={pages.length} color="secondary" /></Grid>
                     </Grid>
 
                     <Paper variant="outlined" sx={{ borderRadius: 1 }}>
@@ -542,22 +542,22 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                 <DialogTitle>{productForm.id ? 'تعديل منتج' : 'إضافة منتج'}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                        <Grid item xs={12} md={6}><TextField fullWidth label="الاسم" value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} /></Grid>
-                        <Grid item xs={12} md={6}><TextField fullWidth label="SKU" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} /></Grid>
-                        <Grid item xs={12}><TextField fullWidth multiline minRows={2} label="الوصف" value={productForm.description} onChange={e => setProductForm(prev => ({ ...prev, description: e.target.value }))} /></Grid>
-                        <Grid item xs={6} md={3}><TextField fullWidth type="number" label="السعر" value={productForm.price} onChange={e => setProductForm(prev => ({ ...prev, price: e.target.value }))} /></Grid>
-                        <Grid item xs={6} md={3}><TextField fullWidth label="العملة" value={productForm.currency} onChange={e => setProductForm(prev => ({ ...prev, currency: e.target.value }))} /></Grid>
-                        <Grid item xs={12} md={3}><TextField fullWidth label="التصنيف" value={productForm.category} onChange={e => setProductForm(prev => ({ ...prev, category: e.target.value }))} /></Grid>
-                        <Grid item xs={12} md={3}>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="الاسم" value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="SKU" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12 }}><TextField fullWidth multiline minRows={2} label="الوصف" value={productForm.description} onChange={e => setProductForm(prev => ({ ...prev, description: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth type="number" label="السعر" value={productForm.price} onChange={e => setProductForm(prev => ({ ...prev, price: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth label="العملة" value={productForm.currency} onChange={e => setProductForm(prev => ({ ...prev, currency: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth label="التصنيف" value={productForm.category} onChange={e => setProductForm(prev => ({ ...prev, category: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 3 }}>
                             <TextField select fullWidth label="التوفر" value={productForm.availability} onChange={e => setProductForm(prev => ({ ...prev, availability: e.target.value }))}>
                                 <MenuItem value="available">متاح</MenuItem>
                                 <MenuItem value="out_of_stock">غير متوفر</MenuItem>
                                 <MenuItem value="hidden">مخفي</MenuItem>
                             </TextField>
                         </Grid>
-                        <Grid item xs={12} md={6}><TextField fullWidth label="رابط الصورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} /></Grid>
-                        <Grid item xs={12} md={6}><TextField fullWidth label="رابط المنتج" value={productForm.product_url} onChange={e => setProductForm(prev => ({ ...prev, product_url: e.target.value }))} /></Grid>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رابط الصورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رابط المنتج" value={productForm.product_url} onChange={e => setProductForm(prev => ({ ...prev, product_url: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12 }}>
                             <FormControlLabel
                                 control={<Switch checked={Boolean(productForm.is_active)} onChange={e => setProductForm(prev => ({ ...prev, is_active: e.target.checked }))} />}
                                 label="منتج نشط"
@@ -575,14 +575,14 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                 <DialogTitle>{flowForm.id ? 'تعديل مسار' : 'إضافة مسار'}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                        <Grid item xs={12} md={6}><TextField fullWidth label="اسم المسار" value={flowForm.name} onChange={e => setFlowForm(prev => ({ ...prev, name: e.target.value }))} /></Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="اسم المسار" value={flowForm.name} onChange={e => setFlowForm(prev => ({ ...prev, name: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField select fullWidth label="صفحة Facebook" value={flowForm.linked_page_id} onChange={e => setFlowForm(prev => ({ ...prev, linked_page_id: e.target.value }))}>
                                 <MenuItem value="">كل الصفحات</MenuItem>
                                 {pages.map(page => <MenuItem key={page.id} value={page.id}>{page.page_name || page.page_id}</MenuItem>)}
                             </TextField>
                         </Grid>
-                        <Grid item xs={12} md={4}>
+                        <Grid size={{ xs: 12, md: 4 }}>
                             <TextField select fullWidth label="Trigger" value={flowForm.trigger_type} onChange={e => setFlowForm(prev => ({ ...prev, trigger_type: e.target.value }))}>
                                 <MenuItem value="welcome">أول رسالة</MenuItem>
                                 <MenuItem value="keyword">كلمة مفتاحية</MenuItem>
@@ -591,16 +591,16 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                 <MenuItem value="menu">القائمة</MenuItem>
                             </TextField>
                         </Grid>
-                        <Grid item xs={12} md={5}><TextField fullWidth label="قيمة Trigger" value={flowForm.trigger_value} onChange={e => setFlowForm(prev => ({ ...prev, trigger_value: e.target.value }))} helperText="للكلمات المفتاحية استخدم فاصلة أو سطر لكل كلمة" /></Grid>
-                        <Grid item xs={6} md={1.5}><TextField fullWidth type="number" label="الأولوية" value={flowForm.priority} onChange={e => setFlowForm(prev => ({ ...prev, priority: e.target.value }))} /></Grid>
-                        <Grid item xs={6} md={1.5}>
+                        <Grid size={{ xs: 12, md: 5 }}><TextField fullWidth label="قيمة Trigger" value={flowForm.trigger_value} onChange={e => setFlowForm(prev => ({ ...prev, trigger_value: e.target.value }))} helperText="للكلمات المفتاحية استخدم فاصلة أو سطر لكل كلمة" /></Grid>
+                        <Grid size={{ xs: 6, md: 1.5 }}><TextField fullWidth type="number" label="الأولوية" value={flowForm.priority} onChange={e => setFlowForm(prev => ({ ...prev, priority: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 6, md: 1.5 }}>
                             <TextField select fullWidth label="الحالة" value={flowForm.status} onChange={e => setFlowForm(prev => ({ ...prev, status: e.target.value }))}>
                                 <MenuItem value="draft">Draft</MenuItem>
                                 <MenuItem value="active">Active</MenuItem>
                                 <MenuItem value="paused">Paused</MenuItem>
                             </TextField>
                         </Grid>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <TextField select fullWidth label="نوع الرد" value={flowForm.node_type} onChange={e => setFlowForm(prev => ({ ...prev, node_type: e.target.value }))}>
                                 <MenuItem value="text">نص</MenuItem>
                                 <MenuItem value="quick_replies">Quick Replies</MenuItem>
@@ -609,26 +609,26 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                 <MenuItem value="handoff">تحويل لموظف</MenuItem>
                             </TextField>
                         </Grid>
-                        <Grid item xs={12}><TextField fullWidth multiline minRows={3} label="نص الرد" value={flowForm.body} onChange={e => setFlowForm(prev => ({ ...prev, body: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12 }}><TextField fullWidth multiline minRows={3} label="نص الرد" value={flowForm.body} onChange={e => setFlowForm(prev => ({ ...prev, body: e.target.value }))} /></Grid>
                         {flowForm.node_type === 'product_list' && (
                             <>
-                                <Grid item xs={12} md={4}><TextField fullWidth label="تصنيف المنتجات" value={flowForm.category} onChange={e => setFlowForm(prev => ({ ...prev, category: e.target.value }))} helperText="اتركه فارغا لعرض أحدث المنتجات" /></Grid>
-                                <Grid item xs={12} md={2}><TextField fullWidth type="number" label="العدد" value={flowForm.limit} onChange={e => setFlowForm(prev => ({ ...prev, limit: e.target.value }))} /></Grid>
-                                <Grid item xs={12} md={6}><TextField fullWidth label="رسالة عدم توفر منتجات" value={flowForm.empty_text} onChange={e => setFlowForm(prev => ({ ...prev, empty_text: e.target.value }))} /></Grid>
+                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="تصنيف المنتجات" value={flowForm.category} onChange={e => setFlowForm(prev => ({ ...prev, category: e.target.value }))} helperText="اتركه فارغا لعرض أحدث المنتجات" /></Grid>
+                                <Grid size={{ xs: 12 }} md={2}><TextField fullWidth type="number" label="العدد" value={flowForm.limit} onChange={e => setFlowForm(prev => ({ ...prev, limit: e.target.value }))} /></Grid>
+                                <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رسالة عدم توفر منتجات" value={flowForm.empty_text} onChange={e => setFlowForm(prev => ({ ...prev, empty_text: e.target.value }))} /></Grid>
                             </>
                         )}
                         {flowForm.node_type === 'quick_replies' && (
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <TextField fullWidth multiline minRows={3} label="Quick Replies" value={flowForm.quick_replies_text} onChange={e => setFlowForm(prev => ({ ...prev, quick_replies_text: e.target.value }))} helperText="صيغة كل سطر: العنوان|payload" />
                             </Grid>
                         )}
                         {flowForm.node_type === 'service_menu' && (
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <TextField fullWidth multiline minRows={3} label="الخدمات" value={flowForm.service_items_text} onChange={e => setFlowForm(prev => ({ ...prev, service_items_text: e.target.value }))} helperText="صيغة كل سطر: اسم الخدمة|payload" />
                             </Grid>
                         )}
                         {preview && (
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Alert severity="info">
                                     {preview.message}
                                     {preview.products?.length > 0 && (
