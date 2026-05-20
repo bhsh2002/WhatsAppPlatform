@@ -68,11 +68,13 @@ const META_PRICED_WHATSAPP_OPERATIONS = new Set([
 
 const normalizeMetaCategory = (value) => {
     const category = String(value || '').trim().toLowerCase();
-    if (['marketing', 'utility', 'authentication', 'authentication_international', 'service'].includes(category)) {
+    if (['marketing', 'marketing_lite', 'utility', 'authentication', 'authentication_international', 'service', 'referral_conversion'].includes(category)) {
         return category;
     }
     return category || null;
 };
+
+const normalizePricingType = (value) => String(value || '').trim().toLowerCase();
 
 const normalizePhoneDigits = (value) => String(value || '').replace(/[^\d]/g, '');
 
@@ -207,8 +209,11 @@ function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recip
         };
     }
 
+    const pricingType = normalizePricingType(statusPricing?.type);
+    const isMetaRegularCharge = pricingType === 'regular';
+    const isMetaFreeCharge = ['free_customer_service', 'free_entry_point'].includes(pricingType);
     const billableFlag = statusPricing?.billable;
-    if (billableFlag === false || billableFlag === 'false') {
+    if (isMetaFreeCharge || billableFlag === false || billableFlag === 'false') {
         return {
             status: 'not_charged',
             category: resolvedCategory,
@@ -216,14 +221,14 @@ function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recip
             currency: null,
             amount: 0,
             rate_card_id: null,
-            reason: 'meta_pricing_billable_false',
+            reason: isMetaFreeCharge ? `meta_pricing_type_${pricingType}` : 'meta_pricing_billable_false',
             pricing_basis: 'status_webhook',
         };
     }
 
     const target = recipient || metadata.recipient || metadata.to || metadata.phone || null;
     const contact = getContactWindow(tenantId, target);
-    if (contact?.last_ctwa_received_at && hoursSince(contact.last_ctwa_received_at) <= 72) {
+    if (!isMetaRegularCharge && contact?.last_ctwa_received_at && hoursSince(contact.last_ctwa_received_at) <= 72) {
         return {
             status: 'not_charged',
             category: resolvedCategory,
@@ -236,7 +241,7 @@ function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recip
         };
     }
 
-    if (resolvedCategory === 'service') {
+    if (!isMetaRegularCharge && resolvedCategory === 'service') {
         return {
             status: 'not_charged',
             category: resolvedCategory,
@@ -249,7 +254,7 @@ function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recip
         };
     }
 
-    if (resolvedCategory === 'utility' && contact?.last_customer_message_at && hoursSince(contact.last_customer_message_at) <= 24) {
+    if (!isMetaRegularCharge && resolvedCategory === 'utility' && contact?.last_customer_message_at && hoursSince(contact.last_customer_message_at) <= 24) {
         return {
             status: 'not_charged',
             category: resolvedCategory,
@@ -1474,6 +1479,61 @@ function sumConversationAnalytics(data) {
     }), { conversations: 0, cost: 0, currency: null });
 }
 
+function flattenPricingPoints(data) {
+    const pricing = data?.pricing_analytics;
+    if (!pricing) return [];
+    if (Array.isArray(pricing.data_points)) return pricing.data_points;
+    if (Array.isArray(pricing.data)) {
+        return pricing.data.flatMap((group) => {
+            if (Array.isArray(group.data_points)) return group.data_points;
+            if (group && typeof group === 'object') return [group];
+            return [];
+        });
+    }
+    return [];
+}
+
+function sumPricingAnalytics(data) {
+    const points = flattenPricingPoints(data);
+    const byCategoryType = {};
+    let volume = 0;
+    let cost = 0;
+    let currency = null;
+
+    for (const point of points) {
+        const pointVolume = toInt(point.volume);
+        const pointCost = Number(point.cost) || 0;
+        const category = normalizeMetaCategory(point.pricing_category || point.category) || 'unknown';
+        const type = normalizePricingType(point.pricing_type || point.type) || 'unknown';
+        const key = `${category}:${type}`;
+
+        volume += pointVolume;
+        cost += pointCost;
+        currency = currency || point.currency || null;
+
+        if (!byCategoryType[key]) {
+            byCategoryType[key] = {
+                pricing_category: category,
+                pricing_type: type,
+                volume: 0,
+                cost: 0,
+                currency: point.currency || null,
+            };
+        }
+        byCategoryType[key].volume += pointVolume;
+        byCategoryType[key].cost += pointCost;
+        byCategoryType[key].currency = byCategoryType[key].currency || point.currency || null;
+    }
+
+    return {
+        volume,
+        cost,
+        currency,
+        points,
+        by_category_type: Object.values(byCategoryType),
+    };
+}
+
 function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
     const startSql = normalizeSqlDate(periodStart);
     const endSql = normalizeSqlDate(periodEnd, true);
@@ -1553,37 +1613,49 @@ export async function syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, 
 
     const messageGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAY' : 'MONTH';
     const conversationGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAILY' : 'MONTHLY';
+    const pricingGranularity = String(granularity || 'MONTHLY').toUpperCase() === 'DAILY' ? 'DAILY' : 'MONTHLY';
     const analyticsField = `analytics.start(${startTs}).end(${endTs}).granularity(${messageGranularity})`;
+    const pricingField = `pricing_analytics.start(${startTs}).end(${endTs}).granularity(${pricingGranularity}).phone_numbers([]).dimensions(["PRICING_CATEGORY","PRICING_TYPE","COUNTRY","PHONE","TIER"])`;
     const conversationField = `conversation_analytics.start(${startTs}).end(${endTs}).granularity(${conversationGranularity}).phone_numbers([]).metric_types(["COST","CONVERSATION"]).dimensions(["CONVERSATION_CATEGORY","CONVERSATION_TYPE","COUNTRY","PHONE"])`;
 
-    const [messagesResult, conversationsResult] = await Promise.allSettled([
+    const [messagesResult, pricingResult, conversationsResult] = await Promise.allSettled([
         fetchWabaField(tenant.waba_id, analyticsField, accessToken),
+        fetchWabaField(tenant.waba_id, pricingField, accessToken),
         fetchWabaField(tenant.waba_id, conversationField, accessToken),
     ]);
 
     const messagesOk = messagesResult.status === 'fulfilled';
+    const pricingOk = pricingResult.status === 'fulfilled';
     const conversationsOk = conversationsResult.status === 'fulfilled';
     const rawMeta = {
         messages: messagesOk ? messagesResult.value : messagesResult.reason?.data || { error: messagesResult.reason?.message },
+        pricing: pricingOk ? pricingResult.value : pricingResult.reason?.data || { error: pricingResult.reason?.message },
         conversations: conversationsOk ? conversationsResult.value : conversationsResult.reason?.data || { error: conversationsResult.reason?.message },
     };
 
     const messageTotals = messagesOk ? sumMessageAnalytics(messagesResult.value) : { sent: 0, delivered: 0 };
+    const pricingTotals = pricingOk ? sumPricingAnalytics(pricingResult.value) : { volume: 0, cost: 0, currency: null, points: [], by_category_type: [] };
     const conversationTotals = conversationsOk ? sumConversationAnalytics(conversationsResult.value) : { conversations: 0, cost: 0, currency: null };
     const local = getLocalMetaReconciliation({ tenantId, periodStart, periodEnd });
-    const status = messagesOk && conversationsOk ? 'synced' : (messagesOk || conversationsOk ? 'partial' : 'failed');
+    const metaCostAmount = pricingOk ? pricingTotals.cost : conversationTotals.cost;
+    const metaCostCurrency = pricingTotals.currency || conversationTotals.currency || null;
+    const status = messagesOk && pricingOk ? 'synced' : (messagesOk || pricingOk || conversationsOk ? 'partial' : 'failed');
     const errorMessage = [
         messagesOk ? null : `messages: ${messagesResult.reason?.message || 'failed'}`,
+        pricingOk ? null : `pricing: ${pricingResult.reason?.message || 'failed'}`,
         conversationsOk ? null : `conversations: ${conversationsResult.reason?.message || 'failed'}`,
     ].filter(Boolean).join('; ') || null;
 
     const summary = {
         message_analytics_ok: messagesOk,
+        pricing_analytics_ok: pricingOk,
         conversation_analytics_ok: conversationsOk,
+        pricing_volume: pricingTotals.volume,
+        pricing_breakdown: pricingTotals.by_category_type,
         local,
-        note: conversationsOk
-            ? 'Meta cost is approximate and may differ from invoices.'
-            : 'Meta COST may be unavailable for some billing setups, especially partner-billed WABAs.',
+        note: pricingOk
+            ? 'Meta pricing_analytics cost is approximate and may differ from final invoices.'
+            : 'pricing_analytics was unavailable; conversation_analytics is used only as a historical fallback when possible.',
     };
 
     const inserted = db.prepare(`
@@ -1601,11 +1673,11 @@ export async function syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, 
         periodEnd,
         String(granularity || 'MONTHLY').toUpperCase(),
         status,
-        conversationTotals.currency,
+        metaCostCurrency,
         messageTotals.sent,
         messageTotals.delivered,
         conversationTotals.conversations,
-        conversationTotals.cost,
+        metaCostAmount,
         local.local_sent,
         local.local_delivered,
         local.local_estimated_amount,
@@ -1613,7 +1685,7 @@ export async function syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, 
         local.invoice_total_amount,
         messageTotals.sent - local.local_sent,
         messageTotals.delivered - local.local_delivered,
-        conversationTotals.cost - local.local_final_amount,
+        metaCostAmount - local.local_final_amount,
         serializeJson(summary),
         serializeJson(rawMeta),
         errorMessage,
