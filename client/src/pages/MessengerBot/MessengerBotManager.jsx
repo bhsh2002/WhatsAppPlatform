@@ -115,6 +115,20 @@ const emptyNode = (index = 0) => ({
     card_details_label: 'تفاصيل',
     card_inquiry_label: 'استفسار',
     card_link_label: 'فتح الرابط',
+    detail_show_images: true,
+    detail_show_price: true,
+    detail_show_description: true,
+    detail_show_category: false,
+    detail_show_sku: false,
+    detail_show_link_text: true,
+    detail_show_link_button: true,
+    detail_show_inquiry_button: true,
+    detail_include_menu: true,
+    detail_include_products_reply: true,
+    detail_menu_label: 'القائمة الرئيسية',
+    detail_products_label: 'منتجات أخرى',
+    detail_inquiry_label: 'استفسار',
+    detail_link_label: 'فتح الرابط',
     buttons: [],
 });
 
@@ -209,6 +223,20 @@ function nodeToForm(node, index = 0) {
         card_details_label: config.card_details_label || 'تفاصيل',
         card_inquiry_label: config.card_inquiry_label || 'استفسار',
         card_link_label: config.card_link_label || 'فتح الرابط',
+        detail_show_images: config.detail_show_images !== false,
+        detail_show_price: config.detail_show_price !== false,
+        detail_show_description: config.detail_show_description !== false,
+        detail_show_category: config.detail_show_category === true,
+        detail_show_sku: config.detail_show_sku === true,
+        detail_show_link_text: config.detail_show_link_text !== false,
+        detail_show_link_button: config.detail_show_link_button !== false,
+        detail_show_inquiry_button: config.detail_show_inquiry_button !== false,
+        detail_include_menu: config.detail_include_menu !== false,
+        detail_include_products_reply: config.detail_include_products_reply !== false,
+        detail_menu_label: config.detail_menu_label || 'القائمة الرئيسية',
+        detail_products_label: config.detail_products_label || 'منتجات أخرى',
+        detail_inquiry_label: config.detail_inquiry_label || 'استفسار',
+        detail_link_label: config.detail_link_label || 'فتح الرابط',
         buttons: buttons.map(normalizePayloadAction),
     };
 }
@@ -287,6 +315,20 @@ function buildFlowPayload(form) {
                 config.card_details_label = node.card_details_label;
                 config.card_inquiry_label = node.card_inquiry_label;
                 config.card_link_label = node.card_link_label;
+                config.detail_show_images = node.detail_show_images;
+                config.detail_show_price = node.detail_show_price;
+                config.detail_show_description = node.detail_show_description;
+                config.detail_show_category = node.detail_show_category;
+                config.detail_show_sku = node.detail_show_sku;
+                config.detail_show_link_text = node.detail_show_link_text;
+                config.detail_show_link_button = node.detail_show_link_button;
+                config.detail_show_inquiry_button = node.detail_show_inquiry_button;
+                config.detail_include_menu = node.detail_include_menu;
+                config.detail_include_products_reply = node.detail_include_products_reply;
+                config.detail_menu_label = node.detail_menu_label;
+                config.detail_products_label = node.detail_products_label;
+                config.detail_inquiry_label = node.detail_inquiry_label;
+                config.detail_link_label = node.detail_link_label;
             }
             if (node.node_type === 'service_menu') {
                 config.items = buttons;
@@ -1288,6 +1330,48 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     <Grid size={{ xs: 12, md: 4 }}>
                                                                         <FormControlLabel control={<Switch checked={Boolean(node.card_show_link_button)} onChange={e => updateNode(nodeIndex, { card_show_link_button: e.target.checked })} />} label="زر الرابط" />
                                                                         <TextField fullWidth size="small" label="نص زر الرابط" value={node.card_link_label} onChange={e => updateNode(nodeIndex, { card_link_label: e.target.value })} />
+                                                                    </Grid>
+                                                                </Grid>
+                                                            </Paper>
+                                                        </Grid>
+                                                        <Grid size={{ xs: 12 }}>
+                                                            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>تفاصيل المنتج عند الضغط على تفاصيل</Typography>
+                                                                <Grid container spacing={1}>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_images)} onChange={e => updateNode(nodeIndex, { detail_show_images: e.target.checked })} />} label="الصور" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_price)} onChange={e => updateNode(nodeIndex, { detail_show_price: e.target.checked })} />} label="السعر" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_description)} onChange={e => updateNode(nodeIndex, { detail_show_description: e.target.checked })} />} label="الوصف" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_category)} onChange={e => updateNode(nodeIndex, { detail_show_category: e.target.checked })} />} label="التصنيف" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_sku)} onChange={e => updateNode(nodeIndex, { detail_show_sku: e.target.checked })} />} label="SKU" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_link_text)} onChange={e => updateNode(nodeIndex, { detail_show_link_text: e.target.checked })} />} label="رابط كنص" />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12 }}><Divider /></Grid>
+                                                                    <Grid size={{ xs: 12, md: 3 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_include_menu)} onChange={e => updateNode(nodeIndex, { detail_include_menu: e.target.checked })} />} label="القائمة الرئيسية" />
+                                                                        <TextField fullWidth size="small" label="نص القائمة" value={node.detail_menu_label} onChange={e => updateNode(nodeIndex, { detail_menu_label: e.target.value })} />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 3 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_include_products_reply)} onChange={e => updateNode(nodeIndex, { detail_include_products_reply: e.target.checked })} />} label="منتجات أخرى" />
+                                                                        <TextField fullWidth size="small" label="نص المنتجات" value={node.detail_products_label} onChange={e => updateNode(nodeIndex, { detail_products_label: e.target.value })} />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 3 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_inquiry_button)} onChange={e => updateNode(nodeIndex, { detail_show_inquiry_button: e.target.checked })} />} label="استفسار" />
+                                                                        <TextField fullWidth size="small" label="نص الاستفسار" value={node.detail_inquiry_label} onChange={e => updateNode(nodeIndex, { detail_inquiry_label: e.target.value })} />
+                                                                    </Grid>
+                                                                    <Grid size={{ xs: 12, md: 3 }}>
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_link_button)} onChange={e => updateNode(nodeIndex, { detail_show_link_button: e.target.checked })} />} label="زر الرابط" />
+                                                                        <TextField fullWidth size="small" label="نص الرابط" value={node.detail_link_label} onChange={e => updateNode(nodeIndex, { detail_link_label: e.target.value })} />
                                                                     </Grid>
                                                                 </Grid>
                                                             </Paper>

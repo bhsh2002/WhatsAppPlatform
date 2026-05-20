@@ -350,6 +350,10 @@ function buildCardReplyMessage({ body, items = [], config = {} }) {
     };
 }
 
+function hasDefaultReplyItems(config = {}) {
+    return defaultReplyItems(config).length > 0;
+}
+
 function resolveConfiguredPayload(item = {}) {
     if (item.payload) return item.payload;
     if (item.action === 'products') return item.category ? `BOT:PRODUCTS:${item.category}` : 'BOT:PRODUCTS';
@@ -478,14 +482,24 @@ function buildTextMessage(text, quickReplies = []) {
     return message;
 }
 
-function buildProductListMessage({ products, emptyText, config = {} }) {
+function buildProductListMessage({ products, emptyText, config = {}, includeReplies = true }) {
     if (!products.length) {
-        return buildTextMessage(emptyText || 'لا توجد منتجات متاحة حاليا.', buildDefaultQuickReplies(config, {
-            includeHandoff: true,
+        if (config.reply_display === 'cards') {
+            return buildCardReplyMessage({
+                body: emptyText || 'لا توجد منتجات متاحة حاليا.',
+                config: {
+                    ...config,
+                    include_handoff_reply: flag(config, 'include_handoff_reply', true),
+                },
+            });
+        }
+        return buildTextMessage(emptyText || 'لا توجد منتجات متاحة حاليا.', buildDefaultQuickReplies({
+            ...config,
+            include_handoff_reply: flag(config, 'include_handoff_reply', true),
         }));
     }
 
-    return {
+    const message = {
         attachment: {
             type: 'template',
             payload: {
@@ -493,13 +507,51 @@ function buildProductListMessage({ products, emptyText, config = {} }) {
                 elements: buildProductCards(products, config),
             },
         },
-        quick_replies: buildDefaultQuickReplies(config, {
-            includeHandoff: true,
-        }),
     };
+    if (includeReplies) {
+        message.quick_replies = buildDefaultQuickReplies({
+            ...config,
+            include_handoff_reply: flag(config, 'include_handoff_reply', true),
+        });
+    }
+    return message;
 }
 
-function buildProductDetailMessage(product) {
+function buildProductListFollowupMessage(config = {}) {
+    if (config.reply_display !== 'cards' || !hasDefaultReplyItems(config)) return null;
+    return buildCardReplyMessage({
+        body: config.reply_cards_text || 'اختر الخطوة التالية.',
+        config,
+    });
+}
+
+function buildProductDetailQuickReplies(product, config = {}) {
+    const replies = [];
+    if (flag(config, 'detail_include_menu', true)) {
+        replies.push({
+            content_type: 'text',
+            title: configLabel(config, 'detail_menu_label', 'القائمة الرئيسية'),
+            payload: 'BOT:MENU',
+        });
+    }
+    if (flag(config, 'detail_include_products_reply', true)) {
+        replies.push({
+            content_type: 'text',
+            title: configLabel(config, 'detail_products_label', 'منتجات أخرى'),
+            payload: 'BOT:PRODUCTS',
+        });
+    }
+    if (flag(config, 'detail_show_inquiry_button', true)) {
+        replies.push({
+            content_type: 'text',
+            title: configLabel(config, 'detail_inquiry_label', 'استفسار'),
+            payload: `BOT:HANDOFF:PRODUCT:${product.id}`,
+        });
+    }
+    return replies.slice(0, MAX_QUICK_REPLIES);
+}
+
+function buildProductDetailMessage(product, config = {}) {
     if (!product) {
         return buildTextMessage('لم يتم العثور على هذا المنتج أو لم يعد متاحا.', [
             { content_type: 'text', title: 'عرض المنتجات', payload: 'BOT:PRODUCTS' },
@@ -511,38 +563,41 @@ function buildProductDetailMessage(product) {
         .map(image => image.image_url)
         .filter(isHttpUrl)
         .slice(0, MAX_GENERIC_ELEMENTS);
-    const body = [
-        product.name,
-        moneyText(product),
-        product.description,
-        product.product_url && isHttpUrl(product.product_url) ? product.product_url : null,
-    ].filter(Boolean).join('\n');
+    const bodyParts = [product.name];
+    if (flag(config, 'detail_show_price', true)) bodyParts.push(moneyText(product));
+    if (flag(config, 'detail_show_category', false)) bodyParts.push(product.category);
+    if (flag(config, 'detail_show_sku', false)) bodyParts.push(product.sku);
+    if (flag(config, 'detail_show_description', true)) bodyParts.push(product.description);
+    if (flag(config, 'detail_show_link_text', true) && isHttpUrl(product.product_url)) bodyParts.push(product.product_url);
+    const body = bodyParts.filter(Boolean).join('\n');
+    const quickReplies = buildProductDetailQuickReplies(product, config);
 
-    if (images.length > 0) {
-        return {
+    if (flag(config, 'detail_show_images', true) && images.length > 0) {
+        const message = {
             attachment: {
                 type: 'template',
                 payload: {
                     template_type: 'generic',
                     elements: images.map((imageUrl, index) => {
-                        const buttons = [
-                            {
+                        const buttons = [];
+                        if (flag(config, 'detail_show_inquiry_button', true)) {
+                            buttons.push({
                                 type: 'postback',
-                                title: 'استفسار',
+                                title: configLabel(config, 'detail_inquiry_label', 'استفسار'),
                                 payload: `BOT:HANDOFF:PRODUCT:${product.id}`,
-                            },
-                        ];
-                        if (isHttpUrl(product.product_url)) {
+                            });
+                        }
+                        if (flag(config, 'detail_show_link_button', true) && isHttpUrl(product.product_url)) {
                             buttons.push({
                                 type: 'web_url',
-                                title: 'فتح الرابط',
+                                title: configLabel(config, 'detail_link_label', 'فتح الرابط'),
                                 url: product.product_url,
                             });
                         }
                         return {
                             title: trimForMeta(index === 0 ? product.name : `${product.name} - صورة ${index + 1}`, 80),
                             subtitle: trimForMeta(index === 0
-                                ? [moneyText(product), product.description].filter(Boolean).join(' - ')
+                                ? bodyParts.slice(1).filter(Boolean).join(' - ')
                                 : `صورة ${index + 1} من ${images.length}`, 80),
                             image_url: imageUrl,
                             buttons: buttons.slice(0, 3),
@@ -550,19 +605,12 @@ function buildProductDetailMessage(product) {
                     }),
                 },
             },
-            quick_replies: [
-                { content_type: 'text', title: 'القائمة الرئيسية', payload: 'BOT:MENU' },
-                { content_type: 'text', title: 'منتجات أخرى', payload: 'BOT:PRODUCTS' },
-                { content_type: 'text', title: 'موظف بشري', payload: `BOT:HANDOFF:PRODUCT:${product.id}` },
-            ],
         };
+        if (quickReplies.length > 0) message.quick_replies = quickReplies;
+        return message;
     }
 
-    return buildTextMessage(body, [
-        { content_type: 'text', title: 'القائمة الرئيسية', payload: 'BOT:MENU' },
-        { content_type: 'text', title: 'منتجات أخرى', payload: 'BOT:PRODUCTS' },
-        { content_type: 'text', title: 'استفسار', payload: `BOT:HANDOFF:PRODUCT:${product.id}` },
-    ]);
+    return buildTextMessage(body, quickReplies);
 }
 
 async function sendBotMessage({ linkedPage, conversation, session, message, previewText, metadata = {} }) {
@@ -700,8 +748,19 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
             category,
             limit: config.limit || MAX_GENERIC_ELEMENTS,
         });
-        const message = buildProductListMessage({ products, emptyText: config.empty_text, config });
-        return sendBotMessage({
+        updateSession(session.id, {
+            context_json: {
+                ...parseJson(session.context_json, {}),
+                product_detail_config: config,
+            },
+        });
+        const message = buildProductListMessage({
+            products,
+            emptyText: config.empty_text,
+            config,
+            includeReplies: config.reply_display !== 'cards',
+        });
+        const result = await sendBotMessage({
             linkedPage,
             conversation,
             session,
@@ -709,6 +768,18 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
             previewText: products.length ? `عرض ${products.length} منتجات` : (config.empty_text || 'لا توجد منتجات متاحة'),
             metadata: { node_type: nodeType, category, products_count: products.length },
         });
+        const followup = products.length > 0 ? buildProductListFollowupMessage(config) : null;
+        if (followup) {
+            await sendBotMessage({
+                linkedPage,
+                conversation,
+                session,
+                message: followup,
+                previewText: config.reply_cards_text || 'خيارات متابعة',
+                metadata: { node_type: nodeType, reply_display: 'cards' },
+            });
+        }
+        return result;
     }
 
     if (nodeType === 'product_detail') {
@@ -717,7 +788,7 @@ async function renderNode({ linkedPage, conversation, session, node, context = {
             linkedPage,
             conversation,
             session,
-            message: buildProductDetailMessage(product),
+            message: buildProductDetailMessage(product, config),
             previewText: product ? `تفاصيل المنتج: ${product.name}` : 'المنتج غير متاح',
             metadata: { node_type: nodeType, product_id: product?.id || context.product_id || null },
         });
@@ -839,6 +910,7 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
 
     if (value.startsWith('BOT:PRODUCT:')) {
         const productId = Number(value.split(':')[2]);
+        const detailConfig = parseJson(session.context_json, {}).product_detail_config || {};
         return renderNode({
             linkedPage,
             conversation,
@@ -846,7 +918,7 @@ async function handleBotPayload({ payload, linkedPage, conversation, session }) 
             node: {
                 node_type: 'product_detail',
                 node_key: 'product_detail',
-                config_json: serializeJson({ product_id: productId }),
+                config_json: serializeJson({ ...detailConfig, product_id: productId }),
             },
             context: { product_id: productId },
         });
