@@ -71,18 +71,106 @@ function validateLinkedPage(tenantId, linkedPageId) {
 }
 
 function normalizeProductPayload(body = {}) {
+    const imageUrl = String(body.image_url || '').trim() || null;
     return {
         sku: String(body.sku || '').trim() || null,
         name: String(body.name || '').trim(),
         description: String(body.description || '').trim() || null,
         price: Number(body.price || 0) || 0,
         currency: String(body.currency || 'LYD').trim().toUpperCase() || 'LYD',
-        image_url: String(body.image_url || '').trim() || null,
+        image_url: imageUrl,
         product_url: String(body.product_url || '').trim() || null,
         category: String(body.category || '').trim() || null,
         availability: ['available', 'out_of_stock', 'hidden'].includes(body.availability) ? body.availability : 'available',
         is_active: body.is_active === false || body.is_active === 0 || body.is_active === '0' ? 0 : 1,
+        images: normalizeProductImages(body.images, imageUrl),
     };
+}
+
+function normalizeProductImages(images = [], fallbackImageUrl = null) {
+    const rows = Array.isArray(images) ? images : [];
+    const normalized = [];
+    const seen = new Set();
+
+    const addImage = (value, index = normalized.length) => {
+        const image = typeof value === 'string' ? { image_url: value } : (value || {});
+        const imageUrl = String(image.image_url || image.url || '').trim();
+        if (!imageUrl || seen.has(imageUrl)) return;
+        seen.add(imageUrl);
+        normalized.push({
+            image_url: imageUrl,
+            alt_text: String(image.alt_text || image.alt || '').trim() || null,
+            sort_order: toInt(image.sort_order, index) ?? index,
+            is_primary: image.is_primary === true || image.is_primary === 1 || image.is_primary === '1' ? 1 : 0,
+        });
+    };
+
+    rows.forEach(addImage);
+    if (fallbackImageUrl) addImage({ image_url: fallbackImageUrl, is_primary: normalized.length === 0 ? 1 : 0 }, normalized.length);
+    if (normalized.length > 0 && !normalized.some(image => image.is_primary)) normalized[0].is_primary = 1;
+    return normalized.map((image, index) => ({ ...image, sort_order: index, is_primary: index === 0 ? 1 : 0 }));
+}
+
+function getProductImages(productId) {
+    return db.prepare(`
+        SELECT id, image_url, alt_text, sort_order, is_primary
+        FROM bot_product_images
+        WHERE product_id = ?
+        ORDER BY is_primary DESC, sort_order ASC, id ASC
+    `).all(productId);
+}
+
+function attachProductImages(product) {
+    if (!product) return product;
+    const images = getProductImages(product.id);
+    return {
+        ...product,
+        images,
+        image_url: images[0]?.image_url || product.image_url || null,
+    };
+}
+
+function attachProductsImages(products = []) {
+    if (!products.length) return products;
+    const placeholders = products.map(() => '?').join(', ');
+    const images = db.prepare(`
+        SELECT id, product_id, image_url, alt_text, sort_order, is_primary
+        FROM bot_product_images
+        WHERE product_id IN (${placeholders})
+        ORDER BY is_primary DESC, sort_order ASC, id ASC
+    `).all(...products.map(product => product.id));
+    const byProduct = new Map();
+    for (const image of images) {
+        if (!byProduct.has(image.product_id)) byProduct.set(image.product_id, []);
+        byProduct.get(image.product_id).push(image);
+    }
+    return products.map(product => {
+        const productImages = byProduct.get(product.id) || [];
+        return {
+            ...product,
+            images: productImages,
+            image_url: productImages[0]?.image_url || product.image_url || null,
+        };
+    });
+}
+
+function replaceProductImages(productId, tenantId, images = []) {
+    db.prepare('DELETE FROM bot_product_images WHERE product_id = ? AND tenant_id = ?').run(productId, tenantId);
+    if (!images.length) return;
+    const insert = db.prepare(`
+        INSERT INTO bot_product_images (tenant_id, product_id, image_url, alt_text, sort_order, is_primary)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    images.forEach((image, index) => {
+        insert.run(
+            tenantId,
+            productId,
+            image.image_url,
+            image.alt_text,
+            index,
+            index === 0 ? 1 : 0
+        );
+    });
 }
 
 function normalizeFlowPayload(body = {}) {
@@ -405,7 +493,7 @@ router.get('/products', (req, res) => {
             WHERE ${clauses.join(' AND ')}
             ORDER BY updated_at DESC, id DESC
         `).all(...params);
-        res.json(products);
+        res.json(attachProductsImages(products));
     } catch (error) {
         console.error('[MessengerBot] Products list error:', error);
         res.status(500).json({ error: 'فشل جلب المنتجات' });
@@ -419,26 +507,30 @@ router.post('/products', (req, res) => {
         const product = normalizeProductPayload(req.body);
         if (!product.name) return res.status(400).json({ error: 'اسم المنتج مطلوب' });
 
-        const result = db.prepare(`
-            INSERT INTO bot_products (
-                tenant_id, sku, name, description, price, currency,
-                image_url, product_url, category, availability, is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            tenant.id,
-            product.sku,
-            product.name,
-            product.description,
-            product.price,
-            product.currency,
-            product.image_url,
-            product.product_url,
-            product.category,
-            product.availability,
-            product.is_active
-        );
+        const tx = db.transaction(() => {
+            const result = db.prepare(`
+                INSERT INTO bot_products (
+                    tenant_id, sku, name, description, price, currency,
+                    image_url, product_url, category, availability, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                tenant.id,
+                product.sku,
+                product.name,
+                product.description,
+                product.price,
+                product.currency,
+                product.images[0]?.image_url || product.image_url,
+                product.product_url,
+                product.category,
+                product.availability,
+                product.is_active
+            );
+            replaceProductImages(result.lastInsertRowid, tenant.id, product.images);
+            return attachProductImages(db.prepare('SELECT * FROM bot_products WHERE id = ?').get(result.lastInsertRowid));
+        });
 
-        res.status(201).json(db.prepare('SELECT * FROM bot_products WHERE id = ?').get(result.lastInsertRowid));
+        res.status(201).json(tx());
     } catch (error) {
         console.error('[MessengerBot] Product create error:', error);
         res.status(500).json({ error: 'فشل إنشاء المنتج' });
@@ -452,31 +544,39 @@ router.patch('/products/:id', (req, res) => {
         const existing = db.prepare('SELECT * FROM bot_products WHERE id = ? AND tenant_id = ?').get(req.params.id, tenant.id);
         if (!existing) return res.status(404).json({ error: 'المنتج غير موجود' });
 
-        const product = normalizeProductPayload({ ...existing, ...req.body });
+        const body = { ...existing, ...req.body };
+        if (!Object.prototype.hasOwnProperty.call(req.body, 'images')) {
+            body.images = getProductImages(existing.id);
+        }
+        const product = normalizeProductPayload(body);
         if (!product.name) return res.status(400).json({ error: 'اسم المنتج مطلوب' });
 
-        db.prepare(`
-            UPDATE bot_products
-            SET sku = ?, name = ?, description = ?, price = ?, currency = ?,
-                image_url = ?, product_url = ?, category = ?, availability = ?,
-                is_active = ?, updated_at = datetime('now', 'localtime')
-            WHERE id = ? AND tenant_id = ?
-        `).run(
-            product.sku,
-            product.name,
-            product.description,
-            product.price,
-            product.currency,
-            product.image_url,
-            product.product_url,
-            product.category,
-            product.availability,
-            product.is_active,
-            req.params.id,
-            tenant.id
-        );
+        const tx = db.transaction(() => {
+            db.prepare(`
+                UPDATE bot_products
+                SET sku = ?, name = ?, description = ?, price = ?, currency = ?,
+                    image_url = ?, product_url = ?, category = ?, availability = ?,
+                    is_active = ?, updated_at = datetime('now', 'localtime')
+                WHERE id = ? AND tenant_id = ?
+            `).run(
+                product.sku,
+                product.name,
+                product.description,
+                product.price,
+                product.currency,
+                product.images[0]?.image_url || product.image_url,
+                product.product_url,
+                product.category,
+                product.availability,
+                product.is_active,
+                req.params.id,
+                tenant.id
+            );
+            replaceProductImages(req.params.id, tenant.id, product.images);
+            return attachProductImages(db.prepare('SELECT * FROM bot_products WHERE id = ?').get(req.params.id));
+        });
 
-        res.json(db.prepare('SELECT * FROM bot_products WHERE id = ?').get(req.params.id));
+        res.json(tx());
     } catch (error) {
         console.error('[MessengerBot] Product update error:', error);
         res.status(500).json({ error: 'فشل تحديث المنتج' });

@@ -180,11 +180,40 @@ function getFlowNode(flowId, nodeKey = 'start') {
     `).get(flowId, nodeKey);
 }
 
+function attachProductImages(products = []) {
+    const rows = Array.isArray(products) ? products : [products].filter(Boolean);
+    if (!rows.length) return Array.isArray(products) ? [] : null;
+
+    const placeholders = rows.map(() => '?').join(', ');
+    const images = db.prepare(`
+        SELECT product_id, image_url, alt_text, sort_order, is_primary
+        FROM bot_product_images
+        WHERE product_id IN (${placeholders})
+        ORDER BY is_primary DESC, sort_order ASC, id ASC
+    `).all(...rows.map(product => product.id));
+    const byProduct = new Map();
+    for (const image of images) {
+        if (!byProduct.has(image.product_id)) byProduct.set(image.product_id, []);
+        byProduct.get(image.product_id).push(image);
+    }
+
+    const enriched = rows.map(product => {
+        const productImages = byProduct.get(product.id) || [];
+        return {
+            ...product,
+            images: productImages,
+            image_url: productImages[0]?.image_url || product.image_url || null,
+        };
+    });
+
+    return Array.isArray(products) ? enriched : enriched[0];
+}
+
 function searchActiveProducts({ tenantId, query, limit = MAX_GENERIC_ELEMENTS }) {
     const text = String(query || '').trim();
     if (text.length < 2) return [];
     const like = `%${text}%`;
-    return db.prepare(`
+    const products = db.prepare(`
         SELECT *
         FROM bot_products
         WHERE tenant_id = ?
@@ -197,6 +226,7 @@ function searchActiveProducts({ tenantId, query, limit = MAX_GENERIC_ELEMENTS })
           id DESC
         LIMIT ?
     `).all(tenantId, like, like, like, like, like, Math.min(Math.max(Number(limit) || MAX_GENERIC_ELEMENTS, 1), MAX_GENERIC_ELEMENTS));
+    return attachProductImages(products);
 }
 
 function listActiveProducts({ tenantId, category = null, limit = MAX_GENERIC_ELEMENTS }) {
@@ -208,7 +238,7 @@ function listActiveProducts({ tenantId, category = null, limit = MAX_GENERIC_ELE
     }
     params.push(Math.min(Math.max(Number(limit) || MAX_GENERIC_ELEMENTS, 1), MAX_GENERIC_ELEMENTS));
 
-    return db.prepare(`
+    const products = db.prepare(`
         SELECT *
         FROM bot_products
         WHERE tenant_id = ?
@@ -218,15 +248,17 @@ function listActiveProducts({ tenantId, category = null, limit = MAX_GENERIC_ELE
         ORDER BY updated_at DESC, id DESC
         LIMIT ?
     `).all(...params);
+    return attachProductImages(products);
 }
 
 function getProduct(tenantId, productId) {
-    return db.prepare(`
+    const product = db.prepare(`
         SELECT *
         FROM bot_products
         WHERE id = ? AND tenant_id = ? AND is_active = 1
         LIMIT 1
     `).get(productId, tenantId);
+    return attachProductImages(product);
 }
 
 function moneyText(product) {
@@ -357,12 +389,56 @@ function buildProductDetailMessage(product) {
         ]);
     }
 
+    const images = (product.images || [])
+        .map(image => image.image_url)
+        .filter(isHttpUrl)
+        .slice(0, MAX_GENERIC_ELEMENTS);
     const body = [
         product.name,
         moneyText(product),
         product.description,
         product.product_url && isHttpUrl(product.product_url) ? product.product_url : null,
     ].filter(Boolean).join('\n');
+
+    if (images.length > 0) {
+        return {
+            attachment: {
+                type: 'template',
+                payload: {
+                    template_type: 'generic',
+                    elements: images.map((imageUrl, index) => {
+                        const buttons = [
+                            {
+                                type: 'postback',
+                                title: 'استفسار',
+                                payload: `BOT:HANDOFF:PRODUCT:${product.id}`,
+                            },
+                        ];
+                        if (isHttpUrl(product.product_url)) {
+                            buttons.push({
+                                type: 'web_url',
+                                title: 'فتح الرابط',
+                                url: product.product_url,
+                            });
+                        }
+                        return {
+                            title: trimForMeta(index === 0 ? product.name : `${product.name} - صورة ${index + 1}`, 80),
+                            subtitle: trimForMeta(index === 0
+                                ? [moneyText(product), product.description].filter(Boolean).join(' - ')
+                                : `صورة ${index + 1} من ${images.length}`, 80),
+                            image_url: imageUrl,
+                            buttons: buttons.slice(0, 3),
+                        };
+                    }),
+                },
+            },
+            quick_replies: [
+                { content_type: 'text', title: 'القائمة الرئيسية', payload: 'BOT:MENU' },
+                { content_type: 'text', title: 'منتجات أخرى', payload: 'BOT:PRODUCTS' },
+                { content_type: 'text', title: 'موظف بشري', payload: `BOT:HANDOFF:PRODUCT:${product.id}` },
+            ],
+        };
+    }
 
     return buildTextMessage(body, [
         { content_type: 'text', title: 'القائمة الرئيسية', payload: 'BOT:MENU' },

@@ -47,6 +47,7 @@ const emptyProduct = {
     price: 0,
     currency: 'LYD',
     image_url: '',
+    images: [],
     product_url: '',
     category: '',
     availability: 'available',
@@ -535,15 +536,56 @@ const MessengerBotManager = ({ tenantMode = false }) => {
         return result.url;
     };
 
-    const uploadProductImage = async (file) => {
+    const uploadProductImages = async (files) => {
+        const list = Array.from(files || []);
+        if (!list.length) return;
         try {
-            const url = await uploadAsset(file);
-            if (!url) return;
-            setProductForm(prev => ({ ...prev, image_url: url }));
-            setSnackbar({ open: true, message: 'تم رفع صورة المنتج', severity: 'success' });
+            const uploaded = await Promise.all(list.map(file => uploadAsset(file)));
+            setProductForm(prev => {
+                const current = prev.images || [];
+                const images = [
+                    ...current,
+                    ...uploaded.filter(Boolean).map((url, index) => ({
+                        image_url: url,
+                        alt_text: prev.name || '',
+                        sort_order: current.length + index,
+                    })),
+                ];
+                return { ...prev, image_url: images[0]?.image_url || prev.image_url, images };
+            });
+            setSnackbar({ open: true, message: `تم رفع ${uploaded.filter(Boolean).length} صورة`, severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل رفع الصورة', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || 'فشل رفع الصور', severity: 'error' });
         }
+    };
+
+    const addProductImageUrl = () => {
+        const imageUrl = String(productForm.image_url || '').trim();
+        if (!imageUrl) return;
+        setProductForm(prev => {
+            const exists = (prev.images || []).some(image => image.image_url === imageUrl);
+            const images = exists
+                ? prev.images
+                : [...(prev.images || []), { image_url: imageUrl, alt_text: prev.name || '', sort_order: prev.images?.length || 0 }];
+            return { ...prev, image_url: images[0]?.image_url || imageUrl, images };
+        });
+    };
+
+    const removeProductImage = (index) => {
+        setProductForm(prev => {
+            const images = (prev.images || []).filter((_, imageIndex) => imageIndex !== index);
+            return { ...prev, image_url: images[0]?.image_url || '', images };
+        });
+    };
+
+    const setPrimaryProductImage = (index) => {
+        setProductForm(prev => {
+            const images = [...(prev.images || [])];
+            const [selected] = images.splice(index, 1);
+            if (!selected) return prev;
+            const nextImages = [selected, ...images].map((image, imageIndex) => ({ ...image, sort_order: imageIndex }));
+            return { ...prev, image_url: nextImages[0]?.image_url || '', images: nextImages };
+        });
     };
 
     const uploadButtonImage = async (nodeIndex, buttonIndex, file) => {
@@ -625,7 +667,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
     };
 
     const openProductDialog = (product = null) => {
-        setProductForm(product ? { ...emptyProduct, ...product, is_active: Boolean(product.is_active) } : emptyProduct);
+        const images = product?.images?.length
+            ? product.images
+            : (product?.image_url ? [{ image_url: product.image_url, alt_text: product.name || '', sort_order: 0 }] : []);
+        setProductForm(product ? { ...emptyProduct, ...product, images, image_url: images[0]?.image_url || product.image_url || '', is_active: Boolean(product.is_active) } : emptyProduct);
         setProductDialog(true);
     };
 
@@ -1001,16 +1046,29 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                         </Grid>
                         <Grid size={{ xs: 12, md: 6 }}>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                                <TextField fullWidth label="رابط الصورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} />
+                                <TextField fullWidth label="رابط صورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} />
+                                <Button variant="outlined" onClick={addProductImageUrl} sx={{ minWidth: 96 }}>
+                                    إضافة
+                                </Button>
                                 <Button variant="outlined" component="label" sx={{ minWidth: 120 }}>
-                                    رفع صورة
-                                    <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadProductImage(e.target.files?.[0])} />
+                                    رفع صور
+                                    <input hidden multiple type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadProductImages(e.target.files)} />
                                 </Button>
                             </Stack>
-                            {productForm.image_url && (
-                                <Box sx={{ mt: 1 }}>
-                                    <Box component="img" src={productForm.image_url} alt="" sx={{ width: 96, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
-                                </Box>
+                            {(productForm.images || []).length > 0 && (
+                                <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 1 }}>
+                                    {productForm.images.map((image, index) => (
+                                        <Paper key={`${image.image_url}-${index}`} variant="outlined" sx={{ p: 0.5, borderRadius: 1, width: 118 }}>
+                                            <Box component="img" src={image.image_url} alt="" sx={{ width: '100%', height: 72, objectFit: 'cover', borderRadius: 1 }} />
+                                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
+                                                <Button size="small" disabled={index === 0} onClick={() => setPrimaryProductImage(index)}>أولى</Button>
+                                                <IconButton size="small" color="error" onClick={() => removeProductImage(index)}>
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </Stack>
+                                        </Paper>
+                                    ))}
+                                </Stack>
                             )}
                         </Grid>
                         <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رابط المنتج" value={productForm.product_url} onChange={e => setProductForm(prev => ({ ...prev, product_url: e.target.value }))} /></Grid>
