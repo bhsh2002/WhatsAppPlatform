@@ -1173,6 +1173,54 @@ class ApiService {
         });
     }
 
+    async getMetaBillingRates(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/rates${query ? '?' + query : ''}`);
+    }
+
+    async createMetaBillingRate(data) {
+        return this.request('/api/billing/meta/rates', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updateMetaBillingRate(id, data) {
+        return this.request(`/api/billing/meta/rates/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getMetaBillingSummary(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/summary${query ? '?' + query : ''}`);
+    }
+
+    async getMetaBillingUsage(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/usage${query ? '?' + query : ''}`);
+    }
+
+    async getMetaInvoices(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/invoices${query ? '?' + query : ''}`);
+    }
+
+    async createMetaInvoice(data) {
+        return this.request('/api/billing/meta/invoices', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async syncMetaInvoices(data) {
+        return this.request('/api/billing/meta/invoices/sync', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
     async getTenantBilling(tenantId) {
         return this.request(`/api/tenants/${tenantId}/billing`);
     }

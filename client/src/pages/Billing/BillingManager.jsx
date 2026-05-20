@@ -38,10 +38,12 @@ import {
     ReceiptLong as InvoiceIcon,
     Refresh as RefreshIcon,
     Save as SaveIcon,
+    CloudSync as SyncIcon,
 } from '@mui/icons-material';
 import api from '../../api';
 
 const number = (value) => Number(value || 0).toLocaleString('ar-LY');
+const money = (value, currency = '') => `${Number(value || 0).toLocaleString('ar-LY', { minimumFractionDigits: 3, maximumFractionDigits: 4 })}${currency ? ` ${currency}` : ''}`;
 
 const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
     <Card elevation={1} sx={{ height: '100%' }}>
@@ -65,6 +67,10 @@ const BillingManager = () => {
     const [error, setError] = useState(null);
     const [plans, setPlans] = useState([]);
     const [prices, setPrices] = useState([]);
+    const [metaRates, setMetaRates] = useState([]);
+    const [metaSummary, setMetaSummary] = useState(null);
+    const [metaUsage, setMetaUsage] = useState([]);
+    const [metaInvoices, setMetaInvoices] = useState([]);
     const [tenants, setTenants] = useState([]);
     const [selectedTenantId, setSelectedTenantId] = useState('');
     const [billing, setBilling] = useState(null);
@@ -85,6 +91,29 @@ const BillingManager = () => {
     });
     const [paymentForm, setPaymentForm] = useState({ credits: 100, amount_lyd: 0, method: 'manual', reference: '', note: '' });
     const [adjustmentForm, setAdjustmentForm] = useState({ credits_delta: 0, reason: '' });
+    const [metaRateForm, setMetaRateForm] = useState({
+        country_calling_code: '218',
+        market_name: 'Libya',
+        currency: 'USD',
+        category: 'marketing',
+        rate_amount: 0,
+        effective_from: new Date().toISOString().slice(0, 10),
+        source: 'manual',
+    });
+    const [metaInvoiceForm, setMetaInvoiceForm] = useState({
+        invoice_number: '',
+        currency: 'USD',
+        subtotal_amount: 0,
+        tax_amount: 0,
+        total_amount: 0,
+        period_start: '',
+        period_end: '',
+        notes: '',
+    });
+    const [metaSyncForm, setMetaSyncForm] = useState({
+        start_date: '',
+        end_date: '',
+    });
 
     const selectedTenant = useMemo(
         () => tenants.find((tenant) => String(tenant.id) === String(selectedTenantId)),
@@ -109,6 +138,7 @@ const BillingManager = () => {
             if (nextTenantId) {
                 await fetchTenantBilling(nextTenantId);
             }
+            await fetchMetaBilling(nextTenantId);
         } catch (err) {
             setError(err.message || 'فشل جلب بيانات الفوترة');
         } finally {
@@ -130,6 +160,20 @@ const BillingManager = () => {
         });
     };
 
+    const fetchMetaBilling = async (tenantId = selectedTenantId) => {
+        const params = tenantId ? { tenant_id: tenantId } : {};
+        const [ratesData, summaryData, usageData, invoicesData] = await Promise.all([
+            api.getMetaBillingRates(),
+            api.getMetaBillingSummary(params),
+            api.getMetaBillingUsage({ ...params, limit: 25 }),
+            api.getMetaInvoices({ ...params, limit: 20 }),
+        ]);
+        setMetaRates(ratesData.rates || []);
+        setMetaSummary(summaryData || null);
+        setMetaUsage(usageData.usage || []);
+        setMetaInvoices(invoicesData.invoices || []);
+    };
+
     useEffect(() => {
         fetchAll();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,6 +184,7 @@ const BillingManager = () => {
         setError(null);
         try {
             await fetchTenantBilling(tenantId);
+            await fetchMetaBilling(tenantId);
         } catch (err) {
             setError(err.message || 'فشل جلب حساب العميل');
         }
@@ -167,6 +212,30 @@ const BillingManager = () => {
         } catch (err) {
             setError(err.message || 'فشل تحديث السعر');
             await fetchAll();
+        }
+    };
+
+    const createMetaRate = async () => {
+        setSaving(true);
+        try {
+            await api.createMetaBillingRate(metaRateForm);
+            setMetaRateForm({ ...metaRateForm, rate_amount: 0 });
+            await fetchMetaBilling();
+        } catch (err) {
+            setError(err.message || 'فشل إضافة سعر Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const updateMetaRate = async (rate, patch) => {
+        const updated = { ...rate, ...patch };
+        setMetaRates((items) => items.map((item) => item.id === rate.id ? updated : item));
+        try {
+            await api.updateMetaBillingRate(rate.id, patch);
+        } catch (err) {
+            setError(err.message || 'فشل تحديث سعر Meta');
+            await fetchMetaBilling();
         }
     };
 
@@ -239,6 +308,42 @@ const BillingManager = () => {
         }
     };
 
+    const createMetaInvoice = async () => {
+        setSaving(true);
+        try {
+            await api.createMetaInvoice({
+                tenant_id: selectedTenantId || null,
+                business_id: selectedTenant?.business_id || null,
+                waba_id: selectedTenant?.waba_id || null,
+                ...metaInvoiceForm,
+            });
+            setMetaInvoiceForm({ invoice_number: '', currency: 'USD', subtotal_amount: 0, tax_amount: 0, total_amount: 0, period_start: '', period_end: '', notes: '' });
+            await fetchMetaBilling();
+        } catch (err) {
+            setError(err.message || 'فشل تسجيل فاتورة Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const syncMetaInvoices = async () => {
+        if (!selectedTenantId) return;
+        setSaving(true);
+        try {
+            await api.syncMetaInvoices({
+                tenant_id: selectedTenantId,
+                business_id: selectedTenant?.business_id || null,
+                start_date: metaSyncForm.start_date,
+                end_date: metaSyncForm.end_date,
+            });
+            await fetchMetaBilling();
+        } catch (err) {
+            setError(err.message || 'فشل مزامنة فواتير Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
     if (loading) {
         return (
             <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
@@ -267,6 +372,7 @@ const BillingManager = () => {
                     <Tab label="الباقات" />
                     <Tab label="كتالوج الأسعار" />
                     <Tab label="السجل والفواتير" />
+                    <Tab label="تكلفة وفواتير Meta" />
                 </Tabs>
             </Paper>
 
@@ -515,6 +621,208 @@ const BillingManager = () => {
                             ) : (
                                 <Alert severity="info">لا توجد فواتير لهذا العميل بعد.</Alert>
                             )}
+                        </Paper>
+                    </Grid>
+                </Grid>
+            )}
+
+            {tab === 4 && (
+                <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, md: 3 }}>
+                        <StatCard
+                            title="تكلفة Meta المؤكدة"
+                            value={money(metaSummary?.totals?.final_amount, metaSummary?.by_category?.[0]?.currency)}
+                            icon={<InvoiceIcon />}
+                            color="error"
+                            caption="من status delivered/read"
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 3 }}>
+                        <StatCard
+                            title="تكلفة Meta التقديرية"
+                            value={money(metaSummary?.totals?.estimated_amount, metaSummary?.by_category?.[0]?.currency)}
+                            icon={<PriceIcon />}
+                            color="warning"
+                            caption="من rate card المخزن"
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 3 }}>
+                        <StatCard
+                            title="عمليات بلا سعر"
+                            value={number(metaSummary?.totals?.rate_missing_count)}
+                            icon={<RefreshIcon />}
+                            color="warning"
+                            caption="تحتاج rate card"
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 3 }}>
+                        <StatCard
+                            title="فواتير Meta"
+                            value={number(metaInvoices.length)}
+                            icon={<InvoiceIcon />}
+                            color="info"
+                            caption={selectedTenant?.business_id ? `Business ${selectedTenant.business_id}` : 'اختر عميل لديه Business ID'}
+                        />
+                    </Grid>
+
+                    <Grid size={{ xs: 12, lg: 5 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>إضافة سعر Meta WhatsApp</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                أدخل أسعار Meta المنشورة حسب كود الدولة وفئة الرسالة. لا يتم افتراض أسعار تلقائية.
+                            </Typography>
+                            <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth label="كود الدولة" value={metaRateForm.country_calling_code} onChange={(e) => setMetaRateForm({ ...metaRateForm, country_calling_code: e.target.value })} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth label="السوق" value={metaRateForm.market_name} onChange={(e) => setMetaRateForm({ ...metaRateForm, market_name: e.target.value })} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <FormControl fullWidth>
+                                        <InputLabel>الفئة</InputLabel>
+                                        <Select value={metaRateForm.category} label="الفئة" onChange={(e) => setMetaRateForm({ ...metaRateForm, category: e.target.value })}>
+                                            <MenuItem value="marketing">marketing</MenuItem>
+                                            <MenuItem value="utility">utility</MenuItem>
+                                            <MenuItem value="authentication">authentication</MenuItem>
+                                            <MenuItem value="service">service</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth label="العملة" value={metaRateForm.currency} onChange={(e) => setMetaRateForm({ ...metaRateForm, currency: e.target.value.toUpperCase() })} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth type="number" label="سعر Meta" value={metaRateForm.rate_amount} onChange={(e) => setMetaRateForm({ ...metaRateForm, rate_amount: Number(e.target.value) || 0 })} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth type="date" label="تاريخ السريان" InputLabelProps={{ shrink: true }} value={metaRateForm.effective_from} onChange={(e) => setMetaRateForm({ ...metaRateForm, effective_from: e.target.value })} />
+                                </Grid>
+                            </Grid>
+                            <Button sx={{ mt: 2 }} variant="contained" onClick={createMetaRate} disabled={saving || !metaRateForm.country_calling_code || !metaRateForm.category}>
+                                إضافة سعر Meta
+                            </Button>
+                        </Paper>
+                    </Grid>
+
+                    <Grid size={{ xs: 12, lg: 7 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>كتالوج أسعار Meta</Typography>
+                            <TableContainer sx={{ maxHeight: 320 }}>
+                                <Table size="small" stickyHeader>
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>الدولة</TableCell>
+                                            <TableCell>السوق</TableCell>
+                                            <TableCell>الفئة</TableCell>
+                                            <TableCell>العملة</TableCell>
+                                            <TableCell>السعر</TableCell>
+                                            <TableCell>نشط</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {metaRates.map((rate) => (
+                                            <TableRow key={rate.id}>
+                                                <TableCell>{rate.country_calling_code}</TableCell>
+                                                <TableCell>{rate.market_name || '-'}</TableCell>
+                                                <TableCell>{rate.category}</TableCell>
+                                                <TableCell>{rate.currency}</TableCell>
+                                                <TableCell sx={{ width: 130 }}>
+                                                    <TextField
+                                                        size="small"
+                                                        type="number"
+                                                        value={rate.rate_amount}
+                                                        onChange={(e) => setMetaRates((items) => items.map((item) => item.id === rate.id ? { ...item, rate_amount: Number(e.target.value) || 0 } : item))}
+                                                        onBlur={(e) => updateMetaRate(rate, { rate_amount: Number(e.target.value) || 0 })}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Switch checked={!!rate.is_active} onChange={(e) => updateMetaRate(rate, { is_active: e.target.checked })} />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </Paper>
+                    </Grid>
+
+                    <Grid size={{ xs: 12, lg: 7 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>آخر عمليات تكلفة Meta</Typography>
+                            <TableContainer>
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>الوقت</TableCell>
+                                            <TableCell>العميل</TableCell>
+                                            <TableCell>الفئة</TableCell>
+                                            <TableCell>الحالة</TableCell>
+                                            <TableCell>التقديري</TableCell>
+                                            <TableCell>المؤكد</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {metaUsage.map((usage) => (
+                                            <TableRow key={usage.id}>
+                                                <TableCell>{usage.meta_priced_at || usage.committed_at || usage.reserved_at}</TableCell>
+                                                <TableCell>{usage.tenant_name || usage.tenant_id}</TableCell>
+                                                <TableCell>{usage.meta_charge_category || '-'}</TableCell>
+                                                <TableCell>
+                                                    <Chip size="small" label={usage.meta_charge_status || '-'} />
+                                                </TableCell>
+                                                <TableCell>{money(usage.meta_estimated_amount, usage.meta_charge_currency)}</TableCell>
+                                                <TableCell>{money(usage.meta_final_amount, usage.meta_charge_currency)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </Paper>
+                    </Grid>
+
+                    <Grid size={{ xs: 12, lg: 5 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>فواتير Meta</Typography>
+                            <Grid container spacing={1.5} sx={{ mb: 2 }}>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth type="date" label="من" InputLabelProps={{ shrink: true }} value={metaSyncForm.start_date} onChange={(e) => setMetaSyncForm({ ...metaSyncForm, start_date: e.target.value })} />
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <TextField fullWidth type="date" label="إلى" InputLabelProps={{ shrink: true }} value={metaSyncForm.end_date} onChange={(e) => setMetaSyncForm({ ...metaSyncForm, end_date: e.target.value })} />
+                                </Grid>
+                            </Grid>
+                            <Button fullWidth variant="outlined" startIcon={<SyncIcon />} onClick={syncMetaInvoices} disabled={saving || !selectedTenantId || !metaSyncForm.start_date || !metaSyncForm.end_date} sx={{ mb: 2 }}>
+                                مزامنة من Meta Business Invoices
+                            </Button>
+
+                            <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 12 }}>
+                                    <TextField fullWidth label="رقم الفاتورة" value={metaInvoiceForm.invoice_number} onChange={(e) => setMetaInvoiceForm({ ...metaInvoiceForm, invoice_number: e.target.value })} />
+                                </Grid>
+                                <Grid size={{ xs: 4 }}>
+                                    <TextField fullWidth label="العملة" value={metaInvoiceForm.currency} onChange={(e) => setMetaInvoiceForm({ ...metaInvoiceForm, currency: e.target.value.toUpperCase() })} />
+                                </Grid>
+                                <Grid size={{ xs: 4 }}>
+                                    <TextField fullWidth type="number" label="الإجمالي" value={metaInvoiceForm.total_amount} onChange={(e) => setMetaInvoiceForm({ ...metaInvoiceForm, total_amount: Number(e.target.value) || 0 })} />
+                                </Grid>
+                                <Grid size={{ xs: 4 }}>
+                                    <TextField fullWidth type="number" label="الضريبة" value={metaInvoiceForm.tax_amount} onChange={(e) => setMetaInvoiceForm({ ...metaInvoiceForm, tax_amount: Number(e.target.value) || 0 })} />
+                                </Grid>
+                            </Grid>
+                            <Button sx={{ mt: 2 }} variant="contained" onClick={createMetaInvoice} disabled={saving || !selectedTenantId}>
+                                تسجيل فاتورة Meta يدويا
+                            </Button>
+
+                            <Box sx={{ mt: 2, display: 'grid', gap: 1 }}>
+                                {metaInvoices.map((invoice) => (
+                                    <Paper key={invoice.id} variant="outlined" sx={{ p: 1.5 }}>
+                                        <Typography variant="body2" fontWeight={700}>{invoice.invoice_number}</Typography>
+                                        <Typography variant="caption" color="text.secondary">{invoice.period_start || '-'} → {invoice.period_end || '-'}</Typography>
+                                        <Typography variant="body2">{money(invoice.total_amount, invoice.currency)}</Typography>
+                                    </Paper>
+                                ))}
+                            </Box>
                         </Paper>
                     </Grid>
                 </Grid>

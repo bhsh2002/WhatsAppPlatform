@@ -23,6 +23,7 @@ import {
     handleBillingError,
     release as releaseBilling,
     reserve as reserveBilling,
+    summarizeMetaRecipientCountries,
 } from '../services/billing.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -121,6 +122,8 @@ router.post('/send', async (req, res) => {
             to: recipient,
         };
 
+        let templateForBilling = null;
+
         if (effectiveType === 'template') {
             if (!templateName) {
                 return res.status(400).json({ error: 'templateName is required for template type' });
@@ -134,9 +137,10 @@ router.post('/send', async (req, res) => {
 
             // Validate template variable count if we can find the template
             if (tenant_id) {
-                const tmpl = db.prepare('SELECT body FROM templates WHERE tenant_id = ? AND name = ?')
+                const tmpl = db.prepare('SELECT body, category FROM templates WHERE tenant_id = ? AND name = ?')
                     .get(tenant_id, templateName);
                 if (tmpl) {
+                    templateForBilling = tmpl;
                     const placeholders = (tmpl.body || '').match(/\{\{\d+\}\}/g) || [];
                     const expectedCount = placeholders.length;
                     const bodyComp = normalizedTemplateParams.find(c => c.type === 'body' || c.type === 'BODY');
@@ -167,7 +171,12 @@ router.post('/send', async (req, res) => {
             operationKey: effectiveType === 'template' ? BILLING_OPERATIONS.WHATSAPP_TEMPLATE : BILLING_OPERATIONS.WHATSAPP_TEXT,
             quantity: 1,
             referenceType: 'message',
-            metadata: { recipient, message_type: effectiveType },
+            metadata: {
+                recipient,
+                message_type: effectiveType,
+                template_name: templateName || null,
+                template_category: templateForBilling?.category || null,
+            },
         });
 
         // Send to Meta API
@@ -1059,12 +1068,22 @@ router.post('/broadcast', async (req, res) => {
             return res.status(400).json({ error: 'Missing API credentials' });
         }
 
+        const templateForBilling = tenant?.id || tenant_id
+            ? db.prepare('SELECT category FROM templates WHERE tenant_id = ? AND name = ?')
+                .get(tenant?.id || tenant_id, template_name)
+            : null;
+
         billingReservation = reserveBilling({
             tenantId: tenant?.id || tenant_id || null,
             operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
             quantity: recipients.length,
             referenceType: 'broadcast',
-            metadata: { template_name, recipient_count: recipients.length },
+            metadata: {
+                template_name,
+                template_category: templateForBilling?.category || null,
+                recipient_count: recipients.length,
+                recipient_country_counts: summarizeMetaRecipientCountries(recipients),
+            },
         });
 
         // Create broadcast job
@@ -1217,10 +1236,18 @@ async function processBroadcastJob(jobId, params) {
         }
 
         if (tenant_id && sent > 0) {
+            const successfulRecipients = results
+                .filter((result) => result.status === 'sent')
+                .map((result) => result.recipient);
             commitBilling(billingReservation, {
                 quantity: sent,
                 referenceId: String(jobId),
                 description: `خصم بث WhatsApp: ${template_name} (${sent} مستلم)`,
+                meta: {
+                    template_name,
+                    template_category: templateRecord?.category || null,
+                    recipient_country_counts: summarizeMetaRecipientCountries(successfulRecipients),
+                },
             });
         } else if (billingReservation) {
             releaseBilling(billingReservation, 'No successful broadcast recipients');
@@ -1423,7 +1450,13 @@ router.post('/contacts', async (req, res) => {
             operationKey: BILLING_OPERATIONS.WHATSAPP_CONTACT_VERIFICATION_TEMPLATE,
             quantity: 1,
             referenceType: 'contact_verification',
-            metadata: { phone: formattedPhone, template_name: template.name },
+            metadata: {
+                phone: formattedPhone,
+                recipient: formattedPhone,
+                message_type: 'template',
+                template_name: template.name,
+                template_category: template.category || null,
+            },
         });
 
         const response = await fetch(`${META_API_BASE}/${creds.phoneNumberId}/messages`, {

@@ -55,6 +55,352 @@ const serializeJson = (value) => {
 };
 
 const nowSql = "datetime('now', 'localtime')";
+const META_PRICED_WHATSAPP_OPERATIONS = new Set([
+    BILLING_OPERATIONS.WHATSAPP_TEXT,
+    BILLING_OPERATIONS.WHATSAPP_TEMPLATE,
+    BILLING_OPERATIONS.WHATSAPP_MEDIA,
+    BILLING_OPERATIONS.WHATSAPP_INTERACTIVE,
+    BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+    BILLING_OPERATIONS.WHATSAPP_CONTACT_VERIFICATION_TEMPLATE,
+]);
+
+const normalizeMetaCategory = (value) => {
+    const category = String(value || '').trim().toLowerCase();
+    if (['marketing', 'utility', 'authentication', 'service'].includes(category)) {
+        return category;
+    }
+    return category || null;
+};
+
+const normalizePhoneDigits = (value) => String(value || '').replace(/[^\d]/g, '');
+
+function parseJson(value, fallback = {}) {
+    if (!value) return fallback;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+}
+
+function sqlDate(value = null) {
+    if (!value) return db.prepare("SELECT datetime('now', 'localtime') AS value").get().value;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function hoursSince(value) {
+    if (!value) return Number.POSITIVE_INFINITY;
+    const parsed = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return Number.POSITIVE_INFINITY;
+    return (Date.now() - parsed.getTime()) / (60 * 60 * 1000);
+}
+
+function getTemplateCategory(tenantId, templateName) {
+    if (!tenantId || !templateName) return null;
+    const row = db.prepare('SELECT category FROM templates WHERE tenant_id = ? AND name = ? ORDER BY id DESC LIMIT 1')
+        .get(tenantId, templateName);
+    return normalizeMetaCategory(row?.category);
+}
+
+function getContactWindow(tenantId, recipient) {
+    if (!tenantId || !recipient) return null;
+    const phone = normalizePhoneDigits(recipient);
+    return db.prepare(`
+        SELECT last_customer_message_at, last_ctwa_received_at, last_ctwa_clid
+        FROM contacts
+        WHERE tenant_id = ? AND phone = ?
+        LIMIT 1
+    `).get(tenantId, phone) || null;
+}
+
+function chooseRateForRecipient({ recipient, countryCallingCode, category, currency = null, effectiveAt = null }) {
+    const normalizedCategory = normalizeMetaCategory(category);
+    if (!normalizedCategory) return null;
+
+    const digits = normalizePhoneDigits(recipient);
+    const dateValue = String(effectiveAt || '').slice(0, 10) || db.prepare("SELECT date('now') AS value").get().value;
+    const params = [normalizedCategory, dateValue, dateValue];
+    let currencyFilter = '';
+    if (currency) {
+        currencyFilter = 'AND currency = ?';
+        params.push(String(currency).toUpperCase());
+    }
+
+    const rows = db.prepare(`
+        SELECT *
+        FROM meta_whatsapp_rates
+        WHERE is_active = 1
+          AND LOWER(category) = ?
+          AND date(effective_from) <= date(?)
+          AND (effective_to IS NULL OR date(effective_to) >= date(?))
+          ${currencyFilter}
+        ORDER BY LENGTH(country_calling_code) DESC, volume_tier_min DESC, id DESC
+    `).all(...params);
+
+    return rows.find((rate) => {
+        const code = String(rate.country_calling_code || '').replace(/[^\d*]/g, '');
+        if (countryCallingCode && code === String(countryCallingCode)) return true;
+        if (code === '*') return true;
+        return code && digits.startsWith(code);
+    }) || null;
+}
+
+function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recipient = null, category = null, statusPricing = null, effectiveAt = null }) {
+    if (!META_PRICED_WHATSAPP_OPERATIONS.has(operationKey)) {
+        return {
+            status: 'not_applicable',
+            category: null,
+            country_calling_code: null,
+            currency: null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'operation_not_meta_priced',
+            pricing_basis: 'none',
+        };
+    }
+
+    const messageType = String(metadata.message_type || metadata.type || '').toLowerCase();
+    const operationDefaultCategory = [
+        BILLING_OPERATIONS.WHATSAPP_TEXT,
+        BILLING_OPERATIONS.WHATSAPP_MEDIA,
+        BILLING_OPERATIONS.WHATSAPP_INTERACTIVE,
+    ].includes(operationKey) ? 'service' : null;
+    const resolvedCategory = normalizeMetaCategory(
+        statusPricing?.category
+        || category
+        || metadata.template_category
+        || getTemplateCategory(tenantId, metadata.template_name)
+        || operationDefaultCategory
+        || (messageType && messageType !== 'template' ? 'service' : null)
+    );
+
+    if (!resolvedCategory) {
+        return {
+            status: 'rate_missing',
+            category: null,
+            country_calling_code: null,
+            currency: null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'template_category_missing',
+            pricing_basis: 'category_required',
+        };
+    }
+
+    const billableFlag = statusPricing?.billable;
+    if (billableFlag === false || billableFlag === 'false') {
+        return {
+            status: 'not_charged',
+            category: resolvedCategory,
+            country_calling_code: null,
+            currency: null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'meta_pricing_billable_false',
+            pricing_basis: 'status_webhook',
+        };
+    }
+
+    const target = recipient || metadata.recipient || metadata.to || metadata.phone || null;
+    const contact = getContactWindow(tenantId, target);
+    if (contact?.last_ctwa_received_at && hoursSince(contact.last_ctwa_received_at) <= 72) {
+        return {
+            status: 'not_charged',
+            category: resolvedCategory,
+            country_calling_code: null,
+            currency: null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'free_entry_point_72h',
+            pricing_basis: 'ctwa_window',
+        };
+    }
+
+    if (resolvedCategory === 'service') {
+        return {
+            status: 'not_charged',
+            category: resolvedCategory,
+            country_calling_code: null,
+            currency: null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'service_messages_free',
+            pricing_basis: 'service_window',
+        };
+    }
+
+    if (resolvedCategory === 'utility' && contact?.last_customer_message_at && hoursSince(contact.last_customer_message_at) <= 24) {
+        return {
+            status: 'not_charged',
+            category: resolvedCategory,
+            country_calling_code: null,
+            currency: null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'utility_template_inside_24h_window',
+            pricing_basis: 'customer_service_window',
+        };
+    }
+
+    const rate = chooseRateForRecipient({
+        recipient: target,
+        countryCallingCode: metadata.country_calling_code,
+        category: resolvedCategory,
+        currency: metadata.meta_currency,
+        effectiveAt,
+    });
+
+    if (!rate) {
+        return {
+            status: 'rate_missing',
+            category: resolvedCategory,
+            country_calling_code: metadata.country_calling_code || null,
+            currency: metadata.meta_currency || null,
+            amount: 0,
+            rate_card_id: null,
+            reason: 'meta_rate_not_configured',
+            pricing_basis: 'manual_rate_card',
+        };
+    }
+
+    return {
+        status: 'estimated',
+        category: resolvedCategory,
+        country_calling_code: rate.country_calling_code,
+        currency: rate.currency,
+        amount: Number(rate.rate_amount) || 0,
+        rate_card_id: rate.id,
+        reason: 'matched_rate_card',
+        pricing_basis: 'manual_rate_card',
+    };
+}
+
+function summarizeMetaEstimate({ tenantId, operationKey, quantity, metadata = {}, statusPricing = null, effectiveAt = null }) {
+    const counts = metadata.recipient_country_counts && typeof metadata.recipient_country_counts === 'object'
+        ? metadata.recipient_country_counts
+        : null;
+
+    if (counts && Object.keys(counts).length > 0) {
+        let total = 0;
+        let rateMissing = false;
+        let category = normalizeMetaCategory(metadata.template_category || getTemplateCategory(tenantId, metadata.template_name));
+        let currency = null;
+        const details = [];
+
+        for (const [countryCallingCode, count] of Object.entries(counts)) {
+            const estimate = evaluateSingleMetaCharge({
+                tenantId,
+                operationKey,
+                metadata: { ...metadata, country_calling_code: countryCallingCode },
+                category,
+                statusPricing,
+                effectiveAt,
+            });
+            const rowCount = Math.max(toInt(count), 0);
+            total += (Number(estimate.amount) || 0) * rowCount;
+            if (estimate.status === 'rate_missing') rateMissing = true;
+            if (!currency && estimate.currency) currency = estimate.currency;
+            if (!category && estimate.category) category = estimate.category;
+            details.push({ country_calling_code: countryCallingCode, count: rowCount, ...estimate });
+        }
+
+        return {
+            status: rateMissing ? 'rate_missing' : (total > 0 ? 'estimated' : 'not_charged'),
+            category,
+            country_calling_code: Object.keys(counts).length === 1 ? Object.keys(counts)[0] : 'mixed',
+            currency,
+            amount: total,
+            rate_card_id: details.length === 1 ? details[0].rate_card_id : null,
+            reason: rateMissing ? 'one_or_more_rates_missing' : (total > 0 ? 'matched_rate_card' : 'free_or_not_charged'),
+            pricing_basis: 'manual_rate_card',
+            details,
+        };
+    }
+
+    const estimate = evaluateSingleMetaCharge({
+        tenantId,
+        operationKey,
+        metadata,
+        recipient: metadata.recipient,
+        category: metadata.template_category,
+        statusPricing,
+        effectiveAt,
+    });
+
+    return {
+        ...estimate,
+        amount: (Number(estimate.amount) || 0) * Math.max(toInt(quantity, 1), 1),
+        details: null,
+    };
+}
+
+function updateUsageMetaEstimate(usageId, metadataOverride = null) {
+    const usage = db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usageId);
+    if (!usage) return null;
+
+    const metadata = {
+        ...parseJson(usage.metadata_json, {}),
+        ...(metadataOverride || {}),
+    };
+    const estimate = summarizeMetaEstimate({
+        tenantId: usage.tenant_id,
+        operationKey: usage.operation_key,
+        quantity: usage.quantity,
+        metadata,
+        effectiveAt: usage.committed_at || null,
+    });
+
+    db.prepare(`
+        UPDATE billing_usage_events
+        SET metadata_json = ?,
+            meta_charge_status = ?,
+            meta_pricing_basis = ?,
+            meta_charge_category = ?,
+            meta_country_calling_code = ?,
+            meta_charge_currency = ?,
+            meta_estimated_amount = ?,
+            meta_final_amount = CASE WHEN ? IN ('not_charged', 'not_applicable') THEN 0 ELSE COALESCE(meta_final_amount, 0) END,
+            meta_rate_card_id = ?,
+            meta_charge_reason = ?,
+            meta_priced_at = ${nowSql}
+        WHERE id = ?
+    `).run(
+        serializeJson({ ...metadata, meta_estimate_details: estimate.details || undefined }),
+        estimate.status,
+        estimate.pricing_basis,
+        estimate.category,
+        estimate.country_calling_code,
+        estimate.currency,
+        Number(estimate.amount) || 0,
+        estimate.status,
+        estimate.rate_card_id,
+        estimate.reason,
+        usageId
+    );
+
+    return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usageId);
+}
+
+export function summarizeMetaRecipientCountries(recipients = []) {
+    const counts = {};
+    for (const recipient of recipients || []) {
+        const digits = normalizePhoneDigits(recipient);
+        if (!digits) continue;
+        const matches = db.prepare(`
+            SELECT country_calling_code
+            FROM meta_whatsapp_rates
+            WHERE is_active = 1
+              AND country_calling_code != '*'
+            ORDER BY LENGTH(country_calling_code) DESC
+        `).all();
+        const match = matches.find((rate) => digits.startsWith(String(rate.country_calling_code)));
+        const code = match?.country_calling_code || digits.slice(0, Math.min(3, digits.length));
+        counts[code] = (counts[code] || 0) + 1;
+    }
+    return counts;
+}
 
 function getLegacyPlanId() {
     const plan = db.prepare('SELECT id FROM billing_plans WHERE code = ?').get('legacy');
@@ -400,6 +746,8 @@ export function commit(reservation, options = {}) {
             })
         );
 
+        updateUsageMetaEstimate(usage.id, options.meta || options.metaMetadata || null);
+
         syncTenantCredits(usage.tenant_id);
         return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
     });
@@ -729,6 +1077,20 @@ export function getBillingSummary(tenantId) {
         ORDER BY channel
     `).all(tenantId);
 
+    const metaCostMonth = db.prepare(`
+        SELECT meta_charge_currency AS currency,
+               COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
+               COALESCE(SUM(meta_final_amount), 0) AS final_amount,
+               SUM(CASE WHEN meta_charge_status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count
+        FROM billing_usage_events
+        WHERE tenant_id = ?
+          AND status = 'committed'
+          AND channel = 'whatsapp'
+          AND committed_at >= datetime('now', 'start of month', 'localtime')
+        GROUP BY meta_charge_currency
+        ORDER BY final_amount DESC, estimated_amount DESC
+    `).all(tenantId);
+
     const lastPayment = db.prepare(`
         SELECT *
         FROM billing_payments
@@ -761,10 +1123,308 @@ export function getBillingSummary(tenantId) {
         } : null,
         balances: availability,
         usage_month: usageByChannel,
+        meta_cost_month: metaCostMonth,
         last_payment: lastPayment,
         last_invoice: lastInvoice,
         recent_ledger: recentLedger,
     };
+}
+
+export function updateMetaChargeFromStatus({ wamid, status, pricing = null, timestamp = null } = {}) {
+    if (!wamid) return null;
+
+    const usage = db.prepare(`
+        SELECT *
+        FROM billing_usage_events
+        WHERE reference_id = ?
+          AND channel = 'whatsapp'
+        ORDER BY id DESC
+        LIMIT 1
+    `).get(wamid);
+
+    if (!usage) return null;
+
+    const normalizedStatus = String(status || '').toLowerCase();
+    if (['failed', 'undelivered'].includes(normalizedStatus)) {
+        db.prepare(`
+            UPDATE billing_usage_events
+            SET meta_charge_status = 'not_charged',
+                meta_final_amount = 0,
+                meta_charge_reason = ?,
+                meta_priced_at = ${nowSql}
+            WHERE id = ?
+        `).run(`message_${normalizedStatus}`, usage.id);
+        return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
+    }
+
+    if (!['delivered', 'read'].includes(normalizedStatus)) {
+        return usage;
+    }
+
+    const metadata = parseJson(usage.metadata_json, {});
+    const estimate = summarizeMetaEstimate({
+        tenantId: usage.tenant_id,
+        operationKey: usage.operation_key,
+        quantity: usage.quantity,
+        metadata,
+        statusPricing: pricing || null,
+        effectiveAt: timestamp ? sqlDate(Number(timestamp) * 1000) : null,
+    });
+
+    db.prepare(`
+        UPDATE billing_usage_events
+        SET meta_charge_status = ?,
+            meta_pricing_basis = ?,
+            meta_charge_category = ?,
+            meta_country_calling_code = ?,
+            meta_charge_currency = ?,
+            meta_estimated_amount = CASE WHEN COALESCE(meta_estimated_amount, 0) = 0 THEN ? ELSE meta_estimated_amount END,
+            meta_final_amount = ?,
+            meta_rate_card_id = ?,
+            meta_charge_reason = ?,
+            meta_delivered_at = COALESCE(meta_delivered_at, ?),
+            meta_priced_at = ${nowSql}
+        WHERE id = ?
+    `).run(
+        estimate.status === 'estimated' ? 'final' : estimate.status,
+        pricing ? 'status_webhook' : estimate.pricing_basis,
+        estimate.category,
+        estimate.country_calling_code,
+        estimate.currency,
+        Number(estimate.amount) || 0,
+        estimate.status === 'rate_missing' ? 0 : Number(estimate.amount) || 0,
+        estimate.rate_card_id,
+        pricing?.pricing_model ? `${estimate.reason}; pricing_model=${pricing.pricing_model}` : estimate.reason,
+        timestamp ? sqlDate(Number(timestamp) * 1000) : sqlDate(),
+        usage.id
+    );
+
+    return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
+}
+
+export function listMetaRates({ category = null, currency = null, activeOnly = false } = {}) {
+    const clauses = [];
+    const params = [];
+    if (category) {
+        clauses.push('LOWER(category) = ?');
+        params.push(String(category).toLowerCase());
+    }
+    if (currency) {
+        clauses.push('currency = ?');
+        params.push(String(currency).toUpperCase());
+    }
+    if (activeOnly) {
+        clauses.push('is_active = 1');
+    }
+
+    return db.prepare(`
+        SELECT *
+        FROM meta_whatsapp_rates
+        ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+        ORDER BY is_active DESC, currency, category, country_calling_code, effective_from DESC, volume_tier_min
+    `).all(...params);
+}
+
+export function createMetaRate(data = {}) {
+    const countryCode = String(data.country_calling_code || '').trim();
+    const category = normalizeMetaCategory(data.category);
+    const currency = String(data.currency || 'USD').trim().toUpperCase();
+
+    if (!countryCode || !category) {
+        throw new BillingError('كود الدولة وفئة رسالة Meta مطلوبان', { status: 400, code: 'META_RATE_REQUIRED_FIELDS' });
+    }
+
+    const result = db.prepare(`
+        INSERT INTO meta_whatsapp_rates (
+            country_calling_code, market_name, currency, category, rate_amount,
+            volume_tier_min, volume_tier_max, effective_from, effective_to,
+            source, notes, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        countryCode,
+        data.market_name || null,
+        currency,
+        category,
+        Number(data.rate_amount) || 0,
+        Math.max(toInt(data.volume_tier_min, 1), 1),
+        data.volume_tier_max ? Math.max(toInt(data.volume_tier_max), 1) : null,
+        data.effective_from || db.prepare("SELECT date('now') AS value").get().value,
+        data.effective_to || null,
+        data.source || 'manual',
+        data.notes || null,
+        data.is_active === false ? 0 : 1
+    );
+
+    return db.prepare('SELECT * FROM meta_whatsapp_rates WHERE id = ?').get(result.lastInsertRowid);
+}
+
+export function updateMetaRate(id, data = {}) {
+    const allowed = {
+        country_calling_code: (v) => String(v || '').trim(),
+        market_name: (v) => v || null,
+        currency: (v) => String(v || 'USD').trim().toUpperCase(),
+        category: (v) => normalizeMetaCategory(v),
+        rate_amount: (v) => Number(v) || 0,
+        volume_tier_min: (v) => Math.max(toInt(v, 1), 1),
+        volume_tier_max: (v) => v ? Math.max(toInt(v), 1) : null,
+        effective_from: (v) => v || db.prepare("SELECT date('now') AS value").get().value,
+        effective_to: (v) => v || null,
+        source: (v) => v || 'manual',
+        notes: (v) => v || null,
+        is_active: (v) => v ? 1 : 0,
+    };
+    const sets = [];
+    const values = [];
+
+    for (const [field, normalizer] of Object.entries(allowed)) {
+        if (field in data) {
+            sets.push(`${field} = ?`);
+            values.push(normalizer(data[field]));
+        }
+    }
+    if (sets.length === 0) {
+        throw new BillingError('لا توجد حقول لتحديث سعر Meta', { status: 400, code: 'NO_FIELDS' });
+    }
+
+    sets.push(`updated_at = ${nowSql}`);
+    values.push(id);
+    db.prepare(`UPDATE meta_whatsapp_rates SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    return db.prepare('SELECT * FROM meta_whatsapp_rates WHERE id = ?').get(id);
+}
+
+export function getMetaUsage({ tenantId = null, limit = 100, offset = 0, status = null } = {}) {
+    const clauses = ["bue.channel = 'whatsapp'", "bue.meta_charge_status IS NOT NULL", "bue.meta_charge_status != 'not_applicable'"];
+    const params = [];
+    if (tenantId) {
+        clauses.push('bue.tenant_id = ?');
+        params.push(tenantId);
+    }
+    if (status) {
+        clauses.push('bue.meta_charge_status = ?');
+        params.push(status);
+    }
+    params.push(Math.max(toInt(limit, 100), 1), Math.max(toInt(offset), 0));
+
+    return db.prepare(`
+        SELECT bue.*, t.name AS tenant_name
+        FROM billing_usage_events bue
+        LEFT JOIN tenants t ON t.id = bue.tenant_id
+        WHERE ${clauses.join(' AND ')}
+        ORDER BY COALESCE(bue.meta_priced_at, bue.committed_at, bue.reserved_at) DESC, bue.id DESC
+        LIMIT ? OFFSET ?
+    `).all(...params);
+}
+
+export function getMetaCostSummary({ tenantId = null, periodStart = null, periodEnd = null } = {}) {
+    const clauses = ["channel = 'whatsapp'", "status = 'committed'"];
+    const params = [];
+    if (tenantId) {
+        clauses.push('tenant_id = ?');
+        params.push(tenantId);
+    }
+    if (periodStart) {
+        clauses.push('committed_at >= ?');
+        params.push(periodStart);
+    }
+    if (periodEnd) {
+        clauses.push('committed_at <= ?');
+        params.push(periodEnd);
+    }
+
+    const totals = db.prepare(`
+        SELECT
+            COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
+            COALESCE(SUM(meta_final_amount), 0) AS final_amount,
+            COUNT(*) AS usage_count,
+            SUM(CASE WHEN meta_charge_status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
+            SUM(CASE WHEN meta_charge_status IN ('estimated', 'final') THEN 1 ELSE 0 END) AS priced_count
+        FROM billing_usage_events
+        WHERE ${clauses.join(' AND ')}
+    `).get(...params);
+
+    const byCategory = db.prepare(`
+        SELECT meta_charge_category AS category,
+               meta_charge_currency AS currency,
+               COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
+               COALESCE(SUM(meta_final_amount), 0) AS final_amount,
+               COALESCE(SUM(quantity), 0) AS quantity,
+               COUNT(*) AS count
+        FROM billing_usage_events
+        WHERE ${clauses.join(' AND ')}
+        GROUP BY meta_charge_category, meta_charge_currency
+        ORDER BY meta_charge_category
+    `).all(...params);
+
+    const byCountry = db.prepare(`
+        SELECT meta_country_calling_code AS country_calling_code,
+               meta_charge_currency AS currency,
+               COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
+               COALESCE(SUM(meta_final_amount), 0) AS final_amount,
+               COALESCE(SUM(quantity), 0) AS quantity,
+               COUNT(*) AS count
+        FROM billing_usage_events
+        WHERE ${clauses.join(' AND ')}
+        GROUP BY meta_country_calling_code, meta_charge_currency
+        ORDER BY final_amount DESC, estimated_amount DESC
+    `).all(...params);
+
+    return {
+        filters: { tenant_id: tenantId || null, period_start: periodStart || null, period_end: periodEnd || null },
+        totals,
+        by_category: byCategory,
+        by_country: byCountry,
+    };
+}
+
+export function listMetaInvoices({ tenantId = null, limit = 50, offset = 0 } = {}) {
+    const clauses = [];
+    const params = [];
+    if (tenantId) {
+        clauses.push('mi.tenant_id = ?');
+        params.push(tenantId);
+    }
+    params.push(Math.max(toInt(limit, 50), 1), Math.max(toInt(offset), 0));
+
+    return db.prepare(`
+        SELECT mi.*, t.name AS tenant_name
+        FROM meta_invoices mi
+        LEFT JOIN tenants t ON t.id = mi.tenant_id
+        ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+        ORDER BY COALESCE(mi.period_end, mi.created_at) DESC, mi.id DESC
+        LIMIT ? OFFSET ?
+    `).all(...params);
+}
+
+export function createMetaInvoice({ tenantId = null, businessId = null, wabaId = null, invoiceNumber = null, periodStart = null, periodEnd = null, currency = 'USD', subtotalAmount = 0, taxAmount = 0, totalAmount = null, status = 'received', invoiceUrl = null, notes = null, metadata = null, createdBy = null } = {}) {
+    const total = totalAmount === null || totalAmount === undefined
+        ? (Number(subtotalAmount) || 0) + (Number(taxAmount) || 0)
+        : Number(totalAmount) || 0;
+
+    const result = db.prepare(`
+        INSERT INTO meta_invoices (
+            tenant_id, business_id, waba_id, invoice_number, provider,
+            period_start, period_end, currency, subtotal_amount, tax_amount,
+            total_amount, status, invoice_url, notes, metadata_json, created_by
+        ) VALUES (?, ?, ?, ?, 'meta', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        tenantId || null,
+        businessId || null,
+        wabaId || null,
+        invoiceNumber || `META-${Date.now()}`,
+        periodStart || null,
+        periodEnd || null,
+        String(currency || 'USD').toUpperCase(),
+        Number(subtotalAmount) || 0,
+        Number(taxAmount) || 0,
+        total,
+        status || 'received',
+        invoiceUrl || null,
+        notes || null,
+        serializeJson(metadata),
+        createdBy || null
+    );
+
+    return db.prepare('SELECT * FROM meta_invoices WHERE id = ?').get(result.lastInsertRowid);
 }
 
 export function handleBillingError(res, error) {

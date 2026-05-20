@@ -10,6 +10,7 @@ import {
     normalizeMessengerTimestamp,
 } from '../services/messengerMessages.js';
 import { normalizeFilename } from '../services/filenames.js';
+import { updateMetaChargeFromStatus } from '../services/billing.js';
 
 const router = express.Router();
 
@@ -417,6 +418,17 @@ router.post('/', async (req, res) => {
                             db.prepare(`
                 UPDATE messages SET status = ? WHERE wamid = ?
               `).run(status.status, status.id);
+
+                            try {
+                                updateMetaChargeFromStatus({
+                                    wamid: status.id,
+                                    status: status.status,
+                                    pricing: status.pricing || null,
+                                    timestamp: status.timestamp || null,
+                                });
+                            } catch (billingError) {
+                                console.error('[Webhook] Meta cost update failed:', billingError.message);
+                            }
 
                             console.log('[Webhook] Status update:', status.id, '->', status.status);
 

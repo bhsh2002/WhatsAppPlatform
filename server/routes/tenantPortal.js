@@ -53,6 +53,7 @@ import {
     handleBillingError,
     release as releaseBilling,
     reserve as reserveBilling,
+    summarizeMetaRecipientCountries,
 } from '../services/billing.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -629,7 +630,12 @@ router.post('/messages/send', async (req, res) => {
             operationKey: effectiveType === 'template' ? BILLING_OPERATIONS.WHATSAPP_TEMPLATE : BILLING_OPERATIONS.WHATSAPP_TEXT,
             quantity: 1,
             referenceType: 'message',
-            metadata: { recipient, message_type: effectiveType },
+            metadata: {
+                recipient,
+                message_type: effectiveType,
+                template_name: selectedTemplate?.name || templateName || null,
+                template_category: selectedTemplate?.category || null,
+            },
         });
 
         const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
@@ -1434,7 +1440,12 @@ router.post('/broadcast', async (req, res) => {
             operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
             quantity: recipients.length,
             referenceType: 'broadcast',
-            metadata: { template_name, recipient_count: recipients.length },
+            metadata: {
+                template_name,
+                template_category: template.category || null,
+                recipient_count: recipients.length,
+                recipient_country_counts: summarizeMetaRecipientCountries(recipients),
+            },
         });
 
         // Create broadcast job
@@ -1588,10 +1599,18 @@ async function processTenantBroadcastJob(jobId, params) {
         }
 
         if (sent > 0) {
+            const successfulRecipients = results
+                .filter((result) => result.status === 'sent')
+                .map((result) => result.recipient);
             commitBilling(billingReservation, {
                 quantity: sent,
                 referenceId: String(jobId),
                 description: `خصم بث WhatsApp: ${template_name} (${sent} مستلم)`,
+                meta: {
+                    template_name,
+                    template_category: templateRecord?.category || null,
+                    recipient_country_counts: summarizeMetaRecipientCountries(successfulRecipients),
+                },
             });
         } else {
             releaseBilling(billingReservation, 'No successful broadcast recipients');

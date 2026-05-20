@@ -148,7 +148,13 @@ router.post('/messages/send', async (req, res) => {
             operationKey: effectiveType === 'template' ? BILLING_OPERATIONS.WHATSAPP_TEMPLATE : BILLING_OPERATIONS.WHATSAPP_TEXT,
             quantity: 1,
             referenceType: 'api_message',
-            metadata: { recipient: normalizedRecipient, message_type: effectiveType, api_version: 'v1' },
+            metadata: {
+                recipient: normalizedRecipient,
+                message_type: effectiveType,
+                template_name: templateName || null,
+                template_category: template?.category || null,
+                api_version: 'v1',
+            },
         });
 
         // Send to Meta
