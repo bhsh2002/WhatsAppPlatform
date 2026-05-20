@@ -17,6 +17,7 @@ import {
     release as releaseBilling,
     reserve as reserveBilling,
 } from '../services/billing.js';
+import { markBotHandoffForConversation } from '../services/messengerBot.js';
 
 const router = express.Router();
 
@@ -320,6 +321,15 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                         SET last_message = ?, last_message_time = ?
                         WHERE id = ?
                     `).run(message.trim().substring(0, 100), createdAt, conv.id);
+
+                    markBotHandoffForConversation({
+                        tenantId: conv.tenant_id,
+                        linkedPageId: Number(linked_page_id),
+                        conversationId: conv.id,
+                        userPsid,
+                        reason: 'manual_reply',
+                        actor: 'admin',
+                    });
 
                     eventBus.broadcast('admin', 'fb_message:new', {
                         tenant_id: conv.tenant_id,

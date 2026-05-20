@@ -1005,6 +1005,11 @@ class ApiService {
         });
     }
 
+    async getMessengerBotFlowEvents(tenantId, flowId, limit = 50) {
+        const query = new URLSearchParams({ tenant_id: tenantId, limit: String(limit) });
+        return this.request(`/api/messenger-bot/flows/${flowId}/events?${query.toString()}`);
+    }
+
     async getMessengerBotSessions(tenantId, params = {}) {
         const query = new URLSearchParams(params);
         if (tenantId) query.append('tenant_id', tenantId);
@@ -1826,6 +1831,10 @@ class ApiService {
         return this.request(`/api/portal/messenger-bot/flows/${flowId}/test`, {
             method: 'POST',
         });
+    }
+
+    async getPortalMessengerBotFlowEvents(flowId, limit = 50) {
+        return this.request(`/api/portal/messenger-bot/flows/${flowId}/events?limit=${limit}`);
     }
 
     async getPortalMessengerBotSessions(params = {}) {

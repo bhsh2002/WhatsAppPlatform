@@ -55,6 +55,7 @@ import {
     reserve as reserveBilling,
     summarizeMetaRecipientCountries,
 } from '../services/billing.js';
+import { markBotHandoffForConversation } from '../services/messengerBot.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3145,6 +3146,15 @@ router.post('/unified/:channel/:id/send', async (req, res) => {
                         WHERE id = ?
                     `).run(message.trim().substring(0, 100), createdAt, conv.id);
 
+                    markBotHandoffForConversation({
+                        tenantId,
+                        linkedPageId: Number(linked_page_id),
+                        conversationId: conv.id,
+                        userPsid: conv.user_psid,
+                        reason: 'manual_reply',
+                        actor: 'tenant',
+                    });
+
                     eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
                         tenant_id: tenantId,
                         page_id: page.page_id,
@@ -4678,6 +4688,15 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
         db.prepare(`
             UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(message.substring(0, 100), createdAt, conv.id);
+
+        markBotHandoffForConversation({
+            tenantId,
+            linkedPageId: Number(linkedPageId),
+            conversationId: conv.id,
+            userPsid: conv.user_psid,
+            reason: 'manual_utility_message',
+            actor: 'tenant',
+        });
 
         eventBus.broadcast(`tenant:${tenantId}`, 'fb_message:new', {
             tenant_id: tenantId,

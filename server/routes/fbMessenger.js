@@ -16,6 +16,7 @@ import {
     release as releaseBilling,
     reserve as reserveBilling,
 } from '../services/billing.js';
+import { markBotHandoffForConversation } from '../services/messengerBot.js';
 
 const router = express.Router();
 
@@ -180,6 +181,15 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
         db.prepare(`
             UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(message.substring(0, 100), createdAt, conv.id);
+
+        markBotHandoffForConversation({
+            tenantId: conv.tenant_id,
+            linkedPageId: Number(linkedPageId),
+            conversationId: conv.id,
+            userPsid: conv.user_psid,
+            reason: 'manual_reply',
+            actor: 'admin',
+        });
 
         // Emit SSE
         const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(conv.tenant_id);
@@ -438,6 +448,15 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
         db.prepare(`
             UPDATE fb_conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(message.substring(0, 100), createdAt, conv.id);
+
+        markBotHandoffForConversation({
+            tenantId: conv.tenant_id,
+            linkedPageId: Number(linkedPageId),
+            conversationId: conv.id,
+            userPsid: conv.user_psid,
+            reason: 'manual_utility_message',
+            actor: 'admin',
+        });
 
         // Emit SSE
         eventBus.broadcast('admin', 'fb_message:new', {
