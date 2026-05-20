@@ -1,7 +1,8 @@
 import express from 'express';
 import fs from 'fs';
 import db from '../db/database.js';
-import { generalUpload as upload, cleanupFile } from '../config/upload.js';
+import { botImageUpload, generalUpload as upload, cleanupFile } from '../config/upload.js';
+import { META_WEBHOOK_CALLBACK_URL } from '../config/index.js';
 import { buildNodePreview } from '../services/messengerBot.js';
 
 const router = express.Router();
@@ -31,6 +32,15 @@ function serializeJson(value) {
     } catch {
         return JSON.stringify({ unparseable: true });
     }
+}
+
+function resolvePublicApiBase(req) {
+    if (META_WEBHOOK_CALLBACK_URL) {
+        return META_WEBHOOK_CALLBACK_URL.replace(/\/webhook\/?$/i, '').replace(/\/$/, '');
+    }
+    const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+    const host = req.get('x-forwarded-host') || req.get('host');
+    return `${proto}://${host}`;
 }
 
 function resolveTenantId(req) {
@@ -545,6 +555,30 @@ router.post('/products/import', upload.single('file'), (req, res) => {
         res.status(500).json({ error: 'فشل استيراد المنتجات' });
     } finally {
         cleanupFile(req.file?.path);
+    }
+});
+
+router.post('/assets/upload', botImageUpload.single('file'), (req, res) => {
+    try {
+        const tenant = requireTenant(req, res);
+        if (!tenant) {
+            cleanupFile(req.file?.path);
+            return;
+        }
+        if (!req.file) return res.status(400).json({ error: 'الصورة مطلوبة' });
+
+        const url = `${resolvePublicApiBase(req)}/bot-assets/${encodeURIComponent(req.file.filename)}`;
+        res.status(201).json({
+            url,
+            filename: req.file.filename,
+            original_name: req.file.originalname,
+            mime_type: req.file.mimetype,
+            size: req.file.size,
+        });
+    } catch (error) {
+        cleanupFile(req.file?.path);
+        console.error('[MessengerBot] Asset upload error:', error);
+        res.status(500).json({ error: 'فشل رفع صورة البوت' });
     }
 });
 

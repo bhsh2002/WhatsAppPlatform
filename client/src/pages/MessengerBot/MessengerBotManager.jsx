@@ -105,6 +105,7 @@ const emptyButton = {
     category: '',
     node_key: '',
     custom_payload: '',
+    image_url: '',
 };
 
 const emptyFlow = {
@@ -137,20 +138,21 @@ function normalizePayloadAction(item = {}) {
             category: item.category || '',
             node_key: item.node_key || '',
             custom_payload: item.custom_payload || item.payload || '',
+            image_url: item.image_url || '',
         };
     }
 
     const payload = String(item.payload || '').trim();
     if (payload === 'BOT:PRODUCTS') return { ...emptyButton, title: item.title || '', action: 'products' };
     if (payload.startsWith('BOT:PRODUCTS:')) {
-        return { ...emptyButton, title: item.title || '', action: 'products', category: payload.split(':').slice(2).join(':') };
+        return { ...emptyButton, title: item.title || '', action: 'products', category: payload.split(':').slice(2).join(':'), image_url: item.image_url || '' };
     }
     if (payload.startsWith('BOT:NODE:')) {
-        return { ...emptyButton, title: item.title || '', action: 'node', node_key: payload.split(':')[2] || '' };
+        return { ...emptyButton, title: item.title || '', action: 'node', node_key: payload.split(':')[2] || '', image_url: item.image_url || '' };
     }
-    if (payload.startsWith('BOT:HANDOFF')) return { ...emptyButton, title: item.title || '', action: 'handoff' };
-    if (payload === 'BOT:MENU') return { ...emptyButton, title: item.title || '', action: 'menu' };
-    return { ...emptyButton, title: item.title || '', action: 'custom', custom_payload: payload };
+    if (payload.startsWith('BOT:HANDOFF')) return { ...emptyButton, title: item.title || '', action: 'handoff', image_url: item.image_url || '' };
+    if (payload === 'BOT:MENU') return { ...emptyButton, title: item.title || '', action: 'menu', image_url: item.image_url || '' };
+    return { ...emptyButton, title: item.title || '', action: 'custom', custom_payload: payload, image_url: item.image_url || '' };
 }
 
 function nodeToForm(node, index = 0) {
@@ -203,6 +205,7 @@ function buttonToPayload(button) {
     if (action === 'products') result.category = String(button.category || '').trim() || null;
     if (action === 'node') result.node_key = String(button.node_key || '').trim();
     if (action === 'custom') result.custom_payload = String(button.custom_payload || '').trim();
+    if (button.image_url) result.image_url = String(button.image_url || '').trim();
     return result;
 }
 
@@ -521,6 +524,36 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             await loadAll();
         } catch (err) {
             setSnackbar({ open: true, message: err.message || 'فشل استيراد المنتجات', severity: 'error' });
+        }
+    };
+
+    const uploadAsset = async (file) => {
+        if (!file) return null;
+        const result = tenantMode
+            ? await api.uploadPortalMessengerBotAsset(file)
+            : await api.uploadMessengerBotAsset(tenantId, file);
+        return result.url;
+    };
+
+    const uploadProductImage = async (file) => {
+        try {
+            const url = await uploadAsset(file);
+            if (!url) return;
+            setProductForm(prev => ({ ...prev, image_url: url }));
+            setSnackbar({ open: true, message: 'تم رفع صورة المنتج', severity: 'success' });
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل رفع الصورة', severity: 'error' });
+        }
+    };
+
+    const uploadButtonImage = async (nodeIndex, buttonIndex, file) => {
+        try {
+            const url = await uploadAsset(file);
+            if (!url) return;
+            updateButton(nodeIndex, buttonIndex, { image_url: url });
+            setSnackbar({ open: true, message: 'تم رفع صورة الخيار', severity: 'success' });
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل رفع صورة الخيار', severity: 'error' });
         }
     };
 
@@ -966,7 +999,20 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                 <MenuItem value="hidden">مخفي</MenuItem>
                             </TextField>
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رابط الصورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 6 }}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                <TextField fullWidth label="رابط الصورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} />
+                                <Button variant="outlined" component="label" sx={{ minWidth: 120 }}>
+                                    رفع صورة
+                                    <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadProductImage(e.target.files?.[0])} />
+                                </Button>
+                            </Stack>
+                            {productForm.image_url && (
+                                <Box sx={{ mt: 1 }}>
+                                    <Box component="img" src={productForm.image_url} alt="" sx={{ width: 96, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
+                                </Box>
+                            )}
+                        </Grid>
                         <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رابط المنتج" value={productForm.product_url} onChange={e => setProductForm(prev => ({ ...prev, product_url: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12 }}>
                             <FormControlLabel
@@ -1131,6 +1177,26 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     {button.action === 'custom' && (
                                                                         <Grid size={{ xs: 12, md: 3 }}>
                                                                             <TextField fullWidth size="small" label="Payload" value={button.custom_payload} onChange={e => updateButton(nodeIndex, buttonIndex, { custom_payload: e.target.value })} />
+                                                                        </Grid>
+                                                                    )}
+                                                                    <Grid size={{ xs: 12, md: 3 }}>
+                                                                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                                                            <TextField
+                                                                                fullWidth
+                                                                                size="small"
+                                                                                label="صورة الخيار"
+                                                                                value={button.image_url}
+                                                                                onChange={e => updateButton(nodeIndex, buttonIndex, { image_url: e.target.value })}
+                                                                            />
+                                                                            <Button variant="outlined" size="small" component="label" sx={{ minWidth: 72 }}>
+                                                                                رفع
+                                                                                <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadButtonImage(nodeIndex, buttonIndex, e.target.files?.[0])} />
+                                                                            </Button>
+                                                                        </Stack>
+                                                                    </Grid>
+                                                                    {button.image_url && (
+                                                                        <Grid size={{ xs: 12, md: 1 }}>
+                                                                            <Box component="img" src={button.image_url} alt="" sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
                                                                         </Grid>
                                                                     )}
                                                                     <Grid size={{ xs: 12, md: 1 }}>

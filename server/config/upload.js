@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import {
     MAX_FILE_SIZE,
     MAX_IMAGE_SIZE,
+    ALLOWED_IMAGE_MIMES,
     ALLOWED_DOCUMENT_MIMES,
     ALLOWED_MEDIA_MIMES,
 } from './index.js';
@@ -23,12 +24,26 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+export const botAssetsDir = path.join(uploadDir, 'bot-assets');
+if (!fs.existsSync(botAssetsDir)) {
+    fs.mkdirSync(botAssetsDir, { recursive: true });
+}
+
 // Shared disk storage with unique filenames
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         file.originalname = normalizeFilename(file.originalname, 'upload');
+        cb(null, uniqueSuffix + '-' + file.originalname);
+    },
+});
+
+const botAssetStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, botAssetsDir),
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        file.originalname = normalizeFilename(file.originalname, 'bot-image');
         cb(null, uniqueSuffix + '-' + file.originalname);
     },
 });
@@ -70,6 +85,22 @@ export const mediaUpload = multer({
             cb(null, true);
         } else {
             cb(new Error('نوع الملف غير مدعوم'));
+        }
+    },
+});
+
+/**
+ * Public bot image upload — image-only, stored under /uploads/bot-assets.
+ * Used for Messenger product cards and quick reply option icons.
+ */
+export const botImageUpload = multer({
+    storage: botAssetStorage,
+    limits: { fileSize: MAX_IMAGE_SIZE },
+    fileFilter: (req, file, cb) => {
+        if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('نوع الصورة غير مدعوم. يسمح فقط بـ JPG وPNG وWebP'));
         }
     },
 });

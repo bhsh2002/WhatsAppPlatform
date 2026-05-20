@@ -60,6 +60,7 @@ export function cleanupOrphanedFiles(uploadDir) {
         for (const file of files) {
             const filePath = path.join(uploadDir, file);
             const stats = fs.statSync(filePath);
+            if (!stats.isFile()) continue;
 
             // Remove temp files older than 24 hours
             if (Date.now() - stats.mtimeMs > maxAge) {

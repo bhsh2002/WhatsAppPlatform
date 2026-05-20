@@ -42,7 +42,7 @@ import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 // Import database and services
 import db from './db/database.js';
 import { startMaintenanceScheduler } from './services/maintenance.js';
-import { uploadDir } from './config/upload.js';
+import { botAssetsDir, uploadDir } from './config/upload.js';
 import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initEncryption } from './services/encryption.js';
@@ -210,6 +210,12 @@ app.use(apiLimiter);
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+app.use('/bot-assets', express.static(botAssetsDir, {
+    immutable: true,
+    maxAge: '30d',
+    index: false,
+}));
 
 // ============================================
 // Meta Compliance: Privacy Policy (public)

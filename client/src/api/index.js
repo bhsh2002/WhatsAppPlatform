@@ -966,6 +966,22 @@ class ApiService {
         return data;
     }
 
+    async uploadMessengerBotAsset(tenantId, file) {
+        const formData = new FormData();
+        formData.append('tenant_id', tenantId);
+        formData.append('file', file);
+        const headers = {};
+        if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
+        const response = await fetch(`${this.baseUrl}/api/messenger-bot/assets/upload`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Upload failed');
+        return data;
+    }
+
     async getMessengerBotFlows(tenantId) {
         const query = tenantId ? `?tenant_id=${tenantId}` : '';
         return this.request(`/api/messenger-bot/flows${query}`);
@@ -1794,6 +1810,21 @@ class ApiService {
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Import failed');
+        return data;
+    }
+
+    async uploadPortalMessengerBotAsset(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const headers = {};
+        if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
+        const response = await fetch(`${this.baseUrl}/api/portal/messenger-bot/assets/upload`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Upload failed');
         return data;
     }
 

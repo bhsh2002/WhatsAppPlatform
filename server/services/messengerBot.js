@@ -240,12 +240,18 @@ function quickRepliesFromConfig(config = {}) {
     const mapped = replies
         .filter(reply => reply?.title)
         .slice(0, MAX_QUICK_REPLIES)
-        .map(reply => ({
-            content_type: 'text',
-            title: trimForMeta(reply.title, 20),
-            payload: trimForMeta(resolveConfiguredPayload(reply), 1000),
-        }));
+        .map(reply => buildQuickReply(reply));
     return withMainMenuQuickReply(mapped, config);
+}
+
+function buildQuickReply(item = {}) {
+    const quickReply = {
+        content_type: 'text',
+        title: trimForMeta(item.title, 20),
+        payload: trimForMeta(resolveConfiguredPayload(item), 1000),
+    };
+    if (isHttpUrl(item.image_url)) quickReply.image_url = item.image_url;
+    return quickReply;
 }
 
 function resolveConfiguredPayload(item = {}) {
@@ -274,11 +280,7 @@ function buildServiceQuickReplies(config = {}) {
     const replies = items
         .filter(item => item?.title)
         .slice(0, MAX_QUICK_REPLIES - 3)
-        .map(item => ({
-            content_type: 'text',
-            title: trimForMeta(item.title, 20),
-            payload: trimForMeta(resolveConfiguredPayload(item), 1000),
-        }));
+        .map(item => buildQuickReply(item));
 
     replies.push({ content_type: 'text', title: 'المنتجات', payload: 'BOT:PRODUCTS' });
     replies.push({ content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' });
