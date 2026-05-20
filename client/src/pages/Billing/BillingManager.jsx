@@ -271,12 +271,12 @@ const BillingManager = () => {
         if (!selectedTenantId) return;
         setSaving(true);
         try {
-            const result = await api.updateTenantBillingAccount(selectedTenantId, {
+            await api.updateTenantBillingAccount(selectedTenantId, {
                 plan_id: accountForm.plan_id || null,
                 credit_limit_credits: accountForm.credit_limit_credits,
                 status: accountForm.status,
             });
-            setBilling(result.summary);
+            await fetchTenantBilling(selectedTenantId);
         } catch (err) {
             setError(err.message || 'فشل حفظ حساب الفوترة');
         } finally {

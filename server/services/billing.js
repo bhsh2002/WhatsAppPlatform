@@ -965,10 +965,16 @@ export function updateTenantBillingAccount(tenantId, data = {}) {
         throw new BillingError('العميل غير موجود', { status: 404, code: 'TENANT_NOT_FOUND' });
     }
 
+    const nextPlanId = 'plan_id' in data
+        ? (data.plan_id === null || data.plan_id === '' ? null : toInt(data.plan_id))
+        : account.plan_id;
+    const planChanged = 'plan_id' in data && String(nextPlanId || '') !== String(account.plan_id || '');
+    const nextPlan = nextPlanId ? db.prepare('SELECT * FROM billing_plans WHERE id = ?').get(nextPlanId) : null;
+
     const fields = [];
     const values = [];
     const allowed = {
-        plan_id: (v) => (v === null || v === '' ? null : toInt(v)),
+        plan_id: () => nextPlanId,
         wallet_balance_credits: (v) => toInt(v),
         plan_balance_credits: (v) => toInt(v),
         credit_limit_credits: (v) => Math.max(toInt(v), 0),
@@ -985,12 +991,66 @@ export function updateTenantBillingAccount(tenantId, data = {}) {
         }
     }
 
+    if (planChanged && nextPlan) {
+        if (!('plan_balance_credits' in data)) {
+            fields.push('plan_balance_credits = ?');
+            values.push(Math.max(toInt(nextPlan.monthly_included_credits), 0));
+        }
+        if (!('credit_limit_credits' in data)) {
+            fields.push('credit_limit_credits = ?');
+            values.push(Math.max(toInt(nextPlan.default_credit_limit), 0));
+        }
+        if (!('credit_used_credits' in data)) {
+            fields.push('credit_used_credits = ?');
+            values.push(0);
+        }
+        fields.push(`billing_cycle_start = ${nowSql}`);
+        fields.push("billing_cycle_end = datetime('now', '+1 month', 'localtime')");
+    } else if (planChanged && !nextPlan) {
+        if (!('plan_balance_credits' in data)) {
+            fields.push('plan_balance_credits = ?');
+            values.push(0);
+        }
+        fields.push('billing_cycle_end = ?');
+        values.push(null);
+    }
+
     if (fields.length === 0) return getBillingSummary(tenantId);
 
     fields.push(`updated_at = ${nowSql}`);
     values.push(tenantId);
 
-    db.prepare(`UPDATE tenant_billing_accounts SET ${fields.join(', ')} WHERE tenant_id = ?`).run(...values);
+    const transaction = db.transaction(() => {
+        db.prepare(`UPDATE tenant_billing_accounts SET ${fields.join(', ')} WHERE tenant_id = ?`).run(...values);
+
+        if (planChanged) {
+            const updatedAccount = db.prepare('SELECT * FROM tenant_billing_accounts WHERE tenant_id = ?').get(tenantId);
+            const balanceAfter = computeAvailable(updatedAccount, getReservedCredits(tenantId)).gross_available_credits;
+            const included = nextPlan ? Math.max(toInt(nextPlan.monthly_included_credits), 0) : 0;
+            db.prepare(`
+                INSERT INTO billing_ledger (
+                    tenant_id, entry_type, direction, credits_delta, balance_after_credits,
+                    related_type, related_id, description, metadata_json
+                ) VALUES (?, 'monthly_allowance', 'credit', ?, ?, 'billing_plan', ?, ?, ?)
+            `).run(
+                tenantId,
+                included,
+                balanceAfter,
+                nextPlan ? String(nextPlan.id) : null,
+                nextPlan
+                    ? `تطبيق باقة: ${nextPlan.name}`
+                    : 'إزالة باقة العميل',
+                serializeJson({
+                    previous_plan_id: account.plan_id || null,
+                    new_plan_id: nextPlanId || null,
+                    monthly_included_credits: included,
+                    credit_limit: nextPlan ? toInt(nextPlan.default_credit_limit) : null,
+                })
+            );
+        }
+    });
+
+    transaction();
     syncTenantCredits(tenantId);
     return getBillingSummary(tenantId);
 }
@@ -1540,7 +1600,7 @@ function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
 
     const usage = db.prepare(`
         SELECT
-            COALESCE(SUM(quantity), 0) AS sent,
+            COALESCE(SUM(quantity), 0) AS usage_events,
             COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
             COALESCE(SUM(meta_final_amount), 0) AS final_amount
         FROM billing_usage_events
@@ -1551,12 +1611,14 @@ function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
           AND committed_at <= ?
     `).get(tenantId, startSql, endSql);
 
-    const delivered = db.prepare(`
-        SELECT COUNT(*) AS count
+    const messages = db.prepare(`
+        SELECT
+            COUNT(*) AS sent,
+            SUM(CASE WHEN status IN ('delivered', 'read') THEN 1 ELSE 0 END) AS delivered
         FROM messages
         WHERE tenant_id = ?
           AND direction = 'outgoing'
-          AND status IN ('delivered', 'read')
+          AND message_type IN ('text', 'template', 'image', 'document', 'video', 'audio', 'interactive')
           AND created_at >= ?
           AND created_at <= ?
     `).get(tenantId, startSql, endSql);
@@ -1572,8 +1634,9 @@ function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
     `).get(tenantId, periodStart, periodEnd, periodEnd, periodStart);
 
     return {
-        local_sent: toInt(usage?.sent),
-        local_delivered: toInt(delivered?.count),
+        local_sent: toInt(messages?.sent),
+        local_delivered: toInt(messages?.delivered),
+        local_billable_usage_events: toInt(usage?.usage_events),
         local_estimated_amount: Number(usage?.estimated_amount) || 0,
         local_final_amount: Number(usage?.final_amount) || 0,
         invoice_total_amount: Number(invoice?.total) || 0,
