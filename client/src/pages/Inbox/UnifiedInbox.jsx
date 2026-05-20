@@ -45,6 +45,7 @@ const UnifiedInbox = () => {
     const [windowStatus, setWindowStatus] = useState(null);
     const [syncing, setSyncing] = useState(false);
     const [utilityFallback, setUtilityFallback] = useState(null);
+    const [botSession, setBotSession] = useState(null);
 
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -143,6 +144,22 @@ const UnifiedInbox = () => {
         }
     }, []);
 
+    const fetchBotSession = useCallback(async (conv) => {
+        if (!conv || conv.channel !== 'messenger' || !conv.conversation_id || !conv.tenant_id) {
+            setBotSession(null);
+            return null;
+        }
+        try {
+            const sessions = await api.getMessengerBotSessions(conv.tenant_id, { conversation_id: conv.conversation_id });
+            const session = Array.isArray(sessions) ? sessions[0] || null : null;
+            setBotSession(session);
+            return session;
+        } catch {
+            setBotSession(null);
+            return null;
+        }
+    }, []);
+
     const markAsRead = useCallback(async (msgs, conv) => {
         try {
             if (conv.channel === 'whatsapp') {
@@ -181,16 +198,19 @@ const UnifiedInbox = () => {
             if (selectedChat.channel === 'whatsapp') {
                 fetchTemplates(selectedChat.tenant_id);
                 fetchWindowStatus(selectedChat.contact_id, selectedChat.tenant_id);
+                setBotSession(null);
             } else {
                 setTemplates([]);
                 setWindowStatus(null);
+                fetchBotSession(selectedChat);
             }
             const interval = setInterval(() => fetchMessages(selectedChat), 15000);
             return () => clearInterval(interval);
         } else {
             setWindowStatus(null);
+            setBotSession(null);
         }
-    }, [selectedChat, fetchMessages, fetchTemplates, fetchWindowStatus, markAsRead]);
+    }, [selectedChat, fetchMessages, fetchTemplates, fetchWindowStatus, fetchBotSession, markAsRead]);
 
     const handleSelectChat = useCallback((conv) => {
         isFirstLoad.current = true;
@@ -419,6 +439,15 @@ const UnifiedInbox = () => {
         await fetchMessages(selectedChat);
         fetchConversations();
     }, [selectedChat, fetchMessages, fetchConversations]);
+
+    const handleBotStatusChange = useCallback(async (status) => {
+        if (!botSession?.id || !selectedChat?.tenant_id) {
+            alert('لا توجد جلسة بوت لهذه المحادثة بعد. ستظهر بعد أول رسالة يتعامل معها البوت.');
+            return;
+        }
+        await api.updateMessengerBotSession(selectedChat.tenant_id, botSession.id, status);
+        await fetchBotSession(selectedChat);
+    }, [botSession, fetchBotSession, selectedChat]);
 
     // ============================================
     // SSE Integration
@@ -658,6 +687,8 @@ const UnifiedInbox = () => {
                         onSendUtilityMessage={handleSendUtilityMessage}
                         getMessageTags={handleGetMessageTags}
                         utilityFallback={utilityFallback}
+                        botSession={botSession}
+                        onBotStatusChange={handleBotStatusChange}
                     />
                 )}
             </Box>

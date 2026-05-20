@@ -915,6 +915,108 @@ class ApiService {
             body: JSON.stringify(data),
         });
     }
+
+    // ============================================
+    // Messenger Bot (Admin)
+    // ============================================
+    async getMessengerBotSummary(tenantId) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/messenger-bot/summary${query}`);
+    }
+
+    async getMessengerBotProducts(tenantId, params = {}) {
+        const query = new URLSearchParams(params);
+        if (tenantId) query.append('tenant_id', tenantId);
+        return this.request(`/api/messenger-bot/products${query.toString() ? '?' + query.toString() : ''}`);
+    }
+
+    async createMessengerBotProduct(tenantId, data) {
+        return this.request('/api/messenger-bot/products', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    }
+
+    async updateMessengerBotProduct(tenantId, productId, data) {
+        return this.request(`/api/messenger-bot/products/${productId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    }
+
+    async deleteMessengerBotProduct(tenantId, productId) {
+        return this.request(`/api/messenger-bot/products/${productId}?tenant_id=${tenantId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async importMessengerBotProducts(tenantId, file) {
+        const formData = new FormData();
+        formData.append('tenant_id', tenantId);
+        formData.append('file', file);
+        const headers = {};
+        if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
+        const response = await fetch(`${this.baseUrl}/api/messenger-bot/products/import`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Import failed');
+        return data;
+    }
+
+    async getMessengerBotFlows(tenantId) {
+        const query = tenantId ? `?tenant_id=${tenantId}` : '';
+        return this.request(`/api/messenger-bot/flows${query}`);
+    }
+
+    async createMessengerBotFlow(tenantId, data) {
+        return this.request('/api/messenger-bot/flows', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    }
+
+    async updateMessengerBotFlow(tenantId, flowId, data) {
+        return this.request(`/api/messenger-bot/flows/${flowId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    }
+
+    async toggleMessengerBotFlow(tenantId, flowId) {
+        return this.request(`/api/messenger-bot/flows/${flowId}/toggle`, {
+            method: 'PATCH',
+            body: JSON.stringify({ tenant_id: tenantId }),
+        });
+    }
+
+    async deleteMessengerBotFlow(tenantId, flowId) {
+        return this.request(`/api/messenger-bot/flows/${flowId}?tenant_id=${tenantId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async testMessengerBotFlow(tenantId, flowId) {
+        return this.request(`/api/messenger-bot/flows/${flowId}/test`, {
+            method: 'POST',
+            body: JSON.stringify({ tenant_id: tenantId }),
+        });
+    }
+
+    async getMessengerBotSessions(tenantId, params = {}) {
+        const query = new URLSearchParams(params);
+        if (tenantId) query.append('tenant_id', tenantId);
+        return this.request(`/api/messenger-bot/sessions${query.toString() ? '?' + query.toString() : ''}`);
+    }
+
+    async updateMessengerBotSession(tenantId, sessionId, status) {
+        return this.request(`/api/messenger-bot/sessions/${sessionId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ tenant_id: tenantId, status }),
+        });
+    }
     // ============================================
     // Facebook Insights (Admin)
     // ============================================
@@ -1640,6 +1742,101 @@ class ApiService {
         return this.request(`/api/portal/fb-messenger/${linkedPageId}/conversations/${convId}/utility-message`, {
             method: 'POST',
             body: JSON.stringify(data),
+        });
+    }
+
+    // ============================================
+    // Messenger Bot (Tenant)
+    // ============================================
+    async getPortalMessengerBotSummary() {
+        return this.request('/api/portal/messenger-bot/summary');
+    }
+
+    async getPortalMessengerBotProducts(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/messenger-bot/products${query ? '?' + query : ''}`);
+    }
+
+    async createPortalMessengerBotProduct(data) {
+        return this.request('/api/portal/messenger-bot/products', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updatePortalMessengerBotProduct(productId, data) {
+        return this.request(`/api/portal/messenger-bot/products/${productId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async deletePortalMessengerBotProduct(productId) {
+        return this.request(`/api/portal/messenger-bot/products/${productId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async importPortalMessengerBotProducts(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const headers = {};
+        if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
+        const response = await fetch(`${this.baseUrl}/api/portal/messenger-bot/products/import`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Import failed');
+        return data;
+    }
+
+    async getPortalMessengerBotFlows() {
+        return this.request('/api/portal/messenger-bot/flows');
+    }
+
+    async createPortalMessengerBotFlow(data) {
+        return this.request('/api/portal/messenger-bot/flows', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async updatePortalMessengerBotFlow(flowId, data) {
+        return this.request(`/api/portal/messenger-bot/flows/${flowId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async togglePortalMessengerBotFlow(flowId) {
+        return this.request(`/api/portal/messenger-bot/flows/${flowId}/toggle`, {
+            method: 'PATCH',
+        });
+    }
+
+    async deletePortalMessengerBotFlow(flowId) {
+        return this.request(`/api/portal/messenger-bot/flows/${flowId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async testPortalMessengerBotFlow(flowId) {
+        return this.request(`/api/portal/messenger-bot/flows/${flowId}/test`, {
+            method: 'POST',
+        });
+    }
+
+    async getPortalMessengerBotSessions(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/messenger-bot/sessions${query ? '?' + query : ''}`);
+    }
+
+    async updatePortalMessengerBotSession(sessionId, status) {
+        return this.request(`/api/portal/messenger-bot/sessions/${sessionId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status }),
         });
     }
 

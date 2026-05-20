@@ -55,6 +55,7 @@ import WebhookFailures from './pages/Admin/WebhookFailures';
 import UnifiedInbox from './pages/Inbox/UnifiedInbox';
 import AutomationManager from './pages/Automation/AutomationManager';
 import BillingManager from './pages/Billing/BillingManager';
+import MessengerBotManager from './pages/MessengerBot/MessengerBotManager';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -254,6 +255,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/messenger-bot"
+        element={
+          <ProtectedRoute requireAdmin>
+            <MainLayout><MessengerBotManager /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/fb-insights"
         element={
           <ProtectedRoute requireAdmin>
@@ -430,6 +439,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantFbInsights /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/messenger-bot"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><MessengerBotManager tenantMode /></MainLayout>
           </ProtectedRoute>
         }
       />

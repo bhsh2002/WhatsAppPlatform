@@ -81,6 +81,7 @@ const Sidebar = () => {
             color: '#1877f2',
             items: [
                 { label: 'محتوى فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
+                { label: 'Messenger Bot', path: '/messenger-bot', icon: <SmartToyIcon /> },
                 { label: 'تحليلات فيسبوك', path: '/fb-insights', icon: <BarChartIcon /> },
                 { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
                 { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
@@ -127,6 +128,7 @@ const Sidebar = () => {
             items: [
                 { label: 'صفحات فيسبوك', path: '/portal/fb-pages', icon: <FacebookIcon /> },
                 { label: 'إدارة المحتوى', path: '/portal/fb-content', icon: <StoreIcon /> },
+                { label: 'Messenger Bot', path: '/portal/messenger-bot', icon: <SmartToyIcon /> },
                 { label: 'تحليلات فيسبوك', path: '/portal/fb-insights', icon: <BarChartIcon /> },
                 { label: 'جاهزية Meta', path: '/portal/meta-review', icon: <FactCheckIcon /> },
             ],

@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Box, Paper, Typography, Button, TextField, Avatar, IconButton,
     CircularProgress, Alert, Snackbar, Chip, Divider, useMediaQuery, useTheme,
-    InputAdornment
+    InputAdornment, Stack
 } from '@mui/material';
 import {
     Facebook as FacebookIcon, Send as SendIcon, Search as SearchIcon,
     Refresh as RefreshIcon, QuestionAnswer as MessengerIcon,
-    Sync as SyncIcon, ArrowBack as ArrowBackIcon
+    Sync as SyncIcon, ArrowBack as ArrowBackIcon, SmartToy as BotIcon
 } from '@mui/icons-material';
 import api from '../../api';
 
@@ -30,6 +30,7 @@ const MessengerInbox = () => {
     const [replyText, setReplyText] = useState('');
     const [sendingReply, setSendingReply] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [botSession, setBotSession] = useState(null);
 
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
@@ -55,7 +56,7 @@ const MessengerInbox = () => {
         } finally {
             setPagesLoading(false);
         }
-    }, []);
+    }, [selectedPageId]);
 
     useEffect(() => { loadAllPages(); }, [loadAllPages]);
 
@@ -89,9 +90,28 @@ const MessengerInbox = () => {
         }
     }, [selectedConv, selectedPageId]);
 
+    const loadBotSession = useCallback(async (conv = selectedConv) => {
+        if (!conv?.tenant_id || !conv?.id) {
+            setBotSession(null);
+            return null;
+        }
+        try {
+            const sessions = await api.getMessengerBotSessions(conv.tenant_id, { conversation_id: conv.id });
+            const session = Array.isArray(sessions) ? sessions[0] || null : null;
+            setBotSession(session);
+            return session;
+        } catch {
+            setBotSession(null);
+            return null;
+        }
+    }, [selectedConv]);
+
     useEffect(() => {
-        if (selectedConv) loadMessages();
-    }, [selectedConv, loadMessages]);
+        if (selectedConv) {
+            loadMessages();
+            loadBotSession(selectedConv);
+        }
+    }, [selectedConv, loadMessages, loadBotSession]);
 
     useEffect(() => {
         if (messages.length > 0) {
@@ -141,6 +161,21 @@ const MessengerInbox = () => {
             setSnackbar({ open: true, message: err.message || 'فشلت المزامنة', severity: 'error' });
         } finally {
             setSyncing(false);
+        }
+    };
+
+    const handleBotStatusChange = async () => {
+        if (!botSession?.id || !selectedConv?.tenant_id) {
+            setSnackbar({ open: true, message: 'لا توجد جلسة بوت لهذه المحادثة بعد', severity: 'warning' });
+            return;
+        }
+        const nextStatus = botSession.status === 'handoff' ? 'active' : 'handoff';
+        try {
+            await api.updateMessengerBotSession(selectedConv.tenant_id, botSession.id, nextStatus);
+            await loadBotSession(selectedConv);
+            setSnackbar({ open: true, message: nextStatus === 'handoff' ? 'تم إيقاف البوت لهذه المحادثة' : 'تم إرجاع المحادثة للبوت', severity: 'success' });
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || 'فشل تحديث حالة البوت', severity: 'error' });
         }
     };
 
@@ -361,8 +396,21 @@ const MessengerInbox = () => {
                                     </Avatar>
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant="subtitle1" fontWeight={600}>{selectedConv.user_name || selectedConv.user_psid}</Typography>
-                                        <Typography variant="caption" color="text.secondary">ماسنجر • {selectedPage?.page_name || selectedConv.page_id}</Typography>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                            <Typography variant="caption" color="text.secondary">ماسنجر • {selectedPage?.page_name || selectedConv.page_id}</Typography>
+                                            <Chip
+                                                size="small"
+                                                icon={<BotIcon sx={{ fontSize: 14 }} />}
+                                                label={botSession?.status === 'handoff' ? 'موظف بشري' : botSession?.status === 'closed' ? 'البوت مغلق' : 'Bot active'}
+                                                color={botSession?.status === 'handoff' ? 'warning' : botSession?.status === 'closed' ? 'default' : 'success'}
+                                                variant="outlined"
+                                                sx={{ height: 20, fontSize: 11 }}
+                                            />
+                                        </Stack>
                                     </Box>
+                                    <Button size="small" variant="outlined" startIcon={<BotIcon />} onClick={handleBotStatusChange}>
+                                        {botSession?.status === 'handoff' ? 'إرجاع للبوت' : 'إيقاف البوت'}
+                                    </Button>
                                     <IconButton onClick={() => { loadMessages(); loadConversations(); }}><RefreshIcon /></IconButton>
                                 </Box>
 

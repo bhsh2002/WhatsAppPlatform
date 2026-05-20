@@ -27,6 +27,7 @@ import {
     Facebook as FacebookIcon,
     ArrowBack as ArrowBackIcon,
     Label as LabelIcon,
+    SmartToy as BotIcon,
 } from '@mui/icons-material';
 
 const formatTime = (dateStr) => {
@@ -103,6 +104,8 @@ const UnifiedChatWindow = ({
     onSendUtilityMessage,
     getMessageTags,
     utilityFallback, // { text, timestamp } — set by parent on 24h error
+    botSession,
+    onBotStatusChange,
 }) => {
     // Utility dialog state
     const [utilityOpen, setUtilityOpen] = useState(false);
@@ -185,6 +188,8 @@ const UnifiedChatWindow = ({
     const displayName = selectedChat.display_name || selectedChat.contact_id || 'غير معروف';
     const fGetDateKey = getDateKey;
     const hasUtilitySupport = !!onSendUtilityMessage && !!getMessageTags;
+    const isMessenger = selectedChat.channel === 'messenger';
+    const botStatus = botSession?.status || 'active';
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -244,6 +249,16 @@ const UnifiedChatWindow = ({
                                 />
                             </Tooltip>
                         )}
+                        {isMessenger && (
+                            <Chip
+                                icon={<BotIcon sx={{ fontSize: 14 }} />}
+                                label={botStatus === 'handoff' ? 'موظف بشري' : botStatus === 'closed' ? 'البوت مغلق' : 'Bot active'}
+                                size="small"
+                                color={botStatus === 'handoff' ? 'warning' : botStatus === 'closed' ? 'default' : 'success'}
+                                variant="outlined"
+                                sx={{ height: 20, fontSize: 11 }}
+                            />
+                        )}
                     </Box>
                     <Typography variant="caption" color="text.secondary" noWrap>
                         {selectedChat.tenant_name && `${selectedChat.tenant_name} • `}
@@ -251,6 +266,16 @@ const UnifiedChatWindow = ({
                         {selectedChat.page_name && ` • ${selectedChat.page_name}`}
                     </Typography>
                 </Box>
+                {isMessenger && onBotStatusChange && (
+                    <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<BotIcon />}
+                        onClick={() => onBotStatusChange(botStatus === 'handoff' ? 'active' : 'handoff')}
+                    >
+                        {botStatus === 'handoff' ? 'إرجاع للبوت' : 'إيقاف البوت'}
+                    </Button>
+                )}
             </Box>
 
             {/* Messages */}

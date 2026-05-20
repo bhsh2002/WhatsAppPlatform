@@ -11,6 +11,7 @@ import {
 } from '../services/messengerMessages.js';
 import { normalizeFilename } from '../services/filenames.js';
 import { updateMetaChargeFromStatus } from '../services/billing.js';
+import { processMessengerBotEvent } from '../services/messengerBot.js';
 
 const router = express.Router();
 
@@ -644,6 +645,7 @@ router.post('/', async (req, res) => {
                         if (msgEvent.message) {
                             const mid = msgEvent.message.mid;
                             const messageText = msgEvent.message.text || null;
+                            const quickReplyPayload = msgEvent.message.quick_reply?.payload || null;
                             const attachments = msgEvent.message.attachments || [];
                             const stickerUrl = msgEvent.message.sticker_url || null;
 
@@ -768,17 +770,132 @@ router.post('/', async (req, res) => {
                             ).get(conv.id) : null;
                             const fbIsFirstMessage = (fbMsgCount?.count || 0) <= 1;
 
-                            processIncomingMessage({
-                                channel: 'messenger',
+                            const botResult = await processMessengerBotEvent({
+                                linkedPage,
+                                conversation: conv,
+                                senderId,
+                                messageText: messageText || '',
+                                quickReplyPayload,
+                                isFirstMessage: fbIsFirstMessage,
+                            });
+
+                            if (!botResult.handled) {
+                                processIncomingMessage({
+                                    channel: 'messenger',
+                                    tenant_id: linkedPage.tenant_id,
+                                    contact_id: senderId,
+                                    message_text: messageText || '',
+                                    message_type: attachments.length > 0 ? (attachments[0].type || 'attachment') : 'text',
+                                    is_new_contact: fbIsFirstMessage,
+                                    page_id: pageId,
+                                    page_access_token: pageToken,
+                                    linked_page_id: linkedPage.id,
+                                }).catch(err => console.error('[AutoResponder] Messenger error:', err.message));
+                            } else {
+                                console.log(`[MessengerBot] Event handled for page ${pageId}: ${botResult.reason}`);
+                            }
+                        }
+
+                        if (msgEvent.postback) {
+                            const payload = msgEvent.postback.payload || '';
+                            const title = msgEvent.postback.title || 'Postback';
+                            const postbackCreatedAt = normalizeMessengerTimestamp(
+                                msgEvent.timestamp || new Date()
+                            );
+
+                            let conv = db.prepare(
+                                'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
+                            ).get(linkedPage.id, senderId);
+
+                            if (!conv) {
+                                let userName = null, userPic = null;
+                                if (pageToken) {
+                                    try {
+                                        const profileRes = await fetch(
+                                            `${META_API_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
+                                        );
+                                        const profileData = await profileRes.json();
+                                        userName = profileData.name || null;
+                                        userPic = profileData.profile_pic || null;
+                                    } catch (e) {
+                                        console.warn('[Webhook/FB] Failed to fetch user profile for postback:', e.message);
+                                    }
+                                }
+
+                                db.prepare(`
+                                    INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                                `).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic, title.substring(0, 100), postbackCreatedAt);
+
+                                conv = db.prepare(
+                                    'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
+                                ).get(linkedPage.id, senderId);
+                            } else {
+                                db.prepare(`
+                                    UPDATE fb_conversations
+                                    SET last_message = ?, last_message_time = ?,
+                                        unread_count = unread_count + 1,
+                                        updated_at = datetime('now', 'localtime')
+                                    WHERE id = ?
+                                `).run(title.substring(0, 100), postbackCreatedAt, conv.id);
+                            }
+
+                            if (conv) {
+                                insertMessengerMessage(db, {
+                                    conversationId: conv.id,
+                                    tenantId: linkedPage.tenant_id,
+                                    mid: null,
+                                    direction: 'incoming',
+                                    senderId,
+                                    senderName: conv.user_name,
+                                    messageText: title,
+                                    createdAt: postbackCreatedAt,
+                                });
+                            }
+
+                            eventBus.broadcast('admin', 'fb_message:new', {
                                 tenant_id: linkedPage.tenant_id,
-                                contact_id: senderId,
-                                message_text: messageText || '',
-                                message_type: attachments.length > 0 ? (attachments[0].type || 'attachment') : 'text',
-                                is_new_contact: fbIsFirstMessage,
                                 page_id: pageId,
-                                page_access_token: pageToken,
-                                linked_page_id: linkedPage.id,
-                            }).catch(err => console.error('[AutoResponder] Messenger error:', err.message));
+                                conversation_id: conv?.id,
+                                sender: senderId,
+                                sender_name: conv?.user_name,
+                                message: title,
+                                postback: payload,
+                            });
+                            eventBus.broadcast(`tenant:${linkedPage.tenant_id}`, 'fb_message:new', {
+                                tenant_id: linkedPage.tenant_id,
+                                page_id: pageId,
+                                conversation_id: conv?.id,
+                                sender: senderId,
+                                sender_name: conv?.user_name,
+                                message: title,
+                                postback: payload,
+                            });
+
+                            const botResult = await processMessengerBotEvent({
+                                linkedPage,
+                                conversation: conv,
+                                senderId,
+                                postbackPayload: payload,
+                                messageText: title,
+                                isFirstMessage: false,
+                            });
+
+                            if (!botResult.handled) {
+                                processIncomingMessage({
+                                    channel: 'messenger',
+                                    tenant_id: linkedPage.tenant_id,
+                                    contact_id: senderId,
+                                    message_text: title,
+                                    message_type: 'postback',
+                                    is_new_contact: false,
+                                    page_id: pageId,
+                                    page_access_token: pageToken,
+                                    linked_page_id: linkedPage.id,
+                                }).catch(err => console.error('[AutoResponder] Messenger postback error:', err.message));
+                            } else {
+                                console.log(`[MessengerBot] Postback handled for page ${pageId}: ${botResult.reason}`);
+                            }
                         }
 
                         // Handle message read receipts from user

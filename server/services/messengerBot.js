@@ -1,0 +1,754 @@
+import db from '../db/database.js';
+import { META_API_BASE } from '../config/index.js';
+import { decryptIfEncrypted } from './encryption.js';
+import eventBus from './eventBus.js';
+import {
+    BILLING_OPERATIONS,
+    commit as commitBilling,
+    release as releaseBilling,
+    reserve as reserveBilling,
+} from './billing.js';
+import { insertMessengerMessage, normalizeMessengerTimestamp } from './messengerMessages.js';
+
+const BOT_PAYLOAD_PREFIX = 'BOT:';
+const MAX_GENERIC_ELEMENTS = 10;
+const MAX_QUICK_REPLIES = 13;
+
+function parseJson(value, fallback = {}) {
+    if (!value) return fallback;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+}
+
+function serializeJson(value) {
+    try {
+        return JSON.stringify(value ?? {});
+    } catch {
+        return JSON.stringify({ unparseable: true });
+    }
+}
+
+function safeText(value, fallback = '') {
+    const text = String(value || '').trim();
+    return text || fallback;
+}
+
+function isHttpUrl(value) {
+    return /^https?:\/\//i.test(String(value || '').trim());
+}
+
+function trimForMeta(value, max) {
+    const text = String(value || '').trim();
+    return text.length > max ? text.slice(0, max - 1) + '…' : text;
+}
+
+function recordBotEvent({
+    tenantId,
+    linkedPageId = null,
+    conversationId = null,
+    sessionId = null,
+    eventType,
+    direction = null,
+    payload = null,
+    status = 'info',
+    errorMessage = null,
+}) {
+    try {
+        db.prepare(`
+            INSERT INTO bot_events (
+                tenant_id, linked_page_id, conversation_id, session_id,
+                event_type, direction, payload_json, status, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            tenantId,
+            linkedPageId,
+            conversationId,
+            sessionId,
+            eventType,
+            direction,
+            payload ? serializeJson(payload) : null,
+            status,
+            errorMessage
+        );
+    } catch (err) {
+        console.error('[MessengerBot] Failed to record event:', err.message);
+    }
+}
+
+function getOrCreateSession({ tenantId, linkedPageId, conversationId, userPsid }) {
+    let session = db.prepare(`
+        SELECT *
+        FROM bot_sessions
+        WHERE linked_page_id = ? AND user_psid = ?
+        LIMIT 1
+    `).get(linkedPageId, userPsid);
+
+    if (!session) {
+        const result = db.prepare(`
+            INSERT INTO bot_sessions (
+                tenant_id, linked_page_id, conversation_id, user_psid,
+                status, last_user_message_at
+            ) VALUES (?, ?, ?, ?, 'active', datetime('now', 'localtime'))
+        `).run(tenantId, linkedPageId, conversationId || null, userPsid);
+
+        session = db.prepare('SELECT * FROM bot_sessions WHERE id = ?').get(result.lastInsertRowid);
+    } else {
+        db.prepare(`
+            UPDATE bot_sessions
+            SET conversation_id = COALESCE(?, conversation_id),
+                last_user_message_at = datetime('now', 'localtime'),
+                updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `).run(conversationId || null, session.id);
+        session = db.prepare('SELECT * FROM bot_sessions WHERE id = ?').get(session.id);
+    }
+
+    return session;
+}
+
+function updateSession(sessionId, data = {}) {
+    const allowed = {
+        active_flow_id: Object.prototype.hasOwnProperty.call(data, 'active_flow_id') ? data.active_flow_id : undefined,
+        current_node_key: Object.prototype.hasOwnProperty.call(data, 'current_node_key') ? data.current_node_key : undefined,
+        status: Object.prototype.hasOwnProperty.call(data, 'status') ? data.status : undefined,
+        context_json: Object.prototype.hasOwnProperty.call(data, 'context_json') ? serializeJson(data.context_json) : undefined,
+        last_bot_message_at: Object.prototype.hasOwnProperty.call(data, 'last_bot_message_at') ? data.last_bot_message_at : undefined,
+    };
+
+    const fields = [];
+    const values = [];
+    for (const [field, value] of Object.entries(allowed)) {
+        if (value !== undefined) {
+            fields.push(`${field} = ?`);
+            values.push(value);
+        }
+    }
+    if (fields.length === 0) return db.prepare('SELECT * FROM bot_sessions WHERE id = ?').get(sessionId);
+
+    fields.push("updated_at = datetime('now', 'localtime')");
+    values.push(sessionId);
+    db.prepare(`UPDATE bot_sessions SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return db.prepare('SELECT * FROM bot_sessions WHERE id = ?').get(sessionId);
+}
+
+function getActiveFlows({ tenantId, linkedPageId, triggerType }) {
+    return db.prepare(`
+        SELECT f.*, n.id AS node_id, n.node_key, n.node_type, n.title, n.body, n.config_json
+        FROM bot_flows f
+        LEFT JOIN bot_flow_nodes n ON n.flow_id = f.id AND n.node_key = 'start'
+        WHERE f.tenant_id = ?
+          AND f.status = 'active'
+          AND f.trigger_type = ?
+          AND (f.linked_page_id IS NULL OR f.linked_page_id = ?)
+        ORDER BY
+          CASE WHEN f.linked_page_id = ? THEN 0 ELSE 1 END,
+          f.priority ASC,
+          f.id ASC
+    `).all(tenantId, triggerType, linkedPageId, linkedPageId);
+}
+
+function splitKeywords(value) {
+    return String(value || '')
+        .split(/[\n,،]+/)
+        .map(item => item.trim().toLowerCase())
+        .filter(Boolean);
+}
+
+function findKeywordFlow({ tenantId, linkedPageId, messageText }) {
+    const text = String(messageText || '').toLowerCase();
+    if (!text) return null;
+    const flows = getActiveFlows({ tenantId, linkedPageId, triggerType: 'keyword' });
+    return flows.find(flow => splitKeywords(flow.trigger_value).some(keyword => text.includes(keyword))) || null;
+}
+
+function findExactTriggerFlow({ tenantId, linkedPageId, triggerType, triggerValue = null }) {
+    const flows = getActiveFlows({ tenantId, linkedPageId, triggerType });
+    if (!triggerValue) return flows[0] || null;
+    const normalized = String(triggerValue).trim().toLowerCase();
+    return flows.find(flow => String(flow.trigger_value || '').trim().toLowerCase() === normalized) || null;
+}
+
+function getFlowNode(flowId, nodeKey = 'start') {
+    return db.prepare(`
+        SELECT f.*, n.id AS node_id, n.node_key, n.node_type, n.title, n.body, n.config_json
+        FROM bot_flows f
+        JOIN bot_flow_nodes n ON n.flow_id = f.id
+        WHERE f.id = ? AND n.node_key = ?
+        LIMIT 1
+    `).get(flowId, nodeKey);
+}
+
+function listActiveProducts({ tenantId, category = null, limit = MAX_GENERIC_ELEMENTS }) {
+    const params = [tenantId];
+    let categoryClause = '';
+    if (category) {
+        categoryClause = 'AND LOWER(category) = LOWER(?)';
+        params.push(category);
+    }
+    params.push(Math.min(Math.max(Number(limit) || MAX_GENERIC_ELEMENTS, 1), MAX_GENERIC_ELEMENTS));
+
+    return db.prepare(`
+        SELECT *
+        FROM bot_products
+        WHERE tenant_id = ?
+          AND is_active = 1
+          AND availability = 'available'
+          ${categoryClause}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ?
+    `).all(...params);
+}
+
+function getProduct(tenantId, productId) {
+    return db.prepare(`
+        SELECT *
+        FROM bot_products
+        WHERE id = ? AND tenant_id = ? AND is_active = 1
+        LIMIT 1
+    `).get(productId, tenantId);
+}
+
+function moneyText(product) {
+    const price = Number(product.price || 0);
+    if (!price) return product.category || '';
+    return `${price.toLocaleString('ar-LY')} ${product.currency || 'LYD'}`;
+}
+
+function quickRepliesFromConfig(config = {}) {
+    const replies = Array.isArray(config.quick_replies) ? config.quick_replies : [];
+    return replies
+        .filter(reply => reply?.title)
+        .slice(0, MAX_QUICK_REPLIES)
+        .map(reply => ({
+            content_type: 'text',
+            title: trimForMeta(reply.title, 20),
+            payload: trimForMeta(reply.payload || reply.node_key || `BOT:FLOW:${reply.flow_id || ''}:NODE:${reply.node_key || 'start'}`, 1000),
+        }));
+}
+
+function buildServiceQuickReplies(config = {}) {
+    const items = Array.isArray(config.items) ? config.items : [];
+    const replies = items
+        .filter(item => item?.title)
+        .slice(0, MAX_QUICK_REPLIES - 2)
+        .map(item => ({
+            content_type: 'text',
+            title: trimForMeta(item.title, 20),
+            payload: trimForMeta(item.payload || `BOT:SERVICE:${item.title}`, 1000),
+        }));
+
+    replies.push({ content_type: 'text', title: 'المنتجات', payload: 'BOT:PRODUCTS' });
+    replies.push({ content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' });
+    return replies.slice(0, MAX_QUICK_REPLIES);
+}
+
+function buildProductCards(products) {
+    return products.slice(0, MAX_GENERIC_ELEMENTS).map(product => {
+        const buttons = [
+            {
+                type: 'postback',
+                title: 'تفاصيل',
+                payload: `BOT:PRODUCT:${product.id}`,
+            },
+            {
+                type: 'postback',
+                title: 'استفسار',
+                payload: `BOT:HANDOFF:PRODUCT:${product.id}`,
+            },
+        ];
+
+        if (isHttpUrl(product.product_url)) {
+            buttons.push({
+                type: 'web_url',
+                title: 'فتح الرابط',
+                url: product.product_url,
+            });
+        }
+
+        return {
+            title: trimForMeta(product.name, 80),
+            subtitle: trimForMeta([moneyText(product), product.description].filter(Boolean).join(' - '), 80),
+            image_url: isHttpUrl(product.image_url) ? product.image_url : undefined,
+            default_action: isHttpUrl(product.product_url)
+                ? { type: 'web_url', url: product.product_url, webview_height_ratio: 'full' }
+                : undefined,
+            buttons: buttons.slice(0, 3),
+        };
+    });
+}
+
+function buildTextMessage(text, quickReplies = []) {
+    const message = { text: trimForMeta(text, 2000) };
+    if (quickReplies.length > 0) message.quick_replies = quickReplies;
+    return message;
+}
+
+function buildProductListMessage({ products, emptyText }) {
+    if (!products.length) {
+        return buildTextMessage(emptyText || 'لا توجد منتجات متاحة حاليا.', [
+            { content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' },
+        ]);
+    }
+
+    return {
+        attachment: {
+            type: 'template',
+            payload: {
+                template_type: 'generic',
+                elements: buildProductCards(products),
+            },
+        },
+    };
+}
+
+function buildProductDetailMessage(product) {
+    if (!product) {
+        return buildTextMessage('لم يتم العثور على هذا المنتج أو لم يعد متاحا.', [
+            { content_type: 'text', title: 'عرض المنتجات', payload: 'BOT:PRODUCTS' },
+            { content_type: 'text', title: 'موظف بشري', payload: 'BOT:HANDOFF' },
+        ]);
+    }
+
+    const body = [
+        product.name,
+        moneyText(product),
+        product.description,
+        product.product_url && isHttpUrl(product.product_url) ? product.product_url : null,
+    ].filter(Boolean).join('\n');
+
+    return buildTextMessage(body, [
+        { content_type: 'text', title: 'منتجات أخرى', payload: 'BOT:PRODUCTS' },
+        { content_type: 'text', title: 'استفسار', payload: `BOT:HANDOFF:PRODUCT:${product.id}` },
+    ]);
+}
+
+async function sendBotMessage({ linkedPage, conversation, session, message, previewText, metadata = {} }) {
+    const accessToken = decryptIfEncrypted(linkedPage.page_access_token_encrypted);
+    if (!accessToken) {
+        throw new Error('رمز صفحة Messenger غير متوفر');
+    }
+
+    let billingReservation = null;
+    try {
+        billingReservation = reserveBilling({
+            tenantId: conversation.tenant_id,
+            operationKey: BILLING_OPERATIONS.MESSENGER_BOT_REPLY,
+            quantity: 1,
+            referenceType: 'messenger_bot_message',
+            metadata: {
+                linked_page_id: linkedPage.id,
+                conversation_id: conversation.id,
+                user_psid: conversation.user_psid,
+                bot_session_id: session?.id || null,
+                ...metadata,
+            },
+        });
+
+        const response = await fetch(`${META_API_BASE}/${linkedPage.page_id}/messages`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                recipient: { id: conversation.user_psid },
+                messaging_type: 'RESPONSE',
+                message,
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok || data.error) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta Messenger bot reply failed');
+            recordBotEvent({
+                tenantId: conversation.tenant_id,
+                linkedPageId: linkedPage.id,
+                conversationId: conversation.id,
+                sessionId: session?.id || null,
+                eventType: 'send_failed',
+                direction: 'outgoing',
+                payload: { message, meta: data.error || data },
+                status: 'error',
+                errorMessage: data.error?.message || 'Meta send failed',
+            });
+            throw new Error(data.error?.message || 'فشل إرسال رد البوت');
+        }
+
+        const mid = data.message_id;
+        commitBilling(billingReservation, {
+            referenceId: mid,
+            description: 'خصم رد Messenger Bot',
+        });
+
+        const createdAt = normalizeMessengerTimestamp();
+        const messageText = previewText || message.text || '[Messenger Bot]';
+        insertMessengerMessage(db, {
+            conversationId: conversation.id,
+            tenantId: conversation.tenant_id,
+            mid,
+            direction: 'outgoing',
+            senderId: linkedPage.page_id,
+            senderName: linkedPage.page_name,
+            messageText,
+            createdAt,
+        });
+
+        db.prepare(`
+            UPDATE fb_conversations
+            SET last_message = ?, last_message_time = ?, updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `).run(messageText.substring(0, 100), createdAt, conversation.id);
+
+        if (session?.id) {
+            updateSession(session.id, { last_bot_message_at: createdAt });
+        }
+
+        recordBotEvent({
+            tenantId: conversation.tenant_id,
+            linkedPageId: linkedPage.id,
+            conversationId: conversation.id,
+            sessionId: session?.id || null,
+            eventType: 'send_success',
+            direction: 'outgoing',
+            payload: { mid, preview: messageText, metadata },
+            status: 'success',
+        });
+
+        const eventPayload = {
+            tenant_id: conversation.tenant_id,
+            page_id: linkedPage.page_id,
+            conversation_id: conversation.id,
+            direction: 'outgoing',
+            sender_id: linkedPage.page_id,
+            sender_name: linkedPage.page_name,
+            message: messageText,
+            bot: true,
+        };
+        eventBus.broadcast('admin', 'fb_message:new', eventPayload);
+        eventBus.broadcast(`tenant:${conversation.tenant_id}`, 'fb_message:new', eventPayload);
+
+        return { mid, message_text: messageText };
+    } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[MessengerBot] Billing release error:', releaseError.message);
+            }
+        }
+        throw error;
+    }
+}
+
+async function renderNode({ linkedPage, conversation, session, node, context = {} }) {
+    const config = parseJson(node.config_json, {});
+    const nodeType = node.node_type || 'text';
+    const body = safeText(node.body, 'كيف يمكنني مساعدتك؟');
+
+    updateSession(session.id, {
+        active_flow_id: node.id ? node.id : session.active_flow_id,
+        current_node_key: node.node_key || 'start',
+        context_json: { ...parseJson(session.context_json, {}), ...context },
+    });
+
+    if (nodeType === 'product_list') {
+        const category = config.category || context.category || null;
+        const products = listActiveProducts({
+            tenantId: conversation.tenant_id,
+            category,
+            limit: config.limit || MAX_GENERIC_ELEMENTS,
+        });
+        const message = buildProductListMessage({ products, emptyText: config.empty_text });
+        return sendBotMessage({
+            linkedPage,
+            conversation,
+            session,
+            message,
+            previewText: products.length ? `عرض ${products.length} منتجات` : (config.empty_text || 'لا توجد منتجات متاحة'),
+            metadata: { node_type: nodeType, category, products_count: products.length },
+        });
+    }
+
+    if (nodeType === 'product_detail') {
+        const product = getProduct(conversation.tenant_id, config.product_id || context.product_id);
+        return sendBotMessage({
+            linkedPage,
+            conversation,
+            session,
+            message: buildProductDetailMessage(product),
+            previewText: product ? `تفاصيل المنتج: ${product.name}` : 'المنتج غير متاح',
+            metadata: { node_type: nodeType, product_id: product?.id || context.product_id || null },
+        });
+    }
+
+    if (nodeType === 'service_menu') {
+        return sendBotMessage({
+            linkedPage,
+            conversation,
+            session,
+            message: buildTextMessage(body, buildServiceQuickReplies(config)),
+            previewText: body,
+            metadata: { node_type: nodeType },
+        });
+    }
+
+    if (nodeType === 'quick_replies') {
+        return sendBotMessage({
+            linkedPage,
+            conversation,
+            session,
+            message: buildTextMessage(body, quickRepliesFromConfig(config)),
+            previewText: body,
+            metadata: { node_type: nodeType },
+        });
+    }
+
+    if (nodeType === 'handoff') {
+        updateSession(session.id, { status: 'handoff' });
+        return sendBotMessage({
+            linkedPage,
+            conversation,
+            session,
+            message: buildTextMessage(body || 'تم تحويلك إلى أحد الموظفين.'),
+            previewText: body || 'تم تحويلك إلى أحد الموظفين.',
+            metadata: { node_type: nodeType, handoff: true },
+        });
+    }
+
+    return sendBotMessage({
+        linkedPage,
+        conversation,
+        session,
+        message: buildTextMessage(body, quickRepliesFromConfig(config)),
+        previewText: body,
+        metadata: { node_type: nodeType },
+    });
+}
+
+async function renderFlow({ flow, linkedPage, conversation, session, context = {} }) {
+    const node = getFlowNode(flow.id, flow.node_key || 'start') || flow;
+    updateSession(session.id, {
+        active_flow_id: flow.id,
+        current_node_key: node.node_key || 'start',
+        status: 'active',
+    });
+
+    recordBotEvent({
+        tenantId: conversation.tenant_id,
+        linkedPageId: linkedPage.id,
+        conversationId: conversation.id,
+        sessionId: session.id,
+        eventType: 'flow_matched',
+        direction: 'incoming',
+        payload: { flow_id: flow.id, trigger_type: flow.trigger_type, trigger_value: flow.trigger_value },
+        status: 'success',
+    });
+
+    return renderNode({ linkedPage, conversation, session, node, context });
+}
+
+async function handleBotPayload({ payload, linkedPage, conversation, session }) {
+    const value = String(payload || '').trim();
+
+    if (value.startsWith('BOT:HANDOFF')) {
+        const productId = value.split(':')[3] || null;
+        const product = productId ? getProduct(conversation.tenant_id, productId) : null;
+        updateSession(session.id, {
+            status: 'handoff',
+            context_json: { ...parseJson(session.context_json, {}), handoff_product_id: productId },
+        });
+        return sendBotMessage({
+            linkedPage,
+            conversation,
+            session,
+            message: buildTextMessage(product
+                ? `تم تحويل استفسارك عن "${product.name}" إلى أحد الموظفين.`
+                : 'تم تحويلك إلى أحد الموظفين.'),
+            previewText: 'تحويل إلى موظف بشري',
+            metadata: { payload: value, handoff: true, product_id: productId },
+        });
+    }
+
+    if (value.startsWith('BOT:PRODUCT:')) {
+        const productId = Number(value.split(':')[2]);
+        return renderNode({
+            linkedPage,
+            conversation,
+            session,
+            node: {
+                node_type: 'product_detail',
+                node_key: 'product_detail',
+                config_json: serializeJson({ product_id: productId }),
+            },
+            context: { product_id: productId },
+        });
+    }
+
+    if (value.startsWith('BOT:PRODUCTS')) {
+        const parts = value.split(':');
+        const category = parts[2] || null;
+        return renderNode({
+            linkedPage,
+            conversation,
+            session,
+            node: {
+                node_type: 'product_list',
+                node_key: 'products',
+                config_json: serializeJson({ category }),
+            },
+            context: { category },
+        });
+    }
+
+    if (value.startsWith('BOT:FLOW:')) {
+        const parts = value.split(':');
+        const flowId = Number(parts[2]);
+        const nodeKey = parts[4] || 'start';
+        const flow = db.prepare(`
+            SELECT *
+            FROM bot_flows
+            WHERE id = ? AND tenant_id = ? AND status = 'active'
+        `).get(flowId, conversation.tenant_id);
+        const node = flow ? getFlowNode(flow.id, nodeKey) : null;
+        if (flow && node) {
+            return renderFlow({ flow: { ...flow, node_key: nodeKey }, linkedPage, conversation, session });
+        }
+    }
+
+    if (value === 'BOT:MENU') {
+        const flow = findExactTriggerFlow({
+            tenantId: conversation.tenant_id,
+            linkedPageId: linkedPage.id,
+            triggerType: 'menu',
+        }) || findExactTriggerFlow({
+            tenantId: conversation.tenant_id,
+            linkedPageId: linkedPage.id,
+            triggerType: 'welcome',
+        });
+        if (flow) return renderFlow({ flow, linkedPage, conversation, session });
+    }
+
+    const postbackFlow = findExactTriggerFlow({
+        tenantId: conversation.tenant_id,
+        linkedPageId: linkedPage.id,
+        triggerType: 'postback',
+        triggerValue: value,
+    });
+    if (postbackFlow) return renderFlow({ flow: postbackFlow, linkedPage, conversation, session });
+
+    return null;
+}
+
+export async function processMessengerBotEvent({
+    linkedPage,
+    conversation,
+    senderId,
+    messageText = '',
+    quickReplyPayload = null,
+    postbackPayload = null,
+    isFirstMessage = false,
+} = {}) {
+    if (!linkedPage || !conversation || !senderId) {
+        return { handled: false, reason: 'missing_context' };
+    }
+
+    const session = getOrCreateSession({
+        tenantId: linkedPage.tenant_id,
+        linkedPageId: linkedPage.id,
+        conversationId: conversation.id,
+        userPsid: senderId,
+    });
+
+    if (session.status === 'handoff' || session.status === 'closed') {
+        recordBotEvent({
+            tenantId: linkedPage.tenant_id,
+            linkedPageId: linkedPage.id,
+            conversationId: conversation.id,
+            sessionId: session.id,
+            eventType: 'skipped',
+            direction: 'incoming',
+            payload: { reason: session.status, message_text: messageText, postback_payload: postbackPayload },
+            status: 'info',
+        });
+        return { handled: true, reason: session.status };
+    }
+
+    const payload = quickReplyPayload || postbackPayload;
+    try {
+        if (payload) {
+            const payloadResult = await handleBotPayload({ payload, linkedPage, conversation, session });
+            if (payloadResult) return { handled: true, reason: 'payload', result: payloadResult };
+        }
+
+        let flow = null;
+        if (isFirstMessage) {
+            flow = findExactTriggerFlow({
+                tenantId: linkedPage.tenant_id,
+                linkedPageId: linkedPage.id,
+                triggerType: 'welcome',
+            });
+        }
+
+        if (!flow) {
+            flow = findKeywordFlow({
+                tenantId: linkedPage.tenant_id,
+                linkedPageId: linkedPage.id,
+                messageText,
+            });
+        }
+
+        if (!flow) {
+            flow = findExactTriggerFlow({
+                tenantId: linkedPage.tenant_id,
+                linkedPageId: linkedPage.id,
+                triggerType: 'fallback',
+            });
+        }
+
+        if (!flow) {
+            return { handled: false, reason: 'no_flow' };
+        }
+
+        const result = await renderFlow({ flow, linkedPage, conversation, session });
+        return { handled: true, reason: flow.trigger_type, result };
+    } catch (error) {
+        recordBotEvent({
+            tenantId: linkedPage.tenant_id,
+            linkedPageId: linkedPage.id,
+            conversationId: conversation.id,
+            sessionId: session.id,
+            eventType: 'error',
+            direction: 'incoming',
+            payload: { message_text: messageText, quick_reply_payload: quickReplyPayload, postback_payload: postbackPayload },
+            status: 'error',
+            errorMessage: error.message,
+        });
+        console.error('[MessengerBot] Processing failed:', error.message);
+        return { handled: true, reason: 'error', error: error.message };
+    }
+}
+
+export function buildNodePreview(node = {}, tenantId) {
+    const config = parseJson(node.config_json || node.config, {});
+    const nodeType = node.node_type || 'text';
+    if (nodeType === 'product_list') {
+        const products = listActiveProducts({
+            tenantId,
+            category: config.category || null,
+            limit: config.limit || MAX_GENERIC_ELEMENTS,
+        });
+        return {
+            type: 'product_list',
+            products,
+            message: products.length ? `سيتم عرض ${products.length} منتجات.` : (config.empty_text || 'لا توجد منتجات متاحة حاليا.'),
+        };
+    }
+    return {
+        type: nodeType,
+        message: node.body || '',
+        config,
+    };
+}

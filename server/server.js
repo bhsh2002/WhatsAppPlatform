@@ -30,6 +30,7 @@ import unifiedRouter from './routes/unified.js';
 import automationRouter from './routes/automation.js';
 import settingsRouter from './routes/settings.js';
 import billingRouter from './routes/billing.js';
+import messengerBotRouter from './routes/messengerBot.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -486,8 +487,10 @@ app.use('/unified', authMiddleware, adminMiddleware, unifiedRouter);
 app.use('/automation', authMiddleware, adminMiddleware, automationRouter);
 app.use('/settings', authMiddleware, adminMiddleware, settingsRouter);
 app.use('/billing', authMiddleware, adminMiddleware, billingRouter);
+app.use('/messenger-bot', authMiddleware, adminMiddleware, messengerBotRouter);
 
 // Protected API Routes - Tenant Portal
+app.use('/portal/messenger-bot', authMiddleware, messengerBotRouter);
 app.use('/portal', authMiddleware, tenantPortalRouter);
 
 // External API Routes - v1 (requires API key)
