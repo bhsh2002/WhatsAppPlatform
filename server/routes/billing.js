@@ -252,7 +252,7 @@ router.get('/prices', (req, res) => {
 
 router.patch('/prices/:id', (req, res) => {
     try {
-        const allowed = ['display_name_ar', 'unit_price_credits', 'is_billable', 'is_active'];
+        const allowed = ['display_name_ar', 'unit_price_credits', 'local_pricing_model', 'local_pricing_description', 'is_billable', 'is_active'];
         const sets = [];
         const values = [];
 
@@ -261,6 +261,10 @@ router.patch('/prices/:id', (req, res) => {
                 sets.push(`${field} = ?`);
                 if (['is_billable', 'is_active'].includes(field)) values.push(req.body[field] ? 1 : 0);
                 else if (field === 'unit_price_credits') values.push(Math.max(parseInt(req.body[field], 10) || 0, 0));
+                else if (field === 'local_pricing_model') {
+                    const model = String(req.body[field] || 'fixed').trim().toLowerCase();
+                    values.push(['fixed', 'meta_like'].includes(model) ? model : 'fixed');
+                }
                 else values.push(req.body[field]);
             }
         }

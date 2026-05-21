@@ -68,6 +68,7 @@ const META_PRICED_WHATSAPP_OPERATIONS = new Set([
 ]);
 const META_COST_DIFF_THRESHOLD = 0.01;
 const META_RECONCILIATION_STATUSES = new Set(['open', 'synced', 'needs_review', 'invoice_reconciled']);
+const LOCAL_PRICING_MODELS = new Set(['fixed', 'meta_like']);
 
 const normalizeMetaCategory = (value) => {
     const category = String(value || '').trim().toLowerCase();
@@ -152,6 +153,15 @@ function getContactWindow(tenantId, recipient) {
         WHERE tenant_id = ? AND phone = ?
         LIMIT 1
     `).get(tenantId, phone) || null;
+}
+
+function localPricingModel(priceItem) {
+    const model = String(priceItem?.local_pricing_model || 'fixed').trim().toLowerCase();
+    return LOCAL_PRICING_MODELS.has(model) ? model : 'fixed';
+}
+
+function isMetaLikeLocalPricing(priceItem) {
+    return localPricingModel(priceItem) === 'meta_like';
 }
 
 function chooseRateForRecipient({ recipient, countryCallingCode, category, currency = null, effectiveAt = null }) {
@@ -597,9 +607,12 @@ function updateUsageMetaEstimate(usageId, metadataOverride = null) {
         operationKey: usage.operation_key,
         quantity: usage.quantity,
         metadata,
+        statusPricing: metadata.status_pricing || metadata.statusPricing || null,
         effectiveAt: usage.committed_at || null,
     });
-    const shouldWaitForStatusWebhook = usage.reference_type === 'message' && estimate.status === 'estimated';
+    const shouldWaitForStatusWebhook = usage.reference_type === 'message'
+        && estimate.status === 'estimated'
+        && !(metadata.status_pricing || metadata.statusPricing);
     const metaChargeStatus = shouldWaitForStatusWebhook ? 'pending' : estimate.status;
 
     db.prepare(`
@@ -650,6 +663,101 @@ export function summarizeMetaRecipientCountries(recipients = []) {
         counts[code] = (counts[code] || 0) + 1;
     }
     return counts;
+}
+
+export function summarizeMetaLikeLocalRecipients({
+    tenantId,
+    operationKey = BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+    recipients = [],
+    templateName = null,
+    templateCategory = null,
+} = {}) {
+    const summary = {
+        recipient_count: 0,
+        billable_count: 0,
+        free_count: 0,
+        free_24h_count: 0,
+        free_ctwa_count: 0,
+        service_free_count: 0,
+        rate_missing_count: 0,
+        billable_country_counts: {},
+        all_country_counts: {},
+        reasons: {},
+    };
+
+    for (const recipient of recipients || []) {
+        const normalizedRecipient = normalizePhoneDigits(recipient);
+        if (!normalizedRecipient) continue;
+        summary.recipient_count += 1;
+
+        const countryCounts = summarizeMetaRecipientCountries([normalizedRecipient]);
+        const countryCallingCode = Object.keys(countryCounts)[0] || normalizedRecipient.slice(0, Math.min(3, normalizedRecipient.length));
+        summary.all_country_counts[countryCallingCode] = (summary.all_country_counts[countryCallingCode] || 0) + 1;
+
+        const estimate = evaluateSingleMetaCharge({
+            tenantId,
+            operationKey,
+            metadata: {
+                recipient: normalizedRecipient,
+                template_name: templateName,
+                template_category: templateCategory,
+                country_calling_code: countryCallingCode,
+            },
+            recipient: normalizedRecipient,
+            category: templateCategory,
+        });
+
+        summary.reasons[estimate.reason] = (summary.reasons[estimate.reason] || 0) + 1;
+        if (estimate.status === 'not_charged' || estimate.status === 'not_applicable') {
+            summary.free_count += 1;
+            if (estimate.reason === 'free_entry_point_72h') summary.free_ctwa_count += 1;
+            if (estimate.reason === 'utility_template_inside_24h_window') summary.free_24h_count += 1;
+            if (estimate.reason === 'service_messages_free') summary.service_free_count += 1;
+            continue;
+        }
+
+        summary.billable_count += 1;
+        if (estimate.status === 'rate_missing') summary.rate_missing_count += 1;
+        summary.billable_country_counts[countryCallingCode] = (summary.billable_country_counts[countryCallingCode] || 0) + 1;
+    }
+
+    return summary;
+}
+
+export function resolveLocalBillableQuantity({
+    tenantId,
+    operationKey,
+    recipients = [],
+    templateName = null,
+    templateCategory = null,
+    fallbackQuantity = null,
+} = {}) {
+    const priceItem = getPriceItem(operationKey);
+    const fallback = fallbackQuantity === null || fallbackQuantity === undefined
+        ? Math.max(toInt(recipients?.length, 0), 0)
+        : Math.max(toInt(fallbackQuantity), 0);
+
+    if (!isMetaLikeLocalPricing(priceItem)) {
+        return {
+            quantity: fallback,
+            summary: null,
+            pricing_model: localPricingModel(priceItem),
+        };
+    }
+
+    const summary = summarizeMetaLikeLocalRecipients({
+        tenantId,
+        operationKey,
+        recipients,
+        templateName,
+        templateCategory,
+    });
+
+    return {
+        quantity: summary.billable_count,
+        summary,
+        pricing_model: 'meta_like',
+    };
 }
 
 function getLegacyPlanId() {
@@ -760,11 +868,64 @@ function getPriceItem(operationKey) {
     return db.prepare('SELECT * FROM billing_price_items WHERE operation_key = ?').get(operationKey);
 }
 
-export function quote({ tenantId, operationKey, quantity = 1 } = {}) {
+function applyLocalMetaLikePricing({ tenantId, operationKey, quantity, unitPrice, metadata = {}, priceItem }) {
+    if (!isMetaLikeLocalPricing(priceItem) || !META_PRICED_WHATSAPP_OPERATIONS.has(operationKey)) {
+        return {
+            quantity,
+            unit_price_credits: unitPrice,
+            total_credits: unitPrice * quantity,
+            billable: unitPrice > 0 && quantity > 0,
+            reason: 'fixed_pricing',
+            details: null,
+        };
+    }
+
+    if (metadata?.meta_like_billable_quantity !== undefined && metadata?.meta_like_billable_quantity !== null) {
+        const billableQuantity = Math.max(Math.min(toInt(metadata.meta_like_billable_quantity), quantity), 0);
+        return {
+            quantity: billableQuantity,
+            unit_price_credits: unitPrice,
+            total_credits: billableQuantity * unitPrice,
+            billable: unitPrice > 0 && billableQuantity > 0,
+            reason: 'meta_like_precomputed_recipients',
+            details: metadata.meta_like_summary || null,
+        };
+    }
+
+    const estimate = summarizeMetaEstimate({
+        tenantId,
+        operationKey,
+        quantity,
+        metadata,
+        effectiveAt: null,
+    });
+    const isFree = estimate.status === 'not_charged' || estimate.status === 'not_applicable';
+    return {
+        quantity,
+        unit_price_credits: isFree ? 0 : unitPrice,
+        total_credits: isFree ? 0 : unitPrice * quantity,
+        billable: !isFree && unitPrice > 0 && quantity > 0,
+        reason: estimate.reason,
+        details: {
+            status: estimate.status,
+            category: estimate.category,
+            pricing_basis: estimate.pricing_basis,
+        },
+    };
+}
+
+export function quote({ tenantId, operationKey, quantity = 1, metadata = null } = {}) {
     const normalizedQuantity = Math.max(toInt(quantity, 1), 1);
     const priceItem = getPriceItem(operationKey);
     const unitPrice = priceItem?.is_active && priceItem?.is_billable ? toInt(priceItem.unit_price_credits, 1) : 0;
-    const totalCredits = unitPrice * normalizedQuantity;
+    const localPricing = applyLocalMetaLikePricing({
+        tenantId,
+        operationKey,
+        quantity: normalizedQuantity,
+        unitPrice,
+        metadata: metadata || {},
+        priceItem,
+    });
     const account = tenantId ? ensureTenantBillingAccount(tenantId) : null;
     const reservedCredits = tenantId ? getReservedCredits(tenantId) : 0;
     const availability = account ? computeAvailable(account, reservedCredits) : null;
@@ -772,13 +933,17 @@ export function quote({ tenantId, operationKey, quantity = 1 } = {}) {
     return {
         tenant_id: tenantId || null,
         operation_key: operationKey,
-        quantity: normalizedQuantity,
+        quantity: localPricing.quantity,
+        requested_quantity: normalizedQuantity,
         price_item: priceItem || null,
         channel: priceItem?.channel || null,
         operation_type: priceItem?.operation_type || null,
-        unit_price_credits: unitPrice,
-        total_credits: totalCredits,
-        billable: Boolean(priceItem?.is_active && priceItem?.is_billable && totalCredits > 0),
+        unit_price_credits: localPricing.unit_price_credits,
+        total_credits: localPricing.total_credits,
+        billable: Boolean(priceItem?.is_active && priceItem?.is_billable && localPricing.billable),
+        local_pricing_model: localPricingModel(priceItem),
+        local_pricing_reason: localPricing.reason,
+        local_pricing_details: localPricing.details,
         availability,
     };
 }
@@ -827,7 +992,7 @@ export function reserve({
             });
         }
 
-        const currentQuote = quote({ tenantId, operationKey, quantity });
+        const currentQuote = quote({ tenantId, operationKey, quantity, metadata });
         if (!currentQuote.billable || currentQuote.total_credits <= 0) {
             return {
                 skipped: true,
@@ -867,7 +1032,13 @@ export function reserve({
             referenceType,
             referenceId,
             idempotencyKey,
-            serializeJson(metadata)
+            serializeJson({
+                ...(metadata || {}),
+                local_pricing_model: currentQuote.local_pricing_model,
+                local_pricing_reason: currentQuote.local_pricing_reason,
+                local_pricing_details: currentQuote.local_pricing_details,
+                requested_quantity: currentQuote.requested_quantity,
+            })
         );
 
         syncTenantCredits(tenantId);
@@ -900,6 +1071,15 @@ function deductAccountBalances(account, credits) {
         wallet_balance_credits: walletBalance,
         credit_used_credits: creditUsed,
     };
+}
+
+function shouldDeferMetaLikeLocalCommit(usage, metadata, options = {}) {
+    if (options.forceCommit) return false;
+    if (options.deferUntilDelivered === false) return false;
+    if (usage.channel !== 'whatsapp') return false;
+    if (!['message', 'api_message'].includes(String(usage.reference_type || ''))) return false;
+    if (!options.referenceId && !usage.reference_id) return false;
+    return metadata?.local_pricing_model === 'meta_like';
 }
 
 export function commit(reservation, options = {}) {
@@ -956,6 +1136,46 @@ export function commit(reservation, options = {}) {
             committed_quantity: commitQuantity,
             released_quantity: originalQuantity - commitQuantity,
         };
+
+        if (shouldDeferMetaLikeLocalCommit(usage, metadata, options)) {
+            db.prepare(`
+                UPDATE billing_usage_events
+                SET quantity = ?,
+                    total_credits = ?,
+                    reference_id = COALESCE(?, reference_id),
+                    metadata_json = ?
+                WHERE id = ?
+            `).run(
+                commitQuantity,
+                chargedCredits,
+                options.referenceId || null,
+                serializeJson({
+                    ...metadata,
+                    local_pricing_deferred_until: 'delivered_or_read',
+                }),
+                usage.id
+            );
+
+            const deferredUsage = db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
+            const deferredMetadata = parseJson(deferredUsage.metadata_json, {});
+            if (deferredUsage.reference_id) {
+                recordMetaMessageCost({
+                    tenantId: deferredUsage.tenant_id,
+                    usageEventId: deferredUsage.id,
+                    wamid: deferredUsage.reference_id,
+                    recipient: deferredMetadata.recipient || deferredMetadata.to || deferredMetadata.phone || null,
+                    operationKey: deferredUsage.operation_key,
+                    messageType: deferredMetadata.message_type || deferredMetadata.type || null,
+                    templateName: deferredMetadata.template_name || null,
+                    templateCategory: deferredMetadata.template_category || null,
+                    metadata: deferredMetadata,
+                    sentAt: deferredUsage.reserved_at,
+                });
+            }
+
+            syncTenantCredits(usage.tenant_id);
+            return deferredUsage;
+        }
 
         db.prepare(`
             UPDATE billing_usage_events
@@ -1493,6 +1713,9 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
                 meta_priced_at = ${nowSql}
             WHERE id = ?
         `).run(`message_${normalizedStatus}`, serializeJson(statusPayload), usage.id);
+        if (usage.status === 'reserved') {
+            release(usage, `message_${normalizedStatus}`);
+        }
         return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
     }
 
@@ -1539,6 +1762,19 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
         timestamp ? sqlDate(Number(timestamp) * 1000) : sqlDate(),
         usage.id
     );
+
+    if (usage.status === 'reserved') {
+        commit(usage, {
+            quantity: usage.quantity,
+            referenceId: wamid,
+            forceCommit: true,
+            description: `خصم WhatsApp بعد تأكيد ${normalizedStatus}: ${wamid}`,
+            meta: {
+                status_pricing: normalizeStatusPricing(pricing),
+                delivered_status: normalizedStatus,
+            },
+        });
+    }
 
     return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
 }

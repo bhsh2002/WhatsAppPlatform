@@ -695,6 +695,7 @@ const BillingManager = () => {
                                     <TableCell>العملية</TableCell>
                                     <TableCell>الاسم</TableCell>
                                     <TableCell>سعر العميل</TableCell>
+                                    <TableCell>طريقة الاحتساب</TableCell>
                                     <TableCell>قيمة Meta المرجعية</TableCell>
                                     <TableCell>مدفوعة</TableCell>
                                     <TableCell>نشطة</TableCell>
@@ -716,6 +717,22 @@ const BillingManager = () => {
                                                     onChange={(e) => setPrices((items) => items.map((item) => item.id === price.id ? { ...item, unit_price_credits: Number(e.target.value) || 0 } : item))}
                                                     onBlur={(e) => updatePrice(price, { unit_price_credits: Number(e.target.value) || 0 })}
                                                 />
+                                            </TableCell>
+                                            <TableCell sx={{ minWidth: 180 }}>
+                                                <FormControl fullWidth size="small">
+                                                    <Select
+                                                        value={price.local_pricing_model || 'fixed'}
+                                                        onChange={(e) => updatePrice(price, { local_pricing_model: e.target.value })}
+                                                    >
+                                                        <MenuItem value="fixed">ثابت</MenuItem>
+                                                        <MenuItem value="meta_like">مثل Meta</MenuItem>
+                                                    </Select>
+                                                </FormControl>
+                                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                                    {price.local_pricing_model === 'meta_like'
+                                                        ? 'يدعم نافذة 24 ساعة وCTWA 72 ساعة.'
+                                                        : 'يخصم حسب العدد والسعر فقط.'}
+                                                </Typography>
                                             </TableCell>
                                             <TableCell sx={{ minWidth: 220 }}>
                                                 <Chip size="small" label={metaReference.label} color={metaReference.color} sx={{ mb: 0.5 }} />

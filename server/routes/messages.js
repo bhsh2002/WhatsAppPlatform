@@ -23,6 +23,7 @@ import {
     handleBillingError,
     recordMetaMessageCost,
     release as releaseBilling,
+    resolveLocalBillableQuantity,
     reserve as reserveBilling,
     summarizeMetaRecipientCountries,
 } from '../services/billing.js';
@@ -1073,6 +1074,14 @@ router.post('/broadcast', async (req, res) => {
             ? db.prepare('SELECT category FROM templates WHERE tenant_id = ? AND name = ?')
                 .get(tenant?.id || tenant_id, template_name)
             : null;
+        const localBilling = resolveLocalBillableQuantity({
+            tenantId: tenant?.id || tenant_id || null,
+            operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+            recipients,
+            templateName: template_name,
+            templateCategory: templateForBilling?.category || null,
+            fallbackQuantity: recipients.length,
+        });
 
         billingReservation = reserveBilling({
             tenantId: tenant?.id || tenant_id || null,
@@ -1083,6 +1092,8 @@ router.post('/broadcast', async (req, res) => {
                 template_name,
                 template_category: templateForBilling?.category || null,
                 recipient_count: recipients.length,
+                meta_like_billable_quantity: localBilling.quantity,
+                meta_like_summary: localBilling.summary,
                 recipient_country_counts: summarizeMetaRecipientCountries(recipients),
             },
         });
@@ -1103,6 +1114,7 @@ router.post('/broadcast', async (req, res) => {
             tenant_id, recipients, template_name, template_language, template_params,
             variable_mapping: req.body.variable_mapping,
             phoneNumberId, finalAccessToken, tenant, billingReservation,
+            localBillingModel: localBilling.pricing_model,
         }));
 
     } catch (error) {
@@ -1150,7 +1162,7 @@ router.get('/broadcast-jobs/:id', (req, res) => {
 // Background broadcast processor
 async function processBroadcastJob(jobId, params) {
     const { tenant_id, recipients, template_name, template_language, template_params,
-            variable_mapping, phoneNumberId, finalAccessToken, tenant, billingReservation } = params;
+            variable_mapping, phoneNumberId, finalAccessToken, tenant, billingReservation, localBillingModel } = params;
 
     try {
         db.prepare("UPDATE broadcast_jobs SET status = 'running' WHERE id = ?").run(jobId);
@@ -1256,14 +1268,26 @@ async function processBroadcastJob(jobId, params) {
             const successfulRecipients = results
                 .filter((result) => result.status === 'sent')
                 .map((result) => result.recipient);
+            const successfulLocalBilling = localBillingModel === 'meta_like'
+                ? resolveLocalBillableQuantity({
+                    tenantId: tenant_id,
+                    operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+                    recipients: successfulRecipients,
+                    templateName: template_name,
+                    templateCategory: templateRecord?.category || null,
+                    fallbackQuantity: sent,
+                })
+                : { quantity: sent, summary: null };
             commitBilling(billingReservation, {
-                quantity: sent,
+                quantity: successfulLocalBilling.quantity,
                 referenceId: String(jobId),
-                description: `خصم بث WhatsApp: ${template_name} (${sent} مستلم)`,
+                description: `خصم بث WhatsApp: ${template_name} (${successfulLocalBilling.quantity} من ${sent} مستلم قابل للفوترة محليا)`,
                 meta: {
                     template_name,
                     template_category: templateRecord?.category || null,
                     recipient_country_counts: summarizeMetaRecipientCountries(successfulRecipients),
+                    meta_like_billable_quantity: successfulLocalBilling.quantity,
+                    meta_like_summary: successfulLocalBilling.summary,
                 },
             });
         } else if (billingReservation) {
