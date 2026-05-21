@@ -66,6 +66,8 @@ const META_PRICED_WHATSAPP_OPERATIONS = new Set([
     BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
     BILLING_OPERATIONS.WHATSAPP_CONTACT_VERIFICATION_TEMPLATE,
 ]);
+const META_COST_DIFF_THRESHOLD = 0.01;
+const META_RECONCILIATION_STATUSES = new Set(['open', 'synced', 'needs_review', 'invoice_reconciled']);
 
 const normalizeMetaCategory = (value) => {
     const category = String(value || '').trim().toLowerCase();
@@ -375,6 +377,8 @@ function updateUsageMetaEstimate(usageId, metadataOverride = null) {
         metadata,
         effectiveAt: usage.committed_at || null,
     });
+    const shouldWaitForStatusWebhook = usage.reference_type === 'message' && estimate.status === 'estimated';
+    const metaChargeStatus = shouldWaitForStatusWebhook ? 'pending' : estimate.status;
 
     db.prepare(`
         UPDATE billing_usage_events
@@ -392,7 +396,7 @@ function updateUsageMetaEstimate(usageId, metadataOverride = null) {
         WHERE id = ?
     `).run(
         serializeJson({ ...metadata, meta_estimate_details: estimate.details || undefined }),
-        estimate.status,
+        metaChargeStatus,
         estimate.pricing_basis,
         estimate.category,
         estimate.country_calling_code,
@@ -1229,15 +1233,26 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
     if (!usage) return null;
 
     const normalizedStatus = String(status || '').toLowerCase();
+    const statusPayload = {
+        status: normalizedStatus || null,
+        timestamp: timestamp || null,
+        pricing: pricing ? {
+            pricing_model: pricing.pricing_model || pricing.model || null,
+            billable: pricing.billable ?? null,
+            category: pricing.category || pricing.pricing_category || null,
+            type: pricing.type || pricing.pricing_type || null,
+        } : null,
+    };
     if (['failed', 'undelivered'].includes(normalizedStatus)) {
         db.prepare(`
             UPDATE billing_usage_events
             SET meta_charge_status = 'not_charged',
                 meta_final_amount = 0,
                 meta_charge_reason = ?,
+                meta_status_payload_json = ?,
                 meta_priced_at = ${nowSql}
             WHERE id = ?
-        `).run(`message_${normalizedStatus}`, usage.id);
+        `).run(`message_${normalizedStatus}`, serializeJson(statusPayload), usage.id);
         return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
     }
 
@@ -1266,6 +1281,7 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
             meta_final_amount = ?,
             meta_rate_card_id = ?,
             meta_charge_reason = ?,
+            meta_status_payload_json = ?,
             meta_delivered_at = COALESCE(meta_delivered_at, ?),
             meta_priced_at = ${nowSql}
         WHERE id = ?
@@ -1279,6 +1295,7 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
         estimate.status === 'rate_missing' ? 0 : Number(estimate.amount) || 0,
         estimate.rate_card_id,
         pricing?.pricing_model ? `${estimate.reason}; pricing_model=${pricing.pricing_model}` : estimate.reason,
+        serializeJson(statusPayload),
         timestamp ? sqlDate(Number(timestamp) * 1000) : sqlDate(),
         usage.id
     );
@@ -1420,7 +1437,12 @@ export function getMetaCostSummary({ tenantId = null, periodStart = null, period
             COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
             COALESCE(SUM(meta_final_amount), 0) AS final_amount,
             COUNT(*) AS usage_count,
+            SUM(CASE WHEN meta_charge_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN meta_charge_status = 'estimated' THEN 1 ELSE 0 END) AS estimated_count,
+            SUM(CASE WHEN meta_charge_status = 'final' THEN 1 ELSE 0 END) AS final_count,
+            SUM(CASE WHEN meta_charge_status = 'not_charged' THEN 1 ELSE 0 END) AS not_charged_count,
             SUM(CASE WHEN meta_charge_status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
+            SUM(CASE WHEN meta_charge_status = 'invoice_reconciled' THEN 1 ELSE 0 END) AS invoice_reconciled_count,
             SUM(CASE WHEN meta_charge_status IN ('estimated', 'final') THEN 1 ELSE 0 END) AS priced_count
         FROM billing_usage_events
         WHERE ${clauses.join(' AND ')}
@@ -1812,36 +1834,425 @@ export function getMetaUsageComparison({ tenantId, periodStart = null, periodEnd
     };
 }
 
+export function getBillingSettings() {
+    const rows = db.prepare('SELECT key, value, description, updated_at FROM billing_settings ORDER BY key').all();
+    const settings = rows.reduce((acc, row) => {
+        acc[row.key] = row.value;
+        return acc;
+    }, {});
+    return {
+        settings: {
+            meta_cost_exchange_rate_to_lyd: Number(settings.meta_cost_exchange_rate_to_lyd || 1) || 1,
+            meta_cost_margin_note: settings.meta_cost_margin_note || '',
+        },
+        rows,
+    };
+}
+
+export function updateBillingSettings(data = {}) {
+    const allowed = {
+        meta_cost_exchange_rate_to_lyd: (value) => String(Math.max(Number(value) || 1, 0)),
+        meta_cost_margin_note: (value) => String(value || '').trim(),
+    };
+    const transaction = db.transaction(() => {
+        for (const [key, normalize] of Object.entries(allowed)) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+                db.prepare(`
+                    INSERT INTO billing_settings (key, value, updated_at)
+                    VALUES (?, ?, ${nowSql})
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = ${nowSql}
+                `).run(key, normalize(data[key]));
+            }
+        }
+        return getBillingSettings();
+    });
+    return transaction();
+}
+
+function getLatestSnapshot({ tenantId, periodStart, periodEnd, snapshotId = null }) {
+    if (snapshotId) {
+        return db.prepare('SELECT * FROM meta_usage_snapshots WHERE id = ? AND tenant_id = ?').get(snapshotId, tenantId) || null;
+    }
+    return db.prepare(`
+        SELECT *
+        FROM meta_usage_snapshots
+        WHERE tenant_id = ?
+          AND period_start = ?
+          AND period_end = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+    `).get(tenantId, periodStart, periodEnd) || null;
+}
+
+function getLatestMetaInvoiceForPeriod({ tenantId, periodStart, periodEnd }) {
+    return db.prepare(`
+        SELECT *
+        FROM meta_invoices
+        WHERE tenant_id = ?
+          AND (
+              (period_start IS NULL AND period_end IS NULL)
+              OR (date(COALESCE(period_start, ?)) <= date(?) AND date(COALESCE(period_end, ?)) >= date(?))
+          )
+        ORDER BY COALESCE(period_end, created_at) DESC, id DESC
+        LIMIT 1
+    `).get(tenantId, periodStart, periodEnd, periodEnd, periodStart) || null;
+}
+
+function getMetaStatusCounts({ tenantId, startSql, endSql }) {
+    return db.prepare(`
+        SELECT
+            SUM(CASE WHEN meta_charge_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN meta_charge_status = 'estimated' THEN 1 ELSE 0 END) AS estimated_count,
+            SUM(CASE WHEN meta_charge_status = 'final' THEN 1 ELSE 0 END) AS final_count,
+            SUM(CASE WHEN meta_charge_status = 'not_charged' THEN 1 ELSE 0 END) AS not_charged_count,
+            SUM(CASE WHEN meta_charge_status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
+            SUM(CASE WHEN meta_charge_status = 'invoice_reconciled' THEN 1 ELSE 0 END) AS invoice_reconciled_count,
+            SUM(CASE WHEN reference_type = 'message' AND (reference_id IS NULL OR reference_id = '') THEN 1 ELSE 0 END) AS missing_wamid_count
+        FROM billing_usage_events
+        WHERE tenant_id = ?
+          AND channel = 'whatsapp'
+          AND status = 'committed'
+          AND committed_at >= ?
+          AND committed_at <= ?
+    `).get(tenantId, startSql, endSql) || {};
+}
+
+function listMetaReconciliationActionItems({ tenantId, startSql, endSql, limit = 50 }) {
+    return db.prepare(`
+        SELECT bue.*, t.name AS tenant_name,
+               CASE
+                   WHEN bue.meta_charge_status = 'rate_missing' THEN 'missing_rate'
+                   WHEN bue.meta_charge_status = 'pending' THEN 'no_webhook_status'
+                   WHEN bue.reference_type = 'message' AND (bue.reference_id IS NULL OR bue.reference_id = '') THEN 'missing_wamid'
+                   ELSE 'needs_review'
+               END AS action_reason
+        FROM billing_usage_events bue
+        LEFT JOIN tenants t ON t.id = bue.tenant_id
+        WHERE bue.tenant_id = ?
+          AND bue.channel = 'whatsapp'
+          AND bue.status = 'committed'
+          AND bue.committed_at >= ?
+          AND bue.committed_at <= ?
+          AND (
+              bue.meta_charge_status IN ('pending', 'rate_missing')
+              OR (bue.reference_type = 'message' AND (bue.reference_id IS NULL OR bue.reference_id = ''))
+          )
+        ORDER BY bue.committed_at DESC, bue.id DESC
+        LIMIT ?
+    `).all(tenantId, startSql, endSql, Math.max(toInt(limit, 50), 1));
+}
+
+function linkUsageToReconciliationPeriod({ periodId, invoiceId = null, tenantId, startSql, endSql }) {
+    db.prepare(`
+        UPDATE billing_usage_events
+        SET meta_reconciliation_period_id = COALESCE(meta_reconciliation_period_id, ?)
+        WHERE tenant_id = ?
+          AND channel = 'whatsapp'
+          AND status = 'committed'
+          AND committed_at >= ?
+          AND committed_at <= ?
+    `).run(periodId, tenantId, startSql, endSql);
+
+    if (invoiceId) {
+        db.prepare(`
+            UPDATE billing_usage_events
+            SET meta_invoice_id = COALESCE(meta_invoice_id, ?),
+                meta_charge_status = CASE
+                    WHEN meta_charge_status IN ('pending', 'estimated', 'final') THEN 'invoice_reconciled'
+                    ELSE meta_charge_status
+                END
+            WHERE tenant_id = ?
+              AND channel = 'whatsapp'
+              AND status = 'committed'
+              AND committed_at >= ?
+              AND committed_at <= ?
+        `).run(invoiceId, tenantId, startSql, endSql);
+    }
+}
+
+function buildMetaReconciliationMetrics({ tenantId, periodStart, periodEnd, snapshotId = null }) {
+    const startSql = normalizeSqlDate(periodStart);
+    const endSql = normalizeSqlDate(periodEnd, true);
+    const local = getLocalMetaReconciliation({ tenantId, periodStart, periodEnd });
+    const snapshot = getLatestSnapshot({ tenantId, periodStart, periodEnd, snapshotId });
+    const invoice = getLatestMetaInvoiceForPeriod({ tenantId, periodStart, periodEnd });
+    const counts = getMetaStatusCounts({ tenantId, startSql, endSql });
+    const diffSent = (snapshot?.meta_sent || 0) - local.local_sent;
+    const diffDelivered = (snapshot?.meta_delivered || 0) - local.local_delivered;
+    const metaCost = Number(snapshot?.meta_cost_amount) || 0;
+    const diffMetaVsLocalCost = metaCost - local.local_final_amount;
+    const diffInvoiceVsLocalCost = local.invoice_total_amount - local.local_final_amount;
+    const needsActionCount = toInt(counts.pending_count)
+        + toInt(counts.rate_missing_count)
+        + toInt(counts.missing_wamid_count);
+
+    let status = 'open';
+    const snapshotIncomplete = snapshot && snapshot.status !== 'synced';
+    const hasDiff = snapshotIncomplete
+        || Math.abs(diffSent) > 0
+        || Math.abs(diffDelivered) > 0
+        || Math.abs(diffMetaVsLocalCost) > META_COST_DIFF_THRESHOLD
+        || needsActionCount > 0;
+    if (hasDiff) status = 'needs_review';
+    else if (local.invoice_total_amount > 0 || invoice) status = 'invoice_reconciled';
+    else if (snapshot) status = 'synced';
+
+    return {
+        tenant_id: tenantId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        start_sql: startSql,
+        end_sql: endSql,
+        status,
+        currency: snapshot?.currency || invoice?.currency || null,
+        snapshot,
+        invoice,
+        local,
+        counts: {
+            pending_count: toInt(counts.pending_count),
+            estimated_count: toInt(counts.estimated_count),
+            final_count: toInt(counts.final_count),
+            not_charged_count: toInt(counts.not_charged_count),
+            rate_missing_count: toInt(counts.rate_missing_count),
+            invoice_reconciled_count: toInt(counts.invoice_reconciled_count),
+            missing_wamid_count: toInt(counts.missing_wamid_count),
+            needs_action_count: needsActionCount,
+        },
+        comparison: {
+            meta_sent: snapshot?.meta_sent || 0,
+            local_sent: local.local_sent,
+            diff_sent: diffSent,
+            meta_delivered: snapshot?.meta_delivered || 0,
+            local_delivered: local.local_delivered,
+            diff_delivered: diffDelivered,
+            meta_cost_amount: metaCost,
+            local_estimated_amount: local.local_estimated_amount,
+            local_final_amount: local.local_final_amount,
+            invoice_total_amount: local.invoice_total_amount,
+            diff_meta_vs_local_cost: diffMetaVsLocalCost,
+            diff_invoice_vs_local_cost: diffInvoiceVsLocalCost,
+        },
+    };
+}
+
+function upsertMetaReconciliationPeriod({ tenantId, periodStart, periodEnd, snapshotId = null, invoiceId = null, reviewedBy = null } = {}) {
+    const tenant = db.prepare('SELECT id, waba_id FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant) {
+        throw new BillingError('العميل غير موجود', { status: 404, code: 'TENANT_NOT_FOUND' });
+    }
+
+    const transaction = db.transaction(() => {
+        let period = db.prepare(`
+            SELECT *
+            FROM billing_meta_reconciliation_periods
+            WHERE tenant_id = ? AND period_start = ? AND period_end = ?
+        `).get(tenantId, periodStart, periodEnd);
+
+        if (!period) {
+            const result = db.prepare(`
+                INSERT INTO billing_meta_reconciliation_periods (
+                    tenant_id, waba_id, period_start, period_end, status
+                ) VALUES (?, ?, ?, ?, 'open')
+            `).run(tenantId, tenant.waba_id || null, periodStart, periodEnd);
+            period = db.prepare('SELECT * FROM billing_meta_reconciliation_periods WHERE id = ?').get(result.lastInsertRowid);
+        }
+
+        const latestInvoice = invoiceId
+            ? db.prepare('SELECT * FROM meta_invoices WHERE id = ?').get(invoiceId)
+            : getLatestMetaInvoiceForPeriod({ tenantId, periodStart, periodEnd });
+        const metricsBeforeLink = buildMetaReconciliationMetrics({ tenantId, periodStart, periodEnd, snapshotId });
+        linkUsageToReconciliationPeriod({
+            periodId: period.id,
+            invoiceId: latestInvoice?.id || null,
+            tenantId,
+            startSql: metricsBeforeLink.start_sql,
+            endSql: metricsBeforeLink.end_sql,
+        });
+        const metrics = buildMetaReconciliationMetrics({ tenantId, periodStart, periodEnd, snapshotId });
+        const status = META_RECONCILIATION_STATUSES.has(metrics.status) ? metrics.status : 'open';
+
+        db.prepare(`
+            UPDATE billing_meta_reconciliation_periods
+            SET waba_id = ?,
+                status = ?,
+                currency = ?,
+                meta_sent = ?,
+                meta_delivered = ?,
+                local_sent = ?,
+                local_delivered = ?,
+                diff_sent = ?,
+                diff_delivered = ?,
+                meta_cost_amount = ?,
+                local_estimated_amount = ?,
+                local_final_amount = ?,
+                invoice_total_amount = ?,
+                diff_meta_vs_local_cost = ?,
+                diff_invoice_vs_local_cost = ?,
+                pending_count = ?,
+                estimated_count = ?,
+                final_count = ?,
+                not_charged_count = ?,
+                rate_missing_count = ?,
+                invoice_reconciled_count = ?,
+                missing_wamid_count = ?,
+                needs_action_count = ?,
+                last_snapshot_id = COALESCE(?, last_snapshot_id),
+                last_invoice_id = COALESCE(?, last_invoice_id),
+                summary_json = ?,
+                reviewed_at = COALESCE(reviewed_at, CASE WHEN ? IS NULL THEN NULL ELSE ${nowSql} END),
+                reviewed_by = COALESCE(reviewed_by, ?),
+                updated_at = ${nowSql}
+            WHERE id = ?
+        `).run(
+            tenant.waba_id || null,
+            status,
+            metrics.currency,
+            metrics.comparison.meta_sent,
+            metrics.comparison.meta_delivered,
+            metrics.comparison.local_sent,
+            metrics.comparison.local_delivered,
+            metrics.comparison.diff_sent,
+            metrics.comparison.diff_delivered,
+            metrics.comparison.meta_cost_amount,
+            metrics.comparison.local_estimated_amount,
+            metrics.comparison.local_final_amount,
+            metrics.comparison.invoice_total_amount,
+            metrics.comparison.diff_meta_vs_local_cost,
+            metrics.comparison.diff_invoice_vs_local_cost,
+            metrics.counts.pending_count,
+            metrics.counts.estimated_count,
+            metrics.counts.final_count,
+            metrics.counts.not_charged_count,
+            metrics.counts.rate_missing_count,
+            metrics.counts.invoice_reconciled_count,
+            metrics.counts.missing_wamid_count,
+            metrics.counts.needs_action_count,
+            metrics.snapshot?.id || snapshotId || null,
+            latestInvoice?.id || invoiceId || null,
+            serializeJson({
+                local: metrics.local,
+                comparison: metrics.comparison,
+                counts: metrics.counts,
+                snapshot_status: metrics.snapshot?.status || null,
+                threshold: META_COST_DIFF_THRESHOLD,
+            }),
+            reviewedBy || null,
+            reviewedBy || null,
+            period.id
+        );
+
+        return db.prepare('SELECT * FROM billing_meta_reconciliation_periods WHERE id = ?').get(period.id);
+    });
+
+    return transaction();
+}
+
+export function getMetaReconciliation({ tenantId, periodStart, periodEnd } = {}) {
+    if (!tenantId || !periodStart || !periodEnd) {
+        throw new BillingError('tenant_id و period_start و period_end مطلوبة للمطابقة', {
+            status: 400,
+            code: 'META_RECONCILIATION_FIELDS_REQUIRED',
+        });
+    }
+    const metrics = buildMetaReconciliationMetrics({ tenantId, periodStart, periodEnd });
+    const period = db.prepare(`
+        SELECT *
+        FROM billing_meta_reconciliation_periods
+        WHERE tenant_id = ? AND period_start = ? AND period_end = ?
+    `).get(tenantId, periodStart, periodEnd) || null;
+    const actionItems = listMetaReconciliationActionItems({
+        tenantId,
+        startSql: metrics.start_sql,
+        endSql: metrics.end_sql,
+        limit: 50,
+    });
+    return {
+        period,
+        metrics,
+        action_items: actionItems,
+        settings: getBillingSettings().settings,
+    };
+}
+
+export async function syncMetaReconciliationPeriod({ tenantId, periodStart, periodEnd, granularity = 'MONTHLY', createdBy = null } = {}) {
+    const snapshot = await syncMetaUsageSnapshot({ tenantId, periodStart, periodEnd, granularity, createdBy });
+    const period = upsertMetaReconciliationPeriod({
+        tenantId,
+        periodStart,
+        periodEnd,
+        snapshotId: snapshot.id,
+    });
+    return {
+        period,
+        snapshot,
+        reconciliation: getMetaReconciliation({ tenantId, periodStart, periodEnd }),
+    };
+}
+
+export function markMetaReconciliationReviewed({ id, reviewedBy = null } = {}) {
+    const existing = db.prepare('SELECT * FROM billing_meta_reconciliation_periods WHERE id = ?').get(id);
+    if (!existing) {
+        throw new BillingError('فترة المطابقة غير موجودة', { status: 404, code: 'META_RECONCILIATION_NOT_FOUND' });
+    }
+
+    const nextStatus = existing.invoice_total_amount > 0 ? 'invoice_reconciled' : 'synced';
+    db.prepare(`
+        UPDATE billing_meta_reconciliation_periods
+        SET status = ?,
+            reviewed_at = ${nowSql},
+            reviewed_by = ?,
+            updated_at = ${nowSql}
+        WHERE id = ?
+    `).run(nextStatus, reviewedBy || null, id);
+
+    return db.prepare('SELECT * FROM billing_meta_reconciliation_periods WHERE id = ?').get(id);
+}
+
 export function createMetaInvoice({ tenantId = null, businessId = null, wabaId = null, invoiceNumber = null, periodStart = null, periodEnd = null, currency = 'USD', subtotalAmount = 0, taxAmount = 0, totalAmount = null, status = 'received', invoiceUrl = null, notes = null, metadata = null, createdBy = null } = {}) {
     const total = totalAmount === null || totalAmount === undefined
         ? (Number(subtotalAmount) || 0) + (Number(taxAmount) || 0)
         : Number(totalAmount) || 0;
 
-    const result = db.prepare(`
-        INSERT INTO meta_invoices (
-            tenant_id, business_id, waba_id, invoice_number, provider,
-            period_start, period_end, currency, subtotal_amount, tax_amount,
-            total_amount, status, invoice_url, notes, metadata_json, created_by
-        ) VALUES (?, ?, ?, ?, 'meta', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-        tenantId || null,
-        businessId || null,
-        wabaId || null,
-        invoiceNumber || `META-${Date.now()}`,
-        periodStart || null,
-        periodEnd || null,
-        String(currency || 'USD').toUpperCase(),
-        Number(subtotalAmount) || 0,
-        Number(taxAmount) || 0,
-        total,
-        status || 'received',
-        invoiceUrl || null,
-        notes || null,
-        serializeJson(metadata),
-        createdBy || null
-    );
+    const transaction = db.transaction(() => {
+        const result = db.prepare(`
+            INSERT INTO meta_invoices (
+                tenant_id, business_id, waba_id, invoice_number, provider,
+                period_start, period_end, currency, subtotal_amount, tax_amount,
+                total_amount, status, invoice_url, notes, metadata_json, created_by
+            ) VALUES (?, ?, ?, ?, 'meta', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            tenantId || null,
+            businessId || null,
+            wabaId || null,
+            invoiceNumber || `META-${Date.now()}`,
+            periodStart || null,
+            periodEnd || null,
+            String(currency || 'USD').toUpperCase(),
+            Number(subtotalAmount) || 0,
+            Number(taxAmount) || 0,
+            total,
+            status || 'received',
+            invoiceUrl || null,
+            notes || null,
+            serializeJson(metadata),
+            createdBy || null
+        );
 
-    return db.prepare('SELECT * FROM meta_invoices WHERE id = ?').get(result.lastInsertRowid);
+        const invoice = db.prepare('SELECT * FROM meta_invoices WHERE id = ?').get(result.lastInsertRowid);
+        if (tenantId && periodStart && periodEnd) {
+            upsertMetaReconciliationPeriod({
+                tenantId,
+                periodStart,
+                periodEnd,
+                invoiceId: invoice.id,
+            });
+        }
+        return invoice;
+    });
+
+    return transaction();
 }
 
 export function handleBillingError(res, error) {

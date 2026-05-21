@@ -8,14 +8,19 @@ import {
     createMetaInvoice,
     createMetaRate,
     createInvoice,
+    getBillingSettings,
     getMetaCostSummary,
+    getMetaReconciliation,
     getMetaUsage,
     getMetaUsageComparison,
     handleBillingError,
     listMetaInvoices,
     listMetaRates,
     listMetaUsageSnapshots,
+    markMetaReconciliationReviewed,
+    syncMetaReconciliationPeriod,
     syncMetaUsageSnapshot,
+    updateBillingSettings,
     updateMetaRate,
     updateTenantBillingAccount,
 } from '../services/billing.js';
@@ -396,6 +401,24 @@ router.post('/meta/rates/import', upload.single('file'), (req, res) => {
     }
 });
 
+router.get('/meta/settings', (req, res) => {
+    try {
+        res.json(getBillingSettings());
+    } catch (error) {
+        console.error('[Billing] Meta settings fetch error:', error);
+        res.status(500).json({ error: 'فشل جلب إعدادات تكلفة Meta' });
+    }
+});
+
+router.patch('/meta/settings', (req, res) => {
+    try {
+        res.json(updateBillingSettings(req.body || {}));
+    } catch (error) {
+        console.error('[Billing] Meta settings update error:', error);
+        res.status(500).json({ error: 'فشل تحديث إعدادات تكلفة Meta' });
+    }
+});
+
 router.get('/meta/summary', (req, res) => {
     try {
         res.json(getMetaCostSummary({
@@ -406,6 +429,52 @@ router.get('/meta/summary', (req, res) => {
     } catch (error) {
         console.error('[Billing] Meta summary error:', error);
         res.status(500).json({ error: 'فشل جلب ملخص تكلفة Meta' });
+    }
+});
+
+router.get('/meta/reconciliation', (req, res) => {
+    try {
+        res.json(getMetaReconciliation({
+            tenantId: req.query.tenant_id,
+            periodStart: req.query.period_start,
+            periodEnd: req.query.period_end,
+        }));
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('[Billing] Meta reconciliation fetch error:', error);
+        res.status(500).json({ error: 'فشل جلب مطابقة تكلفة Meta' });
+    }
+});
+
+router.post('/meta/reconciliation/sync', async (req, res) => {
+    try {
+        const result = await syncMetaReconciliationPeriod({
+            tenantId: req.body.tenant_id,
+            periodStart: req.body.period_start || req.body.start_date,
+            periodEnd: req.body.period_end || req.body.end_date,
+            granularity: req.body.granularity || 'MONTHLY',
+            createdBy: req.user?.id || null,
+        });
+        res.status(201).json(result);
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('[Billing] Meta reconciliation sync error:', error);
+        res.status(500).json({ error: 'فشل مزامنة مطابقة Meta' });
+    }
+});
+
+router.post('/meta/reconciliation/:id/mark-reviewed', (req, res) => {
+    try {
+        res.json({
+            period: markMetaReconciliationReviewed({
+                id: req.params.id,
+                reviewedBy: req.user?.id || null,
+            }),
+        });
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('[Billing] Meta reconciliation review error:', error);
+        res.status(500).json({ error: 'فشل تعليم فترة Meta كمراجعة' });
     }
 });
 

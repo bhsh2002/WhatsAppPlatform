@@ -1328,6 +1328,35 @@ class ApiService {
         return this.request(`/api/billing/meta/summary${query ? '?' + query : ''}`);
     }
 
+    async getMetaBillingSettings() {
+        return this.request('/api/billing/meta/settings');
+    }
+
+    async updateMetaBillingSettings(data) {
+        return this.request('/api/billing/meta/settings', {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getMetaReconciliation(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/billing/meta/reconciliation${query ? '?' + query : ''}`);
+    }
+
+    async syncMetaReconciliation(data) {
+        return this.request('/api/billing/meta/reconciliation/sync', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async markMetaReconciliationReviewed(id) {
+        return this.request(`/api/billing/meta/reconciliation/${id}/mark-reviewed`, {
+            method: 'POST',
+        });
+    }
+
     async getMetaBillingUsage(params = {}) {
         const query = new URLSearchParams(params).toString();
         return this.request(`/api/billing/meta/usage${query ? '?' + query : ''}`);

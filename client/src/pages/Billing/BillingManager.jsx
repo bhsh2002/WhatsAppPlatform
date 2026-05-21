@@ -74,6 +74,11 @@ const BillingManager = () => {
     const [metaInvoices, setMetaInvoices] = useState([]);
     const [metaSnapshots, setMetaSnapshots] = useState([]);
     const [metaComparison, setMetaComparison] = useState(null);
+    const [metaReconciliation, setMetaReconciliation] = useState(null);
+    const [metaSettings, setMetaSettings] = useState({
+        meta_cost_exchange_rate_to_lyd: 1,
+        meta_cost_margin_note: '',
+    });
     const [tenants, setTenants] = useState([]);
     const [selectedTenantId, setSelectedTenantId] = useState('');
     const [billing, setBilling] = useState(null);
@@ -129,7 +134,12 @@ const BillingManager = () => {
         [tenants, selectedTenantId],
     );
     const latestMetaSnapshot = metaComparison?.latest_snapshot || metaSnapshots[0] || null;
-    const metaDisplayCurrency = latestMetaSnapshot?.currency || metaSummary?.by_category?.[0]?.currency || '';
+    const reconciliationMetrics = metaReconciliation?.metrics || null;
+    const reconciliationPeriod = metaReconciliation?.period || null;
+    const activeMetaComparison = reconciliationMetrics?.comparison || metaComparison?.comparison || null;
+    const metaDisplayCurrency = reconciliationMetrics?.currency || latestMetaSnapshot?.currency || metaSummary?.by_category?.[0]?.currency || '';
+    const metaExchangeRate = Number(metaSettings.meta_cost_exchange_rate_to_lyd || 1) || 1;
+    const metaCostLyd = (Number(reconciliationMetrics?.comparison?.meta_cost_amount || latestMetaSnapshot?.meta_cost_amount || 0) || 0) * metaExchangeRate;
 
     const fetchAll = async () => {
         try {
@@ -173,24 +183,33 @@ const BillingManager = () => {
 
     const fetchMetaBilling = async (tenantId = selectedTenantId) => {
         const params = tenantId ? { tenant_id: tenantId } : {};
-        const [ratesData, summaryData, usageData, invoicesData] = await Promise.all([
+        const [ratesData, summaryData, usageData, invoicesData, settingsData] = await Promise.all([
             api.getMetaBillingRates(),
             api.getMetaBillingSummary(params),
             api.getMetaBillingUsage({ ...params, limit: 25 }),
             api.getMetaInvoices({ ...params, limit: 20 }),
+            api.getMetaBillingSettings(),
         ]);
-        const [snapshotsData, comparisonData] = tenantId
+        const periodParams = {
+            tenant_id: tenantId,
+            period_start: metaUsageSyncForm.period_start,
+            period_end: metaUsageSyncForm.period_end,
+        };
+        const [snapshotsData, comparisonData, reconciliationData] = tenantId
             ? await Promise.all([
                 api.getMetaUsageSnapshots({ tenant_id: tenantId, limit: 5 }),
-                api.getMetaUsageComparison({ tenant_id: tenantId }),
+                api.getMetaUsageComparison(periodParams),
+                api.getMetaReconciliation(periodParams),
             ])
-            : [{ snapshots: [] }, null];
+            : [{ snapshots: [] }, null, null];
         setMetaRates(ratesData.rates || []);
         setMetaSummary(summaryData || null);
         setMetaUsage(usageData.usage || []);
         setMetaInvoices(invoicesData.invoices || []);
+        setMetaSettings(settingsData.settings || { meta_cost_exchange_rate_to_lyd: 1, meta_cost_margin_note: '' });
         setMetaSnapshots(snapshotsData.snapshots || []);
         setMetaComparison(comparisonData || null);
+        setMetaReconciliation(reconciliationData || null);
     };
 
     useEffect(() => {
@@ -367,13 +386,38 @@ const BillingManager = () => {
         if (!selectedTenantId) return;
         setSaving(true);
         try {
-            await api.syncMetaUsage({
+            await api.syncMetaReconciliation({
                 tenant_id: selectedTenantId,
                 ...metaUsageSyncForm,
             });
             await fetchMetaBilling();
         } catch (err) {
             setError(err.message || 'فشل مزامنة استهلاك Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const saveMetaSettings = async () => {
+        setSaving(true);
+        try {
+            const result = await api.updateMetaBillingSettings(metaSettings);
+            setMetaSettings(result.settings || metaSettings);
+        } catch (err) {
+            setError(err.message || 'فشل حفظ إعدادات تكلفة Meta');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const markMetaReconciliationReviewed = async () => {
+        if (!reconciliationPeriod?.id) return;
+        setSaving(true);
+        try {
+            await api.markMetaReconciliationReviewed(reconciliationPeriod.id);
+            await fetchMetaBilling();
+        } catch (err) {
+            setError(err.message || 'فشل تعليم فترة Meta كمراجعة');
         } finally {
             setSaving(false);
         }
@@ -425,7 +469,7 @@ const BillingManager = () => {
                     <Tab label="الباقات" />
                     <Tab label="كتالوج الأسعار" />
                     <Tab label="السجل والفواتير" />
-                    <Tab label="تكلفة وفواتير Meta" />
+                    <Tab label="مطابقة تكلفة Meta" />
                 </Tabs>
             </Paper>
 
@@ -683,38 +727,38 @@ const BillingManager = () => {
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, md: 3 }}>
                         <StatCard
-                            title="تكلفة Meta من آخر مزامنة"
-                            value={money(latestMetaSnapshot?.meta_cost_amount, metaDisplayCurrency)}
+                            title="تكلفة Meta"
+                            value={money(reconciliationMetrics?.comparison?.meta_cost_amount ?? latestMetaSnapshot?.meta_cost_amount, metaDisplayCurrency)}
                             icon={<InvoiceIcon />}
                             color="error"
-                            caption={latestMetaSnapshot ? `${latestMetaSnapshot.period_start} → ${latestMetaSnapshot.period_end}` : 'لم تتم مزامنة الاستهلاك بعد'}
+                            caption={`${money(metaCostLyd, 'LYD')} بسعر التحويل الإداري`}
                         />
                     </Grid>
                     <Grid size={{ xs: 12, md: 3 }}>
                         <StatCard
-                            title="تكلفة محلية مؤكدة"
-                            value={money(metaSummary?.totals?.final_amount, metaDisplayCurrency)}
+                            title="مؤكد من Webhook"
+                            value={number(reconciliationMetrics?.counts?.final_count ?? metaSummary?.totals?.priced_count)}
                             icon={<PriceIcon />}
                             color="warning"
-                            caption="من usage events وstatus delivered/read"
+                            caption={money(reconciliationMetrics?.comparison?.local_final_amount ?? metaSummary?.totals?.final_amount, metaDisplayCurrency)}
                         />
                     </Grid>
                     <Grid size={{ xs: 12, md: 3 }}>
                         <StatCard
-                            title="عمليات بلا سعر"
-                            value={number(metaSummary?.totals?.rate_missing_count)}
+                            title="بانتظار Webhook"
+                            value={number(reconciliationMetrics?.counts?.pending_count ?? 0)}
                             icon={<RefreshIcon />}
                             color="warning"
-                            caption="تحتاج rate card"
+                            caption="pending قبل delivered/read"
                         />
                     </Grid>
                     <Grid size={{ xs: 12, md: 3 }}>
                         <StatCard
-                            title="فواتير Meta"
-                            value={number(metaInvoices.length)}
+                            title="يحتاج مراجعة"
+                            value={number(reconciliationMetrics?.counts?.needs_action_count ?? metaSummary?.totals?.rate_missing_count)}
                             icon={<InvoiceIcon />}
-                            color="info"
-                            caption={selectedTenant?.business_id ? `Business ${selectedTenant.business_id}` : 'اختر عميل لديه Business ID'}
+                            color={reconciliationPeriod?.status === 'needs_review' ? 'error' : 'info'}
+                            caption={`الفترة: ${reconciliationPeriod?.status || reconciliationMetrics?.status || 'open'}`}
                         />
                     </Grid>
 
@@ -722,13 +766,13 @@ const BillingManager = () => {
                         <Paper sx={{ p: 2 }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
                                 <Box>
-                                    <Typography variant="h6" fontWeight={700}>مزامنة استهلاك Meta والمطابقة</Typography>
+                                    <Typography variant="h6" fontWeight={700}>Meta Cost Reconciliation</Typography>
                                     <Typography variant="body2" color="text.secondary">
-                                        يجلب WABA analytics من Meta ثم يقارنها بالاستهلاك المحلي وفواتير Meta المسجلة.
+                                        تقارن الفترة بين Meta analytics، usage المحلي، تكلفة webhook، وفواتير Meta. لا يتم تعديل رصيد العميل من هذه المطابقة.
                                     </Typography>
                                 </Box>
                                 <Button startIcon={<SyncIcon />} variant="contained" onClick={syncMetaUsage} disabled={saving || !selectedTenantId || !metaUsageSyncForm.period_start || !metaUsageSyncForm.period_end}>
-                                    مزامنة الاستهلاك
+                                    مزامنة ومطابقة
                                 </Button>
                             </Box>
                             <Grid container spacing={1.5}>
@@ -748,29 +792,117 @@ const BillingManager = () => {
                                     </FormControl>
                                 </Grid>
                             </Grid>
-                            {metaComparison?.comparison && (
+                            {(reconciliationPeriod || reconciliationMetrics) && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 2 }}>
+                                    <Chip
+                                        label={reconciliationPeriod?.status || reconciliationMetrics?.status || 'open'}
+                                        color={(reconciliationPeriod?.status || reconciliationMetrics?.status) === 'needs_review' ? 'error' : 'success'}
+                                    />
+                                    {reconciliationPeriod?.id && reconciliationPeriod.status === 'needs_review' && (
+                                        <Button size="small" variant="outlined" onClick={markMetaReconciliationReviewed} disabled={saving}>
+                                            تعليم كمراجعة
+                                        </Button>
+                                    )}
+                                    <Typography variant="caption" color="text.secondary">
+                                        threshold: 0.01 {metaDisplayCurrency || 'USD'} أو أي فرق sent/delivered
+                                    </Typography>
+                                </Box>
+                            )}
+                            {activeMetaComparison && (
                                 <Grid container spacing={1.5} sx={{ mt: 2 }}>
                                     <Grid size={{ xs: 12, md: 3 }}>
-                                        <Alert severity={Math.abs(metaComparison.comparison.diff_sent) > 0 ? 'warning' : 'success'}>
-                                            Meta sent: {number(metaComparison.comparison.meta_sent)} / المحلي: {number(metaComparison.comparison.local_sent)}
+                                        <Alert severity={Math.abs(activeMetaComparison.diff_sent) > 0 ? 'warning' : 'success'}>
+                                            Meta sent: {number(activeMetaComparison.meta_sent)} / المحلي: {number(activeMetaComparison.local_sent)}
                                         </Alert>
                                     </Grid>
                                     <Grid size={{ xs: 12, md: 3 }}>
-                                        <Alert severity={Math.abs(metaComparison.comparison.diff_delivered) > 0 ? 'warning' : 'success'}>
-                                            Meta delivered: {number(metaComparison.comparison.meta_delivered)} / المحلي: {number(metaComparison.comparison.local_delivered)}
+                                        <Alert severity={Math.abs(activeMetaComparison.diff_delivered) > 0 ? 'warning' : 'success'}>
+                                            Meta delivered: {number(activeMetaComparison.meta_delivered)} / المحلي: {number(activeMetaComparison.local_delivered)}
                                         </Alert>
                                     </Grid>
                                     <Grid size={{ xs: 12, md: 3 }}>
-                                        <Alert severity={Math.abs(metaComparison.comparison.diff_meta_vs_local_cost) > 0.01 ? 'warning' : 'success'}>
-                                            Meta cost: {money(metaComparison.comparison.meta_cost_amount)}
+                                        <Alert severity={Math.abs(activeMetaComparison.diff_meta_vs_local_cost) > 0.01 ? 'warning' : 'success'}>
+                                            Meta cost: {money(activeMetaComparison.meta_cost_amount, metaDisplayCurrency)}
                                         </Alert>
                                     </Grid>
                                     <Grid size={{ xs: 12, md: 3 }}>
-                                        <Alert severity={Math.abs(metaComparison.comparison.diff_invoice_vs_local_cost) > 0.01 ? 'warning' : 'info'}>
-                                            Invoice total: {money(metaComparison.comparison.invoice_total_amount)}
+                                        <Alert severity={Math.abs(activeMetaComparison.diff_invoice_vs_local_cost) > 0.01 ? 'warning' : 'info'}>
+                                            Invoice total: {money(activeMetaComparison.invoice_total_amount, metaDisplayCurrency)}
                                         </Alert>
                                     </Grid>
                                 </Grid>
+                            )}
+                        </Paper>
+                    </Grid>
+
+                    <Grid size={{ xs: 12, md: 5 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>إعدادات تكلفة Meta</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                هذه القيم للعرض الإداري وحساب الهامش فقط، ولا تؤثر على رصيد العميل.
+                            </Typography>
+                            <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 12, sm: 5 }}>
+                                    <TextField
+                                        fullWidth
+                                        type="number"
+                                        label="سعر التحويل إلى LYD"
+                                        value={metaSettings.meta_cost_exchange_rate_to_lyd}
+                                        onChange={(e) => setMetaSettings({ ...metaSettings, meta_cost_exchange_rate_to_lyd: Number(e.target.value) || 1 })}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 7 }}>
+                                    <TextField
+                                        fullWidth
+                                        label="ملاحظة الهامش"
+                                        value={metaSettings.meta_cost_margin_note}
+                                        onChange={(e) => setMetaSettings({ ...metaSettings, meta_cost_margin_note: e.target.value })}
+                                    />
+                                </Grid>
+                            </Grid>
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 2, flexWrap: 'wrap' }}>
+                                <Button variant="contained" startIcon={<SaveIcon />} onClick={saveMetaSettings} disabled={saving}>
+                                    حفظ الإعدادات
+                                </Button>
+                                <Typography variant="body2" color="text.secondary">
+                                    Meta: {money(activeMetaComparison?.meta_cost_amount, metaDisplayCurrency)} / LYD: {money(metaCostLyd, 'LYD')}
+                                </Typography>
+                            </Box>
+                        </Paper>
+                    </Grid>
+
+                    <Grid size={{ xs: 12, md: 7 }}>
+                        <Paper sx={{ p: 2 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>عمليات تحتاج إجراء</Typography>
+                            {(metaReconciliation?.action_items || []).length === 0 ? (
+                                <Alert severity="success">لا توجد عمليات معلقة في الفترة الحالية.</Alert>
+                            ) : (
+                                <TableContainer sx={{ maxHeight: 260 }}>
+                                    <Table size="small" stickyHeader>
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>الوقت</TableCell>
+                                                <TableCell>العملية</TableCell>
+                                                <TableCell>السبب</TableCell>
+                                                <TableCell>WAMID</TableCell>
+                                                <TableCell>الحالة</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {(metaReconciliation?.action_items || []).map((item) => (
+                                                <TableRow key={item.id}>
+                                                    <TableCell>{item.committed_at || item.reserved_at}</TableCell>
+                                                    <TableCell>{item.operation_key}</TableCell>
+                                                    <TableCell>{item.action_reason}</TableCell>
+                                                    <TableCell>{item.reference_id || '-'}</TableCell>
+                                                    <TableCell>
+                                                        <Chip size="small" label={item.meta_charge_status || '-'} />
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
                             )}
                         </Paper>
                     </Grid>
