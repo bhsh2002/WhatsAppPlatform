@@ -79,7 +79,8 @@ router.post('/messages/send', async (req, res) => {
         const { recipient, type = 'text', message, template_language } = req.body;
         const shortcut = parseTemplateShortcut(req.body.message);
         const templateName = req.body.template_name || req.body.templateName || req.body.template || shortcut?.name;
-        const templateParams = req.body.template_params ?? req.body.templateParams ?? req.body.params ?? shortcut?.params ?? [];
+        const templateComponents = req.body.template_components ?? req.body.templateComponents ?? req.body.components;
+        const templateParams = templateComponents ?? req.body.template_params ?? req.body.templateParams ?? req.body.params ?? shortcut?.params ?? [];
         const templateLanguage = template_language || shortcut?.language;
         const effectiveType = (type === 'template' || templateName) ? 'template' : type;
 

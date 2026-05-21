@@ -344,9 +344,54 @@ Response:
 ملاحظة:
 - template_name: اسم القالب المعتمد في WhatsApp
 - template_language: رمز اللغة (ar, en, ...)
-- template_params: مصفوفة القيم التي تحل محل {{1}}, {{2}}, ...
+- template_params: مصفوفة بسيطة لحقول body فقط، وتحل محل {{1}}, {{2}}, ...
+- إذا كان القالب يحتوي header أو أزرار URL ديناميكية، استخدم template_components كما في المثال التالي.
 - يمكن أيضاً استخدام الصيغة المختصرة: {"template": "otp", "params": ["123456"]}
 - القالب يجب أن يكون بحالة "approved" ليعمل`}
+                                </pre>
+                            </Paper>
+
+                            <Typography variant="body2" sx={{ mt: 2, mb: 1 }}>
+                                مثال قالب يحتوي زر رابط ديناميكي:
+                            </Typography>
+                            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100', overflow: 'auto' }}>
+                                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+{`Body:
+{
+  "recipient": "218912345678",
+  "type": "template",
+  "template_name": "implementation_distance_alert",
+  "template_language": "ar",
+  "template_components": [
+    {
+      "type": "body",
+      "parameters": [
+        { "type": "text", "text": "14.42.206" },
+        { "type": "text", "text": "179061" },
+        { "type": "text", "text": "رؤوف الغزيوي" },
+        { "type": "text", "text": "2026-05-17 08:21" }
+      ]
+    },
+    {
+      "type": "button",
+      "sub_type": "url",
+      "index": "0",
+      "parameters": [
+        { "type": "text", "text": "14.42.206" }
+      ]
+    }
+  ]
+}
+
+في قالب Meta:
+- نص الزر: عرض اللوحة
+- رابط الزر: https://tracking.savana.ly/pm/buildings{{1}}
+
+ملاحظات أزرار URL:
+- أرسل قيمة المتغير فقط داخل parameters، وليس الرابط الكامل، إلا إذا كان {{1}} يمثل الرابط الكامل في القالب.
+- index يبدأ من "0" حسب ترتيب الأزرار داخل القالب.
+- إذا كان القالب يحتوي زر URL ثانٍ استخدم index: "1".
+- template_components هي الصيغة الكاملة المتوافقة مع WhatsApp Cloud API، ويمكن استخدامها أيضا للـ header media.`}
                                 </pre>
                             </Paper>
                         </AccordionDetails>
