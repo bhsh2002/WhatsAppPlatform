@@ -60,7 +60,7 @@ const MainLayout = ({ children }) => {
 
                 <Drawer
                     variant="permanent"
-                    anchor={theme.direction === 'rtl' ? 'right' : 'left'}
+                    anchor={theme.direction === 'rtl' ? 'left' : 'right'}
                     sx={{
                         display: { xs: 'none', md: 'block' },
                         '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
