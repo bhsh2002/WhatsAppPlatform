@@ -1311,7 +1311,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
 
                                 <Stack spacing={2}>
                                     {flowForm.nodes.map((node, nodeIndex) => (
-                                        <Paper key={`${node.node_key}-${nodeIndex}`} variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
+                                        <Paper key={`node-${nodeIndex}`} variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                                             <Grid container spacing={2}>
                                                 <Grid size={{ xs: 12, md: 2 }}>
                                                     <TextField
@@ -1563,7 +1563,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                         </Stack>
                                                         <Stack spacing={1}>
                                                             {node.buttons.map((button, buttonIndex) => (
-                                                                <Grid container spacing={1} key={`${buttonIndex}-${button.title}`}>
+                                                                <Grid container spacing={1} key={`button-${nodeIndex}-${buttonIndex}`}>
                                                                     <Grid size={{ xs: 12, md: 3 }}>
                                                                         <TextField fullWidth size="small" label="عنوان الزر" value={button.title} onChange={e => updateButton(nodeIndex, buttonIndex, { title: e.target.value })} />
                                                                     </Grid>
