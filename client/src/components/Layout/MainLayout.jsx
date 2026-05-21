@@ -46,7 +46,7 @@ const MainLayout = ({ children }) => {
             >
                 <Drawer
                     variant="temporary"
-                    anchor={theme.direction === 'rtl' ? 'right' : 'left'}
+                    anchor={theme.direction === 'rtl' ? 'left' : 'right'}
                     open={mobileOpen}
                     onClose={handleDrawerToggle}
                     ModalProps={{ keepMounted: true }}
