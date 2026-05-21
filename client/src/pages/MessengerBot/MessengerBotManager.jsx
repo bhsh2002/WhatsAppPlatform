@@ -481,6 +481,7 @@ function getClientDiagnostics(form, pages, flows, products) {
     const warnings = [];
     const nodeKeys = form.nodes.map(node => String(node.node_key || '').trim()).filter(Boolean);
     const duplicateKeys = nodeKeys.filter((key, index) => nodeKeys.indexOf(key) !== index);
+    const hasProductListNode = form.nodes.some(node => node.node_type === 'product_list');
 
     if (!form.name.trim()) errors.push('اسم المسار مطلوب.');
     if (!nodeKeys.includes('start')) errors.push('يجب وجود خطوة start.');
@@ -506,6 +507,9 @@ function getClientDiagnostics(form, pages, flows, products) {
         }
         node.buttons.forEach(button => {
             if (!button.title.trim()) warnings.push(`يوجد زر بدون عنوان في الخطوة ${node.node_key}.`);
+            if (button.action === 'products' && !hasProductListNode) {
+                warnings.push(`زر "${button.title || 'المنتجات'}" يستخدم اختصار فتح المنتجات بدون خطوة قائمة منتجات قابلة للتحكم.`);
+            }
             if (button.action === 'node' && !nodeKeys.includes(button.node_key)) {
                 errors.push(`زر "${button.title || 'بدون عنوان'}" يشير إلى خطوة غير موجودة: ${button.node_key || 'غير محدد'}.`);
             }

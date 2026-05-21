@@ -277,10 +277,27 @@ function normalizeTriggerValue(flow) {
     return String(flow.trigger_value || '').trim().toLowerCase();
 }
 
+function getNodeActions(config = {}) {
+    const actions = [];
+    const candidates = [
+        ...(Array.isArray(config.quick_replies) ? config.quick_replies : []),
+        ...(Array.isArray(config.items) ? config.items : []),
+    ];
+    for (const item of candidates) {
+        actions.push({
+            title: String(item?.title || '').trim(),
+            action: String(item?.action || '').trim(),
+            payload: String(item?.payload || '').trim(),
+        });
+    }
+    return actions;
+}
+
 function getFlowDiagnostics(flow, nodes, tenantId) {
     const warnings = [];
     const errors = [];
     const startNode = nodes.find(node => node.node_key === 'start');
+    const hasProductListNode = nodes.some(node => node.node_type === 'product_list');
 
     if (!flow.name) errors.push('اسم المسار مطلوب.');
     if (!startNode) errors.push('يجب وجود خطوة start.');
@@ -299,11 +316,18 @@ function getFlowDiagnostics(flow, nodes, tenantId) {
 
     for (const node of nodes) {
         const config = parseJson(node.config_json, {});
+        const nodeActions = getNodeActions(config);
         if (node.node_type === 'quick_replies' && (!Array.isArray(config.quick_replies) || config.quick_replies.length === 0)) {
             warnings.push(`الخطوة ${node.node_key} من نوع Quick Replies بدون أزرار.`);
         }
         if (node.node_type === 'service_menu' && (!Array.isArray(config.items) || config.items.length === 0)) {
             warnings.push(`الخطوة ${node.node_key} من نوع قائمة خدمات بدون عناصر.`);
+        }
+        for (const action of nodeActions) {
+            const opensProducts = action.action === 'products' || action.payload === 'BOT:PRODUCTS' || action.payload.startsWith('BOT:PRODUCTS:');
+            if (opensProducts && !hasProductListNode) {
+                warnings.push(`الخطوة ${node.node_key} تحتوي زر "${action.title || 'المنتجات'}" يستخدم اختصار فتح المنتجات بدون خطوة قائمة منتجات قابلة للتحكم.`);
+            }
         }
         if (node.node_type === 'product_list') {
             const params = [tenantId];
