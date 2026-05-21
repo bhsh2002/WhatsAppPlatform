@@ -81,6 +81,22 @@ const normalizePricingType = (value) => String(value || '').trim().toLowerCase()
 
 const normalizePhoneDigits = (value) => String(value || '').replace(/[^\d]/g, '');
 
+const normalizeBillableFlag = (value) => {
+    if (value === true || value === 1 || value === 'true') return 1;
+    if (value === false || value === 0 || value === 'false') return 0;
+    return null;
+};
+
+const normalizeStatusPricing = (pricing = null) => {
+    if (!pricing) return null;
+    return {
+        pricing_model: pricing.pricing_model || pricing.model || null,
+        billable: normalizeBillableFlag(pricing.billable),
+        category: normalizeMetaCategory(pricing.category || pricing.pricing_category),
+        type: normalizePricingType(pricing.type || pricing.pricing_type),
+    };
+};
+
 function parseJson(value, fallback = {}) {
     if (!value) return fallback;
     try {
@@ -171,6 +187,7 @@ function chooseRateForRecipient({ recipient, countryCallingCode, category, curre
 }
 
 function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recipient = null, category = null, statusPricing = null, effectiveAt = null }) {
+    const normalizedPricing = normalizeStatusPricing(statusPricing);
     if (!META_PRICED_WHATSAPP_OPERATIONS.has(operationKey)) {
         return {
             status: 'not_applicable',
@@ -191,7 +208,7 @@ function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recip
         BILLING_OPERATIONS.WHATSAPP_INTERACTIVE,
     ].includes(operationKey) ? 'service' : null;
     const resolvedCategory = normalizeMetaCategory(
-        statusPricing?.category
+        normalizedPricing?.category
         || category
         || metadata.template_category
         || getTemplateCategory(tenantId, metadata.template_name)
@@ -212,11 +229,11 @@ function evaluateSingleMetaCharge({ tenantId, operationKey, metadata = {}, recip
         };
     }
 
-    const pricingType = normalizePricingType(statusPricing?.type);
+    const pricingType = normalizedPricing?.type || null;
     const isMetaRegularCharge = pricingType === 'regular';
     const isMetaFreeCharge = ['free_customer_service', 'free_entry_point'].includes(pricingType);
-    const billableFlag = statusPricing?.billable;
-    if (isMetaFreeCharge || billableFlag === false || billableFlag === 'false') {
+    const billableFlag = normalizedPricing?.billable;
+    if (isMetaFreeCharge || billableFlag === 0) {
         return {
             status: 'not_charged',
             category: resolvedCategory,
@@ -360,6 +377,211 @@ function summarizeMetaEstimate({ tenantId, operationKey, quantity, metadata = {}
         amount: (Number(estimate.amount) || 0) * Math.max(toInt(quantity, 1), 1),
         details: null,
     };
+}
+
+function operationKeyForWhatsAppMessage(messageType, fallback = BILLING_OPERATIONS.WHATSAPP_TEXT) {
+    const type = String(messageType || '').toLowerCase();
+    if (type === 'template') return BILLING_OPERATIONS.WHATSAPP_TEMPLATE;
+    if (type === 'interactive') return BILLING_OPERATIONS.WHATSAPP_INTERACTIVE;
+    if (['image', 'document', 'video', 'audio', 'sticker'].includes(type)) return BILLING_OPERATIONS.WHATSAPP_MEDIA;
+    return fallback;
+}
+
+export function recordMetaMessageCost({
+    tenantId,
+    usageEventId = null,
+    broadcastJobId = null,
+    wamid = null,
+    recipient = null,
+    operationKey = BILLING_OPERATIONS.WHATSAPP_TEXT,
+    messageType = null,
+    templateName = null,
+    templateCategory = null,
+    metadata = {},
+    sentAt = null,
+} = {}) {
+    if (!tenantId || !wamid) return null;
+
+    const normalizedMetadata = {
+        ...(metadata || {}),
+        recipient: recipient || metadata?.recipient || metadata?.to || metadata?.phone || null,
+        message_type: messageType || metadata?.message_type || metadata?.type || null,
+        template_name: templateName || metadata?.template_name || null,
+        template_category: templateCategory || metadata?.template_category || null,
+    };
+    const estimate = summarizeMetaEstimate({
+        tenantId,
+        operationKey,
+        quantity: 1,
+        metadata: normalizedMetadata,
+        effectiveAt: sentAt || null,
+    });
+    const pendingStatus = estimate.status === 'estimated' ? 'pending' : estimate.status;
+
+    db.prepare(`
+        INSERT INTO billing_meta_message_costs (
+            tenant_id, usage_event_id, broadcast_job_id, wamid, recipient,
+            operation_key, message_type, template_name, template_category,
+            country_calling_code, currency, estimated_amount, final_amount,
+            rate_card_id, status, charge_reason, calculation_basis,
+            metadata_json, sent_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, ${nowSql}))
+        ON CONFLICT(wamid) DO UPDATE SET
+            usage_event_id = COALESCE(excluded.usage_event_id, billing_meta_message_costs.usage_event_id),
+            broadcast_job_id = COALESCE(excluded.broadcast_job_id, billing_meta_message_costs.broadcast_job_id),
+            recipient = COALESCE(excluded.recipient, billing_meta_message_costs.recipient),
+            operation_key = excluded.operation_key,
+            message_type = COALESCE(excluded.message_type, billing_meta_message_costs.message_type),
+            template_name = COALESCE(excluded.template_name, billing_meta_message_costs.template_name),
+            template_category = COALESCE(excluded.template_category, billing_meta_message_costs.template_category),
+            country_calling_code = COALESCE(excluded.country_calling_code, billing_meta_message_costs.country_calling_code),
+            currency = COALESCE(excluded.currency, billing_meta_message_costs.currency),
+            estimated_amount = excluded.estimated_amount,
+            final_amount = CASE WHEN excluded.status = 'not_charged' THEN 0 ELSE billing_meta_message_costs.final_amount END,
+            rate_card_id = COALESCE(excluded.rate_card_id, billing_meta_message_costs.rate_card_id),
+            status = CASE
+                WHEN billing_meta_message_costs.status IN ('final', 'not_charged', 'invoice_reconciled') THEN billing_meta_message_costs.status
+                ELSE excluded.status
+            END,
+            charge_reason = excluded.charge_reason,
+            calculation_basis = excluded.calculation_basis,
+            metadata_json = excluded.metadata_json,
+            updated_at = ${nowSql}
+    `).run(
+        tenantId,
+        usageEventId || null,
+        broadcastJobId || null,
+        wamid,
+        normalizedMetadata.recipient,
+        operationKey,
+        normalizedMetadata.message_type,
+        normalizedMetadata.template_name,
+        normalizedMetadata.template_category || estimate.category || null,
+        estimate.country_calling_code,
+        estimate.currency,
+        Number(estimate.amount) || 0,
+        pendingStatus === 'not_charged' ? 0 : 0,
+        estimate.rate_card_id,
+        pendingStatus,
+        estimate.reason,
+        estimate.pricing_basis,
+        serializeJson({ ...normalizedMetadata, meta_estimate_details: estimate.details || undefined }),
+        sentAt || null
+    );
+
+    return db.prepare('SELECT * FROM billing_meta_message_costs WHERE wamid = ?').get(wamid);
+}
+
+function upsertMetaMessageCostFromStatus({ usage = null, wamid, status, pricing = null, timestamp = null }) {
+    if (!wamid) return null;
+
+    let cost = db.prepare('SELECT * FROM billing_meta_message_costs WHERE wamid = ?').get(wamid);
+    let message = null;
+    if (!cost) {
+        message = db.prepare(`
+            SELECT tenant_id, recipient, message_type, created_at
+            FROM messages
+            WHERE wamid = ?
+            ORDER BY id DESC
+            LIMIT 1
+        `).get(wamid) || null;
+
+        const tenantId = usage?.tenant_id || message?.tenant_id || null;
+        if (!tenantId) return null;
+
+        cost = recordMetaMessageCost({
+            tenantId,
+            usageEventId: usage?.id || null,
+            wamid,
+            recipient: message?.recipient || null,
+            operationKey: usage?.operation_key || operationKeyForWhatsAppMessage(message?.message_type),
+            messageType: message?.message_type || null,
+            metadata: parseJson(usage?.metadata_json, {}),
+            sentAt: message?.created_at || usage?.committed_at || null,
+        });
+    }
+
+    const normalizedStatus = String(status || '').toLowerCase();
+    const normalizedPricing = normalizeStatusPricing(pricing);
+    const statusPayload = {
+        status: normalizedStatus || null,
+        timestamp: timestamp || null,
+        pricing: normalizedPricing,
+    };
+
+    if (['failed', 'undelivered'].includes(normalizedStatus)) {
+        db.prepare(`
+            UPDATE billing_meta_message_costs
+            SET status = 'not_charged',
+                billable = 0,
+                final_amount = 0,
+                charge_reason = ?,
+                status_payload_json = ?,
+                updated_at = ${nowSql}
+            WHERE wamid = ?
+        `).run(`message_${normalizedStatus}`, serializeJson(statusPayload), wamid);
+        return db.prepare('SELECT * FROM billing_meta_message_costs WHERE wamid = ?').get(wamid);
+    }
+
+    if (!['delivered', 'read'].includes(normalizedStatus)) {
+        return cost;
+    }
+
+    const metadata = {
+        ...parseJson(cost?.metadata_json, {}),
+        ...parseJson(usage?.metadata_json, {}),
+        recipient: cost?.recipient || parseJson(usage?.metadata_json, {}).recipient || null,
+        message_type: cost?.message_type || parseJson(usage?.metadata_json, {}).message_type || null,
+        template_name: cost?.template_name || parseJson(usage?.metadata_json, {}).template_name || null,
+        template_category: normalizedPricing?.category || cost?.template_category || parseJson(usage?.metadata_json, {}).template_category || null,
+    };
+    const estimate = summarizeMetaEstimate({
+        tenantId: cost.tenant_id,
+        operationKey: cost.operation_key || usage?.operation_key || operationKeyForWhatsAppMessage(metadata.message_type),
+        quantity: 1,
+        metadata,
+        statusPricing: pricing || null,
+        effectiveAt: timestamp ? sqlDate(Number(timestamp) * 1000) : null,
+    });
+    const finalStatus = estimate.status === 'estimated' ? 'final' : estimate.status;
+
+    db.prepare(`
+        UPDATE billing_meta_message_costs
+        SET template_category = COALESCE(?, template_category),
+            pricing_type = ?,
+            pricing_model = ?,
+            billable = ?,
+            country_calling_code = ?,
+            currency = ?,
+            estimated_amount = CASE WHEN COALESCE(estimated_amount, 0) = 0 THEN ? ELSE estimated_amount END,
+            final_amount = ?,
+            rate_card_id = ?,
+            status = ?,
+            charge_reason = ?,
+            calculation_basis = ?,
+            status_payload_json = ?,
+            delivered_at = COALESCE(delivered_at, ?),
+            updated_at = ${nowSql}
+        WHERE wamid = ?
+    `).run(
+        estimate.category,
+        normalizedPricing?.type || null,
+        normalizedPricing?.pricing_model || null,
+        normalizedPricing?.billable,
+        estimate.country_calling_code,
+        estimate.currency,
+        Number(estimate.amount) || 0,
+        finalStatus === 'rate_missing' ? 0 : Number(estimate.amount) || 0,
+        estimate.rate_card_id,
+        finalStatus,
+        normalizedPricing?.pricing_model ? `${estimate.reason}; pricing_model=${normalizedPricing.pricing_model}` : estimate.reason,
+        pricing ? 'status_webhook' : estimate.pricing_basis,
+        serializeJson(statusPayload),
+        timestamp ? sqlDate(Number(timestamp) * 1000) : sqlDate(),
+        wamid
+    );
+
+    return db.prepare('SELECT * FROM billing_meta_message_costs WHERE wamid = ?').get(wamid);
 }
 
 function updateUsageMetaEstimate(usageId, metadataOverride = null) {
@@ -775,6 +997,26 @@ export function commit(reservation, options = {}) {
         );
 
         updateUsageMetaEstimate(usage.id, options.meta || options.metaMetadata || null);
+        const committedUsage = db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
+        if (
+            committedUsage?.channel === 'whatsapp'
+            && committedUsage.reference_type === 'message'
+            && committedUsage.reference_id
+        ) {
+            const committedMetadata = parseJson(committedUsage.metadata_json, {});
+            recordMetaMessageCost({
+                tenantId: committedUsage.tenant_id,
+                usageEventId: committedUsage.id,
+                wamid: committedUsage.reference_id,
+                recipient: committedMetadata.recipient || committedMetadata.to || committedMetadata.phone || null,
+                operationKey: committedUsage.operation_key,
+                messageType: committedMetadata.message_type || committedMetadata.type || null,
+                templateName: committedMetadata.template_name || null,
+                templateCategory: committedMetadata.template_category || null,
+                metadata: committedMetadata,
+                sentAt: committedUsage.committed_at,
+            });
+        }
 
         syncTenantCredits(usage.tenant_id);
         return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
@@ -1230,18 +1472,16 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
         LIMIT 1
     `).get(wamid);
 
+    upsertMetaMessageCostFromStatus({ usage, wamid, status, pricing, timestamp });
+
     if (!usage) return null;
 
     const normalizedStatus = String(status || '').toLowerCase();
+    const normalizedPricing = normalizeStatusPricing(pricing);
     const statusPayload = {
         status: normalizedStatus || null,
         timestamp: timestamp || null,
-        pricing: pricing ? {
-            pricing_model: pricing.pricing_model || pricing.model || null,
-            billable: pricing.billable ?? null,
-            category: pricing.category || pricing.pricing_category || null,
-            type: pricing.type || pricing.pricing_type || null,
-        } : null,
+        pricing: normalizedPricing,
     };
     if (['failed', 'undelivered'].includes(normalizedStatus)) {
         db.prepare(`
@@ -1394,45 +1634,176 @@ export function updateMetaRate(id, data = {}) {
 }
 
 export function getMetaUsage({ tenantId = null, limit = 100, offset = 0, status = null } = {}) {
-    const clauses = ["bue.channel = 'whatsapp'", "bue.meta_charge_status IS NOT NULL", "bue.meta_charge_status != 'not_applicable'"];
-    const params = [];
+    const costClauses = [];
+    const usageClauses = ["bue.channel = 'whatsapp'", "bue.meta_charge_status IS NOT NULL", "bue.meta_charge_status != 'not_applicable'"];
+    const costParams = [];
+    const usageParams = [];
+    const normalizedLimit = Math.max(toInt(limit, 100), 1);
+    const normalizedOffset = Math.max(toInt(offset), 0);
     if (tenantId) {
-        clauses.push('bue.tenant_id = ?');
-        params.push(tenantId);
+        costClauses.push('bmc.tenant_id = ?');
+        usageClauses.push('bue.tenant_id = ?');
+        costParams.push(tenantId);
+        usageParams.push(tenantId);
     }
     if (status) {
-        clauses.push('bue.meta_charge_status = ?');
-        params.push(status);
+        costClauses.push('bmc.status = ?');
+        usageClauses.push('bue.meta_charge_status = ?');
+        costParams.push(status);
+        usageParams.push(status);
     }
-    params.push(Math.max(toInt(limit, 100), 1), Math.max(toInt(offset), 0));
 
-    return db.prepare(`
+    const costRows = db.prepare(`
+        SELECT bmc.id,
+               bmc.tenant_id,
+               t.name AS tenant_name,
+               bmc.operation_key,
+               'whatsapp' AS channel,
+               'meta_message_cost' AS operation_type,
+               1 AS quantity,
+               0 AS unit_price_credits,
+               0 AS total_credits,
+               'committed' AS status,
+               'message' AS reference_type,
+               bmc.wamid AS reference_id,
+               bmc.metadata_json,
+               bmc.template_category AS meta_charge_category,
+               bmc.country_calling_code AS meta_country_calling_code,
+               bmc.currency AS meta_charge_currency,
+               bmc.estimated_amount AS meta_estimated_amount,
+               bmc.final_amount AS meta_final_amount,
+               bmc.rate_card_id AS meta_rate_card_id,
+               bmc.charge_reason AS meta_charge_reason,
+               bmc.status AS meta_charge_status,
+               bmc.status_payload_json AS meta_status_payload_json,
+               bmc.delivered_at AS meta_delivered_at,
+               bmc.updated_at AS meta_priced_at,
+               bmc.sent_at AS committed_at,
+               bmc.sent_at AS reserved_at
+        FROM billing_meta_message_costs bmc
+        LEFT JOIN tenants t ON t.id = bmc.tenant_id
+        ${costClauses.length ? `WHERE ${costClauses.join(' AND ')}` : ''}
+        ORDER BY COALESCE(bmc.updated_at, bmc.sent_at) DESC, bmc.id DESC
+        LIMIT ? OFFSET ?
+    `).all(...costParams, normalizedLimit, normalizedOffset);
+
+    if (costRows.length >= normalizedLimit) return costRows;
+
+    const usageRows = db.prepare(`
         SELECT bue.*, t.name AS tenant_name
         FROM billing_usage_events bue
         LEFT JOIN tenants t ON t.id = bue.tenant_id
-        WHERE ${clauses.join(' AND ')}
+        WHERE ${usageClauses.join(' AND ')}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM billing_meta_message_costs bmc
+              WHERE bmc.usage_event_id = bue.id
+          )
+          AND NOT (
+              bue.reference_type = 'broadcast'
+              AND EXISTS (
+                  SELECT 1
+                  FROM billing_meta_message_costs bmc
+                  WHERE bmc.broadcast_job_id = CAST(bue.reference_id AS INTEGER)
+              )
+          )
         ORDER BY COALESCE(bue.meta_priced_at, bue.committed_at, bue.reserved_at) DESC, bue.id DESC
-        LIMIT ? OFFSET ?
-    `).all(...params);
+        LIMIT ?
+    `).all(...usageParams, normalizedLimit - costRows.length);
+
+    return [...costRows, ...usageRows]
+        .sort((a, b) => String(b.meta_priced_at || b.committed_at || b.reserved_at || '').localeCompare(String(a.meta_priced_at || a.committed_at || a.reserved_at || '')))
+        .slice(0, normalizedLimit);
 }
 
 export function getMetaCostSummary({ tenantId = null, periodStart = null, periodEnd = null } = {}) {
+    const startSql = periodStart ? normalizeSqlDate(periodStart) : null;
+    const endSql = periodEnd ? normalizeSqlDate(periodEnd, true) : null;
+    const costClauses = [];
+    const costParams = [];
+    if (tenantId) {
+        costClauses.push('tenant_id = ?');
+        costParams.push(tenantId);
+    }
+    if (startSql) {
+        costClauses.push('sent_at >= ?');
+        costParams.push(startSql);
+    }
+    if (endSql) {
+        costClauses.push('sent_at <= ?');
+        costParams.push(endSql);
+    }
+    const costWhere = costClauses.length ? `WHERE ${costClauses.join(' AND ')}` : '';
+
+    const totals = db.prepare(`
+        SELECT
+            COALESCE(SUM(estimated_amount), 0) AS estimated_amount,
+            COALESCE(SUM(final_amount), 0) AS final_amount,
+            COUNT(*) AS usage_count,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN status = 'estimated' THEN 1 ELSE 0 END) AS estimated_count,
+            SUM(CASE WHEN status = 'final' THEN 1 ELSE 0 END) AS final_count,
+            SUM(CASE WHEN status = 'not_charged' THEN 1 ELSE 0 END) AS not_charged_count,
+            SUM(CASE WHEN status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
+            SUM(CASE WHEN status = 'invoice_reconciled' THEN 1 ELSE 0 END) AS invoice_reconciled_count,
+            SUM(CASE WHEN status IN ('estimated', 'final', 'invoice_reconciled') THEN 1 ELSE 0 END) AS priced_count
+        FROM billing_meta_message_costs
+        ${costWhere}
+    `).get(...costParams);
+
+    const hasCostRows = toInt(totals?.usage_count) > 0;
+    if (hasCostRows) {
+        const byCategory = db.prepare(`
+            SELECT template_category AS category,
+                   currency,
+                   COALESCE(SUM(estimated_amount), 0) AS estimated_amount,
+                   COALESCE(SUM(final_amount), 0) AS final_amount,
+                   COUNT(*) AS quantity,
+                   COUNT(*) AS count
+            FROM billing_meta_message_costs
+            ${costWhere}
+            GROUP BY template_category, currency
+            ORDER BY template_category
+        `).all(...costParams);
+
+        const byCountry = db.prepare(`
+            SELECT country_calling_code,
+                   currency,
+                   COALESCE(SUM(estimated_amount), 0) AS estimated_amount,
+                   COALESCE(SUM(final_amount), 0) AS final_amount,
+                   COUNT(*) AS quantity,
+                   COUNT(*) AS count
+            FROM billing_meta_message_costs
+            ${costWhere}
+            GROUP BY country_calling_code, currency
+            ORDER BY final_amount DESC, estimated_amount DESC
+        `).all(...costParams);
+
+        return {
+            filters: { tenant_id: tenantId || null, period_start: periodStart || null, period_end: periodEnd || null },
+            source: 'billing_meta_message_costs',
+            totals,
+            by_category: byCategory,
+            by_country: byCountry,
+        };
+    }
+
     const clauses = ["channel = 'whatsapp'", "status = 'committed'"];
     const params = [];
     if (tenantId) {
         clauses.push('tenant_id = ?');
         params.push(tenantId);
     }
-    if (periodStart) {
+    if (startSql) {
         clauses.push('committed_at >= ?');
-        params.push(periodStart);
+        params.push(startSql);
     }
-    if (periodEnd) {
+    if (endSql) {
         clauses.push('committed_at <= ?');
-        params.push(periodEnd);
+        params.push(endSql);
     }
 
-    const totals = db.prepare(`
+    const usageTotals = db.prepare(`
         SELECT
             COALESCE(SUM(meta_estimated_amount), 0) AS estimated_amount,
             COALESCE(SUM(meta_final_amount), 0) AS final_amount,
@@ -1476,7 +1847,8 @@ export function getMetaCostSummary({ tenantId = null, periodStart = null, period
 
     return {
         filters: { tenant_id: tenantId || null, period_start: periodStart || null, period_end: periodEnd || null },
-        totals,
+        source: 'billing_usage_events_fallback',
+        totals: usageTotals,
         by_category: byCategory,
         by_country: byCountry,
     };
@@ -1617,6 +1989,77 @@ function sumPricingAnalytics(data) {
     };
 }
 
+function getLocalMetaMessageCostSummary({ tenantId, startSql, endSql }) {
+    const messageCosts = db.prepare(`
+        SELECT
+            COALESCE(SUM(estimated_amount), 0) AS estimated_amount,
+            COALESCE(SUM(final_amount), 0) AS final_amount,
+            COUNT(*) AS cost_rows,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN status = 'estimated' THEN 1 ELSE 0 END) AS estimated_count,
+            SUM(CASE WHEN status = 'final' THEN 1 ELSE 0 END) AS final_count,
+            SUM(CASE WHEN status = 'not_charged' THEN 1 ELSE 0 END) AS not_charged_count,
+            SUM(CASE WHEN status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
+            SUM(CASE WHEN status = 'invoice_reconciled' THEN 1 ELSE 0 END) AS invoice_reconciled_count,
+            SUM(CASE WHEN wamid IS NULL OR wamid = '' THEN 1 ELSE 0 END) AS missing_wamid_count
+        FROM billing_meta_message_costs
+        WHERE tenant_id = ?
+          AND sent_at >= ?
+          AND sent_at <= ?
+    `).get(tenantId, startSql, endSql) || {};
+
+    const usageFallback = db.prepare(`
+        SELECT
+            COALESCE(SUM(bue.meta_estimated_amount), 0) AS estimated_amount,
+            COALESCE(SUM(bue.meta_final_amount), 0) AS final_amount,
+            COUNT(*) AS usage_rows,
+            SUM(CASE WHEN bue.meta_charge_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN bue.meta_charge_status = 'estimated' THEN 1 ELSE 0 END) AS estimated_count,
+            SUM(CASE WHEN bue.meta_charge_status = 'final' THEN 1 ELSE 0 END) AS final_count,
+            SUM(CASE WHEN bue.meta_charge_status = 'not_charged' THEN 1 ELSE 0 END) AS not_charged_count,
+            SUM(CASE WHEN bue.meta_charge_status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
+            SUM(CASE WHEN bue.meta_charge_status = 'invoice_reconciled' THEN 1 ELSE 0 END) AS invoice_reconciled_count,
+            SUM(CASE WHEN bue.reference_type = 'message' AND (bue.reference_id IS NULL OR bue.reference_id = '') THEN 1 ELSE 0 END) AS missing_wamid_count
+        FROM billing_usage_events bue
+        WHERE bue.tenant_id = ?
+          AND bue.channel = 'whatsapp'
+          AND bue.status = 'committed'
+          AND bue.committed_at >= ?
+          AND bue.committed_at <= ?
+          AND bue.meta_charge_status IS NOT NULL
+          AND bue.meta_charge_status != 'not_applicable'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM billing_meta_message_costs bmc
+              WHERE bmc.usage_event_id = bue.id
+          )
+          AND NOT (
+              bue.reference_type = 'broadcast'
+              AND EXISTS (
+                  SELECT 1
+                  FROM billing_meta_message_costs bmc
+                  WHERE bmc.broadcast_job_id = CAST(bue.reference_id AS INTEGER)
+              )
+          )
+    `).get(tenantId, startSql, endSql) || {};
+
+    const sumField = (field) => Number(messageCosts?.[field] || 0) + Number(usageFallback?.[field] || 0);
+    const countField = (field) => toInt(messageCosts?.[field]) + toInt(usageFallback?.[field]);
+    return {
+        estimated_amount: sumField('estimated_amount'),
+        final_amount: sumField('final_amount'),
+        cost_rows: toInt(messageCosts?.cost_rows),
+        usage_fallback_rows: toInt(usageFallback?.usage_rows),
+        pending_count: countField('pending_count'),
+        estimated_count: countField('estimated_count'),
+        final_count: countField('final_count'),
+        not_charged_count: countField('not_charged_count'),
+        rate_missing_count: countField('rate_missing_count'),
+        invoice_reconciled_count: countField('invoice_reconciled_count'),
+        missing_wamid_count: countField('missing_wamid_count'),
+    };
+}
+
 function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
     const startSql = normalizeSqlDate(periodStart);
     const endSql = normalizeSqlDate(periodEnd, true);
@@ -1633,6 +2076,7 @@ function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
           AND committed_at >= ?
           AND committed_at <= ?
     `).get(tenantId, startSql, endSql);
+    const metaCost = getLocalMetaMessageCostSummary({ tenantId, startSql, endSql });
 
     const messages = db.prepare(`
         SELECT
@@ -1660,8 +2104,10 @@ function getLocalMetaReconciliation({ tenantId, periodStart, periodEnd }) {
         local_sent: toInt(messages?.sent),
         local_delivered: toInt(messages?.delivered),
         local_billable_usage_events: toInt(usage?.usage_events),
-        local_estimated_amount: Number(usage?.estimated_amount) || 0,
-        local_final_amount: Number(usage?.final_amount) || 0,
+        local_meta_cost_rows: metaCost.cost_rows,
+        local_usage_fallback_rows: metaCost.usage_fallback_rows,
+        local_estimated_amount: metaCost.estimated_amount,
+        local_final_amount: metaCost.final_amount,
         invoice_total_amount: Number(invoice?.total) || 0,
     };
 }
@@ -1901,26 +2347,44 @@ function getLatestMetaInvoiceForPeriod({ tenantId, periodStart, periodEnd }) {
 }
 
 function getMetaStatusCounts({ tenantId, startSql, endSql }) {
-    return db.prepare(`
-        SELECT
-            SUM(CASE WHEN meta_charge_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-            SUM(CASE WHEN meta_charge_status = 'estimated' THEN 1 ELSE 0 END) AS estimated_count,
-            SUM(CASE WHEN meta_charge_status = 'final' THEN 1 ELSE 0 END) AS final_count,
-            SUM(CASE WHEN meta_charge_status = 'not_charged' THEN 1 ELSE 0 END) AS not_charged_count,
-            SUM(CASE WHEN meta_charge_status = 'rate_missing' THEN 1 ELSE 0 END) AS rate_missing_count,
-            SUM(CASE WHEN meta_charge_status = 'invoice_reconciled' THEN 1 ELSE 0 END) AS invoice_reconciled_count,
-            SUM(CASE WHEN reference_type = 'message' AND (reference_id IS NULL OR reference_id = '') THEN 1 ELSE 0 END) AS missing_wamid_count
-        FROM billing_usage_events
-        WHERE tenant_id = ?
-          AND channel = 'whatsapp'
-          AND status = 'committed'
-          AND committed_at >= ?
-          AND committed_at <= ?
-    `).get(tenantId, startSql, endSql) || {};
+    return getLocalMetaMessageCostSummary({ tenantId, startSql, endSql });
 }
 
 function listMetaReconciliationActionItems({ tenantId, startSql, endSql, limit = 50 }) {
-    return db.prepare(`
+    const messageCostItems = db.prepare(`
+        SELECT bmc.id,
+               bmc.tenant_id,
+               t.name AS tenant_name,
+               bmc.operation_key,
+               bmc.wamid AS reference_id,
+               bmc.recipient,
+               bmc.status AS meta_charge_status,
+               bmc.estimated_amount AS meta_estimated_amount,
+               bmc.final_amount AS meta_final_amount,
+               bmc.currency AS meta_charge_currency,
+               bmc.sent_at AS committed_at,
+               CASE
+                   WHEN bmc.status = 'rate_missing' THEN 'missing_rate'
+                   WHEN bmc.status = 'pending' THEN 'no_webhook_status'
+                   WHEN bmc.wamid IS NULL OR bmc.wamid = '' THEN 'missing_wamid'
+                   ELSE 'needs_review'
+               END AS action_reason
+        FROM billing_meta_message_costs bmc
+        LEFT JOIN tenants t ON t.id = bmc.tenant_id
+        WHERE bmc.tenant_id = ?
+          AND bmc.sent_at >= ?
+          AND bmc.sent_at <= ?
+          AND (
+              bmc.status IN ('pending', 'rate_missing')
+              OR bmc.wamid IS NULL OR bmc.wamid = ''
+          )
+        ORDER BY bmc.sent_at DESC, bmc.id DESC
+        LIMIT ?
+    `).all(tenantId, startSql, endSql, Math.max(toInt(limit, 50), 1));
+
+    if (messageCostItems.length >= Math.max(toInt(limit, 50), 1)) return messageCostItems;
+
+    const usageItems = db.prepare(`
         SELECT bue.*, t.name AS tenant_name,
                CASE
                    WHEN bue.meta_charge_status = 'rate_missing' THEN 'missing_rate'
@@ -1939,9 +2403,24 @@ function listMetaReconciliationActionItems({ tenantId, startSql, endSql, limit =
               bue.meta_charge_status IN ('pending', 'rate_missing')
               OR (bue.reference_type = 'message' AND (bue.reference_id IS NULL OR bue.reference_id = ''))
           )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM billing_meta_message_costs bmc
+              WHERE bmc.usage_event_id = bue.id
+          )
+          AND NOT (
+              bue.reference_type = 'broadcast'
+              AND EXISTS (
+                  SELECT 1
+                  FROM billing_meta_message_costs bmc
+                  WHERE bmc.broadcast_job_id = CAST(bue.reference_id AS INTEGER)
+              )
+          )
         ORDER BY bue.committed_at DESC, bue.id DESC
         LIMIT ?
-    `).all(tenantId, startSql, endSql, Math.max(toInt(limit, 50), 1));
+    `).all(tenantId, startSql, endSql, Math.max(toInt(limit, 50), 1) - messageCostItems.length);
+
+    return [...messageCostItems, ...usageItems];
 }
 
 function linkUsageToReconciliationPeriod({ periodId, invoiceId = null, tenantId, startSql, endSql }) {
@@ -1953,6 +2432,15 @@ function linkUsageToReconciliationPeriod({ periodId, invoiceId = null, tenantId,
           AND status = 'committed'
           AND committed_at >= ?
           AND committed_at <= ?
+    `).run(periodId, tenantId, startSql, endSql);
+
+    db.prepare(`
+        UPDATE billing_meta_message_costs
+        SET meta_reconciliation_period_id = COALESCE(meta_reconciliation_period_id, ?),
+            updated_at = ${nowSql}
+        WHERE tenant_id = ?
+          AND sent_at >= ?
+          AND sent_at <= ?
     `).run(periodId, tenantId, startSql, endSql);
 
     if (invoiceId) {
@@ -1968,6 +2456,19 @@ function linkUsageToReconciliationPeriod({ periodId, invoiceId = null, tenantId,
               AND status = 'committed'
               AND committed_at >= ?
               AND committed_at <= ?
+        `).run(invoiceId, tenantId, startSql, endSql);
+
+        db.prepare(`
+            UPDATE billing_meta_message_costs
+            SET status = CASE
+                    WHEN status IN ('pending', 'estimated', 'final') THEN 'invoice_reconciled'
+                    ELSE status
+                END,
+                meta_invoice_id = COALESCE(meta_invoice_id, ?),
+                updated_at = ${nowSql}
+            WHERE tenant_id = ?
+              AND sent_at >= ?
+              AND sent_at <= ?
         `).run(invoiceId, tenantId, startSql, endSql);
     }
 }

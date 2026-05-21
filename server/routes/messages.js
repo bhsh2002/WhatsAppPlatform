@@ -21,6 +21,7 @@ import {
     BILLING_OPERATIONS,
     commit as commitBilling,
     handleBillingError,
+    recordMetaMessageCost,
     release as releaseBilling,
     reserve as reserveBilling,
     summarizeMetaRecipientCountries,
@@ -1208,6 +1209,22 @@ async function processBroadcastJob(jobId, params) {
                             INSERT INTO messages (tenant_id, direction, sender, recipient, message_type, content, status, wamid)
                             VALUES (?, 'outgoing', ?, ?, 'template', ?, 'sent', ?)
                         `).run(tenant_id || null, phoneNumberId, formattedRecipient, storedContent, messageId);
+                        recordMetaMessageCost({
+                            tenantId: tenant_id || tenant?.id || null,
+                            broadcastJobId: jobId,
+                            wamid: messageId,
+                            recipient: formattedRecipient,
+                            operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
+                            messageType: 'template',
+                            templateName: template_name,
+                            templateCategory: templateRecord?.category || null,
+                            metadata: {
+                                template_name,
+                                template_category: templateRecord?.category || null,
+                                recipient: formattedRecipient,
+                                broadcast_job_id: jobId,
+                            },
+                        });
                         return { recipient: formattedRecipient, status: 'sent', message_id: messageId };
                     } else {
                         return { recipient: formattedRecipient, status: 'failed', error: data.error?.message };
