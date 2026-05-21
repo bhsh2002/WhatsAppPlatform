@@ -1,7 +1,7 @@
 import { createTheme } from '@mui/material/styles';
 
-const theme = createTheme({
-    direction: 'rtl', // For Arabic support mainly, though we might need cache setup for full RTL
+export const createAppTheme = (direction = 'rtl') => createTheme({
+    direction,
     palette: {
         mode: 'light',
         primary: {
@@ -59,4 +59,4 @@ const theme = createTheme({
     },
 });
 
-export default theme;
+export default createAppTheme();

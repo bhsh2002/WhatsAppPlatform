@@ -24,14 +24,16 @@ import {
     Email as EmailIcon,
     Badge as BadgeIcon,
     Login as LoginIcon,
-    HowToReg as HowToRegIcon,
     Business as BusinessIcon,
-    Phone as PhoneIcon
+    Phone as PhoneIcon,
+    Language as LanguageIcon
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const Login = () => {
     const { login, loading, error } = useAuth();
+    const { language, setLanguage, t } = useLanguage();
     const [formData, setFormData] = useState({
         username: '',
         password: '',
@@ -71,21 +73,21 @@ const Login = () => {
         setSuccessMessage('');
 
         if (!tenantFormData.business_name || !tenantFormData.phone || !tenantFormData.username || !tenantFormData.password) {
-            setLocalError('جميع الحقول المطلوبة يجب تعبئتها');
+            setLocalError(t('auth.requiredFields'));
             return;
         }
         if (tenantFormData.password.length < 8) {
-            setLocalError('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+            setLocalError(t('auth.weakPassword'));
             return;
         }
 
         try {
             setTenantLoading(true);
             const result = await api.registerTenant(tenantFormData);
-            setSuccessMessage(result.message || 'تم التسجيل بنجاح. حسابك في انتظار موافقة المدير.');
+            setSuccessMessage(result.message || t('auth.registerSuccess'));
             setTenantFormData({ business_name: '', phone: '', username: '', password: '', email: '', contact_name: '' });
         } catch (err) {
-            setLocalError(err.message || 'فشل التسجيل');
+            setLocalError(err.message || t('auth.registerFailed'));
         } finally {
             setTenantLoading(false);
         }
@@ -105,6 +107,25 @@ const Login = () => {
             p: 2,
             background: 'linear-gradient(135deg, #008069 0%, #005c4b 100%)' // WhatsApp-like gradient
         }}>
+            <Button
+                variant="outlined"
+                startIcon={<LanguageIcon />}
+                onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
+                sx={{
+                    position: 'fixed',
+                    top: 16,
+                    insetInlineEnd: 16,
+                    color: 'white',
+                    borderColor: 'rgba(255,255,255,0.7)',
+                    '&:hover': {
+                        borderColor: 'white',
+                        bgcolor: 'rgba(255,255,255,0.08)',
+                    },
+                }}
+                aria-label={t('language.toggleLabel')}
+            >
+                {language === 'ar' ? t('language.switchToEnglish') : t('language.switchToArabic')}
+            </Button>
             <Box sx={{ width: '100%', maxWidth: 420 }}>
                 {/* Logo */}
                 <Box sx={{ textAlign: 'center', mb: 4, color: 'white' }}>
@@ -125,7 +146,7 @@ const Login = () => {
                         Wa Savana
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                        لوحة الإدارة المركزية
+                        {t('auth.subtitle')}
                     </Typography>
                 </Box>
 
@@ -137,8 +158,8 @@ const Login = () => {
                             variant="fullWidth"
                             sx={{ mb: 2 }}
                         >
-                            <Tab label="تسجيل الدخول" />
-                            <Tab label="تسجيل نشاط تجاري" />
+                            <Tab label={t('auth.loginTab')} />
+                            <Tab label={t('auth.registerTab')} />
                         </Tabs>
 
                         {successMessage && (
@@ -157,7 +178,7 @@ const Login = () => {
                             <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                 <TextField
                                     fullWidth
-                                    label="اسم المستخدم"
+                                    label={t('auth.username')}
                                     name="username"
                                     value={formData.username}
                                     onChange={handleChange}
@@ -173,7 +194,7 @@ const Login = () => {
 
                                 <TextField
                                     fullWidth
-                                    label="كلمة المرور"
+                                    label={t('auth.password')}
                                     name="password"
                                     type={showPassword ? 'text' : 'password'}
                                     value={formData.password}
@@ -208,14 +229,14 @@ const Login = () => {
                                         '&:hover': { bgcolor: 'primary.dark' }
                                     }}
                                 >
-                                    {loading ? 'جاري التحميل...' : 'دخول'}
+                                    {loading ? t('common.loading') : t('auth.loginButton')}
                                 </Button>
                             </Box>
                         ) : (
                             <Box component="form" onSubmit={handleTenantRegister} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                 <TextField
                                     fullWidth
-                                    label="اسم النشاط التجاري *"
+                                    label={t('auth.businessName')}
                                     value={tenantFormData.business_name}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, business_name: e.target.value })}
                                     required
@@ -229,7 +250,7 @@ const Login = () => {
                                 />
                                 <TextField
                                     fullWidth
-                                    label="رقم الهاتف *"
+                                    label={t('auth.phone')}
                                     value={tenantFormData.phone}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, phone: e.target.value })}
                                     required
@@ -244,7 +265,7 @@ const Login = () => {
                                 />
                                 <TextField
                                     fullWidth
-                                    label="اسم جهة الاتصال"
+                                    label={t('auth.contactName')}
                                     value={tenantFormData.contact_name}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, contact_name: e.target.value })}
                                     InputProps={{
@@ -257,7 +278,7 @@ const Login = () => {
                                 />
                                 <TextField
                                     fullWidth
-                                    label="اسم المستخدم *"
+                                    label={t('auth.username')}
                                     value={tenantFormData.username}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, username: e.target.value })}
                                     required
@@ -271,7 +292,7 @@ const Login = () => {
                                 />
                                 <TextField
                                     fullWidth
-                                    label="البريد الإلكتروني"
+                                    label={t('auth.email')}
                                     type="email"
                                     value={tenantFormData.email}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, email: e.target.value })}
@@ -285,7 +306,7 @@ const Login = () => {
                                 />
                                 <TextField
                                     fullWidth
-                                    label="كلمة المرور * (8 أحرف على الأقل)"
+                                    label={t('auth.passwordWithHint')}
                                     type={showPassword ? 'text' : 'password'}
                                     value={tenantFormData.password}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, password: e.target.value })}
@@ -318,10 +339,10 @@ const Login = () => {
                                         '&:hover': { bgcolor: 'secondary.dark' }
                                     }}
                                 >
-                                    {tenantLoading ? 'جاري التسجيل...' : 'تسجيل النشاط التجاري'}
+                                    {tenantLoading ? t('common.registering') : t('auth.registerButton')}
                                 </Button>
                                 <Alert severity="info" sx={{ borderRadius: 2 }}>
-                                    بعد التسجيل، سيتم مراجعة طلبك من قبل المدير. ستتمكن من الدخول بعد الموافقة.
+                                    {t('auth.registerInfo')}
                                 </Alert>
                             </Box>
                         )}
@@ -336,7 +357,7 @@ const Login = () => {
                                 underline="hover"
                                 sx={{ '&:hover': { color: 'primary.main' } }}
                             >
-                                سياسة الخصوصية وحماية البيانات
+                                {t('common.privacyPolicyFull')}
                             </Link>
                         </Box>
                     </CardContent>

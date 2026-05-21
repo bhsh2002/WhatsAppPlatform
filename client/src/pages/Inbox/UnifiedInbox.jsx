@@ -21,9 +21,11 @@ import {
     isSameUnifiedConversation,
 } from '../../utils/conversationKeys';
 import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
+import { useLanguage } from '../../context/LanguageContext';
 
 const UnifiedInbox = () => {
     const theme = useTheme();
+    const { locale, t } = useLanguage();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [searchParams] = useSearchParams();
     const initialChannel = ['whatsapp', 'messenger'].includes(searchParams.get('channel'))
@@ -319,11 +321,11 @@ const UnifiedInbox = () => {
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send template:', err);
-            alert('فشل إرسال القالب');
+            alert(t('inbox.templateSendFailed'));
         } finally {
             setSending(false);
         }
-    }, [selectedChat, sending, fetchMessages, fetchConversations]);
+    }, [selectedChat, sending, fetchMessages, fetchConversations, t]);
 
     // ChatWindow calls onSendDocument(file, caption)
     const handleSendDocument = useCallback(async (file, caption) => {
@@ -344,11 +346,11 @@ const UnifiedInbox = () => {
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send document:', err);
-            alert('فشل إرسال الملف: ' + (err.message || 'خطأ غير متوقع'));
+            alert(t('inbox.fileSendFailed', { message: err.message || t('common.unexpectedError') }));
         } finally {
             setSendingDoc(false);
         }
-    }, [selectedChat, fetchMessages, fetchConversations]);
+    }, [selectedChat, fetchMessages, fetchConversations, t]);
 
     // ChatWindow calls onSendImage(file, caption)
     const handleSendImage = useCallback(async (file, caption) => {
@@ -369,11 +371,11 @@ const UnifiedInbox = () => {
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send image:', err);
-            alert('فشل إرسال الصورة: ' + (err.message || 'خطأ غير متوقع'));
+            alert(t('inbox.imageSendFailed', { message: err.message || t('common.unexpectedError') }));
         } finally {
             setSendingDoc(false);
         }
-    }, [selectedChat, fetchMessages, fetchConversations]);
+    }, [selectedChat, fetchMessages, fetchConversations, t]);
 
     // ChatWindow calls onSendInteractive(data)
     const handleSendInteractive = useCallback(async (data) => {
@@ -390,11 +392,11 @@ const UnifiedInbox = () => {
             scrollToBottom();
         } catch (err) {
             console.error('Failed to send interactive:', err);
-            alert('فشل إرسال الرسالة التفاعلية: ' + (err.message || 'خطأ غير متوقع'));
+            alert(t('inbox.interactiveSendFailed', { message: err.message || t('common.unexpectedError') }));
         } finally {
             setSendingInteractive(false);
         }
-    }, [selectedChat, fetchMessages, fetchConversations]);
+    }, [selectedChat, fetchMessages, fetchConversations, t]);
 
     // ============================================
     // Messenger Send Handler
@@ -429,7 +431,7 @@ const UnifiedInbox = () => {
 
     const handleSendUtilityMessage = useCallback(async (message, tag) => {
         if (!selectedChat?.linked_page_id || !selectedChat?.conversation_id) {
-            throw new Error('بيانات المحادثة غير مكتملة');
+            throw new Error(t('inbox.incompleteConversation'));
         }
         await api.sendAdminUtilityMessage(
             selectedChat.linked_page_id,
@@ -438,16 +440,16 @@ const UnifiedInbox = () => {
         );
         await fetchMessages(selectedChat);
         fetchConversations();
-    }, [selectedChat, fetchMessages, fetchConversations]);
+    }, [selectedChat, fetchMessages, fetchConversations, t]);
 
     const handleBotStatusChange = useCallback(async (status) => {
         if (!botSession?.id || !selectedChat?.tenant_id) {
-            alert('لا توجد جلسة بوت لهذه المحادثة بعد. ستظهر بعد أول رسالة يتعامل معها البوت.');
+            alert(t('inbox.noBotSession'));
             return;
         }
         await api.updateMessengerBotSession(selectedChat.tenant_id, botSession.id, status);
         await fetchBotSession(selectedChat);
-    }, [botSession, fetchBotSession, selectedChat]);
+    }, [botSession, fetchBotSession, selectedChat, t]);
 
     // ============================================
     // SSE Integration
@@ -538,19 +540,19 @@ const UnifiedInbox = () => {
 
     const getDisplayName = useCallback((chat) => {
         // ChatWindow passes the selectedChat object for header, or a message for bubbles
-        if (chat?.direction === 'outgoing') return 'أنت';
-        return chat?.profile_name || chat?.sender_name || chat?.display_name || selectedChat?.display_name || chat?.sender || chat?.contact || 'مجهول';
-    }, [selectedChat]);
+        if (chat?.direction === 'outgoing') return t('inbox.you');
+        return chat?.profile_name || chat?.sender_name || chat?.display_name || selectedChat?.display_name || chat?.sender || chat?.contact || t('common.unknown');
+    }, [selectedChat, t]);
 
     const formatTime = useCallback((dateStr) => {
         if (!dateStr) return '';
-        return new Date(dateStr).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
-    }, []);
+        return new Date(dateStr).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    }, [locale]);
 
     const getDateKey = useCallback((dateStr) => {
         if (!dateStr) return '';
-        return new Date(dateStr).toLocaleDateString('ar-SA');
-    }, []);
+        return new Date(dateStr).toLocaleDateString(locale);
+    }, [locale]);
 
     const getStatusIcon = useCallback((status, direction) => {
         if (direction === 'incoming') return null;
@@ -619,7 +621,7 @@ const UnifiedInbox = () => {
                 flexDirection: 'column',
                 overflow: 'hidden',
                 transition: 'width 0.3s',
-                borderRight: 1,
+                borderInlineEnd: 1,
                 borderColor: 'divider',
             }}>
                 <UnifiedSidebar

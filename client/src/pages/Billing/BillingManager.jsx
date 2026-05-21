@@ -42,6 +42,7 @@ import {
     UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const number = (value) => Number(value || 0).toLocaleString('ar-LY');
 const money = (value, currency = '') => `${Number(value || 0).toLocaleString('ar-LY', { minimumFractionDigits: 3, maximumFractionDigits: 4 })}${currency ? ` ${currency}` : ''}`;
@@ -121,6 +122,7 @@ const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
 );
 
 const BillingManager = () => {
+    const { t } = useLanguage();
     const [tab, setTab] = useState(0);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -512,23 +514,23 @@ const BillingManager = () => {
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'center', mb: 3 }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={800}>الفوترة والتسعير</Typography>
+                    <Typography variant="h4" fontWeight={800}>{t('billing.adminTitle')}</Typography>
                     <Typography variant="body2" color="text.secondary">
-                        باقات شهرية، محفظة رصيد، سماحية ائتمانية، وسجل خصم مركزي.
+                        {t('billing.adminSubtitle')}
                     </Typography>
                 </Box>
-                <Button startIcon={<RefreshIcon />} variant="outlined" onClick={fetchAll}>تحديث</Button>
+                <Button startIcon={<RefreshIcon />} variant="outlined" onClick={fetchAll}>{t('common.refresh')}</Button>
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
             <Paper sx={{ mb: 3 }}>
                 <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable">
-                    <Tab label="حسابات العملاء" />
-                    <Tab label="الباقات" />
-                    <Tab label="كتالوج الأسعار" />
-                    <Tab label="السجل والفواتير" />
-                    <Tab label="مطابقة تكلفة Meta" />
+                    <Tab label={t('billing.tenantAccounts')} />
+                    <Tab label={t('billing.plans')} />
+                    <Tab label={t('billing.priceCatalog')} />
+                    <Tab label={t('billing.ledgerInvoices')} />
+                    <Tab label={t('billing.metaReconciliation')} />
                 </Tabs>
             </Paper>
 

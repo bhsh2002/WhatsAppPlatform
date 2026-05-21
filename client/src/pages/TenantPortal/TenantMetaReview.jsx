@@ -32,30 +32,40 @@ import {
     Webhook as WebhookIcon,
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const STATUS_CONFIG = {
-    ready: { label: 'جاهز', color: 'success', icon: <CheckCircleIcon /> },
-    action_required: { label: 'يتطلب إجراء', color: 'warning', icon: <ErrorOutlineIcon /> },
-    missing: { label: 'ناقص', color: 'error', icon: <ErrorOutlineIcon /> },
+    ready: { labelKey: 'metaReview.ready', color: 'success', icon: <CheckCircleIcon /> },
+    action_required: { labelKey: 'metaReview.actionRequired', color: 'warning', icon: <ErrorOutlineIcon /> },
+    missing: { labelKey: 'metaReview.missing', color: 'error', icon: <ErrorOutlineIcon /> },
 };
 
 const getStatusConfig = (status) => STATUS_CONFIG[status] || STATUS_CONFIG.action_required;
 
+const translationsFallback = (key) => {
+    const labels = {
+        'common.unavailable': document.documentElement.lang === 'en' ? 'Unavailable' : 'غير متوفر',
+    };
+    return labels[key] || key;
+};
+
 const formatDate = (value) => {
-    if (!value) return 'غير متوفر';
+    if (!value) return translationsFallback('common.unavailable');
     try {
-        return new Date(value).toLocaleString('ar-LY');
+        const locale = document.documentElement.lang === 'en' ? 'en-US' : 'ar-LY';
+        return new Date(value).toLocaleString(locale);
     } catch {
         return value;
     }
 };
 
 const StatusChip = ({ status }) => {
+    const { t } = useLanguage();
     const config = getStatusConfig(status);
     return (
         <Chip
             icon={config.icon}
-            label={config.label}
+            label={t(config.labelKey)}
             color={config.color}
             size="small"
             variant={status === 'ready' ? 'filled' : 'outlined'}
@@ -74,9 +84,10 @@ const Metric = ({ label, value }) => (
     </Box>
 );
 
-const MissingChips = ({ items, emptyLabel = 'لا توجد نواقص' }) => {
+const MissingChips = ({ items, emptyLabel }) => {
+    const { t } = useLanguage();
     if (!items?.length) {
-        return <Chip label={emptyLabel} color="success" size="small" variant="outlined" />;
+        return <Chip label={emptyLabel || t('metaReview.noMissing')} color="success" size="small" variant="outlined" />;
     }
 
     return items.map(item => (
@@ -84,22 +95,23 @@ const MissingChips = ({ items, emptyLabel = 'لا توجد نواقص' }) => {
     ));
 };
 
-const SourceLabel = {
-    production_event: 'حدث إنتاج',
-    meta_dashboard_test: 'اختبار Meta',
-    internal_test: 'اختبار داخلي',
+const SourceLabelKey = {
+    production_event: 'metaReview.productionEvent',
+    meta_dashboard_test: 'metaReview.metaDashboardTest',
+    internal_test: 'metaReview.internalTest',
 };
 
 const PermissionMatrix = ({ permissions }) => {
+    const { t } = useLanguage();
     if (!permissions?.length) return null;
 
     return (
         <Paper sx={{ p: 3, mb: 3 }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>
-                مصفوفة الأذونات والأدلة
+                {t('metaReview.permissionMatrix')}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                كل إذن مربوط بمسار استخدام ودليل تشغيل. الحالة لا تعتمد على وجود scope فقط.
+                {t('metaReview.permissionMatrixHint')}
             </Typography>
             <Grid container spacing={1.5}>
                 {permissions.map(permission => (
@@ -129,21 +141,21 @@ const PermissionMatrix = ({ permissions }) => {
                             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                 <Chip
                                     label={permission.feature
-                                        ? (permission.granted ? 'دليل موجود' : 'لا يوجد دليل')
-                                        : (permission.granted ? 'ممنوح' : 'غير ممنوح')}
+                                        ? (permission.granted ? t('metaReview.evidenceFound') : t('metaReview.noEvidence'))
+                                        : (permission.granted ? t('metaReview.granted') : t('metaReview.notGranted'))}
                                     color={permission.granted ? 'success' : 'warning'}
                                     size="small"
                                     variant="outlined"
                                 />
                                 <Chip
-                                    label={`الدليل: ${getStatusConfig(permission.evidence_status).label}`}
+                                    label={t('metaReview.evidence', { status: t(getStatusConfig(permission.evidence_status).labelKey) })}
                                     color={getStatusConfig(permission.evidence_status).color}
                                     size="small"
                                     variant="outlined"
                                 />
                             </Stack>
                             <Typography variant="caption" color="text.secondary">
-                                آخر نجاح: {formatDate(permission.last_success_at)}
+                                {t('metaReview.lastSuccess', { date: formatDate(permission.last_success_at) })}
                             </Typography>
                         </Box>
                     </Grid>
@@ -154,19 +166,20 @@ const PermissionMatrix = ({ permissions }) => {
 };
 
 const WebhookEvidence = ({ evidence }) => {
+    const { t } = useLanguage();
     const fields = Object.entries(evidence?.by_field || {});
     if (!fields.length) return null;
 
     return (
         <Paper sx={{ p: 3, mb: 3 }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>
-                أدلة Webhook الفعلية
+                {t('metaReview.webhookEvidence')}
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 {fields.map(([field, item]) => (
                     <Chip
                         key={field}
-                        label={`${field}: ${item.production_count || 0}/${item.count || 0} إنتاج - ${SourceLabel[item.latest_source] || item.latest_source || 'غير معروف'}`}
+                        label={`${field}: ${item.production_count || 0}/${item.count || 0} - ${SourceLabelKey[item.latest_source] ? t(SourceLabelKey[item.latest_source]) : (item.latest_source || t('metaReview.unknownSource'))}`}
                         color={(item.production_count || 0) > 0 ? 'success' : 'warning'}
                         variant="outlined"
                     />
@@ -225,6 +238,7 @@ const ReviewSectionCard = ({ title, icon, section, metrics, missingItems, action
 );
 
 const TenantMetaReview = () => {
+    const { t } = useLanguage();
     const [readiness, setReadiness] = useState(null);
     const [snapshots, setSnapshots] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -249,11 +263,11 @@ const TenantMetaReview = () => {
             setReadiness(data);
             await loadSnapshots();
         } catch (err) {
-            setError(err.message || 'فشل تحميل جاهزية مراجعة Meta');
+            setError(err.message || t('metaReview.fetchFailed'));
         } finally {
             setLoading(false);
         }
-    }, [loadSnapshots]);
+    }, [loadSnapshots, t]);
 
     useEffect(() => { loadReadiness(); }, [loadReadiness]);
 
@@ -264,9 +278,9 @@ const TenantMetaReview = () => {
             const data = await api.saveMetaReviewSnapshot();
             setReadiness(data.readiness);
             await loadSnapshots();
-            setSnapshotMessage('تم حفظ لقطة جاهزية Meta كدليل مراجعة.');
+            setSnapshotMessage(t('metaReview.snapshotSaved'));
         } catch (err) {
-            setError(err.message || 'فشل حفظ لقطة جاهزية Meta');
+            setError(err.message || t('metaReview.snapshotFailed'));
         } finally {
             setSavingSnapshot(false);
         }
@@ -277,87 +291,87 @@ const TenantMetaReview = () => {
 
         return [
             {
-                title: 'أذونات Facebook OAuth',
+                title: t('metaReview.facebookOauth'),
                 icon: <FacebookIcon />,
                 section: readiness.permissions,
                 missingItems: readiness.permissions?.missing_scopes,
-                actionLabel: 'إعادة التفويض',
+                actionLabel: t('metaReview.reauthorize'),
                 actionPath: readiness.permissions?.action_path,
                 metrics: [
                     {
-                        label: 'Facebook requested / granted total',
+                        label: t('metaReview.facebookRequestedGranted'),
                         value: `${readiness.permissions?.requested_scopes?.length || 0} / ${readiness.permissions?.granted_scopes?.length || 0}`,
                     },
-                    { label: 'آخر تفويض', value: formatDate(readiness.permissions?.facebook_user_token_updated_at) },
+                    { label: t('metaReview.lastAuthorization'), value: formatDate(readiness.permissions?.facebook_user_token_updated_at) },
                 ],
             },
             {
-                title: 'دليل هوية Facebook',
+                title: t('metaReview.identityEvidence'),
                 icon: <PersonSearchIcon />,
                 section: readiness.identity,
                 missingItems: [
                     !readiness.identity?.public_profile_ready ? 'public_profile' : null,
                     !readiness.identity?.email_ready ? 'email evidence' : null,
                 ].filter(Boolean),
-                actionLabel: 'إعادة التفويض',
+                actionLabel: t('metaReview.reauthorize'),
                 actionPath: readiness.identity?.action_path,
                 metrics: [
-                    { label: 'Public profile', value: readiness.identity?.public_profile_ready ? 'مثبت' : 'غير مثبت' },
-                    { label: 'Email', value: readiness.identity?.email_ready ? 'موجود' : readiness.identity?.email_granted ? 'ممنوح بلا بريد' : 'غير مثبت' },
+                    { label: t('metaReview.publicProfile'), value: readiness.identity?.public_profile_ready ? t('metaReview.verified') : t('metaReview.notVerified') },
+                    { label: t('metaReview.email'), value: readiness.identity?.email_ready ? t('metaReview.present') : readiness.identity?.email_granted ? t('metaReview.grantedNoEmail') : t('metaReview.notVerified') },
                 ],
             },
             {
-                title: 'الصفحات و Webhooks',
+                title: t('metaReview.pagesWebhooks'),
                 icon: <WebhookIcon />,
                 section: readiness.pages,
                 missingItems: readiness.pages?.webhook_ready_count ? [] : readiness.pages?.required_webhook_fields,
-                actionLabel: 'إدارة الصفحات',
+                actionLabel: t('metaReview.managePages'),
                 actionPath: readiness.pages?.action_path,
                 metrics: [
-                    { label: 'الصفحات النشطة', value: readiness.pages?.active_count || 0 },
-                    { label: 'Webhooks جاهزة', value: readiness.pages?.webhook_ready_count || 0 },
+                    { label: t('metaReview.activePages'), value: readiness.pages?.active_count || 0 },
+                    { label: t('metaReview.readyWebhooks'), value: readiness.pages?.webhook_ready_count || 0 },
                 ],
             },
             {
-                title: 'محتوى الصفحة',
+                title: t('metaReview.pageContent'),
                 icon: <ArticleIcon />,
                 section: readiness.content,
                 missingItems: readiness.content?.missing_permissions,
-                actionLabel: 'فتح إدارة المحتوى',
+                actionLabel: t('metaReview.openContent'),
                 actionPath: readiness.content?.action_path,
                 metrics: [
-                    { label: 'صفحات برمز صالح', value: readiness.content?.linked_pages_ready || 0 },
-                    { label: 'الإجراءات', value: readiness.content?.supported_actions?.length || 0 },
+                    { label: t('metaReview.pagesWithValidToken'), value: readiness.content?.linked_pages_ready || 0 },
+                    { label: t('metaReview.actions'), value: readiness.content?.supported_actions?.length || 0 },
                 ],
             },
             {
-                title: 'Messenger',
+                title: t('metaReview.messenger'),
                 icon: <ForumIcon />,
                 section: readiness.messenger,
                 missingItems: readiness.messenger?.missing_permissions,
-                actionLabel: 'فتح inbox',
+                actionLabel: t('metaReview.openInbox'),
                 actionPath: readiness.messenger?.action_path,
                 metrics: [
-                    { label: 'المحادثات', value: readiness.messenger?.conversations_count || 0 },
-                    { label: 'آخر نشاط', value: formatDate(readiness.messenger?.latest_activity_at) },
+                    { label: t('metaReview.conversations'), value: readiness.messenger?.conversations_count || 0 },
+                    { label: t('metaReview.latestActivity'), value: formatDate(readiness.messenger?.latest_activity_at) },
                 ],
             },
             {
-                title: 'Business Asset User Profile Access',
+                title: t('metaReview.businessAssetProfile'),
                 icon: <PersonSearchIcon />,
                 section: readiness.business_asset_user_profile_access,
                 missingItems: readiness.business_asset_user_profile_access?.status === 'ready'
                     ? []
                     : [readiness.business_asset_user_profile_access?.feature_required].filter(Boolean),
-                actionLabel: 'فتح inbox',
+                actionLabel: t('metaReview.openInbox'),
                 actionPath: readiness.business_asset_user_profile_access?.action_path,
                 metrics: [
-                    { label: 'ملفات مستخدمين', value: readiness.business_asset_user_profile_access?.profile_records_count || 0 },
-                    { label: 'الميزة', value: readiness.business_asset_user_profile_access?.feature_required || '-' },
+                    { label: t('metaReview.userProfiles'), value: readiness.business_asset_user_profile_access?.profile_records_count || 0 },
+                    { label: t('metaReview.feature'), value: readiness.business_asset_user_profile_access?.feature_required || '-' },
                 ],
             },
             {
-                title: 'دليل الميزات',
+                title: t('metaReview.featureEvidence'),
                 icon: <FactCheckIcon />,
                 section: readiness.feature_evidence,
                 missingItems: readiness.feature_evidence?.status === 'ready'
@@ -365,45 +379,45 @@ const TenantMetaReview = () => {
                     : (readiness.feature_evidence?.features || [])
                         .filter(feature => feature.status !== 'ready')
                         .map(feature => feature.label),
-                actionLabel: 'عرض التفاصيل',
+                actionLabel: t('metaReview.viewDetails'),
                 actionPath: readiness.feature_evidence?.action_path,
                 metrics: [
                     {
-                        label: 'ميزات مثبتة',
+                        label: t('metaReview.provenFeatures'),
                         value: `${(readiness.feature_evidence?.features || []).filter(feature => feature.status === 'ready').length}/${readiness.feature_evidence?.features?.length || 0}`,
                     },
-                    { label: 'آخر فشل Partner', value: formatDate(readiness.feature_evidence?.features?.find(feature => feature.key === 'manage_app_solution')?.last_failure_at) },
+                    { label: t('metaReview.lastPartnerFailure'), value: formatDate(readiness.feature_evidence?.features?.find(feature => feature.key === 'manage_app_solution')?.last_failure_at) },
                 ],
             },
             {
-                title: 'Business APIs',
+                title: t('metaReview.businessApis'),
                 icon: <BusinessIcon />,
                 section: readiness.business,
                 missingItems: readiness.business?.missing_permissions,
-                actionLabel: 'إعادة تفويض Facebook',
+                actionLabel: t('metaReview.reauthorize'),
                 actionPath: readiness.business?.action_path,
                 metrics: [
-                    { label: 'Business ID', value: readiness.business?.business_id_present ? 'موجود' : 'غير موجود' },
-                    { label: 'Facebook token', value: readiness.business?.facebook_user_token_present ? 'موجود' : 'غير موجود' },
+                    { label: t('metaReview.businessId'), value: readiness.business?.business_id_present ? t('metaReview.present') : t('common.notSet') },
+                    { label: t('metaReview.facebookToken'), value: readiness.business?.facebook_user_token_present ? t('metaReview.present') : t('common.notSet') },
                 ],
                 adminPaths: readiness.business?.admin_paths || [],
             },
             {
-                title: 'WhatsApp Events API',
+                title: t('metaReview.whatsappEvents'),
                 icon: <TrendingUpIcon />,
                 section: readiness.whatsapp_events,
                 missingItems: readiness.whatsapp_events?.status === 'ready'
                     ? []
                     : [readiness.whatsapp_events?.permission_required].filter(Boolean),
-                actionLabel: 'فتح أحداث التحويل',
+                actionLabel: t('metaReview.openConversions'),
                 actionPath: readiness.whatsapp_events?.action_path,
                 metrics: [
-                    { label: 'Dataset ID', value: readiness.whatsapp_events?.dataset_id_present ? 'موجود' : 'غير موجود' },
-                    { label: 'أحداث مرسلة', value: readiness.whatsapp_events?.events_sent || 0 },
+                    { label: t('metaReview.datasetId'), value: readiness.whatsapp_events?.dataset_id_present ? t('metaReview.present') : t('common.notSet') },
+                    { label: t('metaReview.sentEvents'), value: readiness.whatsapp_events?.events_sent || 0 },
                 ],
             },
         ];
-    }, [readiness]);
+    }, [readiness, t]);
 
     if (loading) {
         return (
@@ -426,14 +440,14 @@ const TenantMetaReview = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <FactCheckIcon sx={{ fontSize: 34, color: 'primary.main' }} />
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>جاهزية مراجعة Meta</Typography>
+                        <Typography variant="h5" fontWeight={700}>{t('metaReview.title')}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                            حالة الأذونات ومسارات الإثبات المطلوبة قبل إعادة التقديم
+                            {t('metaReview.subtitle')}
                         </Typography>
                     </Box>
                 </Box>
                 <Button startIcon={<RefreshIcon />} variant="outlined" onClick={loadReadiness}>
-                    تحديث
+                    {t('common.refresh')}
                 </Button>
             </Box>
 
@@ -445,9 +459,9 @@ const TenantMetaReview = () => {
                     <Paper sx={{ p: 3, mb: 3 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'center', mb: 2 }}>
                             <Box>
-                                <Typography variant="h6" fontWeight={700}>الحالة العامة</Typography>
+                                <Typography variant="h6" fontWeight={700}>{t('metaReview.overallStatus')}</Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                    آخر فحص: {formatDate(readiness.generated_at)}
+                                    {t('metaReview.lastCheck', { date: formatDate(readiness.generated_at) })}
                                 </Typography>
                             </Box>
                             <StatusChip status={readiness.overall?.status} />
@@ -458,9 +472,9 @@ const TenantMetaReview = () => {
                             sx={{ height: 8, borderRadius: 1, mb: 1.5 }}
                         />
                         <Typography variant="body2" color="text.secondary">
-                            الجاهز: {readiness.overall?.ready_count || 0} من {readiness.overall?.total_count || 0}
+                            {t('metaReview.readinessProgress', { ready: readiness.overall?.ready_count || 0, total: readiness.overall?.total_count || 0 })}
                             {readiness.overall?.permissions_total_count ? (
-                                <> - الأذونات المثبتة: {readiness.overall.permissions_ready_count || 0} من {readiness.overall.permissions_total_count}</>
+                                <> - {t('metaReview.provenPermissions', { ready: readiness.overall.permissions_ready_count || 0, total: readiness.overall.permissions_total_count })}</>
                             ) : null}
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
@@ -471,7 +485,7 @@ const TenantMetaReview = () => {
                                 onClick={handleSaveSnapshot}
                                 disabled={savingSnapshot}
                             >
-                                حفظ لقطة دليل
+                                {t('metaReview.saveEvidenceSnapshot')}
                             </Button>
                         </Box>
                     </Paper>
@@ -479,7 +493,7 @@ const TenantMetaReview = () => {
                     {readiness.remaining_actions?.length > 0 && (
                         <Paper sx={{ p: 3, mb: 3 }}>
                             <Typography variant="h6" fontWeight={700} gutterBottom>
-                                الأشياء المتبقية
+                                {t('metaReview.remainingActions')}
                             </Typography>
                             <Stack spacing={1.5}>
                                 {readiness.remaining_actions.map(item => (
@@ -510,7 +524,7 @@ const TenantMetaReview = () => {
                                                 variant="outlined"
                                                 endIcon={<OpenInNewIcon />}
                                             >
-                                                فتح
+                                                {t('metaReview.open')}
                                             </Button>
                                         </Stack>
                                     </Box>
@@ -523,7 +537,7 @@ const TenantMetaReview = () => {
                         <Paper sx={{ p: 3, mb: 3 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                                 <HistoryIcon color="primary" />
-                                <Typography variant="h6" fontWeight={700}>آخر لقطات الجاهزية</Typography>
+                                <Typography variant="h6" fontWeight={700}>{t('metaReview.recentSnapshots')}</Typography>
                             </Box>
                             <Stack spacing={1}>
                                 {snapshots.map(snapshot => (
@@ -545,7 +559,7 @@ const TenantMetaReview = () => {
                                                 {formatDate(snapshot.created_at)}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary">
-                                                الأذونات المثبتة: {snapshot.permissions_ready_count ?? 0} من {snapshot.permissions_total_count ?? 0}
+                                                {t('metaReview.provenPermissions', { ready: snapshot.permissions_ready_count ?? 0, total: snapshot.permissions_total_count ?? 0 })}
                                             </Typography>
                                         </Box>
                                         <StatusChip status={snapshot.status} />
@@ -580,10 +594,10 @@ const TenantMetaReview = () => {
                                     {section.section?.key === 'identity' && (
                                         <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.25 }}>
                                             <Typography variant="body2" fontWeight={700}>
-                                                {section.section.facebook_user?.name || 'لم تحفظ هوية Facebook بعد'}
+                                                {section.section.facebook_user?.name || t('metaReview.facebookIdentityMissing')}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary" component="div">
-                                                {section.section.facebook_user?.email || 'البريد غير مرجع من Meta'}
+                                                {section.section.facebook_user?.email || t('metaReview.emailMissingFromMeta')}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary" component="div">
                                                 ID: {section.section.facebook_user?.id || '-'}
@@ -609,11 +623,11 @@ const TenantMetaReview = () => {
                                                     <Box>
                                                         <Typography variant="body2" fontWeight={700}>{feature.label}</Typography>
                                                         <Typography variant="caption" color="text.secondary">
-                                                            آخر نجاح: {formatDate(feature.last_success_at)}
+                                                            {t('metaReview.lastSuccess', { date: formatDate(feature.last_success_at) })}
                                                         </Typography>
                                                         {feature.operational_blocked && (
                                                             <Typography variant="caption" color="warning.main" component="div">
-                                                                قيد تشغيلي من Meta أو حساب Partner
+                                                                {t('metaReview.operationalBlock')}
                                                             </Typography>
                                                         )}
                                                     </Box>
@@ -630,7 +644,7 @@ const TenantMetaReview = () => {
                     {readiness.pages?.pages?.length > 0 && (
                         <Paper sx={{ p: 3, mt: 3 }}>
                             <Typography variant="h6" fontWeight={700} gutterBottom>
-                                تفاصيل صفحات Facebook
+                                {t('metaReview.facebookPageDetails')}
                             </Typography>
                             <Stack spacing={2} divider={<Divider flexItem />}>
                                 {readiness.pages.pages.map(page => (
@@ -649,19 +663,19 @@ const TenantMetaReview = () => {
                                                 {page.page_name || page.page_id}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary">
-                                                Page ID: {page.page_id} | آخر تحديث: {formatDate(page.updated_at)}
+                                                Page ID: {page.page_id} | {t('metaReview.lastUpdate', { date: formatDate(page.updated_at) })}
                                             </Typography>
                                         </Box>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                             <StatusChip status={page.webhook_ready ? 'ready' : 'action_required'} />
                                             <Chip
-                                                label={page.page_access_token_present ? 'Page token موجود' : 'Page token مفقود'}
+                                                label={page.page_access_token_present ? t('metaReview.pageTokenPresent') : t('metaReview.pageTokenMissing')}
                                                 color={page.page_access_token_present ? 'success' : 'warning'}
                                                 size="small"
                                                 variant="outlined"
                                             />
                                             {page.missing_webhook_fields?.map(field => (
-                                                <Chip key={field} label={`Webhook ناقص: ${field}`} color="warning" size="small" variant="outlined" />
+                                                <Chip key={field} label={t('metaReview.missingWebhook', { field })} color="warning" size="small" variant="outlined" />
                                             ))}
                                         </Stack>
                                     </Box>

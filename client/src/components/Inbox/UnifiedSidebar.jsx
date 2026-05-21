@@ -26,41 +26,27 @@ import {
     Sync as SyncIcon
 } from '@mui/icons-material';
 import { getUnifiedConversationKey } from '../../utils/conversationKeys';
+import { useLanguage } from '../../context/LanguageContext';
 
 const getChannelColor = (channel) => {
     if (channel === 'whatsapp') return '#25D366';
     return '#0084ff';
 };
 
-const channelSections = [
-    {
-        value: 'whatsapp',
-        title: 'WhatsApp',
-        subtitle: 'محادثات واتساب للأعمال',
-        icon: <WhatsAppIcon sx={{ fontSize: 18, color: '#25D366' }} />,
-    },
-    {
-        value: 'messenger',
-        title: 'Facebook',
-        subtitle: 'Messenger وصفحات فيسبوك',
-        icon: <FacebookIcon sx={{ fontSize: 18, color: '#1877f2' }} />,
-    },
-];
-
-const formatDate = (dateStr) => {
+const formatDate = (dateStr, t, locale) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
     const now = new Date();
     const diff = now - d;
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'الآن';
-    if (mins < 60) return `${mins}د`;
+    if (mins < 1) return t('common.now');
+    if (mins < 60) return `${mins}${t('common.minuteShort')}`;
     const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}س`;
+    if (hours < 24) return `${hours}${t('common.hourShort')}`;
     const days = Math.floor(hours / 24);
-    if (days === 1) return 'أمس';
-    if (days < 7) return `${days}أيام`;
-    return d.toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' });
+    if (days === 1) return t('common.yesterday');
+    if (days < 7) return `${days}${t('common.daysShort')}`;
+    return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 };
 
 const UnifiedSidebar = ({
@@ -76,6 +62,22 @@ const UnifiedSidebar = ({
     onSyncMessenger,
     syncing
 }) => {
+    const { locale, t } = useLanguage();
+    const channelSections = [
+        {
+            value: 'whatsapp',
+            title: 'WhatsApp',
+            subtitle: t('inbox.whatsappSubtitle'),
+            icon: <WhatsAppIcon sx={{ fontSize: 18, color: '#25D366' }} />,
+        },
+        {
+            value: 'messenger',
+            title: 'Facebook',
+            subtitle: t('inbox.messengerSubtitle'),
+            icon: <FacebookIcon sx={{ fontSize: 18, color: '#1877f2' }} />,
+        },
+    ];
+
     const filteredBySearch = conversations.filter(c => {
         if (!searchTerm) return true;
         const term = searchTerm.toLowerCase();
@@ -92,7 +94,7 @@ const UnifiedSidebar = ({
 
     const renderConversation = (conv) => {
         const isSelected = getUnifiedConversationKey(conv) === getUnifiedConversationKey(selectedChat);
-        const displayName = conv.display_name || conv.contact_id || 'غير معروف';
+        const displayName = conv.display_name || conv.contact_id || t('common.unknown');
         const channelColor = getChannelColor(conv.channel);
         const detailParts = [conv.tenant_name, conv.page_name].filter(Boolean);
 
@@ -140,7 +142,7 @@ const UnifiedSidebar = ({
                                 {displayName}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                                {formatDate(conv.last_message_time)}
+                                {formatDate(conv.last_message_time, t, locale)}
                             </Typography>
                         </Box>
                     }
@@ -171,18 +173,18 @@ const UnifiedSidebar = ({
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                     <Typography variant="h6" fontWeight="bold">
-                        📨 صندوق الوارد
+                        {t('inbox.title')}
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         {onRefresh && (
-                            <Tooltip title="تحديث">
+                            <Tooltip title={t('inbox.refresh')}>
                                 <IconButton size="small" onClick={onRefresh}>
                                     <RefreshIcon fontSize="small" />
                                 </IconButton>
                             </Tooltip>
                         )}
                         {onSyncMessenger && (
-                            <Tooltip title="مزامنة ماسنجر">
+                            <Tooltip title={t('inbox.syncMessenger')}>
                                 <IconButton size="small" onClick={onSyncMessenger} disabled={syncing}>
                                     {syncing ? <CircularProgress size={18} /> : <SyncIcon fontSize="small" sx={{ color: '#0084ff' }} />}
                                 </IconButton>
@@ -205,14 +207,14 @@ const UnifiedSidebar = ({
                         },
                     }}
                 >
-                    <Tab value="all" label="الكل" />
+                    <Tab value="all" label={t('common.all')} />
                     <Tab value="whatsapp" icon={<WhatsAppIcon sx={{ fontSize: 16, color: '#25D366' }} />} iconPosition="start" label="WhatsApp" />
                     <Tab value="messenger" icon={<FacebookIcon sx={{ fontSize: 16, color: '#1877f2' }} />} iconPosition="start" label="Facebook" />
                 </Tabs>
                 <TextField
                     fullWidth
                     size="small"
-                    placeholder="بحث في المحادثات..."
+                    placeholder={t('inbox.searchPlaceholder')}
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                     InputProps={{
@@ -227,9 +229,9 @@ const UnifiedSidebar = ({
 
             <List sx={{ flex: 1, overflow: 'auto', p: 0 }}>
                 {loading ? (
-                    <ListItem><ListItemText primary="جاري التحميل..." sx={{ textAlign: 'center' }} /></ListItem>
+                    <ListItem><ListItemText primary={t('common.loading')} sx={{ textAlign: 'center' }} /></ListItem>
                 ) : filtered.length === 0 ? (
-                    <ListItem><ListItemText primary="لا توجد محادثات" sx={{ textAlign: 'center', color: 'text.secondary' }} /></ListItem>
+                    <ListItem><ListItemText primary={t('common.noConversations')} sx={{ textAlign: 'center', color: 'text.secondary' }} /></ListItem>
                 ) : (
                     sections.map((section, sectionIndex) => {
                         const sectionConversations = filtered.filter(conv => conv.channel === section.value);

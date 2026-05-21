@@ -40,12 +40,15 @@ import {
     ReportProblem as ReportProblemIcon,
     SmartToy as SmartToyIcon,
     FactCheck as FactCheckIcon,
-    AccountBalanceWallet as BillingIcon
+    AccountBalanceWallet as BillingIcon,
+    Language as LanguageIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 
 const Sidebar = () => {
     const { user, tenant, logout, isTenant, isAdmin } = useAuth();
+    const { language, setLanguage, t } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -56,87 +59,87 @@ const Sidebar = () => {
 
     const adminNavSections = [
         {
-            title: 'عام',
+            title: t('nav.sections.general'),
             items: [
-                { label: 'لوحة القيادة', path: '/dashboard', icon: <DashboardIcon /> },
-                { label: 'إدارة العملاء', path: '/tenants', icon: <PeopleIcon /> },
-                { label: 'صندوق الوارد', path: '/inbox', icon: <InboxIcon /> },
-                { label: 'الفوترة والتسعير', path: '/billing', icon: <BillingIcon /> },
+                { label: t('nav.dashboard'), path: '/dashboard', icon: <DashboardIcon /> },
+                { label: t('nav.tenants'), path: '/tenants', icon: <PeopleIcon /> },
+                { label: t('nav.inbox'), path: '/inbox', icon: <InboxIcon /> },
+                { label: t('nav.billing'), path: '/billing', icon: <BillingIcon /> },
             ],
         },
         {
-            title: 'WhatsApp',
+            title: t('nav.sections.whatsapp'),
             color: '#25D366',
             items: [
-                { label: 'منصة واتساب', path: '/whatsapp', icon: <WhatsAppIcon /> },
-                { label: 'جهات اتصال WhatsApp', path: '/contacts', icon: <ContactPhoneIcon /> },
-                { label: 'البث الجماعي', path: '/broadcast', icon: <CampaignIcon /> },
-                { label: 'القوالب', path: '/templates', icon: <TemplateIcon /> },
-                { label: 'أرقام الهواتف', path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
-                { label: 'اشتراكات WABA Webhook', path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
+                { label: t('nav.whatsappConsole'), path: '/whatsapp', icon: <WhatsAppIcon /> },
+                { label: t('nav.whatsappContacts'), path: '/contacts', icon: <ContactPhoneIcon /> },
+                { label: t('nav.broadcast'), path: '/broadcast', icon: <CampaignIcon /> },
+                { label: t('nav.templates'), path: '/templates', icon: <TemplateIcon /> },
+                { label: t('nav.phoneNumbers'), path: '/phone-numbers', icon: <PhoneCallbackIcon /> },
+                { label: t('nav.wabaWebhooks'), path: '/webhook-subscriptions', icon: <WebhookSubIcon /> },
             ],
         },
         {
-            title: 'Facebook / Meta',
+            title: t('nav.sections.facebookMeta'),
             color: '#1877f2',
             items: [
-                { label: 'محتوى فيسبوك', path: '/fb-manager', icon: <FacebookIcon /> },
-                { label: 'Messenger Bot', path: '/messenger-bot', icon: <SmartToyIcon /> },
-                { label: 'تحليلات فيسبوك', path: '/fb-insights', icon: <BarChartIcon /> },
-                { label: 'مدير الأعمال', path: '/business-manager', icon: <BusinessIcon /> },
-                { label: 'حلول الشركاء', path: '/partner-solutions', icon: <HandshakeIcon /> },
-                { label: 'أعطال Webhook', path: '/webhook-failures', icon: <ReportProblemIcon /> },
+                { label: t('nav.facebookContent'), path: '/fb-manager', icon: <FacebookIcon /> },
+                { label: t('nav.messengerBot'), path: '/messenger-bot', icon: <SmartToyIcon /> },
+                { label: t('nav.facebookInsights'), path: '/fb-insights', icon: <BarChartIcon /> },
+                { label: t('nav.businessManager'), path: '/business-manager', icon: <BusinessIcon /> },
+                { label: t('nav.partnerSolutions'), path: '/partner-solutions', icon: <HandshakeIcon /> },
+                { label: t('nav.webhookFailures'), path: '/webhook-failures', icon: <ReportProblemIcon /> },
             ],
         },
         {
-            title: 'النظام',
+            title: t('nav.sections.system'),
             items: [
-                { label: 'الأتمتة', path: '/automation', icon: <SmartToyIcon /> },
-                { label: 'سجلات التشغيل', path: '/logs', icon: <AssessmentIcon /> },
-                { label: 'الإعدادات', path: '/settings', icon: <SettingsIcon /> },
+                { label: t('nav.automation'), path: '/automation', icon: <SmartToyIcon /> },
+                { label: t('nav.logs'), path: '/logs', icon: <AssessmentIcon /> },
+                { label: t('nav.settings'), path: '/settings', icon: <SettingsIcon /> },
             ],
         },
     ];
 
     const tenantNavSections = [
         {
-            title: 'عام',
+            title: t('nav.sections.general'),
             items: [
-                { label: 'لوحة القيادة', path: '/portal', icon: <DashboardIcon /> },
-                { label: 'صندوق الوارد', path: '/portal/inbox', icon: <InboxIcon /> },
-                { label: 'الرصيد والفوترة', path: '/portal/billing', icon: <BillingIcon /> },
+                { label: t('nav.dashboard'), path: '/portal', icon: <DashboardIcon /> },
+                { label: t('nav.inbox'), path: '/portal/inbox', icon: <InboxIcon /> },
+                { label: t('nav.tenantBilling'), path: '/portal/billing', icon: <BillingIcon /> },
             ],
         },
         {
-            title: 'WhatsApp',
+            title: t('nav.sections.whatsapp'),
             color: '#25D366',
             items: [
-                { label: 'ربط WhatsApp', path: '/portal/whatsapp-connect', icon: <WhatsAppIcon /> },
-                { label: 'تحليلات WhatsApp', path: '/portal/analytics', icon: <AnalyticsIcon /> },
-                { label: 'جهات اتصال WhatsApp', path: '/portal/contacts', icon: <ContactPhoneIcon /> },
-                { label: 'البث الجماعي', path: '/portal/broadcast', icon: <CampaignIcon /> },
-                { label: 'القوالب', path: '/portal/templates', icon: <TemplateIcon /> },
-                { label: 'ملف النشاط التجاري', path: '/portal/business-profile', icon: <BusinessIcon /> },
-                { label: 'رموز QR', path: '/portal/qr-codes', icon: <QrCodeIcon /> },
-                { label: 'أحداث التحويل', path: '/portal/conversions', icon: <TrendingUpIcon /> },
-                { label: 'إعدادات API', path: '/portal/api-settings', icon: <ApiIcon /> },
+                { label: t('nav.whatsappConnect'), path: '/portal/whatsapp-connect', icon: <WhatsAppIcon /> },
+                { label: t('nav.whatsappAnalytics'), path: '/portal/analytics', icon: <AnalyticsIcon /> },
+                { label: t('nav.whatsappContacts'), path: '/portal/contacts', icon: <ContactPhoneIcon /> },
+                { label: t('nav.broadcast'), path: '/portal/broadcast', icon: <CampaignIcon /> },
+                { label: t('nav.templates'), path: '/portal/templates', icon: <TemplateIcon /> },
+                { label: t('nav.businessProfile'), path: '/portal/business-profile', icon: <BusinessIcon /> },
+                { label: t('nav.qrCodes'), path: '/portal/qr-codes', icon: <QrCodeIcon /> },
+                { label: t('nav.conversions'), path: '/portal/conversions', icon: <TrendingUpIcon /> },
+                { label: t('nav.apiSettings'), path: '/portal/api-settings', icon: <ApiIcon /> },
             ],
         },
         {
-            title: 'Facebook / Meta',
+            title: t('nav.sections.facebookMeta'),
             color: '#1877f2',
             items: [
-                { label: 'صفحات فيسبوك', path: '/portal/fb-pages', icon: <FacebookIcon /> },
-                { label: 'إدارة المحتوى', path: '/portal/fb-content', icon: <StoreIcon /> },
-                { label: 'Messenger Bot', path: '/portal/messenger-bot', icon: <SmartToyIcon /> },
-                { label: 'تحليلات فيسبوك', path: '/portal/fb-insights', icon: <BarChartIcon /> },
-                { label: 'جاهزية Meta', path: '/portal/meta-review', icon: <FactCheckIcon /> },
+                { label: t('nav.facebookPages'), path: '/portal/fb-pages', icon: <FacebookIcon /> },
+                { label: t('nav.contentManager'), path: '/portal/fb-content', icon: <StoreIcon /> },
+                { label: t('nav.messengerBot'), path: '/portal/messenger-bot', icon: <SmartToyIcon /> },
+                { label: t('nav.facebookInsights'), path: '/portal/fb-insights', icon: <BarChartIcon /> },
+                { label: t('nav.metaReview'), path: '/portal/meta-review', icon: <FactCheckIcon /> },
             ],
         },
         {
-            title: 'التشغيل',
+            title: t('nav.sections.operations'),
             items: [
-                { label: 'الأتمتة', path: '/portal/automation', icon: <SmartToyIcon /> },
+                { label: t('nav.automation'), path: '/portal/automation', icon: <SmartToyIcon /> },
             ],
         },
     ];
@@ -149,7 +152,7 @@ const Sidebar = () => {
             display: 'flex',
             flexDirection: 'column',
             bgcolor: 'background.paper',
-            borderRight: '1px solid rgba(0,0,0,0.12)'
+            borderInlineEnd: '1px solid rgba(0,0,0,0.12)'
         }}>
             {/* Logo Area */}
             <Box sx={{
@@ -177,7 +180,7 @@ const Sidebar = () => {
                         {isTenant ? (tenant?.name || 'Wa Savana') : 'Wa Savana'}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                        {isTenant ? 'بوابة العميل' : 'لوحة الإدارة المركزية'}
+                        {isTenant ? t('layout.tenantPortal') : t('layout.adminConsole')}
                     </Typography>
                 </Box>
             </Box>
@@ -263,7 +266,7 @@ const Sidebar = () => {
                             </Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <Chip
-                                    label={isTenant ? 'عميل' : (isAdmin ? 'مدير' : 'مستخدم')}
+                                    label={isTenant ? t('common.customer') : (isAdmin ? t('common.admin') : t('common.user'))}
                                     size="small"
                                     color={isTenant ? 'secondary' : 'primary'}
                                     sx={{ height: 20, fontSize: '0.7rem' }}
@@ -276,11 +279,22 @@ const Sidebar = () => {
                 <Button
                     fullWidth
                     variant="outlined"
+                    startIcon={<LanguageIcon />}
+                    onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
+                    sx={{ mb: 1 }}
+                    aria-label={t('language.toggleLabel')}
+                >
+                    {language === 'ar' ? t('language.switchToEnglish') : t('language.switchToArabic')}
+                </Button>
+
+                <Button
+                    fullWidth
+                    variant="outlined"
                     color="error"
                     startIcon={<LogoutIcon />}
                     onClick={handleLogout}
                 >
-                    تسجيل الخروج
+                    {t('common.logout')}
                 </Button>
 
                 {/* Privacy Policy Link */}
@@ -297,7 +311,7 @@ const Sidebar = () => {
                             '&:hover': { color: 'text.secondary', bgcolor: 'transparent' },
                         }}
                     >
-                        سياسة الخصوصية
+                        {t('common.privacyPolicy')}
                     </Button>
                 </Box>
             </Box>

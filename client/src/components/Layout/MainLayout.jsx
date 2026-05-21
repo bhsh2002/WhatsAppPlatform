@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Box, AppBar, Toolbar, IconButton, Typography, Drawer, useMediaQuery, useTheme } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import Sidebar from './Sidebar';
+import { useLanguage } from '../../context/LanguageContext';
 
 const drawerWidth = 280;
 
 const MainLayout = ({ children }) => {
     const theme = useTheme();
+    const { t } = useLanguage();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -27,7 +29,7 @@ const MainLayout = ({ children }) => {
                             color="primary"
                             edge="start"
                             onClick={handleDrawerToggle}
-                            aria-label="open drawer"
+                            aria-label={t('layout.openDrawer')}
                         >
                             <MenuIcon />
                         </IconButton>
@@ -44,7 +46,7 @@ const MainLayout = ({ children }) => {
             >
                 <Drawer
                     variant="temporary"
-                    anchor={theme.direction === 'rtl' ? 'left' : 'right'}
+                    anchor={theme.direction === 'rtl' ? 'right' : 'left'}
                     open={mobileOpen}
                     onClose={handleDrawerToggle}
                     ModalProps={{ keepMounted: true }}
@@ -58,6 +60,7 @@ const MainLayout = ({ children }) => {
 
                 <Drawer
                     variant="permanent"
+                    anchor={theme.direction === 'rtl' ? 'right' : 'left'}
                     sx={{
                         display: { xs: 'none', md: 'block' },
                         '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },

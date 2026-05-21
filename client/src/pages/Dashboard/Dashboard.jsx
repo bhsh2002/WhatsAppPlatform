@@ -32,10 +32,12 @@ import {
     Link as LinkIcon
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const Dashboard = () => {
     const navigate = useNavigate();
     const { stats, fetchStats, loading: statsLoading } = useTenants();
+    const { locale, t } = useLanguage();
     const [activity, setActivity] = useState([]);
     const [activityLoading, setActivityLoading] = useState(true);
 
@@ -62,27 +64,16 @@ const Dashboard = () => {
 
     const getStatusBadge = (status) => {
         switch (status) {
-            case 'success': return <Chip label="تم بنجاح" color="success" size="small" />;
-            case 'error': return <Chip label="فشل" color="error" size="small" />;
-            case 'warning': return <Chip label="تحذير" color="warning" size="small" />;
+            case 'success': return <Chip label={t('dashboard.statuses.success')} color="success" size="small" />;
+            case 'error': return <Chip label={t('dashboard.statuses.error')} color="error" size="small" />;
+            case 'warning': return <Chip label={t('dashboard.statuses.warning')} color="warning" size="small" />;
             default: return <Chip label={status} size="small" />;
         }
     };
 
     const getEventDescription = (event) => {
-        const descriptions = {
-            'template_sent': 'إرسال حملة (Template)',
-            'message_sent': 'إرسال رسالة',
-            'message_received': 'رسالة واردة',
-            'message_failed': 'فشل إرسال',
-            'webhook_update': 'تحديث Webhook',
-            'quality_drop': 'انخفاض الجودة',
-            'quality_update': 'تحديث جودة الرقم',
-            'tenant_created': 'إضافة عميل جديد',
-            'tenant_updated': 'تحديث بيانات العميل',
-            'tenant_deleted': 'حذف عميل',
-        };
-        return descriptions[event] || event;
+        const translated = t(`dashboard.events.${event}`);
+        return translated === `dashboard.events.${event}` ? event : translated;
     };
 
     const StatCard = ({ title, value, icon, color, description }) => (
@@ -120,10 +111,10 @@ const Dashboard = () => {
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
                 <Box>
                     <Typography variant="h4" fontWeight={700} gutterBottom>
-                        نظرة عامة
+                        {t('dashboard.overview')}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        ملخص أداء المنصة وحالة العملاء لليوم.
+                        {t('dashboard.overviewSubtitle')}
                     </Typography>
                 </Box>
                 <Button
@@ -132,7 +123,7 @@ const Dashboard = () => {
                     onClick={handleRefresh}
                     disabled={statsLoading || activityLoading}
                 >
-                    تحديث
+                    {t('common.refresh')}
                 </Button>
             </Box>
 
@@ -140,81 +131,81 @@ const Dashboard = () => {
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="إجمالي العملاء"
+                        title={t('dashboard.totalTenants')}
                         value={stats.total}
                         icon={<PeopleIcon />}
                         color="primary"
-                        description="جميع الشركات المسجلة"
+                        description={t('dashboard.totalTenantsCaption')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="عملاء نشطين"
+                        title={t('dashboard.activeTenants')}
                         value={stats.active}
                         icon={<CheckCircleIcon />}
                         color="success"
-                        description="حالة الربط والتشغيل سليمة"
+                        description={t('dashboard.activeTenantsCaption')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="تحتاج انتباه"
+                        title={t('dashboard.attentionNeeded')}
                         value={stats.warning}
                         icon={<WarningIcon />}
                         color="warning"
-                        description="جودة متوسطة أو اقتراب من الحدود"
+                        description={t('dashboard.attentionNeededCaption')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="مشاكل حرجة"
+                        title={t('dashboard.criticalIssues')}
                         value={stats.critical}
                         icon={<ErrorIcon />}
                         color="error"
-                        description="حظر أو انقطاع خدمة"
+                        description={t('dashboard.criticalIssuesCaption')}
                     />
                 </Grid>
             </Grid>
 
             {/* Message Stats */}
             <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                إحصائيات الرسائل
+                {t('dashboard.messageStats')}
             </Typography>
             <Grid container spacing={3} sx={{ mb: 3 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="اليوم (الإجمالي)"
-                        value={(stats.total_messages_today || 0).toLocaleString()}
+                        title={t('dashboard.todayTotal')}
+                        value={(stats.total_messages_today || 0).toLocaleString(locale)}
                         icon={<MailIcon />}
                         color="info"
-                        description="واتساب + ماسنجر"
+                        description={t('dashboard.whatsappMessenger')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="واتساب اليوم"
-                        value={(stats.wa_today || 0).toLocaleString()}
+                        title={t('dashboard.whatsappToday')}
+                        value={(stats.wa_today || 0).toLocaleString(locale)}
                         icon={<WhatsAppIcon />}
                         color="success"
-                        description="رسائل واتساب اليوم"
+                        description={t('dashboard.whatsappMessagesToday')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="ماسنجر اليوم"
-                        value={(stats.fb_today || 0).toLocaleString()}
+                        title={t('dashboard.messengerToday')}
+                        value={(stats.fb_today || 0).toLocaleString(locale)}
                         icon={<FacebookIcon />}
                         color="primary"
-                        description="رسائل ماسنجر اليوم"
+                        description={t('dashboard.messengerMessagesToday')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="صفحات مربوطة"
+                        title={t('dashboard.linkedPages')}
                         value={stats.linked_pages || 0}
                         icon={<LinkIcon />}
                         color="secondary"
-                        description="صفحات فيسبوك نشطة"
+                        description={t('dashboard.activeFacebookPages')}
                     />
                 </Grid>
             </Grid>
@@ -224,7 +215,7 @@ const Dashboard = () => {
                 <Card elevation={2} sx={{ mb: 3 }}>
                     <CardContent>
                         <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                            توزيع القنوات (هذا الأسبوع)
+                            {t('dashboard.channelDistribution')}
                         </Typography>
                         {(() => {
                             const waWeek = stats.wa_week || 0;
@@ -237,10 +228,10 @@ const Dashboard = () => {
                                     <Box sx={{ mb: 1.5 }}>
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                                             <Typography variant="body2" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                <WhatsAppIcon sx={{ fontSize: 16, color: '#25D366' }} /> واتساب
+                                                <WhatsAppIcon sx={{ fontSize: 16, color: '#25D366' }} /> WhatsApp
                                             </Typography>
                                             <Typography variant="body2" color="text.secondary">
-                                                {waWeek.toLocaleString()} رسالة ({waPct}%)
+                                                {waWeek.toLocaleString(locale)} ({waPct}%)
                                             </Typography>
                                         </Box>
                                         <Box sx={{ width: '100%', height: 8, bgcolor: 'grey.200', borderRadius: 1 }}>
@@ -250,10 +241,10 @@ const Dashboard = () => {
                                     <Box>
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                                             <Typography variant="body2" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                <FacebookIcon sx={{ fontSize: 16, color: '#0084ff' }} /> ماسنجر
+                                                <FacebookIcon sx={{ fontSize: 16, color: '#0084ff' }} /> Messenger
                                             </Typography>
                                             <Typography variant="body2" color="text.secondary">
-                                                {fbWeek.toLocaleString()} رسالة ({fbPct}%)
+                                                {fbWeek.toLocaleString(locale)} ({fbPct}%)
                                             </Typography>
                                         </Box>
                                         <Box sx={{ width: '100%', height: 8, bgcolor: 'grey.200', borderRadius: 1 }}>
@@ -271,14 +262,14 @@ const Dashboard = () => {
             <Card elevation={2}>
                 <Box sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
                     <Typography variant="h6" fontWeight={600}>
-                        النشاط الأخير
+                        {t('dashboard.recentActivity')}
                     </Typography>
                     <Button
                         color="primary"
                         endIcon={<HistoryIcon />}
                         onClick={() => navigate('/logs')}
                     >
-                        عرض السجل الكامل
+                        {t('dashboard.viewFullLog')}
                     </Button>
                 </Box>
 
@@ -288,24 +279,24 @@ const Dashboard = () => {
                     </Box>
                 ) : activity.length === 0 ? (
                     <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                        لا توجد أنشطة حتى الآن
+                        {t('common.noActivities')}
                     </Box>
                 ) : (
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table>
                             <TableHead>
                                 <TableRow>
-                                    <TableCell>الوقت</TableCell>
-                                    <TableCell>العميل</TableCell>
-                                    <TableCell>الحدث</TableCell>
-                                    <TableCell>الحالة</TableCell>
+                                    <TableCell>{t('common.time')}</TableCell>
+                                    <TableCell>{t('common.tenant')}</TableCell>
+                                    <TableCell>{t('common.event')}</TableCell>
+                                    <TableCell>{t('common.status')}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {activity.map((item) => (
                                     <TableRow key={item.id} hover>
                                         <TableCell sx={{ whiteSpace: 'nowrap' }}>{item.relativeTime}</TableCell>
-                                        <TableCell>{item.tenant_name || 'غير محدد'}</TableCell>
+                                        <TableCell>{item.tenant_name || t('common.unspecified')}</TableCell>
                                         <TableCell>{item.description || getEventDescription(item.event_type)}</TableCell>
                                         <TableCell>{getStatusBadge(item.status)}</TableCell>
                                     </TableRow>

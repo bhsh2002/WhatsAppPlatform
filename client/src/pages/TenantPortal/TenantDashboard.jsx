@@ -30,9 +30,11 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const TenantDashboard = () => {
     const { tenant } = useAuth();
+    const { locale, t } = useLanguage();
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -57,31 +59,16 @@ const TenantDashboard = () => {
 
     const getStatusBadge = (status) => {
         switch (status) {
-            case 'success': return <Chip label="تم بنجاح" color="success" size="small" />;
-            case 'error': return <Chip label="فشل" color="error" size="small" />;
-            case 'warning': return <Chip label="تحذير" color="warning" size="small" />;
+            case 'success': return <Chip label={t('dashboard.statuses.success')} color="success" size="small" />;
+            case 'error': return <Chip label={t('dashboard.statuses.error')} color="error" size="small" />;
+            case 'warning': return <Chip label={t('dashboard.statuses.warning')} color="warning" size="small" />;
             default: return <Chip label={status} size="small" />;
         }
     };
 
     const getEventDescription = (event) => {
-        const descriptions = {
-            'template_sent': 'إرسال قالب',
-            'message_sent': 'إرسال رسالة',
-            'message_received': 'رسالة واردة',
-            'message_failed': 'فشل إرسال',
-            'page_linked': 'ربط صفحة فيسبوك',
-            'page_unlinked': 'إلغاء ربط صفحة فيسبوك',
-            'fb_post_created': 'إنشاء منشور فيسبوك',
-            'fb_post_edited': 'تعديل منشور فيسبوك',
-            'fb_post_deleted': 'حذف منشور فيسبوك',
-            'fb_comment_replied': 'رد على تعليق فيسبوك',
-            'fb_comment_hidden': 'إخفاء تعليق فيسبوك',
-            'fb_comment_liked': 'إعجاب بتعليق فيسبوك',
-            'fb_comment_unliked': 'إزالة إعجاب من تعليق فيسبوك',
-            'fb_comment_deleted': 'حذف تعليق فيسبوك',
-        };
-        return descriptions[event] || event;
+        const translated = t(`dashboard.events.${event}`);
+        return translated === `dashboard.events.${event}` ? event : translated;
     };
 
     const StatCard = ({ title, value, icon, color, description }) => (
@@ -118,7 +105,7 @@ const TenantDashboard = () => {
             <Box sx={{ p: 3 }}>
                 <Alert severity="error" action={
                     <Button color="inherit" size="small" onClick={fetchDashboard}>
-                        إعادة المحاولة
+                        {t('common.retry')}
                     </Button>
                 }>
                     {error}
@@ -129,7 +116,7 @@ const TenantDashboard = () => {
 
     const stats = dashboardData?.stats || {};
     const recentActivity = dashboardData?.recentActivity || [];
-    const formatNumber = (value) => Number(value || 0).toLocaleString('ar-LY');
+    const formatNumber = (value) => Number(value || 0).toLocaleString(locale);
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -137,10 +124,10 @@ const TenantDashboard = () => {
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
                 <Box>
                     <Typography variant="h4" fontWeight={700} gutterBottom>
-                        مرحباً، {tenant?.name || 'العميل'}
+                        {t('dashboard.tenantGreeting', { name: tenant?.name || t('dashboard.tenantFallbackName') })}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        لوحة القيادة الخاصة بك - ملخص نشاطك اليومي
+                        {t('dashboard.tenantSubtitle')}
                     </Typography>
                 </Box>
                 <Button
@@ -149,7 +136,7 @@ const TenantDashboard = () => {
                     onClick={fetchDashboard}
                     disabled={loading}
                 >
-                    تحديث
+                    {t('common.refresh')}
                 </Button>
             </Box>
 
@@ -157,110 +144,110 @@ const TenantDashboard = () => {
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="إجمالي المحادثات"
+                        title={t('dashboard.totalConversations')}
                         value={formatNumber(stats.totalConversations)}
                         icon={<ChatIcon />}
                         color="primary"
-                        description="WhatsApp + Messenger"
+                        description={t('dashboard.whatsappMessenger')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="الرسائل المرسلة اليوم"
+                        title={t('dashboard.sentToday')}
                         value={formatNumber(stats.sentToday)}
                         icon={<SendIcon />}
                         color="success"
-                        description="WhatsApp + Messenger"
+                        description={t('dashboard.whatsappMessenger')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="الرسائل الواردة اليوم"
+                        title={t('dashboard.receivedToday')}
                         value={formatNumber(stats.receivedToday)}
                         icon={<InboxIcon />}
                         color="info"
-                        description="WhatsApp + Messenger"
+                        description={t('dashboard.whatsappMessenger')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="رسائل غير مقروءة"
+                        title={t('dashboard.unreadMessages')}
                         value={formatNumber(stats.unreadCount)}
                         icon={<UnreadIcon />}
                         color="warning"
-                        description="WhatsApp + Messenger"
+                        description={t('dashboard.whatsappMessenger')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="القوالب"
+                        title={t('dashboard.templates')}
                         value={formatNumber(stats.templatesCount)}
                         icon={<TemplateIcon />}
                         color="secondary"
-                        description="قوالب WhatsApp المحفوظة"
+                        description="WhatsApp"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="رسائل اليوم"
+                        title={t('dashboard.messagesToday')}
                         value={formatNumber(stats.messagesToday)}
                         icon={<ChatIcon />}
                         color="primary"
-                        description="WhatsApp + Messenger"
+                        description={t('dashboard.whatsappMessenger')}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <StatCard
-                        title="الرصيد المتبقي"
+                        title={t('dashboard.remainingCredits')}
                         value={dashboardData?.tenant?.credits ?? '—'}
                         icon={<CreditsIcon />}
                         color={
                             (dashboardData?.tenant?.credits ?? 999) > 100 ? 'success' :
                             (dashboardData?.tenant?.credits ?? 999) >= 10 ? 'warning' : 'error'
                         }
-                        description="رصيد إرسال الرسائل"
+                        description={t('dashboard.messageCredits')}
                     />
                 </Grid>
             </Grid>
 
             <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                ملخص القنوات
+                {t('dashboard.channelSummary')}
             </Typography>
             <Grid container spacing={3} sx={{ mb: 4 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="WhatsApp اليوم"
+                        title={t('dashboard.whatsappToday')}
                         value={formatNumber(stats.whatsappMessagesToday)}
                         icon={<WhatsAppIcon />}
                         color="success"
-                        description={`${formatNumber(stats.whatsappSentToday)} مرسلة / ${formatNumber(stats.whatsappReceivedToday)} واردة`}
+                        description={t('dashboard.sentReceived', { sent: formatNumber(stats.whatsappSentToday), received: formatNumber(stats.whatsappReceivedToday) })}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="Messenger اليوم"
+                        title={t('dashboard.messengerToday')}
                         value={formatNumber(stats.messengerMessagesToday)}
                         icon={<FacebookIcon />}
                         color="primary"
-                        description={`${formatNumber(stats.messengerSentToday)} مرسلة / ${formatNumber(stats.messengerReceivedToday)} واردة`}
+                        description={t('dashboard.sentReceived', { sent: formatNumber(stats.messengerSentToday), received: formatNumber(stats.messengerReceivedToday) })}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="محادثات Messenger"
+                        title={t('dashboard.messengerConversations')}
                         value={formatNumber(stats.messengerConversations)}
                         icon={<FacebookIcon />}
                         color="info"
-                        description={`${formatNumber(stats.messengerUnread)} غير مقروءة`}
+                        description={t('dashboard.unreadCount', { count: formatNumber(stats.messengerUnread) })}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard
-                        title="صفحات Facebook"
+                        title={t('dashboard.facebookPages')}
                         value={formatNumber(stats.linkedFacebookPages)}
                         icon={<FacebookIcon />}
                         color="secondary"
-                        description={`${formatNumber(stats.facebookActionsWeek)} إجراء Facebook هذا الأسبوع`}
+                        description={t('dashboard.facebookActionsWeek', { count: formatNumber(stats.facebookActionsWeek) })}
                     />
                 </Grid>
             </Grid>
@@ -268,12 +255,12 @@ const TenantDashboard = () => {
             {/* Low Credit Alert */}
             {dashboardData?.tenant?.credits !== null && dashboardData?.tenant?.credits < 10 && (
                 <Alert severity="error" sx={{ mb: 3 }}>
-                    ⚠️ رصيدك منخفض جداً ({dashboardData.tenant.credits} رسالة متبقية). تواصل مع المدير لإعادة الشحن.
+                    {t('dashboard.veryLowCredit', { count: dashboardData.tenant.credits })}
                 </Alert>
             )}
             {dashboardData?.tenant?.credits !== null && dashboardData?.tenant?.credits >= 10 && dashboardData?.tenant?.credits < 50 && (
                 <Alert severity="warning" sx={{ mb: 3 }}>
-                    رصيدك يقترب من النفاد ({dashboardData.tenant.credits} رسالة متبقية). تواصل مع المدير لإعادة الشحن.
+                    {t('dashboard.lowCredit', { count: dashboardData.tenant.credits })}
                 </Alert>
             )}
 
@@ -281,14 +268,14 @@ const TenantDashboard = () => {
             <Card elevation={2}>
                 <Box sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
                     <Typography variant="h6" fontWeight={600}>
-                        النشاط الأخير
+                        {t('dashboard.recentActivity')}
                     </Typography>
                     <Button
                         color="primary"
                         endIcon={<HistoryIcon />}
                         href="/portal/inbox"
                     >
-                        عرض صندوق الوارد
+                        {t('dashboard.viewInbox')}
                     </Button>
                 </Box>
 
@@ -298,24 +285,24 @@ const TenantDashboard = () => {
                     </Box>
                 ) : recentActivity.length === 0 ? (
                     <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                        لا توجد أنشطة حتى الآن
+                        {t('common.noActivities')}
                     </Box>
                 ) : (
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table>
                             <TableHead>
                                 <TableRow>
-                                    <TableCell>الوقت</TableCell>
-                                    <TableCell>الحدث</TableCell>
-                                    <TableCell>الوصف</TableCell>
-                                    <TableCell>الحالة</TableCell>
+                                    <TableCell>{t('common.time')}</TableCell>
+                                    <TableCell>{t('common.event')}</TableCell>
+                                    <TableCell>{t('common.description')}</TableCell>
+                                    <TableCell>{t('common.status')}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {recentActivity.map((item) => (
                                     <TableRow key={item.id} hover>
                                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                                            {new Date(item.created_at).toLocaleString('ar-LY')}
+                                            {new Date(item.created_at).toLocaleString(locale)}
                                         </TableCell>
                                         <TableCell>{getEventDescription(item.event_type)}</TableCell>
                                         <TableCell>{item.description}</TableCell>

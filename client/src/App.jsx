@@ -4,6 +4,7 @@ import { Box, CircularProgress } from '@mui/material';
 import MainLayout from './components/Layout/MainLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider } from './context/TenantContext';
+import { useLanguage } from './context/LanguageContext';
 
 // Admin Pages
 import Login from './pages/Login/Login';
@@ -60,6 +61,7 @@ import MessengerBotManager from './pages/MessengerBot/MessengerBotManager';
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
   const { isAuthenticated, loading, isTenant, isAdmin } = useAuth();
+  const { t } = useLanguage();
 
   if (loading) {
     return (
@@ -72,7 +74,7 @@ const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false 
       }}>
         <Box sx={{ textAlign: 'center' }}>
           <CircularProgress size={40} thickness={4} />
-          <p style={{ marginTop: '1rem', color: 'text.secondary' }}>جاري التحميل...</p>
+          <p style={{ marginTop: '1rem', color: 'text.secondary' }}>{t('common.loading')}</p>
         </Box>
       </Box>
     );
@@ -96,6 +98,7 @@ const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false 
 
 function AppRoutes() {
   const { isAuthenticated, isTenant } = useAuth();
+  const { t } = useLanguage();
 
   return (
     <Routes>
@@ -458,7 +461,7 @@ function AppRoutes() {
           <ProtectedRoute>
             <MainLayout>
               <div style={{ textAlign: 'center', marginTop: '5rem' }}>
-                <h1>404 | صفحة غير موجودة</h1>
+                <h1>{t('common.notFound')}</h1>
               </div>
             </MainLayout>
           </ProtectedRoute>

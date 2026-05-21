@@ -29,10 +29,11 @@ import {
     Label as LabelIcon,
     SmartToy as BotIcon,
 } from '@mui/icons-material';
+import { useLanguage } from '../../context/LanguageContext';
 
-const formatTime = (dateStr) => {
+const formatTime = (dateStr, locale) => {
     if (!dateStr) return '';
-    return new Date(dateStr).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    return new Date(dateStr).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 };
 
 const getDateKey = (dateStr) => {
@@ -43,6 +44,7 @@ const getDateKey = (dateStr) => {
 
 // Messenger message bubble
 const MessengerBubble = ({ msg }) => {
+    const { locale, t } = useLanguage();
     const isOutgoing = msg?.direction === 'outgoing';
     const content = msg?.message_text || '';
 
@@ -62,7 +64,7 @@ const MessengerBubble = ({ msg }) => {
                         ) : (
                             <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer"
                                 style={{ color: isOutgoing ? 'white' : '#1976d2', textDecoration: 'underline' }}>
-                                📄 ملف مرفق
+                                {t('inbox.attachedFile')}
                             </a>
                         )}
                     </Box>
@@ -82,7 +84,7 @@ const MessengerBubble = ({ msg }) => {
                     opacity: 0.7,
                     fontSize: 10,
                 }}>
-                    {formatTime(msg?.created_at || '')}
+                    {formatTime(msg?.created_at || '', locale)}
                 </Typography>
             </Paper>
         </Box>
@@ -107,6 +109,7 @@ const UnifiedChatWindow = ({
     botSession,
     onBotStatusChange,
 }) => {
+    const { locale, t } = useLanguage();
     // Utility dialog state
     const [utilityOpen, setUtilityOpen] = useState(false);
     const [utilityTags, setUtilityTags] = useState([]);
@@ -159,13 +162,13 @@ const UnifiedChatWindow = ({
             setUtilityMessage('');
             setUtilitySelectedTag('');
             setNewMessage('');
-            setSnackbar({ open: true, message: 'تم إرسال الرسالة الموسومة بنجاح', severity: 'success' });
+            setSnackbar({ open: true, message: t('inbox.utilitySent'), severity: 'success' });
         } catch (err) {
-            setUtilityError(err.message || 'فشل إرسال الرسالة');
+            setUtilityError(err.message || t('inbox.sendFailed'));
         } finally {
             setUtilitySending(false);
         }
-    }, [utilitySelectedTag, utilityMessage, onSendUtilityMessage, setNewMessage]);
+    }, [utilitySelectedTag, utilityMessage, onSendUtilityMessage, setNewMessage, t]);
 
     if (!selectedChat) {
         return (
@@ -180,12 +183,12 @@ const UnifiedChatWindow = ({
                 borderBottom: '4px solid #25D366',
             }}>
                 <WhatsAppIcon sx={{ fontSize: 80, color: 'grey.300', mb: 2 }} />
-                <Typography variant="h6" color="text.secondary">اختر محادثة للبدء</Typography>
+                <Typography variant="h6" color="text.secondary">{t('inbox.chooseConversation')}</Typography>
             </Box>
         );
     }
 
-    const displayName = selectedChat.display_name || selectedChat.contact_id || 'غير معروف';
+    const displayName = selectedChat.display_name || selectedChat.contact_id || t('common.unknown');
     const fGetDateKey = getDateKey;
     const hasUtilitySupport = !!onSendUtilityMessage && !!getMessageTags;
     const isMessenger = selectedChat.channel === 'messenger';
@@ -227,7 +230,7 @@ const UnifiedChatWindow = ({
                         </Typography>
                         <Chip
                             icon={<FacebookIcon sx={{ fontSize: 14 }} />}
-                            label="ماسنجر"
+                            label={t('inbox.messenger')}
                             size="small"
                             sx={{
                                 height: 20,
@@ -239,7 +242,7 @@ const UnifiedChatWindow = ({
                             variant="outlined"
                         />
                         {selectedChat.channel === 'messenger' && (selectedChat.display_name || selectedChat.avatar_url) && (
-                            <Tooltip title="اسم أو صورة المستخدم دليل على Business Asset User Profile Access">
+                            <Tooltip title={t('inbox.profileEvidenceTooltip')}>
                                 <Chip
                                     label="Profile API"
                                     size="small"
@@ -252,7 +255,7 @@ const UnifiedChatWindow = ({
                         {isMessenger && (
                             <Chip
                                 icon={<BotIcon sx={{ fontSize: 14 }} />}
-                                label={botStatus === 'handoff' ? 'موظف بشري' : botStatus === 'closed' ? 'البوت مغلق' : 'Bot active'}
+                                label={botStatus === 'handoff' ? t('inbox.humanAgent') : botStatus === 'closed' ? t('inbox.botClosed') : t('inbox.botActive')}
                                 size="small"
                                 color={botStatus === 'handoff' ? 'warning' : botStatus === 'closed' ? 'default' : 'success'}
                                 variant="outlined"
@@ -273,7 +276,7 @@ const UnifiedChatWindow = ({
                         startIcon={<BotIcon />}
                         onClick={() => onBotStatusChange(botStatus === 'handoff' ? 'active' : 'handoff')}
                     >
-                        {botStatus === 'handoff' ? 'إرجاع للبوت' : 'إيقاف البوت'}
+                        {botStatus === 'handoff' ? t('inbox.resumeBot') : t('inbox.pauseBot')}
                     </Button>
                 )}
             </Box>
@@ -296,7 +299,7 @@ const UnifiedChatWindow = ({
                     </Box>
                 ) : !messages || messages.length === 0 ? (
                     <Typography textAlign="center" color="text.secondary" sx={{ mt: 4 }}>
-                        لا توجد رسائل
+                        {t('inbox.noMessages')}
                     </Typography>
                 ) : (
                     messages.map((msg, idx) => {
@@ -313,7 +316,7 @@ const UnifiedChatWindow = ({
                                             color: 'text.secondary',
                                             px: 1.5, py: 0.5, borderRadius: 2, opacity: 0.9,
                                         }}>
-                                            {msg?.created_at ? new Date(msg.created_at).toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+                                            {msg?.created_at ? new Date(msg.created_at).toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
                                         </Typography>
                                     </Box>
                                 )}
@@ -329,7 +332,7 @@ const UnifiedChatWindow = ({
             <Paper sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }} elevation={0}>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
                     {hasUtilitySupport && (
-                        <Tooltip title="رسالة موسومة (خارج نافذة 24 ساعة)" arrow>
+                        <Tooltip title={t('inbox.taggedMessageTooltip')} arrow>
                             <IconButton
                                 onClick={handleOpenUtilityManual}
                                 sx={{
@@ -347,7 +350,7 @@ const UnifiedChatWindow = ({
                         multiline
                         maxRows={4}
                         size="small"
-                        placeholder="اكتب ردًا..."
+                        placeholder={t('inbox.replyPlaceholder')}
                         value={newMessage}
                         onChange={e => setNewMessage(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -379,22 +382,22 @@ const UnifiedChatWindow = ({
             {/* Utility Message Dialog */}
             {hasUtilitySupport && (
                 <Dialog open={utilityOpen} onClose={() => setUtilityOpen(false)} maxWidth="sm" fullWidth>
-                    <DialogTitle>إرسال رسالة موسومة</DialogTitle>
+                    <DialogTitle>{t('inbox.taggedDialogTitle')}</DialogTitle>
                     <DialogContent>
                         <Alert severity="warning" sx={{ mb: 2 }}>
-                            يمكنك إرسال رسالة خارج نافذة الـ 24 ساعة باستخدام علامة رسالة مناسبة.
+                            {t('inbox.taggedDialogHelp')}
                         </Alert>
                         {utilityError && <Alert severity="error" sx={{ mb: 2 }}>{utilityError}</Alert>}
 
                         <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                            <InputLabel>نوع الرسالة</InputLabel>
+                            <InputLabel>{t('inbox.messageType')}</InputLabel>
                             <Select
                                 value={utilitySelectedTag}
                                 onChange={e => setUtilitySelectedTag(e.target.value)}
-                                label="نوع الرسالة"
+                                label={t('inbox.messageType')}
                                 disabled={utilityLoadingTags}
                             >
-                                <MenuItem value="" disabled>اختر نوع الرسالة</MenuItem>
+                                <MenuItem value="" disabled>{t('inbox.chooseMessageType')}</MenuItem>
                                 {utilityTags.map(tag => (
                                     <MenuItem key={tag.value} value={tag.value}>
                                         <Box>
@@ -412,21 +415,21 @@ const UnifiedChatWindow = ({
                             minRows={2}
                             maxRows={6}
                             size="small"
-                            label="نص الرسالة"
+                            label={t('inbox.messageText')}
                             value={utilityMessage}
                             onChange={e => setUtilityMessage(e.target.value)}
                             sx={{ mb: 1 }}
                         />
                     </DialogContent>
                     <DialogActions>
-                        <Button onClick={() => setUtilityOpen(false)}>إلغاء</Button>
+                        <Button onClick={() => setUtilityOpen(false)}>{t('common.cancel')}</Button>
                         <Button
                             variant="contained"
                             onClick={handleSendUtility}
                             disabled={utilitySending || !utilitySelectedTag || !utilityMessage?.trim()}
                             startIcon={utilitySending ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
                         >
-                            {utilitySending ? 'جاري الإرسال...' : 'إرسال'}
+                            {utilitySending ? t('common.sending') : t('common.send')}
                         </Button>
                     </DialogActions>
                 </Dialog>
