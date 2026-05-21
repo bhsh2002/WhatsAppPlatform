@@ -46,6 +46,65 @@ import api from '../../api';
 const number = (value) => Number(value || 0).toLocaleString('ar-LY');
 const money = (value, currency = '') => `${Number(value || 0).toLocaleString('ar-LY', { minimumFractionDigits: 3, maximumFractionDigits: 4 })}${currency ? ` ${currency}` : ''}`;
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const metaCategoriesForOperation = (operationKey) => {
+    if (['whatsapp.text', 'whatsapp.media', 'whatsapp.interactive'].includes(operationKey)) {
+        return { free: true, label: 'Service / free', note: 'تحسبها Meta كخدمة مجانية عند توفر نافذة الخدمة.' };
+    }
+    if (['whatsapp.template', 'whatsapp.broadcast_recipient', 'whatsapp.contact_verification_template'].includes(operationKey)) {
+        return {
+            categories: ['marketing', 'utility', 'authentication', 'authentication_international'],
+            label: 'حسب فئة القالب',
+            note: 'القيمة النهائية تعتمد على category وبلد المستلم وstatus webhook.',
+        };
+    }
+    if (operationKey === 'whatsapp.event_conversion') {
+        return { free: true, label: 'Events API', note: 'لا يستخدم rate card رسائل WhatsApp.' };
+    }
+    return null;
+};
+
+const isMetaRateEffective = (rate) => {
+    const today = todayIso();
+    const from = String(rate.effective_from || '').slice(0, 10);
+    const to = String(rate.effective_to || '').slice(0, 10);
+    return (!from || from <= today) && (!to || to >= today);
+};
+
+const getMetaReferenceForPrice = (price, metaRates, exchangeRate) => {
+    const metaConfig = metaCategoriesForOperation(price.operation_key);
+    if (!metaConfig) {
+        return { label: 'غير مرتبط', caption: 'لا توجد تكلفة Meta مباشرة لهذه العملية.', color: 'default' };
+    }
+    if (metaConfig.free) {
+        return { label: '0', caption: metaConfig.note, color: 'success' };
+    }
+
+    const rates = metaRates
+        .filter((rate) => rate.is_active !== 0)
+        .filter(isMetaRateEffective)
+        .filter((rate) => metaConfig.categories.includes(String(rate.category || '').toLowerCase()));
+
+    if (rates.length === 0) {
+        return { label: 'غير محدد', caption: 'أضف أسعار Meta لهذه الفئات في تبويب المطابقة.', color: 'warning' };
+    }
+
+    const amounts = rates.map((rate) => Number(rate.rate_amount) || 0);
+    const min = Math.min(...amounts);
+    const max = Math.max(...amounts);
+    const currency = rates[0]?.currency || 'USD';
+    const lydMin = min * exchangeRate;
+    const lydMax = max * exchangeRate;
+    const range = min === max ? money(min, currency) : `${money(min, currency)} - ${money(max, currency)}`;
+    const lydRange = lydMin === lydMax ? money(lydMin, 'LYD') : `${money(lydMin, 'LYD')} - ${money(lydMax, 'LYD')}`;
+    return {
+        label: range,
+        caption: `${metaConfig.label} | تقريبا ${lydRange}`,
+        color: 'info',
+    };
+};
+
 const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
     <Card elevation={1} sx={{ height: '100%' }}>
         <CardContent>
@@ -625,6 +684,9 @@ const BillingManager = () => {
             {tab === 2 && (
                 <Paper sx={{ p: 2 }}>
                     <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>كتالوج أسعار العمليات</Typography>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        السعر هنا هو سعر العميل بالرصيد. قيمة Meta تظهر للتوضيح وحساب الهامش فقط، ولا تخصم من رصيد العميل.
+                    </Alert>
                     <TableContainer>
                         <Table size="small">
                             <TableHead>
@@ -632,40 +694,50 @@ const BillingManager = () => {
                                     <TableCell>القناة</TableCell>
                                     <TableCell>العملية</TableCell>
                                     <TableCell>الاسم</TableCell>
-                                    <TableCell>السعر</TableCell>
+                                    <TableCell>سعر العميل</TableCell>
+                                    <TableCell>قيمة Meta المرجعية</TableCell>
                                     <TableCell>مدفوعة</TableCell>
                                     <TableCell>نشطة</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {prices.map((price) => (
-                                    <TableRow key={price.id}>
-                                        <TableCell>{price.channel}</TableCell>
-                                        <TableCell>{price.operation_key}</TableCell>
-                                        <TableCell>{price.display_name_ar}</TableCell>
-                                        <TableCell sx={{ width: 120 }}>
-                                            <TextField
-                                                size="small"
-                                                type="number"
-                                                value={price.unit_price_credits}
-                                                onChange={(e) => setPrices((items) => items.map((item) => item.id === price.id ? { ...item, unit_price_credits: Number(e.target.value) || 0 } : item))}
-                                                onBlur={(e) => updatePrice(price, { unit_price_credits: Number(e.target.value) || 0 })}
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <FormControlLabel
-                                                control={<Switch checked={!!price.is_billable} onChange={(e) => updatePrice(price, { is_billable: e.target.checked })} />}
-                                                label=""
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <FormControlLabel
-                                                control={<Switch checked={!!price.is_active} onChange={(e) => updatePrice(price, { is_active: e.target.checked })} />}
-                                                label=""
-                                            />
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                {prices.map((price) => {
+                                    const metaReference = getMetaReferenceForPrice(price, metaRates, metaExchangeRate);
+                                    return (
+                                        <TableRow key={price.id}>
+                                            <TableCell>{price.channel}</TableCell>
+                                            <TableCell>{price.operation_key}</TableCell>
+                                            <TableCell>{price.display_name_ar}</TableCell>
+                                            <TableCell sx={{ width: 120 }}>
+                                                <TextField
+                                                    size="small"
+                                                    type="number"
+                                                    value={price.unit_price_credits}
+                                                    onChange={(e) => setPrices((items) => items.map((item) => item.id === price.id ? { ...item, unit_price_credits: Number(e.target.value) || 0 } : item))}
+                                                    onBlur={(e) => updatePrice(price, { unit_price_credits: Number(e.target.value) || 0 })}
+                                                />
+                                            </TableCell>
+                                            <TableCell sx={{ minWidth: 220 }}>
+                                                <Chip size="small" label={metaReference.label} color={metaReference.color} sx={{ mb: 0.5 }} />
+                                                <Typography variant="caption" color="text.secondary" display="block">
+                                                    {metaReference.caption}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <FormControlLabel
+                                                    control={<Switch checked={!!price.is_billable} onChange={(e) => updatePrice(price, { is_billable: e.target.checked })} />}
+                                                    label=""
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                <FormControlLabel
+                                                    control={<Switch checked={!!price.is_active} onChange={(e) => updatePrice(price, { is_active: e.target.checked })} />}
+                                                    label=""
+                                                />
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     </TableContainer>
