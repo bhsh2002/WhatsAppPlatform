@@ -39,6 +39,7 @@ import {
     UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const emptyProduct = {
     sku: '',
@@ -52,42 +53,6 @@ const emptyProduct = {
     category: '',
     availability: 'available',
     is_active: true,
-};
-
-const nodeTypeLabels = {
-    text: 'نص',
-    quick_replies: 'أزرار سريعة',
-    product_list: 'قائمة منتجات',
-    product_detail: 'تفاصيل منتج',
-    service_menu: 'قائمة خدمات',
-    handoff: 'تحويل لموظف',
-    end: 'إنهاء',
-};
-
-const triggerLabels = {
-    welcome: 'أول رسالة',
-    keyword: 'كلمة مفتاحية',
-    postback: 'Postback',
-    fallback: 'Fallback',
-    menu: 'القائمة الرئيسية',
-};
-
-const triggerHelp = {
-    welcome: 'يعمل عند أول رسالة من مستخدم جديد أو عند بداية جلسة جديدة.',
-    keyword: 'يطابق النص المكتوب. يمكن إدخال عدة كلمات مفصولة بفواصل أو أسطر.',
-    postback: 'يعمل عند وصول payload من زر Messenger أو من زر داخل مسار آخر.',
-    fallback: 'يعمل عندما لا يوجد مسار أو منتج مطابق لرسالة المستخدم.',
-    menu: 'يعمل عند ضغط زر القائمة الرئيسية داخل ردود البوت.',
-};
-
-const productTemplateHelp = 'المتغيرات: {name}, {price}, {currency}, {description}, {category}, {sku}, {url}';
-
-const actionLabels = {
-    products: 'فتح المنتجات',
-    node: 'الانتقال لخطوة',
-    handoff: 'تحويل لموظف',
-    menu: 'القائمة الرئيسية',
-    custom: 'Payload مخصص',
 };
 
 const emptyNode = (index = 0) => ({
@@ -554,6 +519,7 @@ const DiagnosticsPanel = ({ diagnostics }) => (
 );
 
 const MessengerBotManager = ({ tenantMode = false }) => {
+    const { locale, t } = useLanguage();
     const [tab, setTab] = useState(0);
     const [tenants, setTenants] = useState([]);
     const [selectedTenantId, setSelectedTenantId] = useState('');
@@ -575,6 +541,37 @@ const MessengerBotManager = ({ tenantMode = false }) => {
     const pages = useMemo(() => summary?.pages || [], [summary?.pages]);
     const performance = summary?.performance || {};
     const selectedTenantReady = tenantMode || Boolean(selectedTenantId);
+    const nodeTypeOptions = useMemo(() => ({
+        text: t('messengerBot.nodeTypes.text'),
+        quick_replies: t('messengerBot.nodeTypes.quick_replies'),
+        product_list: t('messengerBot.nodeTypes.product_list'),
+        product_detail: t('messengerBot.nodeTypes.product_detail'),
+        service_menu: t('messengerBot.nodeTypes.service_menu'),
+        handoff: t('messengerBot.nodeTypes.handoff'),
+        end: t('messengerBot.nodeTypes.end'),
+    }), [t]);
+    const triggerOptions = useMemo(() => ({
+        welcome: t('messengerBot.triggers.welcome'),
+        keyword: t('messengerBot.triggers.keyword'),
+        postback: t('messengerBot.triggers.postback'),
+        fallback: t('messengerBot.triggers.fallback'),
+        menu: t('messengerBot.triggers.menu'),
+    }), [t]);
+    const triggerHelpText = useMemo(() => ({
+        welcome: t('messengerBot.triggerHelp.welcome'),
+        keyword: t('messengerBot.triggerHelp.keyword'),
+        postback: t('messengerBot.triggerHelp.postback'),
+        fallback: t('messengerBot.triggerHelp.fallback'),
+        menu: t('messengerBot.triggerHelp.menu'),
+    }), [t]);
+    const actionOptions = useMemo(() => ({
+        products: t('messengerBot.actionsMap.products'),
+        node: t('messengerBot.actionsMap.node'),
+        handoff: t('messengerBot.actionsMap.handoff'),
+        menu: t('messengerBot.actionsMap.menu'),
+        custom: t('messengerBot.actionsMap.custom'),
+    }), [t]);
+    const productTemplateHelp = t('messengerBot.productTemplateHelp');
     const diagnostics = useMemo(
         () => getClientDiagnostics(flowForm, pages, flows, products),
         [flowForm, pages, flows, products]
@@ -888,7 +885,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
     if (!tenantMode && tenants.length === 0) {
         return (
             <Box sx={{ p: 3 }}>
-                <Alert severity="info">اختر عميلا أولا من إدارة العملاء لاستخدام Messenger Bot.</Alert>
+                <Alert severity="info">{t('messengerBot.noTenant')}</Alert>
             </Box>
         );
     }
@@ -901,7 +898,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                         <BotIcon color="primary" /> Messenger Bot
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        مسارات موجهة لعرض المنتجات والخدمات والتحويل لموظف عند الحاجة.
+                        {t('messengerBot.subtitle')}
                     </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -909,7 +906,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                         <TextField
                             select
                             size="small"
-                            label="العميل"
+                            label={t('messengerBot.tenant')}
                             value={selectedTenantId}
                             onChange={e => setSelectedTenantId(e.target.value)}
                             sx={{ minWidth: 220 }}
@@ -920,7 +917,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                         </TextField>
                     )}
                     <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadAll}>
-                        تحديث
+                        {t('common.refresh')}
                     </Button>
                 </Stack>
             </Stack>
@@ -930,18 +927,18 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             ) : (
                 <>
                     <Grid container spacing={2} sx={{ mb: 2 }}>
-                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="المنتجات النشطة" value={summary?.products?.active || 0} /></Grid>
-                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="Flows فعالة" value={summary?.flows?.active || 0} color="success" /></Grid>
-                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="Handoffs آخر 30 يوم" value={performance.handoffs || 0} color="warning" /></Grid>
-                        <Grid size={{ xs: 6, md: 3 }}><StatBox title="فشل إرسال البوت" value={performance.failed_sends || 0} color="error" /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.activeProducts')} value={summary?.products?.active || 0} /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.activeFlows')} value={summary?.flows?.active || 0} color="success" /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.handoffs30d')} value={performance.handoffs || 0} color="warning" /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.failedBotSends')} value={performance.failed_sends || 0} color="error" /></Grid>
                     </Grid>
 
                     <Paper variant="outlined" sx={{ borderRadius: 1 }}>
                         <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable" scrollButtons="auto">
-                            <Tab label="المنتجات" />
-                            <Tab label="المسارات" />
-                            <Tab label="الجلسات" />
-                            <Tab label="الأداء" />
+                            <Tab label={t('messengerBot.tabs.products')} />
+                            <Tab label={t('messengerBot.tabs.flows')} />
+                            <Tab label={t('messengerBot.tabs.sessions')} />
+                            <Tab label={t('messengerBot.tabs.performance')} />
                         </Tabs>
                         <Divider />
 
@@ -949,21 +946,21 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                             <Box sx={{ p: 2 }}>
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" sx={{ mb: 2 }}>
                                     <Button variant="contained" startIcon={<AddIcon />} onClick={() => openProductDialog()}>
-                                        إضافة منتج
+                                        {t('messengerBot.addProduct')}
                                     </Button>
                                     <Button variant="outlined" component="label" startIcon={<UploadIcon />}>
-                                        استيراد CSV
+                                        {t('messengerBot.importCsv')}
                                         <input hidden type="file" accept=".csv,text/csv" onChange={e => importProducts(e.target.files?.[0])} />
                                     </Button>
                                 </Stack>
                                 <Table size="small">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell>المنتج</TableCell>
-                                            <TableCell>التصنيف</TableCell>
-                                            <TableCell>السعر</TableCell>
-                                            <TableCell>الحالة</TableCell>
-                                            <TableCell align="right">إجراءات</TableCell>
+                                            <TableCell>{t('messengerBot.product')}</TableCell>
+                                            <TableCell>{t('messengerBot.category')}</TableCell>
+                                            <TableCell>{t('messengerBot.price')}</TableCell>
+                                            <TableCell>{t('common.status')}</TableCell>
+                                            <TableCell align="right">{t('messengerBot.actions')}</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -974,12 +971,12 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                         <ProductIcon fontSize="small" color="action" />
                                                         <Box>
                                                             <Typography variant="body2" fontWeight={700}>{product.name}</Typography>
-                                                            <Typography variant="caption" color="text.secondary">{product.sku || product.description || 'بدون وصف'}</Typography>
+                                                            <Typography variant="caption" color="text.secondary">{product.sku || product.description || t('messengerBot.noDescription')}</Typography>
                                                         </Box>
                                                     </Stack>
                                                 </TableCell>
-                                                <TableCell>{product.category || 'عام'}</TableCell>
-                                                <TableCell>{Number(product.price || 0).toLocaleString('ar-LY')} {product.currency}</TableCell>
+                                                <TableCell>{product.category || t('messengerBot.general')}</TableCell>
+                                                <TableCell>{Number(product.price || 0).toLocaleString(locale)} {product.currency}</TableCell>
                                                 <TableCell>
                                                     <Chip
                                                         size="small"
@@ -994,7 +991,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                             </TableRow>
                                         ))}
                                         {products.length === 0 && (
-                                            <TableRow><TableCell colSpan={5} align="center">لا توجد منتجات بعد</TableCell></TableRow>
+                                            <TableRow><TableCell colSpan={5} align="center">{t('messengerBot.noProducts')}</TableCell></TableRow>
                                         )}
                                     </TableBody>
                                 </Table>
@@ -1005,7 +1002,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                             <Box sx={{ p: 2 }}>
                                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ xs: 'stretch', md: 'center' }}>
                                     <Button variant="contained" startIcon={<AddIcon />} onClick={() => openFlowDialog()}>
-                                        إضافة مسار
+                                        {t('messengerBot.addFlow')}
                                     </Button>
                                     {['welcome', 'products', 'services', 'fallback', 'handoff'].map(templateKey => (
                                         <Button
@@ -1018,20 +1015,20 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                 setFlowDialog(true);
                                             }}
                                         >
-                                            قالب {buildTemplate(templateKey).name}
+                                            {t('messengerBot.template', { name: t(`messengerBot.templateNames.${templateKey}`) })}
                                         </Button>
                                     ))}
                                 </Stack>
                                 <Table size="small">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell>المسار</TableCell>
-                                            <TableCell>المشغل</TableCell>
-                                            <TableCell>الخطوات</TableCell>
-                                            <TableCell>الصفحة</TableCell>
-                                            <TableCell>الحالة</TableCell>
-                                            <TableCell>الفحص</TableCell>
-                                            <TableCell align="right">إجراءات</TableCell>
+                                            <TableCell>{t('messengerBot.flow')}</TableCell>
+                                            <TableCell>{t('messengerBot.trigger')}</TableCell>
+                                            <TableCell>{t('messengerBot.steps')}</TableCell>
+                                            <TableCell>{t('messengerBot.page')}</TableCell>
+                                            <TableCell>{t('common.status')}</TableCell>
+                                            <TableCell>{t('messengerBot.diagnostics')}</TableCell>
+                                            <TableCell align="right">{t('messengerBot.actions')}</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -1041,30 +1038,30 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                     <Typography variant="body2" fontWeight={700}>{flow.name}</Typography>
                                                     <Typography variant="caption" color="text.secondary">{flow.description || flow.body || '—'}</Typography>
                                                 </TableCell>
-                                                <TableCell>{triggerLabels[flow.trigger_type] || flow.trigger_type}{flow.trigger_value ? `: ${flow.trigger_value}` : ''}</TableCell>
+                                                <TableCell>{triggerOptions[flow.trigger_type] || flow.trigger_type}{flow.trigger_value ? `: ${flow.trigger_value}` : ''}</TableCell>
                                                 <TableCell>{flow.nodes_count || flow.nodes?.length || 1}</TableCell>
-                                                <TableCell>{flow.page_name || 'كل الصفحات'}</TableCell>
+                                                <TableCell>{flow.page_name || t('messengerBot.allPages')}</TableCell>
                                                 <TableCell>
                                                     <Chip size="small" label={flow.status} color={flow.status === 'active' ? 'success' : 'default'} />
                                                 </TableCell>
                                                 <TableCell>
                                                     <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                                                        {(flow.errors || []).length > 0 && <Chip size="small" color="error" label={`${flow.errors.length} خطأ`} />}
-                                                        {(flow.warnings || []).length > 0 && <Chip size="small" color="warning" label={`${flow.warnings.length} تحذير`} />}
-                                                        {!(flow.errors || []).length && !(flow.warnings || []).length && <Chip size="small" color="success" label="جاهز" />}
+                                                        {(flow.errors || []).length > 0 && <Chip size="small" color="error" label={t('messengerBot.errorCount', { count: flow.errors.length })} />}
+                                                        {(flow.warnings || []).length > 0 && <Chip size="small" color="warning" label={t('messengerBot.warningCount', { count: flow.warnings.length })} />}
+                                                        {!(flow.errors || []).length && !(flow.warnings || []).length && <Chip size="small" color="success" label={t('messengerBot.ready')} />}
                                                     </Stack>
                                                 </TableCell>
                                                 <TableCell align="right">
-                                                    <Button size="small" onClick={() => loadFlowEvents(flow)}>الأداء</Button>
+                                                    <Button size="small" onClick={() => loadFlowEvents(flow)}>{t('messengerBot.tabs.performance')}</Button>
                                                     <IconButton size="small" onClick={() => testFlow(flow)}><TestIcon fontSize="small" /></IconButton>
                                                     <IconButton size="small" onClick={() => openFlowDialog(flow)}><EditIcon fontSize="small" /></IconButton>
-                                                    <Button size="small" onClick={() => toggleFlow(flow)}>{flow.status === 'active' ? 'إيقاف' : 'تفعيل'}</Button>
+                                                    <Button size="small" onClick={() => toggleFlow(flow)}>{flow.status === 'active' ? t('messengerBot.deactivate') : t('messengerBot.activate')}</Button>
                                                     <IconButton size="small" color="error" onClick={() => deleteFlow(flow)}><DeleteIcon fontSize="small" /></IconButton>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
                                         {flows.length === 0 && (
-                                            <TableRow><TableCell colSpan={7} align="center">لا توجد مسارات بعد</TableCell></TableRow>
+                                            <TableRow><TableCell colSpan={7} align="center">{t('messengerBot.noFlows')}</TableCell></TableRow>
                                         )}
                                     </TableBody>
                                 </Table>
@@ -1076,13 +1073,13 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                 <Table size="small">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell>المستخدم</TableCell>
-                                            <TableCell>الصفحة</TableCell>
+                                            <TableCell>{t('messengerBot.user')}</TableCell>
+                                            <TableCell>{t('messengerBot.page')}</TableCell>
                                             <TableCell>Flow</TableCell>
-                                            <TableCell>الخطوة</TableCell>
-                                            <TableCell>الحالة</TableCell>
-                                            <TableCell>آخر تحديث</TableCell>
-                                            <TableCell align="right">إجراءات</TableCell>
+                                            <TableCell>{t('messengerBot.steps')}</TableCell>
+                                            <TableCell>{t('common.status')}</TableCell>
+                                            <TableCell>{t('messengerBot.updatedAt')}</TableCell>
+                                            <TableCell align="right">{t('messengerBot.actions')}</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -1096,14 +1093,14 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                 <TableCell>{session.updated_at}</TableCell>
                                                 <TableCell align="right">
                                                     <Button size="small" onClick={() => updateSession(session, session.status === 'handoff' ? 'active' : 'handoff')}>
-                                                        {session.status === 'handoff' ? 'إرجاع للبوت' : 'تحويل لموظف'}
+                                                        {session.status === 'handoff' ? t('messengerBot.resumeBot') : t('messengerBot.handoff')}
                                                     </Button>
-                                                    <Button size="small" color="inherit" onClick={() => updateSession(session, 'closed')}>إغلاق</Button>
+                                                    <Button size="small" color="inherit" onClick={() => updateSession(session, 'closed')}>{t('messengerBot.close')}</Button>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
                                         {sessions.length === 0 && (
-                                            <TableRow><TableCell colSpan={7} align="center">لا توجد جلسات بوت بعد</TableCell></TableRow>
+                                            <TableRow><TableCell colSpan={7} align="center">{t('messengerBot.noSessions')}</TableCell></TableRow>
                                         )}
                                     </TableBody>
                                 </Table>
@@ -1114,14 +1111,14 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                             <Box sx={{ p: 2 }}>
                                 <Grid container spacing={2} sx={{ mb: 2 }}>
                                     <Grid size={{ xs: 6, md: 3 }}><StatBox title="Handoffs" value={performance.handoffs || 0} color="warning" /></Grid>
-                                    <Grid size={{ xs: 6, md: 3 }}><StatBox title="فشل الإرسال" value={performance.failed_sends || 0} color="error" /></Grid>
-                                    <Grid size={{ xs: 6, md: 3 }}><StatBox title="فتح تفاصيل منتجات" value={performance.product_details || 0} color="info" /></Grid>
-                                    <Grid size={{ xs: 6, md: 3 }}><StatBox title="صفحات Messenger" value={pages.length} color="secondary" /></Grid>
+                                    <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.failedSends')} value={performance.failed_sends || 0} color="error" /></Grid>
+                                    <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.productDetailsOpened')} value={performance.product_details || 0} color="info" /></Grid>
+                                    <Grid size={{ xs: 6, md: 3 }}><StatBox title={t('messengerBot.messengerPages')} value={pages.length} color="secondary" /></Grid>
                                 </Grid>
                                 <Grid container spacing={2}>
                                     <Grid size={{ xs: 12, md: 5 }}>
                                         <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
-                                            <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>أكثر المسارات استخداما</Typography>
+                                            <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.topFlows')}</Typography>
                                             <Table size="small">
                                                 <TableBody>
                                                     {(performance.top_flows || []).map(row => (
@@ -1131,7 +1128,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                         </TableRow>
                                                     ))}
                                                     {!(performance.top_flows || []).length && (
-                                                        <TableRow><TableCell align="center">لا توجد بيانات بعد</TableCell></TableRow>
+                                                        <TableRow><TableCell align="center">{t('common.noData')}</TableCell></TableRow>
                                                     )}
                                                 </TableBody>
                                             </Table>
@@ -1140,17 +1137,17 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                     <Grid size={{ xs: 12, md: 7 }}>
                                         <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                                             <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
-                                                سجل المسار {selectedEventsFlow ? `- ${selectedEventsFlow.name}` : ''}
+                                                {t('messengerBot.flowLog')} {selectedEventsFlow ? `- ${selectedEventsFlow.name}` : ''}
                                             </Typography>
-                                            {!selectedEventsFlow && <Alert severity="info">اختر زر الأداء من جدول المسارات لعرض سجل تشغيل مسار محدد.</Alert>}
+                                            {!selectedEventsFlow && <Alert severity="info">{t('messengerBot.chooseFlowLog')}</Alert>}
                                             {selectedEventsFlow && (
                                                 <Table size="small">
                                                     <TableHead>
                                                         <TableRow>
-                                                            <TableCell>الوقت</TableCell>
-                                                            <TableCell>النوع</TableCell>
-                                                            <TableCell>الحالة</TableCell>
-                                                            <TableCell>المستخدم</TableCell>
+                                                            <TableCell>{t('common.time')}</TableCell>
+                                                            <TableCell>{t('common.type')}</TableCell>
+                                                            <TableCell>{t('common.status')}</TableCell>
+                                                            <TableCell>{t('messengerBot.user')}</TableCell>
                                                         </TableRow>
                                                     </TableHead>
                                                     <TableBody>
@@ -1163,7 +1160,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                             </TableRow>
                                                         ))}
                                                         {flowEvents.length === 0 && (
-                                                            <TableRow><TableCell colSpan={4} align="center">لا يوجد سجل لهذا المسار</TableCell></TableRow>
+                                                            <TableRow><TableCell colSpan={4} align="center">{t('messengerBot.noFlowEvents')}</TableCell></TableRow>
                                                         )}
                                                     </TableBody>
                                                 </Table>
@@ -1178,30 +1175,30 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             )}
 
             <Dialog open={productDialog} onClose={() => setProductDialog(false)} maxWidth="md" fullWidth>
-                <DialogTitle>{productForm.id ? 'تعديل منتج' : 'إضافة منتج'}</DialogTitle>
+                <DialogTitle>{productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct')}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="الاسم" value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label={t('messengerBot.name')} value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="SKU" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} /></Grid>
-                        <Grid size={{ xs: 12 }}><TextField fullWidth multiline minRows={2} label="الوصف" value={productForm.description} onChange={e => setProductForm(prev => ({ ...prev, description: e.target.value }))} /></Grid>
-                        <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth type="number" label="السعر" value={productForm.price} onChange={e => setProductForm(prev => ({ ...prev, price: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12 }}><TextField fullWidth multiline minRows={2} label={t('messengerBot.description')} value={productForm.description} onChange={e => setProductForm(prev => ({ ...prev, description: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth type="number" label={t('messengerBot.price')} value={productForm.price} onChange={e => setProductForm(prev => ({ ...prev, price: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth label="العملة" value={productForm.currency} onChange={e => setProductForm(prev => ({ ...prev, currency: e.target.value }))} /></Grid>
-                        <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth label="التصنيف" value={productForm.category} onChange={e => setProductForm(prev => ({ ...prev, category: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth label={t('messengerBot.category')} value={productForm.category} onChange={e => setProductForm(prev => ({ ...prev, category: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12, md: 3 }}>
-                            <TextField select fullWidth label="التوفر" value={productForm.availability} onChange={e => setProductForm(prev => ({ ...prev, availability: e.target.value }))}>
-                                <MenuItem value="available">متاح</MenuItem>
-                                <MenuItem value="out_of_stock">غير متوفر</MenuItem>
-                                <MenuItem value="hidden">مخفي</MenuItem>
+                            <TextField select fullWidth label={t('messengerBot.availability')} value={productForm.availability} onChange={e => setProductForm(prev => ({ ...prev, availability: e.target.value }))}>
+                                <MenuItem value="available">{t('messengerBot.available')}</MenuItem>
+                                <MenuItem value="out_of_stock">{t('messengerBot.outOfStock')}</MenuItem>
+                                <MenuItem value="hidden">{t('messengerBot.hidden')}</MenuItem>
                             </TextField>
                         </Grid>
                         <Grid size={{ xs: 12, md: 6 }}>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                                <TextField fullWidth label="رابط صورة" value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} />
+                                <TextField fullWidth label={t('messengerBot.imageUrl')} value={productForm.image_url} onChange={e => setProductForm(prev => ({ ...prev, image_url: e.target.value }))} />
                                 <Button variant="outlined" onClick={addProductImageUrl} sx={{ minWidth: 96 }}>
-                                    إضافة
+                                    {t('messengerBot.add')}
                                 </Button>
                                 <Button variant="outlined" component="label" sx={{ minWidth: 120 }}>
-                                    رفع صور
+                                    {t('messengerBot.uploadImages')}
                                     <input hidden multiple type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadProductImages(e.target.files)} />
                                 </Button>
                             </Stack>
@@ -1211,7 +1208,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                         <Paper key={`${image.image_url}-${index}`} variant="outlined" sx={{ p: 0.5, borderRadius: 1, width: 118 }}>
                                             <Box component="img" src={image.image_url} alt="" sx={{ width: '100%', height: 72, objectFit: 'cover', borderRadius: 1 }} />
                                             <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
-                                                <Button size="small" disabled={index === 0} onClick={() => setPrimaryProductImage(index)}>أولى</Button>
+                                                <Button size="small" disabled={index === 0} onClick={() => setPrimaryProductImage(index)}>{t('messengerBot.primary')}</Button>
                                                 <IconButton size="small" color="error" onClick={() => removeProductImage(index)}>
                                                     <DeleteIcon fontSize="small" />
                                                 </IconButton>
@@ -1221,37 +1218,37 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                 </Stack>
                             )}
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رابط المنتج" value={productForm.product_url} onChange={e => setProductForm(prev => ({ ...prev, product_url: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label={t('messengerBot.productUrl')} value={productForm.product_url} onChange={e => setProductForm(prev => ({ ...prev, product_url: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12 }}>
                             <FormControlLabel
                                 control={<Switch checked={Boolean(productForm.is_active)} onChange={e => setProductForm(prev => ({ ...prev, is_active: e.target.checked }))} />}
-                                label="منتج نشط"
+                                label={t('messengerBot.activeProduct')}
                             />
                         </Grid>
                     </Grid>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setProductDialog(false)}>إلغاء</Button>
-                    <Button variant="contained" onClick={saveProduct}>حفظ</Button>
+                    <Button onClick={() => setProductDialog(false)}>{t('common.cancel')}</Button>
+                    <Button variant="contained" onClick={saveProduct}>{t('common.save')}</Button>
                 </DialogActions>
             </Dialog>
 
             <Dialog open={flowDialog} onClose={() => setFlowDialog(false)} maxWidth="lg" fullWidth>
-                <DialogTitle>{flowForm.id ? 'تعديل مسار' : 'إضافة مسار'}</DialogTitle>
+                <DialogTitle>{flowForm.id ? t('messengerBot.editFlowTitle') : t('messengerBot.addFlowTitle')}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{ mt: 0.5 }}>
                         <Grid size={{ xs: 12, md: 4 }}>
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, height: '100%' }}>
-                                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>بيانات التشغيل</Typography>
+                                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.runtimeData')}</Typography>
                                 <Stack spacing={2}>
-                                    <TextField fullWidth label="اسم المسار" value={flowForm.name} onChange={e => setFlowForm(prev => ({ ...prev, name: e.target.value }))} />
-                                    <TextField fullWidth multiline minRows={2} label="وصف داخلي" value={flowForm.description} onChange={e => setFlowForm(prev => ({ ...prev, description: e.target.value }))} />
-                                    <TextField select fullWidth label="صفحة Facebook" value={flowForm.linked_page_id} onChange={e => setFlowForm(prev => ({ ...prev, linked_page_id: e.target.value }))}>
-                                        <MenuItem value="">كل الصفحات</MenuItem>
+                                    <TextField fullWidth label={t('messengerBot.flow')} value={flowForm.name} onChange={e => setFlowForm(prev => ({ ...prev, name: e.target.value }))} />
+                                    <TextField fullWidth multiline minRows={2} label={t('messengerBot.internalDescription')} value={flowForm.description} onChange={e => setFlowForm(prev => ({ ...prev, description: e.target.value }))} />
+                                    <TextField select fullWidth label={t('messengerBot.facebookPage')} value={flowForm.linked_page_id} onChange={e => setFlowForm(prev => ({ ...prev, linked_page_id: e.target.value }))}>
+                                        <MenuItem value="">{t('messengerBot.allPages')}</MenuItem>
                                         {pages.map(page => <MenuItem key={page.id} value={page.id}>{page.page_name || page.page_id}</MenuItem>)}
                                     </TextField>
                                     <Grid container spacing={1}>
-                                        <Grid size={{ xs: 6 }}><TextField fullWidth type="number" label="الأولوية" value={flowForm.priority} onChange={e => setFlowForm(prev => ({ ...prev, priority: e.target.value }))} /></Grid>
+                                        <Grid size={{ xs: 6 }}><TextField fullWidth type="number" label={t('messengerBot.priority')} value={flowForm.priority} onChange={e => setFlowForm(prev => ({ ...prev, priority: e.target.value }))} /></Grid>
                                         <Grid size={{ xs: 6 }}>
                                             <TextField select fullWidth label="الحالة" value={flowForm.status} onChange={e => setFlowForm(prev => ({ ...prev, status: e.target.value }))}>
                                                 <MenuItem value="draft">Draft</MenuItem>
@@ -1266,19 +1263,19 @@ const MessengerBotManager = ({ tenantMode = false }) => {
 
                         <Grid size={{ xs: 12, md: 4 }}>
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, height: '100%' }}>
-                                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>المشغل Trigger</Typography>
+                                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.trigger')}</Typography>
                                 <Stack spacing={2}>
                                     <TextField select fullWidth label="Trigger" value={flowForm.trigger_type} onChange={e => setFlowForm(prev => ({ ...prev, trigger_type: e.target.value }))}>
-                                        {Object.entries(triggerLabels).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
+                                        {Object.entries(triggerOptions).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
                                     </TextField>
-                                    <Alert severity="info">{triggerHelp[flowForm.trigger_type]}</Alert>
+                                    <Alert severity="info">{triggerHelpText[flowForm.trigger_type]}</Alert>
                                     <TextField
                                         fullWidth
-                                        label="قيمة Trigger"
+                                        label={t('messengerBot.triggerValue')}
                                         value={flowForm.trigger_value}
                                         onChange={e => setFlowForm(prev => ({ ...prev, trigger_value: e.target.value }))}
                                         disabled={['welcome', 'fallback', 'menu'].includes(flowForm.trigger_type)}
-                                        helperText="للكلمات المفتاحية استخدم فاصلة أو سطر لكل كلمة"
+                                        helperText={t('messengerBot.triggerHelper')}
                                     />
                                 </Stack>
                             </Paper>
@@ -1286,7 +1283,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
 
                         <Grid size={{ xs: 12, md: 4 }}>
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, height: '100%' }}>
-                                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>Validation</Typography>
+                                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.validation')}</Typography>
                                 <DiagnosticsPanel diagnostics={diagnostics} />
                                 {preview && (
                                     <Alert severity="info" sx={{ mt: 1 }}>
@@ -1303,10 +1300,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 2 }}>
                                     <Box>
-                                        <Typography variant="subtitle1" fontWeight={800}>الرد والخطوات</Typography>
-                                        <Typography variant="caption" color="text.secondary">كل خطوة لها مفتاح ثابت. الأزرار يمكنها فتح منتجات، الانتقال لخطوة أخرى، أو تحويل المحادثة لموظف.</Typography>
+                                        <Typography variant="subtitle1" fontWeight={800}>{t('messengerBot.replySteps')}</Typography>
+                                        <Typography variant="caption" color="text.secondary">{t('messengerBot.replyStepsHint')}</Typography>
                                     </Box>
-                                    <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={addNode}>إضافة خطوة</Button>
+                                    <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={addNode}>{t('messengerBot.addStep')}</Button>
                                 </Stack>
 
                                 <Stack spacing={2}>
@@ -1316,19 +1313,19 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                 <Grid size={{ xs: 12, md: 2 }}>
                                                     <TextField
                                                         fullWidth
-                                                        label="مفتاح الخطوة"
+                                                        label={t('messengerBot.nodeKey')}
                                                         value={node.node_key}
                                                         onChange={e => updateNode(nodeIndex, { node_key: e.target.value })}
                                                         disabled={nodeIndex === 0}
                                                     />
                                                 </Grid>
                                                 <Grid size={{ xs: 12, md: 3 }}>
-                                                    <TextField select fullWidth label="نوع الخطوة" value={node.node_type} onChange={e => updateNode(nodeIndex, { node_type: e.target.value })}>
-                                                        {Object.entries(nodeTypeLabels).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
+                                                    <TextField select fullWidth label={t('messengerBot.nodeType')} value={node.node_type} onChange={e => updateNode(nodeIndex, { node_type: e.target.value })}>
+                                                        {Object.entries(nodeTypeOptions).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
                                                     </TextField>
                                                 </Grid>
                                                 <Grid size={{ xs: 12, md: 6 }}>
-                                                    <TextField fullWidth label="عنوان داخلي" value={node.title} onChange={e => updateNode(nodeIndex, { title: e.target.value })} />
+                                                    <TextField fullWidth label={t('messengerBot.internalTitle')} value={node.title} onChange={e => updateNode(nodeIndex, { title: e.target.value })} />
                                                 </Grid>
                                                 <Grid size={{ xs: 12, md: 1 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                                                     <IconButton disabled={nodeIndex === 0} color="error" onClick={() => removeNode(nodeIndex)}>
@@ -1336,7 +1333,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                     </IconButton>
                                                 </Grid>
                                                 <Grid size={{ xs: 12 }}>
-                                                    <TextField fullWidth multiline minRows={2} label="نص الرد" value={node.body} onChange={e => updateNode(nodeIndex, { body: e.target.value })} />
+                                                    <TextField fullWidth multiline minRows={2} label={t('messengerBot.replyText')} value={node.body} onChange={e => updateNode(nodeIndex, { body: e.target.value })} />
                                                 </Grid>
 
                                                 {node.node_type === 'product_list' && (
@@ -1365,7 +1362,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                             label="قالب وصف البطاقة"
                                                                             value={node.card_subtitle_template}
                                                                             onChange={e => updateNode(nodeIndex, { card_subtitle_template: e.target.value })}
-                                                                            helperText={`اتركه فارغا لاستخدام مفاتيح السعر/الوصف/التصنيف بالأسفل. ${productTemplateHelp}`}
+                                                                            helperText={t('messengerBot.cardSubtitleHelp', { help: productTemplateHelp })}
                                                                         />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12 }}><Divider /></Grid>
@@ -1421,7 +1418,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                             label="قالب وصف تفاصيل البطاقة"
                                                                             value={node.detail_subtitle_template}
                                                                             onChange={e => updateNode(nodeIndex, { detail_subtitle_template: e.target.value })}
-                                                                            helperText={`يستخدم عند عرض الصور كبطاقات. ${productTemplateHelp}`}
+                                                                            helperText={t('messengerBot.detailCardSubtitleHelp', { help: productTemplateHelp })}
                                                                         />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 4 }}>
@@ -1433,7 +1430,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                             label="قالب نص التفاصيل"
                                                                             value={node.detail_body_template}
                                                                             onChange={e => updateNode(nodeIndex, { detail_body_template: e.target.value })}
-                                                                            helperText={`يستخدم عند إخفاء الصور أو عدم توفرها. ${productTemplateHelp}`}
+                                                                            helperText={t('messengerBot.detailBodyHelp', { help: productTemplateHelp })}
                                                                         />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 6 }}>
@@ -1574,7 +1571,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     )}
                                                                     <Grid size={{ xs: 12, md: 2 }}>
                                                                         <TextField select fullWidth size="small" label="الفعل" value={button.action} onChange={e => updateButton(nodeIndex, buttonIndex, { action: e.target.value })}>
-                                                                            {Object.entries(actionLabels).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
+                                                                            {Object.entries(actionOptions).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
                                                                         </TextField>
                                                                     </Grid>
                                                                     {button.action === 'products' && (

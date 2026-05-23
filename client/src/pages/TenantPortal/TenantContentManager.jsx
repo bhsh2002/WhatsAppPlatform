@@ -16,6 +16,7 @@ import {
     ThumbUp as LikeIcon, Share as ShareIcon
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const POST_TABS = [
     { value: 'text', label: 'نص', icon: <TextIcon /> },
@@ -27,6 +28,7 @@ const POST_TABS = [
 const POST_TRUNCATE_LENGTH = 200;
 
 const TenantContentManager = () => {
+    const { locale, t } = useLanguage();
     const [pages, setPages] = useState([]);
     const [selectedPageId, setSelectedPageId] = useState('');
     const [pagesLoading, setPagesLoading] = useState(true);
@@ -340,7 +342,7 @@ const TenantContentManager = () => {
 
     const formatTime = (ts) => {
         if (!ts) return '';
-        try { return new Date(ts).toLocaleString('ar-LY'); } catch { return ts; }
+        try { return new Date(ts).toLocaleString(locale); } catch { return ts; }
     };
 
     const openAutoDialog = async (post) => {
@@ -421,12 +423,12 @@ const TenantContentManager = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
                     <Box>
-                        <Typography variant="h4" fontWeight={700}>إدارة المحتوى</Typography>
-                        <Typography variant="body2" color="text.secondary">إنشاء وإدارة المنشورات والتعليقات على صفحتك</Typography>
+                        <Typography variant="h4" fontWeight={700}>{t('facebookContent.tenantTitle')}</Typography>
+                        <Typography variant="body2" color="text.secondary">{t('facebookContent.tenantSubtitle')}</Typography>
                     </Box>
                 </Box>
                 <Button startIcon={<RefreshIcon />} onClick={() => { loadPages(); if (selectedPageId) loadPosts(); }} variant="outlined">
-                    تحديث
+                    {t('common.refresh')}
                 </Button>
             </Box>
 
@@ -434,21 +436,21 @@ const TenantContentManager = () => {
 
             <Paper sx={{ p: 2, mb: 3 }}>
                 <FormControl fullWidth size="small">
-                    <InputLabel>اختر صفحة فيسبوك</InputLabel>
+                    <InputLabel>{t('facebookContent.selectPage')}</InputLabel>
                     <Select
                         value={selectedPageId}
                         onChange={(e) => setSelectedPageId(e.target.value)}
-                        label="اختر صفحة فيسبوك"
+                        label={t('facebookContent.selectPage')}
                     >
                         {pages.length === 0 ? (
-                            <MenuItem value="" disabled>لا توجد صفحات مربوطة — تواصل مع المدير</MenuItem>
+                            <MenuItem value="" disabled>{t('facebookContent.noTenantPages')}</MenuItem>
                         ) : (
                             pages.map(page => (
                                 <MenuItem key={page.id} value={page.id}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <FacebookIcon sx={{ color: '#1877f2', fontSize: 18 }} />
                                         <span>{page.page_name || page.page_id}</span>
-                                        {!page.is_active && <Chip label="معطلة" size="small" color="error" />}
+                                        {!page.is_active && <Chip label={t('facebookContent.disabled')} size="small" color="error" />}
                                     </Box>
                                 </MenuItem>
                             ))
@@ -461,20 +463,20 @@ const TenantContentManager = () => {
                 <Box sx={{ maxWidth: 680, mx: 'auto' }}>
                     <Paper sx={{ p: 2, mb: 3 }}>
                         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-                            منشور جديد — {selectedPage?.page_name || selectedPage?.page_id}
+                            {t('facebookContent.newPost', { page: selectedPage?.page_name || selectedPage?.page_id })}
                         </Typography>
                         <Tabs value={composerTab} onChange={(e, v) => setComposerTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>
                             {POST_TABS.map(tab => (
-                                <Tab key={tab.value} value={tab.value} label={tab.label} icon={tab.icon} iconPosition="start" sx={{ minHeight: 48 }} />
+                                <Tab key={tab.value} value={tab.value} label={t(`facebookContent.tabs.${tab.value}`)} icon={tab.icon} iconPosition="start" sx={{ minHeight: 48 }} />
                             ))}
                         </Tabs>
 
                         {(composerTab === 'text' || composerTab === 'link' || composerTab === 'schedule') && (
                             <TextField
-                                fullWidth multiline rows={3} label="نص المنشور"
+                                fullWidth multiline rows={3} label={t('facebookContent.postText')}
                                 value={composerMessage}
                                 onChange={(e) => setComposerMessage(e.target.value)}
-                                placeholder="اكتب منشوراً جديداً..." sx={{ mb: 2 }}
+                                placeholder={t('facebookContent.postPlaceholder')} sx={{ mb: 2 }}
                             />
                         )}
 
@@ -482,28 +484,28 @@ const TenantContentManager = () => {
                             <>
                                 <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
                                     <Button variant={composerPhotoFile ? 'contained' : 'outlined'} component="label" startIcon={<UploadIcon />}>
-                                        {composerPhotoFile ? composerPhotoFile.name : 'رفع ملف'}
+                                        {composerPhotoFile ? composerPhotoFile.name : t('facebookContent.uploadFile')}
                                         <input type="file" hidden accept="image/*" onChange={(e) => { setComposerPhotoFile(e.target.files[0] || null); setComposerPhotoUrl(''); }} />
                                     </Button>
-                                    <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>أو</Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>{t('facebookContent.or')}</Typography>
                                     <TextField
-                                        size="small" label="رابط الصورة"
+                                        size="small" label={t('facebookContent.imageUrl')}
                                         value={composerPhotoUrl}
                                         onChange={(e) => { setComposerPhotoUrl(e.target.value); setComposerPhotoFile(null); }}
                                         placeholder="https://example.com/photo.jpg" sx={{ flex: 1 }}
                                         disabled={!!composerPhotoFile}
                                     />
                                 </Box>
-                                <TextField fullWidth multiline rows={2} label="وصف الصورة" value={composerCaption} onChange={(e) => setComposerCaption(e.target.value)} placeholder="أضف وصفاً للصورة..." sx={{ mb: 2 }} />
+                                <TextField fullWidth multiline rows={2} label={t('facebookContent.imageCaption')} value={composerCaption} onChange={(e) => setComposerCaption(e.target.value)} placeholder={t('facebookContent.imageCaptionPlaceholder')} sx={{ mb: 2 }} />
                             </>
                         )}
 
                         {composerTab === 'link' && (
-                            <TextField fullWidth label="رابط" value={composerLink} onChange={(e) => setComposerLink(e.target.value)} placeholder="https://example.com" sx={{ mb: 2 }} />
+                            <TextField fullWidth label={t('facebookContent.link')} value={composerLink} onChange={(e) => setComposerLink(e.target.value)} placeholder="https://example.com" sx={{ mb: 2 }} />
                         )}
 
                         {composerTab === 'schedule' && (
-                            <TextField fullWidth type="datetime-local" label="وقت النشر المجدول" value={composerScheduleTime} onChange={(e) => setComposerScheduleTime(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />
+                            <TextField fullWidth type="datetime-local" label={t('facebookContent.scheduleTime')} value={composerScheduleTime} onChange={(e) => setComposerScheduleTime(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />
                         )}
 
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -513,12 +515,12 @@ const TenantContentManager = () => {
                                 startIcon={publishing ? <CircularProgress size={18} /> : <SendIcon />}
                                 sx={{ bgcolor: '#1877f2', '&:hover': { bgcolor: '#1565c0' } }}
                             >
-                                {publishing ? 'جاري النشر...' : (composerTab === 'schedule' ? 'جدولة المنشور' : 'نشر المنشور')}
+                                {publishing ? t('facebookContent.publishing') : (composerTab === 'schedule' ? t('facebookContent.schedulePost') : t('facebookContent.publishPost'))}
                             </Button>
                         </Box>
                     </Paper>
 
-                    <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>المنشورات</Typography>
+                    <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>{t('facebookContent.posts')}</Typography>
 
                     {postsLoading ? (
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>
@@ -526,7 +528,7 @@ const TenantContentManager = () => {
                         <Alert severity="error">{postsError}</Alert>
                     ) : posts.length === 0 ? (
                         <Paper sx={{ p: 4, textAlign: 'center' }}>
-                            <Typography color="text.secondary">لا توجد منشورات بعد</Typography>
+                            <Typography color="text.secondary">{t('facebookContent.noPosts')}</Typography>
                         </Paper>
                     ) : (
                         <>
@@ -537,15 +539,15 @@ const TenantContentManager = () => {
                                             <Box>
                                                 <TextField fullWidth multiline rows={3} value={editMessage} onChange={(e) => setEditMessage(e.target.value)} />
                                                 <Box sx={{ mt: 1, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                                                    <Button size="small" onClick={() => setEditingPostId(null)}>إلغاء</Button>
+                                                    <Button size="small" onClick={() => setEditingPostId(null)}>{t('common.cancel')}</Button>
                                                     <Button size="small" variant="contained" onClick={handleSaveEdit} disabled={editLoading}>
-                                                        {editLoading ? <CircularProgress size={16} /> : 'حفظ'}
+                                                        {editLoading ? <CircularProgress size={16} /> : t('common.save')}
                                                     </Button>
                                                 </Box>
                                             </Box>
                                         ) : (
                                             (() => {
-                                                const msg = post.message || '(منشور بدون نص)';
+                                                const msg = post.message || t('facebookContent.untitledPost');
                                                 const isLong = msg.length > POST_TRUNCATE_LENGTH;
                                                 const isExpanded = expandedPosts[post.id];
                                                 return (
@@ -555,7 +557,7 @@ const TenantContentManager = () => {
                                                         </Typography>
                                                         {isLong && (
                                                             <Button size="small" onClick={() => setExpandedPosts(prev => ({ ...prev, [post.id]: !prev[post.id] }))}>
-                                                                {isExpanded ? 'عرض أقل' : 'عرض المزيد'}
+                                                                {isExpanded ? t('facebookContent.showLess') : t('facebookContent.showMore')}
                                                             </Button>
                                                         )}
                                                     </Box>
@@ -591,18 +593,18 @@ const TenantContentManager = () => {
                                     <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1 }}>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                                             <Button size="small" startIcon={<CommentIcon />} onClick={() => toggleComments(post.id)}>
-                                                {expandedComments[post.id] ? 'إخفاء التعليقات' : 'التعليقات'}
+                                                {expandedComments[post.id] ? t('facebookContent.hideComments') : t('facebookContent.comments')}
                                                 {expandedComments[post.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                                             </Button>
                                         </Box>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                            <Tooltip title="أتمتة التعليقات">
+                                            <Tooltip title={t('facebookContent.automateComments')}>
                                                 <IconButton size="small" color="primary" onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
                                             </Tooltip>
-                                            <Tooltip title="تعديل">
+                                            <Tooltip title={t('facebookContent.edit')}>
                                                 <IconButton size="small" onClick={() => handleStartEdit(post)}><EditIcon fontSize="small" /></IconButton>
                                             </Tooltip>
-                                            <Tooltip title="حذف">
+                                            <Tooltip title={t('facebookContent.delete')}>
                                                 <IconButton size="small" color="error" onClick={() => { setDeleteTarget(post.id); setDeleteType('post'); }}><DeleteIcon fontSize="small" /></IconButton>
                                             </Tooltip>
                                         </Box>
@@ -626,27 +628,27 @@ const TenantContentManager = () => {
                                                             </Avatar>
                                                             <Box sx={{ flex: 1 }}>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                    <Typography variant="subtitle2">{comment.from?.name || 'مستخدم'}</Typography>
-                                                                    {comment.is_hidden && <Chip label="مخفي" size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
+                                                                    <Typography variant="subtitle2">{comment.from?.name || t('facebookContent.user')}</Typography>
+                                                                    {comment.is_hidden && <Chip label={t('facebookContent.hidden')} size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
                                                                 </Box>
                                                                 <Typography variant="body2">{comment.message}</Typography>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                                                                     <Typography variant="caption" color="text.secondary">{formatTime(comment.created_time)}</Typography>
                                                                     <Typography variant="caption" color="text.secondary">• 👍 {comment.like_count || 0}</Typography>
-                                                                    {replyCount > 0 && <Typography variant="caption" color="text.secondary">• ردود {replyCount}</Typography>}
+                                                                    {replyCount > 0 && <Typography variant="caption" color="text.secondary">• {t('facebookContent.replies', { count: replyCount })}</Typography>}
                                                                 </Box>
                                                                 <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
                                                                     <Button size="small" variant="text" onClick={() => handleLikeComment(comment, post.id)}>
-                                                                        {comment.user_likes ? 'إلغاء الإعجاب' : 'إعجاب'}
+                                                                        {comment.user_likes ? t('facebookContent.unlike') : t('facebookContent.like')}
                                                                     </Button>
                                                                     <Button size="small" variant="text" onClick={() => handleHideComment(comment.id, comment.is_hidden, post.id)}>
-                                                                        {comment.is_hidden ? 'إظهار' : 'إخفاء'}
+                                                                        {comment.is_hidden ? t('facebookContent.show') : t('facebookContent.hide')}
                                                                     </Button>
                                                                     <Button size="small" variant="text" color="error" onClick={() => { setDeleteTarget({ id: comment.id, postId: post.id }); setDeleteType('comment'); }}>
-                                                                        حذف
+                                                                        {t('facebookContent.delete')}
                                                                     </Button>
                                                                     <Button size="small" variant="text" onClick={() => loadReplies(comment.id)} disabled={repliesLoading[comment.id]}>
-                                                                        {repliesLoading[comment.id] ? 'جاري التحميل' : replies.length > 0 ? 'تحديث الردود' : 'عرض الردود'}
+                                                                        {repliesLoading[comment.id] ? t('facebookContent.loading') : replies.length > 0 ? t('facebookContent.refreshReplies') : t('facebookContent.showReplies')}
                                                                     </Button>
                                                                 </Box>
                                                                 {replies.length > 0 && (
@@ -657,13 +659,13 @@ const TenantContentManager = () => {
                                                                                     {reply.from?.name?.charAt(0)}
                                                                                 </Avatar>
                                                                                 <Box sx={{ flex: 1 }}>
-                                                                                    <Typography variant="caption" fontWeight={700}>{reply.from?.name || 'مستخدم'}</Typography>
+                                                                                    <Typography variant="caption" fontWeight={700}>{reply.from?.name || t('facebookContent.user')}</Typography>
                                                                                     <Typography variant="body2">{reply.message}</Typography>
                                                                                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
                                                                                         <Typography variant="caption" color="text.secondary">{formatTime(reply.created_time)}</Typography>
                                                                                         <Typography variant="caption" color="text.secondary">• 👍 {reply.like_count || 0}</Typography>
                                                                                         <Button size="small" onClick={() => handleLikeComment(reply, post.id, comment.id)}>
-                                                                                            {reply.user_likes ? 'إلغاء الإعجاب' : 'إعجاب'}
+                                                                                            {reply.user_likes ? t('facebookContent.unlike') : t('facebookContent.like')}
                                                                                         </Button>
                                                                                     </Box>
                                                                                 </Box>
@@ -671,14 +673,14 @@ const TenantContentManager = () => {
                                                                         ))}
                                                                         {repliesState.paging?.next && (
                                                                             <Button size="small" variant="outlined" onClick={() => loadReplies(comment.id, true)} disabled={repliesLoading[comment.id]}>
-                                                                                تحميل ردود أكثر
+                                                                                {t('facebookContent.moreReplies')}
                                                                             </Button>
                                                                         )}
                                                                     </Box>
                                                                 )}
                                                                 <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
                                                                     <TextField
-                                                                        size="small" placeholder="اكتب رداً..."
+                                                                        size="small" placeholder={t('facebookContent.replyPlaceholder')}
                                                                         value={replyTexts[comment.id] || ''}
                                                                         onChange={(e) => setReplyTexts(prev => ({ ...prev, [comment.id]: e.target.value }))}
                                                                         sx={{ flex: 1 }}
@@ -693,12 +695,12 @@ const TenantContentManager = () => {
                                                     );
                                                     })}
                                                     {(commentsData[post.id]?.comments || []).length === 0 && (
-                                                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>لا توجد تعليقات</Typography>
+                                                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>{t('facebookContent.noComments')}</Typography>
                                                     )}
                                                     {commentsData[post.id]?.paging?.next && (
                                                         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
                                                             <Button size="small" variant="outlined" onClick={() => loadComments(post.id, true)} disabled={commentsLoading[post.id]}>
-                                                                تحميل تعليقات أكثر
+                                                                {t('facebookContent.moreComments')}
                                                             </Button>
                                                         </Box>
                                                     )}
@@ -712,7 +714,7 @@ const TenantContentManager = () => {
                             {postsPaging?.next && (
                                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
                                     <Button variant="outlined" onClick={() => loadPosts(true)} disabled={loadingMore}>
-                                        {loadingMore ? <CircularProgress size={20} /> : 'تحميل المزيد'}
+                                        {loadingMore ? <CircularProgress size={20} /> : t('facebookContent.loadMore')}
                                     </Button>
                                 </Box>
                             )}
@@ -722,14 +724,14 @@ const TenantContentManager = () => {
             )}
 
             <Dialog open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteType(''); }}>
-                <DialogTitle>{deleteType === 'post' ? 'حذف المنشور' : 'حذف التعليق'}</DialogTitle>
+                <DialogTitle>{deleteType === 'post' ? t('facebookContent.deletePost') : t('facebookContent.deleteComment')}</DialogTitle>
                 <DialogContent>
-                    <Typography>هل أنت متأكد من حذف {deleteType === 'post' ? 'هذا المنشور' : 'هذا التعليق'}؟ لا يمكن التراجع عن هذا الإجراء.</Typography>
+                    <Typography>{t('facebookContent.deleteConfirm', { target: deleteType === 'post' ? t('facebookContent.thisPost') : t('facebookContent.thisComment') })}</Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => { setDeleteTarget(null); setDeleteType(''); }}>إلغاء</Button>
+                    <Button onClick={() => { setDeleteTarget(null); setDeleteType(''); }}>{t('common.cancel')}</Button>
                     <Button variant="contained" color="error" onClick={deleteType === 'post' ? handleDeletePost : handleDeleteComment} disabled={deleteLoading}>
-                        {deleteLoading ? <CircularProgress size={18} /> : 'حذف'}
+                        {deleteLoading ? <CircularProgress size={18} /> : t('facebookContent.delete')}
                     </Button>
                 </DialogActions>
             </Dialog>

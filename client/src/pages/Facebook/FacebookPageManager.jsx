@@ -17,6 +17,7 @@ import {
     ThumbUp as LikeIcon, Share as ShareIcon
 } from '@mui/icons-material';
 import api from '../../api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const POST_TABS = [
     { value: 'text', label: 'نص', icon: <TextIcon /> },
@@ -28,6 +29,7 @@ const POST_TABS = [
 const POST_TRUNCATE_LENGTH = 200;
 
 const FacebookPageManager = () => {
+    const { locale, t } = useLanguage();
     const [allPages, setAllPages] = useState([]);
     const [selectedPageId, setSelectedPageId] = useState('');
     const [pagesLoading, setPagesLoading] = useState(true);
@@ -368,7 +370,7 @@ const FacebookPageManager = () => {
 
     const formatTime = (ts) => {
         if (!ts) return '';
-        try { return new Date(ts).toLocaleString('ar-LY'); } catch { return ts; }
+        try { return new Date(ts).toLocaleString(locale); } catch { return ts; }
     };
 
     // Automation quick-setup functions
@@ -474,12 +476,12 @@ const FacebookPageManager = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
                     <Box>
-                        <Typography variant="h4" fontWeight={700}>إدارة محتوى فيسبوك</Typography>
-                        <Typography variant="body2" color="text.secondary">إنشاء وإدارة المنشورات والتعليقات على الصفحات المربوطة</Typography>
+                        <Typography variant="h4" fontWeight={700}>{t('facebookContent.adminTitle')}</Typography>
+                        <Typography variant="body2" color="text.secondary">{t('facebookContent.adminSubtitle')}</Typography>
                     </Box>
                 </Box>
                 <Button startIcon={<RefreshIcon />} onClick={() => { loadAllPages(); if (selectedPageId) loadPosts(); }} variant="outlined">
-                    تحديث
+                    {t('common.refresh')}
                 </Button>
             </Box>
 
@@ -490,9 +492,9 @@ const FacebookPageManager = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <WebhookIcon color="primary" />
                         <Box>
-                            <Typography variant="subtitle1" fontWeight={700}>تشخيص Webhook فيسبوك</Typography>
+                            <Typography variant="subtitle1" fontWeight={700}>{t('facebookContent.webhookDiagnostics')}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
-                                {webhookDiagnostics?.expected_callback_url || 'لم يتم جلب رابط Webhook المتوقع بعد'}
+                                {webhookDiagnostics?.expected_callback_url || t('facebookContent.webhookNotLoaded')}
                             </Typography>
                         </Box>
                     </Box>
@@ -504,7 +506,7 @@ const FacebookPageManager = () => {
                             disabled={webhookLoading}
                             startIcon={webhookLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
                         >
-                            فحص Webhook
+                            {t('facebookContent.checkWebhook')}
                         </Button>
                         <Button
                             variant="contained"
@@ -513,7 +515,7 @@ const FacebookPageManager = () => {
                             disabled={webhookSetupLoading}
                             startIcon={webhookSetupLoading ? <CircularProgress size={16} color="inherit" /> : <WebhookIcon />}
                         >
-                            إعادة إعداد App Webhook
+                            {t('facebookContent.setupAppWebhook')}
                         </Button>
                     </Box>
                 </Box>
@@ -525,25 +527,25 @@ const FacebookPageManager = () => {
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: webhookSummary?.warnings?.length ? 2 : 0 }}>
                             <Chip
                                 size="small"
-                                label={webhookSummary?.app_page_subscription_present ? 'App page: موجود' : 'App page: مفقود'}
+                                label={webhookSummary?.app_page_subscription_present ? t('facebookContent.appPagePresent') : t('facebookContent.appPageMissing')}
                                 color={webhookSummary?.app_page_subscription_present ? 'success' : 'warning'}
                                 variant={webhookSummary?.app_page_subscription_present ? 'filled' : 'outlined'}
                             />
                             <Chip
                                 size="small"
-                                label={webhookSummary?.app_feed_subscribed ? 'feed: موجود' : 'feed: مفقود'}
+                                label={webhookSummary?.app_feed_subscribed ? t('facebookContent.feedPresent') : t('facebookContent.feedMissing')}
                                 color={webhookSummary?.app_feed_subscribed ? 'success' : 'error'}
                                 variant={webhookSummary?.app_feed_subscribed ? 'filled' : 'outlined'}
                             />
                             <Chip
                                 size="small"
-                                label={webhookSummary?.app_callback_matches_expected ? 'Callback مطابق' : 'Callback يحتاج ضبط'}
+                                label={webhookSummary?.app_callback_matches_expected ? t('facebookContent.callbackMatches') : t('facebookContent.callbackNeedsSetup')}
                                 color={webhookSummary?.app_callback_matches_expected ? 'success' : 'warning'}
                                 variant={webhookSummary?.app_callback_matches_expected ? 'filled' : 'outlined'}
                             />
                             <Chip
                                 size="small"
-                                label={webhookSummary?.last_page_webhook_at ? `آخر Page webhook: ${formatTime(webhookSummary.last_page_webhook_at)}` : 'لا توجد Page webhooks'}
+                                label={webhookSummary?.last_page_webhook_at ? t('facebookContent.lastPageWebhook', { time: formatTime(webhookSummary.last_page_webhook_at) }) : t('facebookContent.noPageWebhooks')}
                                 color={webhookSummary?.last_page_webhook_at ? 'success' : 'warning'}
                                 variant="outlined"
                             />
@@ -555,7 +557,7 @@ const FacebookPageManager = () => {
                                     <Chip
                                         key={field}
                                         size="small"
-                                        label={`${field}: إنتاج ${evidence.production_count || 0} / إجمالي ${evidence.count || 0}`}
+                                        label={t('facebookContent.evidenceCount', { field, production: evidence.production_count || 0, total: evidence.count || 0 })}
                                         color={(evidence.production_count || 0) > 0 ? 'success' : 'warning'}
                                         variant="outlined"
                                     />
@@ -573,7 +575,11 @@ const FacebookPageManager = () => {
                             <Alert
                                 severity={selectedPageDiagnostic.page_subscription_summary?.feed_subscribed || selectedPageDiagnostic.stored_subscribed_fields?.includes('feed') ? 'success' : 'warning'}
                             >
-                                الصفحة المحددة: {selectedPageDiagnostic.page_name || selectedPageDiagnostic.page_id} — feed في Meta: {selectedPageDiagnostic.page_subscription_summary?.feed_subscribed ? 'موجود' : 'غير مؤكد'}، feed في قاعدة البيانات: {selectedPageDiagnostic.stored_subscribed_fields?.includes('feed') ? 'موجود' : 'مفقود'}
+                                {t('facebookContent.selectedPageDiagnostic', {
+                                    page: selectedPageDiagnostic.page_name || selectedPageDiagnostic.page_id,
+                                    metaFeed: selectedPageDiagnostic.page_subscription_summary?.feed_subscribed ? t('facebookContent.present') : t('facebookContent.uncertain'),
+                                    dbFeed: selectedPageDiagnostic.stored_subscribed_fields?.includes('feed') ? t('facebookContent.present') : t('facebookContent.missing'),
+                                })}
                             </Alert>
                         )}
                     </>
@@ -583,14 +589,14 @@ const FacebookPageManager = () => {
             {/* Page Selector */}
             <Paper sx={{ p: 2, mb: 3 }}>
                 <FormControl fullWidth size="small">
-                    <InputLabel>اختر صفحة فيسبوك</InputLabel>
+                    <InputLabel>{t('facebookContent.selectPage')}</InputLabel>
                     <Select
                         value={selectedPageId}
                         onChange={(e) => setSelectedPageId(e.target.value)}
-                        label="اختر صفحة فيسبوك"
+                        label={t('facebookContent.selectPage')}
                     >
                         {allPages.length === 0 ? (
-                            <MenuItem value="" disabled>لا توجد صفحات مربوطة — اربط صفحة من إدارة العملاء</MenuItem>
+                            <MenuItem value="" disabled>{t('facebookContent.noAdminPages')}</MenuItem>
                         ) : (
                             allPages.map(page => (
                                 <MenuItem key={page.id} value={page.id}>
@@ -600,8 +606,8 @@ const FacebookPageManager = () => {
                                         {page.tenant_name && (
                                             <Chip label={page.tenant_name} size="small" variant="outlined" sx={{ ml: 1, fontSize: '0.7rem' }} />
                                         )}
-                                        {!page.is_active && <Chip label="معطلة" size="small" color="error" />}
-                                        {!page.webhook_subscribed && <Chip label="بدون Webhook" size="small" color="warning" variant="outlined" />}
+                                        {!page.is_active && <Chip label={t('facebookContent.disabled')} size="small" color="error" />}
+                                        {!page.webhook_subscribed && <Chip label={t('facebookContent.noWebhook')} size="small" color="warning" variant="outlined" />}
                                     </Box>
                                 </MenuItem>
                             ))
@@ -615,11 +621,11 @@ const FacebookPageManager = () => {
                     {/* Post Composer */}
                     <Paper sx={{ p: 2, mb: 3 }}>
                         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-                            منشور جديد — {selectedPage?.page_name || selectedPage?.page_id}
+                            {t('facebookContent.newPost', { page: selectedPage?.page_name || selectedPage?.page_id })}
                         </Typography>
                         <Tabs value={composerTab} onChange={(e, v) => setComposerTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>
                             {POST_TABS.map(tab => (
-                                <Tab key={tab.value} value={tab.value} label={tab.label} icon={tab.icon} iconPosition="start" sx={{ minHeight: 48 }} />
+                                <Tab key={tab.value} value={tab.value} label={t(`facebookContent.tabs.${tab.value}`)} icon={tab.icon} iconPosition="start" sx={{ minHeight: 48 }} />
                             ))}
                         </Tabs>
 
@@ -628,10 +634,10 @@ const FacebookPageManager = () => {
                                 fullWidth
                                 multiline
                                 rows={3}
-                                label="نص المنشور"
+                                label={t('facebookContent.postText')}
                                 value={composerMessage}
                                 onChange={(e) => setComposerMessage(e.target.value)}
-                                placeholder="اكتب منشوراً جديداً..."
+                                placeholder={t('facebookContent.postPlaceholder')}
                                 sx={{ mb: 2 }}
                             />
                         )}
@@ -640,13 +646,13 @@ const FacebookPageManager = () => {
                             <>
                                 <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
                                     <Button variant={composerPhotoFile ? 'contained' : 'outlined'} component="label" startIcon={<UploadIcon />}>
-                                        {composerPhotoFile ? composerPhotoFile.name : 'رفع ملف'}
+                                        {composerPhotoFile ? composerPhotoFile.name : t('facebookContent.uploadFile')}
                                         <input type="file" hidden accept="image/*" onChange={(e) => { setComposerPhotoFile(e.target.files[0] || null); setComposerPhotoUrl(''); }} />
                                     </Button>
-                                    <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>أو</Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>{t('facebookContent.or')}</Typography>
                                     <TextField
                                         size="small"
-                                        label="رابط الصورة"
+                                        label={t('facebookContent.imageUrl')}
                                         value={composerPhotoUrl}
                                         onChange={(e) => { setComposerPhotoUrl(e.target.value); setComposerPhotoFile(null); }}
                                         placeholder="https://example.com/photo.jpg"
@@ -658,10 +664,10 @@ const FacebookPageManager = () => {
                                     fullWidth
                                     multiline
                                     rows={2}
-                                    label="وصف الصورة"
+                                    label={t('facebookContent.imageCaption')}
                                     value={composerCaption}
                                     onChange={(e) => setComposerCaption(e.target.value)}
-                                    placeholder="أضف وصفاً للصورة..."
+                                    placeholder={t('facebookContent.imageCaptionPlaceholder')}
                                     sx={{ mb: 2 }}
                                 />
                             </>
@@ -670,7 +676,7 @@ const FacebookPageManager = () => {
                         {composerTab === 'link' && (
                             <TextField
                                 fullWidth
-                                label="رابط"
+                                label={t('facebookContent.link')}
                                 value={composerLink}
                                 onChange={(e) => setComposerLink(e.target.value)}
                                 placeholder="https://example.com"
@@ -682,7 +688,7 @@ const FacebookPageManager = () => {
                             <TextField
                                 fullWidth
                                 type="datetime-local"
-                                label="وقت النشر المجدول"
+                                label={t('facebookContent.scheduleTime')}
                                 value={composerScheduleTime}
                                 onChange={(e) => setComposerScheduleTime(e.target.value)}
                                 InputLabelProps={{ shrink: true }}
@@ -698,13 +704,13 @@ const FacebookPageManager = () => {
                                 startIcon={publishing ? <CircularProgress size={18} /> : <SendIcon />}
                                 sx={{ bgcolor: '#1877f2', '&:hover': { bgcolor: '#1565c0' } }}
                             >
-                                {publishing ? 'جاري النشر...' : (composerTab === 'schedule' ? 'جدولة المنشور' : 'نشر المنشور')}
+                                {publishing ? t('facebookContent.publishing') : (composerTab === 'schedule' ? t('facebookContent.schedulePost') : t('facebookContent.publishPost'))}
                             </Button>
                         </Box>
                     </Paper>
 
                     {/* Posts Feed */}
-                    <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>المنشورات</Typography>
+                    <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>{t('facebookContent.posts')}</Typography>
 
                     {postsLoading ? (
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>
@@ -712,7 +718,7 @@ const FacebookPageManager = () => {
                         <Alert severity="error">{postsError}</Alert>
                     ) : posts.length === 0 ? (
                         <Paper sx={{ p: 4, textAlign: 'center' }}>
-                            <Typography color="text.secondary">لا توجد منشورات بعد</Typography>
+                            <Typography color="text.secondary">{t('facebookContent.noPosts')}</Typography>
                         </Paper>
                     ) : (
                         <>
@@ -729,15 +735,15 @@ const FacebookPageManager = () => {
                                                     onChange={(e) => setEditMessage(e.target.value)}
                                                 />
                                                 <Box sx={{ mt: 1, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                                                    <Button size="small" onClick={() => setEditingPostId(null)}>إلغاء</Button>
+                                                    <Button size="small" onClick={() => setEditingPostId(null)}>{t('common.cancel')}</Button>
                                                     <Button size="small" variant="contained" onClick={handleSaveEdit} disabled={editLoading}>
-                                                        {editLoading ? <CircularProgress size={16} /> : 'حفظ'}
+                                                        {editLoading ? <CircularProgress size={16} /> : t('common.save')}
                                                     </Button>
                                                 </Box>
                                             </Box>
                                         ) : (
                                             (() => {
-                                                const msg = post.message || '(منشور بدون نص)';
+                                                const msg = post.message || t('facebookContent.untitledPost');
                                                 const isLong = msg.length > POST_TRUNCATE_LENGTH;
                                                 const isExpanded = expandedPosts[post.id];
                                                 return (
@@ -750,7 +756,7 @@ const FacebookPageManager = () => {
                                                         </Typography>
                                                         {isLong && (
                                                             <Button size="small" onClick={() => setExpandedPosts(prev => ({ ...prev, [post.id]: !prev[post.id] }))}>
-                                                                {isExpanded ? 'عرض أقل' : 'عرض المزيد'}
+                                                                {isExpanded ? t('facebookContent.showLess') : t('facebookContent.showMore')}
                                                             </Button>
                                                         )}
                                                     </Box>
@@ -791,18 +797,18 @@ const FacebookPageManager = () => {
                                     <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1 }}>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                                             <Button size="small" startIcon={<CommentIcon />} onClick={() => toggleComments(post.id)}>
-                                                {expandedComments[post.id] ? 'إخفاء التعليقات' : 'التعليقات'}
+                                                {expandedComments[post.id] ? t('facebookContent.hideComments') : t('facebookContent.comments')}
                                                 {expandedComments[post.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                                             </Button>
                                         </Box>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                            <Tooltip title="أتمتة التعليقات">
+                                            <Tooltip title={t('facebookContent.automateComments')}>
                                                 <IconButton size="small" color="primary" onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
                                             </Tooltip>
-                                            <Tooltip title="تعديل">
+                                            <Tooltip title={t('facebookContent.edit')}>
                                                 <IconButton size="small" onClick={() => handleStartEdit(post)}><EditIcon fontSize="small" /></IconButton>
                                             </Tooltip>
-                                            <Tooltip title="حذف">
+                                            <Tooltip title={t('facebookContent.delete')}>
                                                 <IconButton size="small" color="error" onClick={() => { setDeleteTarget(post.id); setDeleteType('post'); }}><DeleteIcon fontSize="small" /></IconButton>
                                             </Tooltip>
                                         </Box>
@@ -826,27 +832,27 @@ const FacebookPageManager = () => {
                                                             </Avatar>
                                                             <Box sx={{ flex: 1 }}>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                    <Typography variant="subtitle2">{comment.from?.name || 'مستخدم'}</Typography>
-                                                                    {comment.is_hidden && <Chip label="مخفي" size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
+                                                                    <Typography variant="subtitle2">{comment.from?.name || t('facebookContent.user')}</Typography>
+                                                                    {comment.is_hidden && <Chip label={t('facebookContent.hidden')} size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
                                                                 </Box>
                                                                 <Typography variant="body2">{comment.message}</Typography>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                                                                     <Typography variant="caption" color="text.secondary">{formatTime(comment.created_time)}</Typography>
                                                                     <Typography variant="caption" color="text.secondary">• 👍 {comment.like_count || 0}</Typography>
-                                                                    {replyCount > 0 && <Typography variant="caption" color="text.secondary">• ردود {replyCount}</Typography>}
+                                                                    {replyCount > 0 && <Typography variant="caption" color="text.secondary">• {t('facebookContent.replies', { count: replyCount })}</Typography>}
                                                                 </Box>
                                                                 <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
                                                                     <Button size="small" variant="text" onClick={() => handleLikeComment(comment, post.id)}>
-                                                                        {comment.user_likes ? 'إلغاء الإعجاب' : 'إعجاب'}
+                                                                        {comment.user_likes ? t('facebookContent.unlike') : t('facebookContent.like')}
                                                                     </Button>
                                                                     <Button size="small" variant="text" onClick={() => handleHideComment(comment.id, comment.is_hidden, post.id)}>
-                                                                        {comment.is_hidden ? 'إظهار' : 'إخفاء'}
+                                                                        {comment.is_hidden ? t('facebookContent.show') : t('facebookContent.hide')}
                                                                     </Button>
                                                                     <Button size="small" variant="text" color="error" onClick={() => { setDeleteTarget({ id: comment.id, postId: post.id }); setDeleteType('comment'); }}>
-                                                                        حذف
+                                                                        {t('facebookContent.delete')}
                                                                     </Button>
                                                                     <Button size="small" variant="text" onClick={() => loadReplies(comment.id)} disabled={repliesLoading[comment.id]}>
-                                                                        {repliesLoading[comment.id] ? 'جاري التحميل' : replies.length > 0 ? 'تحديث الردود' : 'عرض الردود'}
+                                                                        {repliesLoading[comment.id] ? t('facebookContent.loading') : replies.length > 0 ? t('facebookContent.refreshReplies') : t('facebookContent.showReplies')}
                                                                     </Button>
                                                                 </Box>
                                                                 {replies.length > 0 && (
@@ -857,13 +863,13 @@ const FacebookPageManager = () => {
                                                                                     {reply.from?.name?.charAt(0)}
                                                                                 </Avatar>
                                                                                 <Box sx={{ flex: 1 }}>
-                                                                                    <Typography variant="caption" fontWeight={700}>{reply.from?.name || 'مستخدم'}</Typography>
+                                                                                    <Typography variant="caption" fontWeight={700}>{reply.from?.name || t('facebookContent.user')}</Typography>
                                                                                     <Typography variant="body2">{reply.message}</Typography>
                                                                                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
                                                                                         <Typography variant="caption" color="text.secondary">{formatTime(reply.created_time)}</Typography>
                                                                                         <Typography variant="caption" color="text.secondary">• 👍 {reply.like_count || 0}</Typography>
                                                                                         <Button size="small" onClick={() => handleLikeComment(reply, post.id, comment.id)}>
-                                                                                            {reply.user_likes ? 'إلغاء الإعجاب' : 'إعجاب'}
+                                                                                            {reply.user_likes ? t('facebookContent.unlike') : t('facebookContent.like')}
                                                                                         </Button>
                                                                                     </Box>
                                                                                 </Box>
@@ -871,7 +877,7 @@ const FacebookPageManager = () => {
                                                                         ))}
                                                                         {repliesState.paging?.next && (
                                                                             <Button size="small" variant="outlined" onClick={() => loadReplies(comment.id, true)} disabled={repliesLoading[comment.id]}>
-                                                                                تحميل ردود أكثر
+                                                                                {t('facebookContent.moreReplies')}
                                                                             </Button>
                                                                         )}
                                                                     </Box>
@@ -880,7 +886,7 @@ const FacebookPageManager = () => {
                                                                 <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
                                                                     <TextField
                                                                         size="small"
-                                                                        placeholder="اكتب رداً..."
+                                                                        placeholder={t('facebookContent.replyPlaceholder')}
                                                                         value={replyTexts[comment.id] || ''}
                                                                         onChange={(e) => setReplyTexts(prev => ({ ...prev, [comment.id]: e.target.value }))}
                                                                         sx={{ flex: 1 }}
@@ -895,12 +901,12 @@ const FacebookPageManager = () => {
                                                     );
                                                     })}
                                                     {(commentsData[post.id]?.comments || []).length === 0 && (
-                                                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>لا توجد تعليقات</Typography>
+                                                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>{t('facebookContent.noComments')}</Typography>
                                                     )}
                                                     {commentsData[post.id]?.paging?.next && (
                                                         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
                                                             <Button size="small" variant="outlined" onClick={() => loadComments(post.id, true)} disabled={commentsLoading[post.id]}>
-                                                                تحميل تعليقات أكثر
+                                                                {t('facebookContent.moreComments')}
                                                             </Button>
                                                         </Box>
                                                     )}
@@ -914,7 +920,7 @@ const FacebookPageManager = () => {
                             {postsPaging?.next && (
                                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
                                     <Button variant="outlined" onClick={() => loadPosts(true)} disabled={loadingMore}>
-                                        {loadingMore ? <CircularProgress size={20} /> : 'تحميل المزيد'}
+                                        {loadingMore ? <CircularProgress size={20} /> : t('facebookContent.loadMore')}
                                     </Button>
                                 </Box>
                             )}
@@ -925,14 +931,14 @@ const FacebookPageManager = () => {
 
             {/* Delete Confirmation Dialog */}
             <Dialog open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteType(''); }}>
-                <DialogTitle>{deleteType === 'post' ? 'حذف المنشور' : 'حذف التعليق'}</DialogTitle>
+                <DialogTitle>{deleteType === 'post' ? t('facebookContent.deletePost') : t('facebookContent.deleteComment')}</DialogTitle>
                 <DialogContent>
-                    <Typography>هل أنت متأكد من حذف {deleteType === 'post' ? 'هذا المنشور' : 'هذا التعليق'}؟ لا يمكن التراجع عن هذا الإجراء.</Typography>
+                    <Typography>{t('facebookContent.deleteConfirm', { target: deleteType === 'post' ? t('facebookContent.thisPost') : t('facebookContent.thisComment') })}</Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => { setDeleteTarget(null); setDeleteType(''); }}>إلغاء</Button>
+                    <Button onClick={() => { setDeleteTarget(null); setDeleteType(''); }}>{t('common.cancel')}</Button>
                     <Button variant="contained" color="error" onClick={deleteType === 'post' ? handleDeletePost : handleDeleteComment} disabled={deleteLoading}>
-                        {deleteLoading ? <CircularProgress size={18} /> : 'حذف'}
+                        {deleteLoading ? <CircularProgress size={18} /> : t('facebookContent.delete')}
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -947,12 +953,12 @@ const FacebookPageManager = () => {
             <Dialog open={autoDialogOpen} onClose={() => setAutoDialogOpen(false)} maxWidth="sm" fullWidth>
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BoltIcon color="primary" />
-                    أتمتة التعليقات
+                    {t('facebookContent.commentAutomation')}
                 </DialogTitle>
                 <DialogContent dividers>
                     {autoTargetPost && (
                         <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
-                            المنشور: "{(autoTargetPost.message || 'بدون نص').substring(0, 80)}{(autoTargetPost.message || '').length > 80 ? '...' : ''}"
+                            {t('facebookContent.post')}: "{(autoTargetPost.message || t('facebookContent.noText')).substring(0, 80)}{(autoTargetPost.message || '').length > 80 ? '...' : ''}"
                         </Alert>
                     )}
 
@@ -961,7 +967,7 @@ const FacebookPageManager = () => {
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}><CircularProgress size={24} /></Box>
                     ) : autoRules.length > 0 && (
                         <Box sx={{ mb: 3 }}>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>القواعد الحالية</Typography>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('facebookContent.currentRules')}</Typography>
                             {autoRules.map(rule => (
                                 <Box key={rule.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, mb: 0.5, bgcolor: 'grey.50', borderRadius: 1 }}>
                                     <Switch
@@ -973,16 +979,16 @@ const FacebookPageManager = () => {
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant="body2" fontWeight="bold">{rule.name}</Typography>
                                         <Typography variant="caption" color="text.secondary">
-                                            {rule.trigger_on === 'reaction' ? 'تفاعلات' : rule.trigger_on === 'both' ? 'تعليقات+تفاعلات' : 'تعليقات'}
+                                            {rule.trigger_on === 'reaction' ? t('facebookContent.reactions') : rule.trigger_on === 'both' ? `${t('facebookContent.commentsOnly')}+${t('facebookContent.reactions')}` : t('facebookContent.commentsOnly')}
                                             {rule.match_pattern ? ` • كلمات: ${rule.match_pattern}` : ''}
                                             {' • '}
-                                            {rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'كلاهما'}
+                                            {rule.response_action === 'comment' ? t('facebookContent.publicReply') : rule.response_action === 'dm' ? t('facebookContent.privateMessage') : t('facebookContent.both')}
                                             {' • '}
                                             {rule.trigger_count || 0} تشغيل
                                         </Typography>
                                     </Box>
                                     <Chip
-                                        label={rule.target_post_id ? 'هذا المنشور' : 'عام'}
+                                        label={rule.target_post_id ? t('facebookContent.thisPost') : t('messengerBot.general')}
                                         size="small"
                                         variant="outlined"
                                         color={rule.target_post_id ? 'primary' : 'default'}
@@ -993,26 +999,26 @@ const FacebookPageManager = () => {
                     )}
 
                     <Divider sx={{ mb: 2 }} />
-                    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>إنشاء قاعدة جديدة لهذا المنشور</Typography>
+                    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{t('facebookContent.newRule')}</Typography>
 
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <TextField
-                            label="اسم القاعدة"
+                            label={t('facebookContent.ruleName')}
                             value={autoForm.name}
                             onChange={e => setAutoForm(p => ({ ...p, name: e.target.value }))}
                             fullWidth
                             size="small"
                         />
                         <TextField
-                            label="كلمات مفتاحية (اتركه فارغاً للرد على الكل)"
+                            label={t('facebookContent.keywords')}
                             value={autoForm.match_pattern}
                             onChange={e => setAutoForm(p => ({ ...p, match_pattern: e.target.value }))}
                             fullWidth
                             size="small"
-                            placeholder="مثال: سعر,تفاصيل,كم"
+                            placeholder={t('facebookContent.keywordsPlaceholder')}
                         />
 
-                        <Typography variant="caption" color="primary">مشغل القاعدة</Typography>
+                        <Typography variant="caption" color="primary">{t('facebookContent.ruleTrigger')}</Typography>
                         <RadioGroup
                             row
                             value={autoForm.trigger_on}
@@ -1025,20 +1031,20 @@ const FacebookPageManager = () => {
                                 }));
                             }}
                         >
-                            <FormControlLabel value="comment" control={<Radio size="small" />} label="تعليقات" />
-                            <FormControlLabel value="reaction" control={<Radio size="small" />} label="تفاعلات" />
-                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" />
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label={t('facebookContent.commentsOnly')} />
+                            <FormControlLabel value="reaction" control={<Radio size="small" />} label={t('facebookContent.reactions')} />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label={t('facebookContent.both')} />
                         </RadioGroup>
 
-                        <Typography variant="caption" color="primary">نوع الرد</Typography>
+                        <Typography variant="caption" color="primary">{t('facebookContent.responseType')}</Typography>
                         <RadioGroup
                             row
                             value={autoForm.response_action}
                             onChange={e => setAutoForm(p => ({ ...p, response_action: e.target.value }))}
                         >
-                            <FormControlLabel value="comment" control={<Radio size="small" />} label="رد عام" disabled={autoForm.trigger_on === 'reaction'} />
-                            <FormControlLabel value="dm" control={<Radio size="small" />} label="رسالة خاصة" />
-                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" disabled={autoForm.trigger_on === 'reaction'} />
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label={t('facebookContent.publicReply')} disabled={autoForm.trigger_on === 'reaction'} />
+                            <FormControlLabel value="dm" control={<Radio size="small" />} label={t('facebookContent.privateMessage')} />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label={t('facebookContent.both')} disabled={autoForm.trigger_on === 'reaction'} />
                         </RadioGroup>
 
                         {/* Auto-like toggle */}
@@ -1052,45 +1058,45 @@ const FacebookPageManager = () => {
                                         size="small"
                                     />
                                 }
-                                label="إعجاب تلقائي على التعليق"
+                                label={t('facebookContent.autoLike')}
                             />
                         )}
 
                         {(autoForm.response_action === 'comment' || autoForm.response_action === 'both') && (
                             <TextField
-                                label="نص التعليق العام"
+                                label={t('facebookContent.publicReplyText')}
                                 value={autoForm.response_text}
                                 onChange={e => setAutoForm(p => ({ ...p, response_text: e.target.value }))}
                                 multiline
                                 rows={2}
                                 fullWidth
                                 size="small"
-                                placeholder="الرد الذي سيظهر كتعليق..."
+                                placeholder={t('facebookContent.publicReplyPlaceholder')}
                             />
                         )}
                         {(autoForm.response_action === 'dm' || autoForm.response_action === 'both') && (
                             <TextField
-                                label="نص الرسالة الخاصة"
+                                label={t('facebookContent.privateMessageText')}
                                 value={autoForm.dm_text}
                                 onChange={e => setAutoForm(p => ({ ...p, dm_text: e.target.value }))}
                                 multiline
                                 rows={2}
                                 fullWidth
                                 size="small"
-                                placeholder="الرسالة الخاصة التي ستُرسل للمعلق..."
+                                placeholder={t('facebookContent.privateMessagePlaceholder')}
                             />
                         )}
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setAutoDialogOpen(false)}>إغلاق</Button>
+                    <Button onClick={() => setAutoDialogOpen(false)}>{t('common.close')}</Button>
                     <Button
                         variant="contained"
                         onClick={handleCreateAutoRule}
                         disabled={autoSaving || !autoForm.name || (!autoForm.response_text && !autoForm.dm_text)}
                         startIcon={autoSaving ? <CircularProgress size={16} color="inherit" /> : <BoltIcon />}
                     >
-                        {autoSaving ? 'جاري الحفظ...' : 'إنشاء قاعدة'}
+                        {autoSaving ? t('common.saving') : t('facebookContent.createRule')}
                     </Button>
                 </DialogActions>
             </Dialog>
