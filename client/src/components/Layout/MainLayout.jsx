@@ -17,7 +17,14 @@ const MainLayout = ({ children }) => {
     };
 
     return (
-        <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+        <Box
+            sx={{
+                display: 'flex',
+                flexDirection: theme.direction === 'rtl' ? 'row-reverse' : 'row',
+                minHeight: '100vh',
+                bgcolor: 'background.default',
+            }}
+        >
             {isMobile && (
                 <AppBar position="fixed" elevation={1} sx={{
                     bgcolor: 'background.paper',
