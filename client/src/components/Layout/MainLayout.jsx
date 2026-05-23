@@ -8,7 +8,7 @@ const drawerWidth = 280;
 
 const MainLayout = ({ children }) => {
     const theme = useTheme();
-    const { t } = useLanguage();
+    const { direction, t } = useLanguage();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -20,7 +20,8 @@ const MainLayout = ({ children }) => {
         <Box
             sx={{
                 display: 'flex',
-                flexDirection: theme.direction === 'rtl' ? 'row-reverse' : 'row',
+                direction,
+                flexDirection: 'row',
                 minHeight: '100vh',
                 bgcolor: 'background.default',
             }}
@@ -49,7 +50,7 @@ const MainLayout = ({ children }) => {
 
             <Drawer
                 variant="temporary"
-                anchor={theme.direction === 'rtl' ? 'right' : 'left'}
+                anchor={direction === 'rtl' ? 'right' : 'left'}
                 open={mobileOpen}
                 onClose={handleDrawerToggle}
                 ModalProps={{ keepMounted: true }}

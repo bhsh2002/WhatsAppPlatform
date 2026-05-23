@@ -55,7 +55,9 @@ const emptyProduct = {
     is_active: true,
 };
 
-const emptyNode = (index = 0) => ({
+const textFor = (t, key, fallback, values) => (typeof t === 'function' ? t(key, values) : fallback);
+
+const emptyNode = (index = 0, t) => ({
     node_key: index === 0 ? 'start' : `step_${index + 1}`,
     node_type: 'text',
     title: '',
@@ -67,11 +69,11 @@ const emptyNode = (index = 0) => ({
     include_products_reply: false,
     include_handoff_reply: true,
     reply_display: 'quick_replies',
-    menu_label: 'القائمة الرئيسية',
-    products_reply_label: 'منتجات أخرى',
-    handoff_reply_label: 'موظف بشري',
-    reply_cards_text: 'اختر الخطوة التالية.',
-    card_action_label: 'اختيار',
+    menu_label: textFor(t, 'messengerBot.defaults.mainMenu', 'القائمة الرئيسية'),
+    products_reply_label: textFor(t, 'messengerBot.defaults.moreProducts', 'منتجات أخرى'),
+    handoff_reply_label: textFor(t, 'messengerBot.defaults.humanAgent', 'موظف بشري'),
+    reply_cards_text: textFor(t, 'messengerBot.defaults.nextStepText', 'اختر الخطوة التالية.'),
+    card_action_label: textFor(t, 'messengerBot.defaults.choose', 'اختيار'),
     card_title_template: '{name}',
     card_subtitle_template: '',
     card_show_image: true,
@@ -82,14 +84,14 @@ const emptyNode = (index = 0) => ({
     card_show_details_button: true,
     card_show_inquiry_button: true,
     card_show_link_button: true,
-    card_details_label: 'تفاصيل',
-    card_inquiry_label: 'استفسار',
-    card_link_label: 'فتح الرابط',
+    card_details_label: textFor(t, 'messengerBot.defaults.details', 'تفاصيل'),
+    card_inquiry_label: textFor(t, 'messengerBot.defaults.inquiry', 'استفسار'),
+    card_link_label: textFor(t, 'messengerBot.defaults.openLink', 'فتح الرابط'),
     detail_title_template: '{name}',
     detail_subtitle_template: '',
     detail_body_template: '',
-    detail_not_found_text: 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.',
-    detail_handoff_text_template: 'تم تحويل استفسارك عن "{name}" إلى أحد الموظفين.',
+    detail_not_found_text: textFor(t, 'messengerBot.defaults.noProduct', 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.'),
+    detail_handoff_text_template: textFor(t, 'messengerBot.defaults.handoffProduct', 'تم تحويل استفسارك عن "{name}" إلى أحد الموظفين.'),
     detail_show_images: true,
     detail_show_price: true,
     detail_show_description: true,
@@ -100,10 +102,10 @@ const emptyNode = (index = 0) => ({
     detail_show_inquiry_button: true,
     detail_include_menu: true,
     detail_include_products_reply: true,
-    detail_menu_label: 'القائمة الرئيسية',
-    detail_products_label: 'منتجات أخرى',
-    detail_inquiry_label: 'استفسار',
-    detail_link_label: 'فتح الرابط',
+    detail_menu_label: textFor(t, 'messengerBot.defaults.mainMenu', 'القائمة الرئيسية'),
+    detail_products_label: textFor(t, 'messengerBot.defaults.moreProducts', 'منتجات أخرى'),
+    detail_inquiry_label: textFor(t, 'messengerBot.defaults.inquiry', 'استفسار'),
+    detail_link_label: textFor(t, 'messengerBot.defaults.openLink', 'فتح الرابط'),
     buttons: [],
 });
 
@@ -165,11 +167,11 @@ function normalizePayloadAction(item = {}) {
     return { ...emptyButton, title: item.title || '', subtitle: item.subtitle || '', action: 'custom', custom_payload: payload, image_url: item.image_url || '' };
 }
 
-function nodeToForm(node, index = 0) {
+function nodeToForm(node, index = 0, t) {
     const config = parseConfig(node?.config_json || node?.config);
     const buttons = config.quick_replies || config.items || [];
     return {
-        ...emptyNode(index),
+        ...emptyNode(index, t),
         node_key: node?.node_key || (index === 0 ? 'start' : `step_${index + 1}`),
         node_type: node?.node_type || 'text',
         title: node?.title || '',
@@ -183,11 +185,11 @@ function nodeToForm(node, index = 0) {
             : config.include_products_reply === true,
         include_handoff_reply: config.include_handoff_reply !== false,
         reply_display: config.reply_display === 'cards' ? 'cards' : 'quick_replies',
-        menu_label: config.menu_label || 'القائمة الرئيسية',
-        products_reply_label: config.products_reply_label || 'منتجات أخرى',
-        handoff_reply_label: config.handoff_reply_label || 'موظف بشري',
-        reply_cards_text: config.reply_cards_text || 'اختر الخطوة التالية.',
-        card_action_label: config.card_action_label || 'اختيار',
+        menu_label: config.menu_label || textFor(t, 'messengerBot.defaults.mainMenu', 'القائمة الرئيسية'),
+        products_reply_label: config.products_reply_label || textFor(t, 'messengerBot.defaults.moreProducts', 'منتجات أخرى'),
+        handoff_reply_label: config.handoff_reply_label || textFor(t, 'messengerBot.defaults.humanAgent', 'موظف بشري'),
+        reply_cards_text: config.reply_cards_text || textFor(t, 'messengerBot.defaults.nextStepText', 'اختر الخطوة التالية.'),
+        card_action_label: config.card_action_label || textFor(t, 'messengerBot.defaults.choose', 'اختيار'),
         card_title_template: config.card_title_template || '{name}',
         card_subtitle_template: config.card_subtitle_template || '',
         card_show_image: config.card_show_image !== false,
@@ -198,14 +200,14 @@ function nodeToForm(node, index = 0) {
         card_show_details_button: config.card_show_details_button !== false,
         card_show_inquiry_button: config.card_show_inquiry_button !== false,
         card_show_link_button: config.card_show_link_button !== false,
-        card_details_label: config.card_details_label || 'تفاصيل',
-        card_inquiry_label: config.card_inquiry_label || 'استفسار',
-        card_link_label: config.card_link_label || 'فتح الرابط',
+        card_details_label: config.card_details_label || textFor(t, 'messengerBot.defaults.details', 'تفاصيل'),
+        card_inquiry_label: config.card_inquiry_label || textFor(t, 'messengerBot.defaults.inquiry', 'استفسار'),
+        card_link_label: config.card_link_label || textFor(t, 'messengerBot.defaults.openLink', 'فتح الرابط'),
         detail_title_template: config.detail_title_template || '{name}',
         detail_subtitle_template: config.detail_subtitle_template || '',
         detail_body_template: config.detail_body_template || '',
-        detail_not_found_text: config.detail_not_found_text || 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.',
-        detail_handoff_text_template: config.detail_handoff_text_template || 'تم تحويل استفسارك عن "{name}" إلى أحد الموظفين.',
+        detail_not_found_text: config.detail_not_found_text || textFor(t, 'messengerBot.defaults.noProduct', 'لم يتم العثور على هذا المنتج أو لم يعد متاحا.'),
+        detail_handoff_text_template: config.detail_handoff_text_template || textFor(t, 'messengerBot.defaults.handoffProduct', 'تم تحويل استفسارك عن "{name}" إلى أحد الموظفين.'),
         detail_show_images: config.detail_show_images !== false,
         detail_show_price: config.detail_show_price !== false,
         detail_show_description: config.detail_show_description !== false,
@@ -216,15 +218,15 @@ function nodeToForm(node, index = 0) {
         detail_show_inquiry_button: config.detail_show_inquiry_button !== false,
         detail_include_menu: config.detail_include_menu !== false,
         detail_include_products_reply: config.detail_include_products_reply !== false,
-        detail_menu_label: config.detail_menu_label || 'القائمة الرئيسية',
-        detail_products_label: config.detail_products_label || 'منتجات أخرى',
-        detail_inquiry_label: config.detail_inquiry_label || 'استفسار',
-        detail_link_label: config.detail_link_label || 'فتح الرابط',
+        detail_menu_label: config.detail_menu_label || textFor(t, 'messengerBot.defaults.mainMenu', 'القائمة الرئيسية'),
+        detail_products_label: config.detail_products_label || textFor(t, 'messengerBot.defaults.moreProducts', 'منتجات أخرى'),
+        detail_inquiry_label: config.detail_inquiry_label || textFor(t, 'messengerBot.defaults.inquiry', 'استفسار'),
+        detail_link_label: config.detail_link_label || textFor(t, 'messengerBot.defaults.openLink', 'فتح الرابط'),
         buttons: buttons.map(normalizePayloadAction),
     };
 }
 
-function flowToForm(flow) {
+function flowToForm(flow, t) {
     const nodes = Array.isArray(flow?.nodes) && flow.nodes.length > 0
         ? flow.nodes
         : [flow?.node || {
@@ -244,7 +246,7 @@ function flowToForm(flow) {
         priority: flow?.priority || 100,
         status: flow?.status || 'draft',
         description: flow?.description || '',
-        nodes: nodes.map(nodeToForm),
+        nodes: nodes.map((node, index) => nodeToForm(node, index, t)),
         diagnostics: flow?.diagnostics || null,
     };
 }
@@ -262,7 +264,7 @@ function buttonToPayload(button) {
     return result;
 }
 
-function buildFlowPayload(form) {
+function buildFlowPayload(form, t) {
     return {
         name: form.name,
         linked_page_id: form.linked_page_id || null,
@@ -287,7 +289,7 @@ function buildFlowPayload(form) {
             if (node.node_type === 'product_list') {
                 config.category = node.category || null;
                 config.limit = Number(node.limit) || 10;
-                config.empty_text = node.empty_text || 'لا توجد منتجات متاحة حاليا.';
+                config.empty_text = node.empty_text || textFor(t, 'messengerBot.defaults.noProductsAvailable', 'لا توجد منتجات متاحة حاليا.');
                 config.card_title_template = node.card_title_template;
                 config.card_subtitle_template = node.card_subtitle_template;
                 config.card_show_image = node.card_show_image;
@@ -339,128 +341,129 @@ function buildFlowPayload(form) {
     };
 }
 
-function buildTemplate(templateKey) {
+function buildTemplate(templateKey, t) {
+    const productBody = textFor(t, 'messengerBot.templateDefaults.productsBody', 'هذه المنتجات المتاحة حاليا.');
     if (templateKey === 'products') {
         return {
             ...emptyFlow,
-            name: 'عرض المنتجات',
+            name: textFor(t, 'messengerBot.templateDefaults.productsName', 'عرض المنتجات'),
             trigger_type: 'keyword',
-            trigger_value: 'منتجات, المنتجات, كتالوج',
-            description: 'يعرض أحدث المنتجات أو منتجات تصنيف محدد.',
-            nodes: [{ ...emptyNode(0), node_type: 'product_list', body: 'هذه المنتجات المتاحة حاليا.' }],
+            trigger_value: textFor(t, 'messengerBot.templateDefaults.productsTrigger', 'منتجات, المنتجات, كتالوج'),
+            description: textFor(t, 'messengerBot.templateDefaults.productsDescription', 'يعرض أحدث المنتجات أو منتجات تصنيف محدد.'),
+            nodes: [{ ...emptyNode(0, t), node_type: 'product_list', body: productBody }],
         };
     }
     if (templateKey === 'services') {
         return {
             ...emptyFlow,
-            name: 'الخدمات',
+            name: textFor(t, 'messengerBot.templateDefaults.servicesName', 'الخدمات'),
             trigger_type: 'keyword',
-            trigger_value: 'خدمات, مساعدة',
-            description: 'قائمة خدمات موجهة بأزرار واضحة.',
+            trigger_value: textFor(t, 'messengerBot.templateDefaults.servicesTrigger', 'خدمات, مساعدة'),
+            description: textFor(t, 'messengerBot.templateDefaults.servicesDescription', 'قائمة خدمات موجهة بأزرار واضحة.'),
             nodes: [{
-                ...emptyNode(0),
+                ...emptyNode(0, t),
                 node_type: 'service_menu',
                 include_products_reply: false,
-                body: 'اختر الخدمة المناسبة.',
+                body: textFor(t, 'messengerBot.templateDefaults.servicesBody', 'اختر الخدمة المناسبة.'),
                 buttons: [
-                    { ...emptyButton, title: 'عرض المنتجات', action: 'node', node_key: 'products' },
-                    { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
+                    { ...emptyButton, title: textFor(t, 'messengerBot.templateDefaults.productsName', 'عرض المنتجات'), action: 'node', node_key: 'products' },
+                    { ...emptyButton, title: textFor(t, 'messengerBot.defaults.humanAgent', 'موظف بشري'), action: 'handoff' },
                 ],
             }, {
-                ...emptyNode(1),
+                ...emptyNode(1, t),
                 node_key: 'products',
                 node_type: 'product_list',
-                body: 'هذه المنتجات المتاحة حاليا.',
+                body: productBody,
             }],
         };
     }
     if (templateKey === 'fallback') {
         return {
             ...emptyFlow,
-            name: 'رد افتراضي',
+            name: textFor(t, 'messengerBot.templateDefaults.fallbackName', 'رد افتراضي'),
             trigger_type: 'fallback',
             trigger_value: '',
-            description: 'يظهر عندما لا يفهم البوت رسالة المستخدم.',
+            description: textFor(t, 'messengerBot.templateDefaults.fallbackDescription', 'يظهر عندما لا يفهم البوت رسالة المستخدم.'),
             nodes: [{
-                ...emptyNode(0),
+                ...emptyNode(0, t),
                 node_type: 'quick_replies',
-                body: 'لم أفهم طلبك بدقة. اختر أحد الخيارات.',
+                body: textFor(t, 'messengerBot.templateDefaults.fallbackBody', 'لم أفهم طلبك بدقة. اختر أحد الخيارات.'),
                 buttons: [
-                    { ...emptyButton, title: 'المنتجات', action: 'node', node_key: 'products' },
-                    { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
+                    { ...emptyButton, title: textFor(t, 'messengerBot.diagnosticsText.productsFallbackTitle', 'المنتجات'), action: 'node', node_key: 'products' },
+                    { ...emptyButton, title: textFor(t, 'messengerBot.defaults.humanAgent', 'موظف بشري'), action: 'handoff' },
                 ],
             }, {
-                ...emptyNode(1),
+                ...emptyNode(1, t),
                 node_key: 'products',
                 node_type: 'product_list',
-                body: 'هذه المنتجات المتاحة حاليا.',
+                body: productBody,
             }],
         };
     }
     if (templateKey === 'handoff') {
         return {
             ...emptyFlow,
-            name: 'تحويل لموظف',
+            name: textFor(t, 'messengerBot.templateDefaults.handoffName', 'تحويل لموظف'),
             trigger_type: 'keyword',
-            trigger_value: 'موظف, دعم, تواصل',
-            description: 'يوقف البوت ويحول المحادثة للموظف.',
-            nodes: [{ ...emptyNode(0), node_type: 'handoff', body: 'تم تحويلك إلى أحد الموظفين.' }],
+            trigger_value: textFor(t, 'messengerBot.templateDefaults.handoffTrigger', 'موظف, دعم, تواصل'),
+            description: textFor(t, 'messengerBot.templateDefaults.handoffDescription', 'يوقف البوت ويحول المحادثة للموظف.'),
+            nodes: [{ ...emptyNode(0, t), node_type: 'handoff', body: textFor(t, 'messengerBot.templateDefaults.handoffBody', 'تم تحويلك إلى أحد الموظفين.') }],
         };
     }
     return {
         ...emptyFlow,
-        name: 'ترحيب',
+        name: textFor(t, 'messengerBot.templateDefaults.welcomeName', 'ترحيب'),
         trigger_type: 'welcome',
         trigger_value: '',
-        description: 'مسار البداية للمستخدم الجديد.',
+        description: textFor(t, 'messengerBot.templateDefaults.welcomeDescription', 'مسار البداية للمستخدم الجديد.'),
         nodes: [{
-            ...emptyNode(0),
+            ...emptyNode(0, t),
             node_type: 'service_menu',
             include_products_reply: false,
-            body: 'مرحبا، كيف يمكننا مساعدتك؟',
+            body: textFor(t, 'messengerBot.templateDefaults.welcomeBody', 'مرحبا، كيف يمكننا مساعدتك؟'),
             buttons: [
-                { ...emptyButton, title: 'عرض المنتجات', action: 'node', node_key: 'products' },
-                { ...emptyButton, title: 'الخدمات', action: 'node', node_key: 'services' },
-                { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
+                { ...emptyButton, title: textFor(t, 'messengerBot.templateDefaults.productsName', 'عرض المنتجات'), action: 'node', node_key: 'products' },
+                { ...emptyButton, title: textFor(t, 'messengerBot.templateDefaults.servicesName', 'الخدمات'), action: 'node', node_key: 'services' },
+                { ...emptyButton, title: textFor(t, 'messengerBot.defaults.humanAgent', 'موظف بشري'), action: 'handoff' },
             ],
         }, {
-            ...emptyNode(1),
+            ...emptyNode(1, t),
             node_key: 'services',
             node_type: 'quick_replies',
-            body: 'اختر نوع الخدمة.',
+            body: textFor(t, 'messengerBot.templateDefaults.serviceTypeBody', 'اختر نوع الخدمة.'),
             buttons: [
-                { ...emptyButton, title: 'المنتجات', action: 'node', node_key: 'products' },
-                { ...emptyButton, title: 'موظف بشري', action: 'handoff' },
+                { ...emptyButton, title: textFor(t, 'messengerBot.diagnosticsText.productsFallbackTitle', 'المنتجات'), action: 'node', node_key: 'products' },
+                { ...emptyButton, title: textFor(t, 'messengerBot.defaults.humanAgent', 'موظف بشري'), action: 'handoff' },
             ],
         }, {
-            ...emptyNode(2),
+            ...emptyNode(2, t),
             node_key: 'products',
             node_type: 'product_list',
-            body: 'هذه المنتجات المتاحة حاليا.',
+            body: productBody,
         }],
     };
 }
 
-function getClientDiagnostics(form, pages, flows, products) {
+function getClientDiagnostics(form, pages, flows, products, t) {
     const errors = [];
     const warnings = [];
     const nodeKeys = form.nodes.map(node => String(node.node_key || '').trim()).filter(Boolean);
     const duplicateKeys = nodeKeys.filter((key, index) => nodeKeys.indexOf(key) !== index);
     const hasProductListNode = form.nodes.some(node => node.node_type === 'product_list');
 
-    if (!form.name.trim()) errors.push('اسم المسار مطلوب.');
-    if (!nodeKeys.includes('start')) errors.push('يجب وجود خطوة start.');
-    if (duplicateKeys.length > 0) errors.push(`يوجد تكرار في مفاتيح الخطوات: ${[...new Set(duplicateKeys)].join(', ')}`);
+    if (!form.name.trim()) errors.push(textFor(t, 'messengerBot.diagnosticsText.flowNameRequired', 'اسم المسار مطلوب.'));
+    if (!nodeKeys.includes('start')) errors.push(textFor(t, 'messengerBot.diagnosticsText.startRequired', 'يجب وجود خطوة start.'));
+    if (duplicateKeys.length > 0) errors.push(textFor(t, 'messengerBot.diagnosticsText.duplicateKeys', 'يوجد تكرار في مفاتيح الخطوات: {keys}', { keys: [...new Set(duplicateKeys)].join(', ') }));
     if (form.status === 'active' && form.linked_page_id && !pages.some(page => String(page.id) === String(form.linked_page_id))) {
-        errors.push('الصفحة المحددة غير مفعلة أو غير موجودة.');
+        errors.push(textFor(t, 'messengerBot.diagnosticsText.invalidPage', 'الصفحة المحددة غير مفعلة أو غير موجودة.'));
     }
     if (form.status === 'active' && form.trigger_type === 'keyword' && !form.trigger_value.trim()) {
-        errors.push('المسار النشط بالكلمة المفتاحية يحتاج كلمة أو أكثر.');
+        errors.push(textFor(t, 'messengerBot.diagnosticsText.keywordRequired', 'المسار النشط بالكلمة المفتاحية يحتاج كلمة أو أكثر.'));
     }
     if (form.status === 'active' && form.trigger_type === 'postback' && !form.trigger_value.trim()) {
-        errors.push('مسار postback النشط يحتاج payload واضح.');
+        errors.push(textFor(t, 'messengerBot.diagnosticsText.postbackRequired', 'مسار postback النشط يحتاج payload واضح.'));
     }
-    if (pages.length === 0) warnings.push('لا توجد صفحات Messenger مفعلة لهذا العميل.');
+    if (pages.length === 0) warnings.push(textFor(t, 'messengerBot.diagnosticsText.noPages', 'لا توجد صفحات Messenger مفعلة لهذا العميل.'));
 
     form.nodes.forEach(node => {
         if (node.node_type === 'product_list') {
@@ -468,18 +471,18 @@ function getClientDiagnostics(form, pages, flows, products) {
                 if (!product.is_active || product.availability !== 'available') return false;
                 return !node.category || String(product.category || '').toLowerCase() === String(node.category).toLowerCase();
             });
-            if (!hasProducts) warnings.push(`الخطوة ${node.node_key} تعرض منتجات لكن لا توجد منتجات متاحة مطابقة.`);
+            if (!hasProducts) warnings.push(textFor(t, 'messengerBot.diagnosticsText.noProductsForStep', 'الخطوة {node} تعرض منتجات لكن لا توجد منتجات متاحة مطابقة.', { node: node.node_key }));
         }
         node.buttons.forEach(button => {
-            if (!button.title.trim()) warnings.push(`يوجد زر بدون عنوان في الخطوة ${node.node_key}.`);
+            if (!button.title.trim()) warnings.push(textFor(t, 'messengerBot.diagnosticsText.untitledButton', 'يوجد زر بدون عنوان في الخطوة {node}.', { node: node.node_key }));
             if (button.action === 'products' && !hasProductListNode) {
-                warnings.push(`زر "${button.title || 'المنتجات'}" يستخدم اختصار فتح المنتجات بدون خطوة قائمة منتجات قابلة للتحكم.`);
+                warnings.push(textFor(t, 'messengerBot.diagnosticsText.productShortcut', 'زر "{title}" يستخدم اختصار فتح المنتجات بدون خطوة قائمة منتجات قابلة للتحكم.', { title: button.title || textFor(t, 'messengerBot.diagnosticsText.productsFallbackTitle', 'المنتجات') }));
             }
             if (button.action === 'node' && !nodeKeys.includes(button.node_key)) {
-                errors.push(`زر "${button.title || 'بدون عنوان'}" يشير إلى خطوة غير موجودة: ${button.node_key || 'غير محدد'}.`);
+                errors.push(textFor(t, 'messengerBot.diagnosticsText.missingNode', 'زر "{title}" يشير إلى خطوة غير موجودة: {node}.', { title: button.title || textFor(t, 'messengerBot.diagnosticsText.untitledFallback', 'بدون عنوان'), node: button.node_key || textFor(t, 'messengerBot.diagnosticsText.unspecified', 'غير محدد') }));
             }
             if (button.action === 'custom' && !button.custom_payload.trim()) {
-                errors.push(`زر "${button.title || 'بدون عنوان'}" يحتاج payload مخصص.`);
+                errors.push(textFor(t, 'messengerBot.diagnosticsText.customPayloadRequired', 'زر "{title}" يحتاج payload مخصص.', { title: button.title || textFor(t, 'messengerBot.diagnosticsText.untitledFallback', 'بدون عنوان') }));
             }
         });
     });
@@ -496,7 +499,7 @@ function getClientDiagnostics(form, pages, flows, products) {
         && String(flow.linked_page_id || '') === String(form.linked_page_id || '')
         && Number(flow.priority || 100) === Number(form.priority || 100)
     ));
-    if (conflict) warnings.push(`تعارض محتمل مع المسار النشط: ${conflict.name}.`);
+    if (conflict) warnings.push(textFor(t, 'messengerBot.diagnosticsText.conflict', 'تعارض محتمل مع المسار النشط: {name}.', { name: conflict.name }));
 
     return { ready: errors.length === 0, errors, warnings };
 }
@@ -508,10 +511,10 @@ const StatBox = ({ title, value, color = 'primary' }) => (
     </Paper>
 );
 
-const DiagnosticsPanel = ({ diagnostics }) => (
+const DiagnosticsPanel = ({ diagnostics, t }) => (
     <Stack spacing={1}>
         <Alert severity={diagnostics.ready ? 'success' : 'error'}>
-            {diagnostics.ready ? 'المسار قابل للحفظ والتفعيل من ناحية البنية.' : 'يجب معالجة الأخطاء قبل التفعيل.'}
+            {diagnostics.ready ? t('messengerBot.diagnosticsText.ready') : t('messengerBot.diagnosticsText.notReady')}
         </Alert>
         {diagnostics.errors.map(error => <Alert key={error} severity="error">{error}</Alert>)}
         {diagnostics.warnings.map(warning => <Alert key={warning} severity="warning">{warning}</Alert>)}
@@ -573,8 +576,8 @@ const MessengerBotManager = ({ tenantMode = false }) => {
     }), [t]);
     const productTemplateHelp = t('messengerBot.productTemplateHelp');
     const diagnostics = useMemo(
-        () => getClientDiagnostics(flowForm, pages, flows, products),
-        [flowForm, pages, flows, products]
+        () => getClientDiagnostics(flowForm, pages, flows, products, t),
+        [flowForm, pages, flows, products, t]
     );
 
     useEffect(() => {
@@ -585,8 +588,8 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                 setTenants(rows);
                 if (rows.length > 0) setSelectedTenantId(String(rows[0].id));
             })
-            .catch(err => setSnackbar({ open: true, message: err.message || 'فشل جلب العملاء', severity: 'error' }));
-    }, [tenantMode]);
+            .catch(err => setSnackbar({ open: true, message: err.message || t('messengerBot.messages.tenantsFetchFailed'), severity: 'error' }));
+    }, [tenantMode, t]);
 
     const botApi = useMemo(() => ({
         summary: () => tenantMode ? api.getPortalMessengerBotSummary() : api.getMessengerBotSummary(tenantId),
@@ -611,11 +614,11 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             setFlows(Array.isArray(flowData) ? flowData : []);
             setSessions(Array.isArray(sessionData) ? sessionData : []);
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تحميل بيانات البوت', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.dataFetchFailed'), severity: 'error' });
         } finally {
             setLoading(false);
         }
-    }, [botApi, selectedTenantReady]);
+    }, [botApi, selectedTenantReady, t]);
 
     useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -626,14 +629,14 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             setFlowEvents(Array.isArray(events) ? events : []);
             setTab(3);
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل جلب سجل المسار', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.flowEventsFetchFailed'), severity: 'error' });
         }
     };
 
     const saveProduct = async () => {
         try {
             if (!productForm.name.trim()) {
-                setSnackbar({ open: true, message: 'اسم المنتج مطلوب', severity: 'warning' });
+                setSnackbar({ open: true, message: t('messengerBot.messages.productNameRequired'), severity: 'warning' });
                 return;
             }
             if (productForm.id) {
@@ -645,10 +648,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                 await api.createMessengerBotProduct(tenantId, productForm);
             }
             setProductDialog(false);
-            setSnackbar({ open: true, message: 'تم حفظ المنتج', severity: 'success' });
+            setSnackbar({ open: true, message: t('messengerBot.messages.productSaved'), severity: 'success' });
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حفظ المنتج', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.productSaveFailed'), severity: 'error' });
         }
     };
 
@@ -658,7 +661,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             else await api.deleteMessengerBotProduct(tenantId, product.id);
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حذف المنتج', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.productDeleteFailed'), severity: 'error' });
         }
     };
 
@@ -668,10 +671,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             const result = tenantMode
                 ? await api.importPortalMessengerBotProducts(file)
                 : await api.importMessengerBotProducts(tenantId, file);
-            setSnackbar({ open: true, message: `تم استيراد ${result.imported || 0} منتج`, severity: 'success' });
+            setSnackbar({ open: true, message: t('messengerBot.messages.productsImported', { count: result.imported || 0 }), severity: 'success' });
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل استيراد المنتجات', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.productsImportFailed'), severity: 'error' });
         }
     };
 
@@ -700,9 +703,9 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                 ];
                 return { ...prev, image_url: images[0]?.image_url || prev.image_url, images };
             });
-            setSnackbar({ open: true, message: `تم رفع ${uploaded.filter(Boolean).length} صورة`, severity: 'success' });
+            setSnackbar({ open: true, message: t('messengerBot.messages.imagesUploaded', { count: uploaded.filter(Boolean).length }), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل رفع الصور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.imagesUploadFailed'), severity: 'error' });
         }
     };
 
@@ -740,19 +743,19 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             const url = await uploadAsset(file);
             if (!url) return;
             updateButton(nodeIndex, buttonIndex, { image_url: url });
-            setSnackbar({ open: true, message: 'تم رفع صورة الخيار', severity: 'success' });
+            setSnackbar({ open: true, message: t('messengerBot.messages.optionImageUploaded'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل رفع صورة الخيار', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.optionImageUploadFailed'), severity: 'error' });
         }
     };
 
     const saveFlow = async () => {
         try {
             if (!diagnostics.ready && flowForm.status === 'active') {
-                setSnackbar({ open: true, message: 'لا يمكن تفعيل المسار قبل معالجة الأخطاء', severity: 'warning' });
+                setSnackbar({ open: true, message: t('messengerBot.messages.fixErrorsBeforeActivation'), severity: 'warning' });
                 return;
             }
-            const payload = buildFlowPayload(flowForm);
+            const payload = buildFlowPayload(flowForm, t);
             if (flowForm.id) {
                 if (tenantMode) await api.updatePortalMessengerBotFlow(flowForm.id, payload);
                 else await api.updateMessengerBotFlow(tenantId, flowForm.id, payload);
@@ -763,10 +766,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             }
             setFlowDialog(false);
             setPreview(null);
-            setSnackbar({ open: true, message: 'تم حفظ المسار', severity: 'success' });
+            setSnackbar({ open: true, message: t('messengerBot.messages.flowSaved'), severity: 'success' });
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حفظ المسار', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.flowSaveFailed'), severity: 'error' });
         }
     };
 
@@ -776,7 +779,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             else await api.toggleMessengerBotFlow(tenantId, flow.id);
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تغيير حالة المسار', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.flowToggleFailed'), severity: 'error' });
         }
     };
 
@@ -786,7 +789,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             else await api.deleteMessengerBotFlow(tenantId, flow.id);
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حذف المسار', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.flowDeleteFailed'), severity: 'error' });
         }
     };
 
@@ -797,9 +800,9 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                 : await api.testMessengerBotFlow(tenantId, flow.id);
             setPreview(result.preview);
             setFlowDialog(true);
-            setFlowForm(flowToForm(flow));
+            setFlowForm(flowToForm(flow, t));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل اختبار المسار', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.flowTestFailed'), severity: 'error' });
         }
     };
 
@@ -809,7 +812,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
             else await api.updateMessengerBotSession(tenantId, session.id, status);
             await loadAll();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تحديث الجلسة', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('messengerBot.messages.sessionUpdateFailed'), severity: 'error' });
         }
     };
 
@@ -823,7 +826,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
 
     const openFlowDialog = (flow = null) => {
         setPreview(null);
-        setFlowForm(flow ? flowToForm(flow) : buildTemplate('welcome'));
+        setFlowForm(flow ? flowToForm(flow, t) : buildTemplate('welcome', t));
         setFlowDialog(true);
     };
 
@@ -835,7 +838,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
     };
 
     const addNode = () => {
-        setFlowForm(prev => ({ ...prev, nodes: [...prev.nodes, emptyNode(prev.nodes.length)] }));
+        setFlowForm(prev => ({ ...prev, nodes: [...prev.nodes, emptyNode(prev.nodes.length, t)] }));
     };
 
     const removeNode = (index) => {
@@ -1011,7 +1014,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                             size="small"
                                             onClick={() => {
                                                 setPreview(null);
-                                                setFlowForm(buildTemplate(templateKey));
+                                                setFlowForm(buildTemplate(templateKey, t));
                                                 setFlowDialog(true);
                                             }}
                                         >
@@ -1182,7 +1185,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                         <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="SKU" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12 }}><TextField fullWidth multiline minRows={2} label={t('messengerBot.description')} value={productForm.description} onChange={e => setProductForm(prev => ({ ...prev, description: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth type="number" label={t('messengerBot.price')} value={productForm.price} onChange={e => setProductForm(prev => ({ ...prev, price: e.target.value }))} /></Grid>
-                        <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth label="العملة" value={productForm.currency} onChange={e => setProductForm(prev => ({ ...prev, currency: e.target.value }))} /></Grid>
+                        <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth label={t('messengerBot.fields.currency')} value={productForm.currency} onChange={e => setProductForm(prev => ({ ...prev, currency: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth label={t('messengerBot.category')} value={productForm.category} onChange={e => setProductForm(prev => ({ ...prev, category: e.target.value }))} /></Grid>
                         <Grid size={{ xs: 12, md: 3 }}>
                             <TextField select fullWidth label={t('messengerBot.availability')} value={productForm.availability} onChange={e => setProductForm(prev => ({ ...prev, availability: e.target.value }))}>
@@ -1250,10 +1253,10 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                     <Grid container spacing={1}>
                                         <Grid size={{ xs: 6 }}><TextField fullWidth type="number" label={t('messengerBot.priority')} value={flowForm.priority} onChange={e => setFlowForm(prev => ({ ...prev, priority: e.target.value }))} /></Grid>
                                         <Grid size={{ xs: 6 }}>
-                                            <TextField select fullWidth label="الحالة" value={flowForm.status} onChange={e => setFlowForm(prev => ({ ...prev, status: e.target.value }))}>
-                                                <MenuItem value="draft">Draft</MenuItem>
-                                                <MenuItem value="active">Active</MenuItem>
-                                                <MenuItem value="paused">Paused</MenuItem>
+                                            <TextField select fullWidth label={t('messengerBot.fields.status')} value={flowForm.status} onChange={e => setFlowForm(prev => ({ ...prev, status: e.target.value }))}>
+                                                <MenuItem value="draft">{t('messengerBot.statuses.draft')}</MenuItem>
+                                                <MenuItem value="active">{t('messengerBot.statuses.active')}</MenuItem>
+                                                <MenuItem value="paused">{t('messengerBot.statuses.paused')}</MenuItem>
                                             </TextField>
                                         </Grid>
                                     </Grid>
@@ -1284,12 +1287,12 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                         <Grid size={{ xs: 12, md: 4 }}>
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, height: '100%' }}>
                                 <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.validation')}</Typography>
-                                <DiagnosticsPanel diagnostics={diagnostics} />
+                                <DiagnosticsPanel diagnostics={diagnostics} t={t} />
                                 {preview && (
                                     <Alert severity="info" sx={{ mt: 1 }}>
                                         {preview.message}
                                         {preview.products?.length > 0 && (
-                                            <Box sx={{ mt: 1 }}>{preview.products.map(product => product.name).join('، ')}</Box>
+                                            <Box sx={{ mt: 1 }}>{preview.products.map(product => product.name).join(', ')}</Box>
                                         )}
                                     </Alert>
                                 )}
@@ -1338,18 +1341,18 @@ const MessengerBotManager = ({ tenantMode = false }) => {
 
                                                 {node.node_type === 'product_list' && (
                                                     <>
-                                                        <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="تصنيف المنتجات" value={node.category} onChange={e => updateNode(nodeIndex, { category: e.target.value })} helperText="اتركه فارغا لعرض أحدث المنتجات" /></Grid>
-                                                        <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="number" label="العدد" value={node.limit} onChange={e => updateNode(nodeIndex, { limit: e.target.value })} /></Grid>
-                                                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="رسالة عدم توفر منتجات" value={node.empty_text} onChange={e => updateNode(nodeIndex, { empty_text: e.target.value })} /></Grid>
+                                                        <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label={t('messengerBot.fields.productCategory')} value={node.category} onChange={e => updateNode(nodeIndex, { category: e.target.value })} helperText={t('messengerBot.fields.productCategoryHelp')} /></Grid>
+                                                        <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="number" label={t('messengerBot.fields.count')} value={node.limit} onChange={e => updateNode(nodeIndex, { limit: e.target.value })} /></Grid>
+                                                        <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label={t('messengerBot.fields.emptyProductsText')} value={node.empty_text} onChange={e => updateNode(nodeIndex, { empty_text: e.target.value })} /></Grid>
                                                         <Grid size={{ xs: 12 }}>
                                                             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                                                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>بطاقة المنتج</Typography>
+                                                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.fields.productCard')}</Typography>
                                                                 <Grid container spacing={1}>
                                                                     <Grid size={{ xs: 12, md: 6 }}>
                                                                         <TextField
                                                                             fullWidth
                                                                             size="small"
-                                                                            label="قالب عنوان البطاقة"
+                                                                            label={t('messengerBot.fields.cardTitleTemplate')}
                                                                             value={node.card_title_template}
                                                                             onChange={e => updateNode(nodeIndex, { card_title_template: e.target.value })}
                                                                             helperText={productTemplateHelp}
@@ -1359,7 +1362,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                         <TextField
                                                                             fullWidth
                                                                             size="small"
-                                                                            label="قالب وصف البطاقة"
+                                                                            label={t('messengerBot.fields.cardSubtitleTemplate')}
                                                                             value={node.card_subtitle_template}
                                                                             onChange={e => updateNode(nodeIndex, { card_subtitle_template: e.target.value })}
                                                                             helperText={t('messengerBot.cardSubtitleHelp', { help: productTemplateHelp })}
@@ -1367,45 +1370,45 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_image)} onChange={e => updateNode(nodeIndex, { card_show_image: e.target.checked })} />} label="الصورة" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_image)} onChange={e => updateNode(nodeIndex, { card_show_image: e.target.checked })} />} label={t('messengerBot.fields.image')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_price)} onChange={e => updateNode(nodeIndex, { card_show_price: e.target.checked })} />} label="السعر" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_price)} onChange={e => updateNode(nodeIndex, { card_show_price: e.target.checked })} />} label={t('messengerBot.price')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_description)} onChange={e => updateNode(nodeIndex, { card_show_description: e.target.checked })} />} label="الوصف" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_description)} onChange={e => updateNode(nodeIndex, { card_show_description: e.target.checked })} />} label={t('messengerBot.description')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_category)} onChange={e => updateNode(nodeIndex, { card_show_category: e.target.checked })} />} label="التصنيف" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_category)} onChange={e => updateNode(nodeIndex, { card_show_category: e.target.checked })} />} label={t('messengerBot.category')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
                                                                         <FormControlLabel control={<Switch checked={Boolean(node.card_show_sku)} onChange={e => updateNode(nodeIndex, { card_show_sku: e.target.checked })} />} label="SKU" />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                     <Grid size={{ xs: 12, md: 4 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_details_button)} onChange={e => updateNode(nodeIndex, { card_show_details_button: e.target.checked })} />} label="زر التفاصيل" />
-                                                                        <TextField fullWidth size="small" label="نص زر التفاصيل" value={node.card_details_label} onChange={e => updateNode(nodeIndex, { card_details_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_details_button)} onChange={e => updateNode(nodeIndex, { card_show_details_button: e.target.checked })} />} label={t('messengerBot.fields.detailsButton')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.detailsButtonText')} value={node.card_details_label} onChange={e => updateNode(nodeIndex, { card_details_label: e.target.value })} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 4 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_inquiry_button)} onChange={e => updateNode(nodeIndex, { card_show_inquiry_button: e.target.checked })} />} label="زر الاستفسار" />
-                                                                        <TextField fullWidth size="small" label="نص زر الاستفسار" value={node.card_inquiry_label} onChange={e => updateNode(nodeIndex, { card_inquiry_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_inquiry_button)} onChange={e => updateNode(nodeIndex, { card_show_inquiry_button: e.target.checked })} />} label={t('messengerBot.fields.inquiryButton')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.inquiryButtonText')} value={node.card_inquiry_label} onChange={e => updateNode(nodeIndex, { card_inquiry_label: e.target.value })} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 4 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_link_button)} onChange={e => updateNode(nodeIndex, { card_show_link_button: e.target.checked })} />} label="زر الرابط" />
-                                                                        <TextField fullWidth size="small" label="نص زر الرابط" value={node.card_link_label} onChange={e => updateNode(nodeIndex, { card_link_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.card_show_link_button)} onChange={e => updateNode(nodeIndex, { card_show_link_button: e.target.checked })} />} label={t('messengerBot.fields.linkButton')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.linkButtonText')} value={node.card_link_label} onChange={e => updateNode(nodeIndex, { card_link_label: e.target.value })} />
                                                                     </Grid>
                                                                 </Grid>
                                                             </Paper>
                                                         </Grid>
                                                         <Grid size={{ xs: 12 }}>
                                                             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                                                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>تفاصيل المنتج عند الضغط على تفاصيل</Typography>
+                                                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.fields.productDetails')}</Typography>
                                                                 <Grid container spacing={1}>
                                                                     <Grid size={{ xs: 12, md: 4 }}>
                                                                         <TextField
                                                                             fullWidth
                                                                             size="small"
-                                                                            label="قالب عنوان التفاصيل"
+                                                                            label={t('messengerBot.fields.detailTitleTemplate')}
                                                                             value={node.detail_title_template}
                                                                             onChange={e => updateNode(nodeIndex, { detail_title_template: e.target.value })}
                                                                             helperText={productTemplateHelp}
@@ -1415,7 +1418,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                         <TextField
                                                                             fullWidth
                                                                             size="small"
-                                                                            label="قالب وصف تفاصيل البطاقة"
+                                                                            label={t('messengerBot.fields.detailSubtitleTemplate')}
                                                                             value={node.detail_subtitle_template}
                                                                             onChange={e => updateNode(nodeIndex, { detail_subtitle_template: e.target.value })}
                                                                             helperText={t('messengerBot.detailCardSubtitleHelp', { help: productTemplateHelp })}
@@ -1427,7 +1430,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                             multiline
                                                                             minRows={2}
                                                                             size="small"
-                                                                            label="قالب نص التفاصيل"
+                                                                            label={t('messengerBot.fields.detailBodyTemplate')}
                                                                             value={node.detail_body_template}
                                                                             onChange={e => updateNode(nodeIndex, { detail_body_template: e.target.value })}
                                                                             helperText={t('messengerBot.detailBodyHelp', { help: productTemplateHelp })}
@@ -1437,7 +1440,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                         <TextField
                                                                             fullWidth
                                                                             size="small"
-                                                                            label="نص المنتج غير المتاح"
+                                                                            label={t('messengerBot.fields.unavailableProductText')}
                                                                             value={node.detail_not_found_text}
                                                                             onChange={e => updateNode(nodeIndex, { detail_not_found_text: e.target.value })}
                                                                         />
@@ -1446,7 +1449,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                         <TextField
                                                                             fullWidth
                                                                             size="small"
-                                                                            label="قالب رسالة التحويل لموظف"
+                                                                            label={t('messengerBot.fields.handoffTemplate')}
                                                                             value={node.detail_handoff_text_template}
                                                                             onChange={e => updateNode(nodeIndex, { detail_handoff_text_template: e.target.value })}
                                                                             helperText={productTemplateHelp}
@@ -1454,39 +1457,39 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_images)} onChange={e => updateNode(nodeIndex, { detail_show_images: e.target.checked })} />} label="الصور" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_images)} onChange={e => updateNode(nodeIndex, { detail_show_images: e.target.checked })} />} label={t('messengerBot.fields.images')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_price)} onChange={e => updateNode(nodeIndex, { detail_show_price: e.target.checked })} />} label="السعر" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_price)} onChange={e => updateNode(nodeIndex, { detail_show_price: e.target.checked })} />} label={t('messengerBot.price')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_description)} onChange={e => updateNode(nodeIndex, { detail_show_description: e.target.checked })} />} label="الوصف" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_description)} onChange={e => updateNode(nodeIndex, { detail_show_description: e.target.checked })} />} label={t('messengerBot.description')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_category)} onChange={e => updateNode(nodeIndex, { detail_show_category: e.target.checked })} />} label="التصنيف" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_category)} onChange={e => updateNode(nodeIndex, { detail_show_category: e.target.checked })} />} label={t('messengerBot.category')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
                                                                         <FormControlLabel control={<Switch checked={Boolean(node.detail_show_sku)} onChange={e => updateNode(nodeIndex, { detail_show_sku: e.target.checked })} />} label="SKU" />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 6, md: 2 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_link_text)} onChange={e => updateNode(nodeIndex, { detail_show_link_text: e.target.checked })} />} label="رابط كنص" />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_link_text)} onChange={e => updateNode(nodeIndex, { detail_show_link_text: e.target.checked })} />} label={t('messengerBot.fields.linkAsText')} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                     <Grid size={{ xs: 12, md: 3 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_include_menu)} onChange={e => updateNode(nodeIndex, { detail_include_menu: e.target.checked })} />} label="القائمة الرئيسية" />
-                                                                        <TextField fullWidth size="small" label="نص القائمة" value={node.detail_menu_label} onChange={e => updateNode(nodeIndex, { detail_menu_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_include_menu)} onChange={e => updateNode(nodeIndex, { detail_include_menu: e.target.checked })} />} label={t('messengerBot.fields.mainMenu')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.mainMenuText')} value={node.detail_menu_label} onChange={e => updateNode(nodeIndex, { detail_menu_label: e.target.value })} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 3 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_include_products_reply)} onChange={e => updateNode(nodeIndex, { detail_include_products_reply: e.target.checked })} />} label="منتجات أخرى" />
-                                                                        <TextField fullWidth size="small" label="نص المنتجات" value={node.detail_products_label} onChange={e => updateNode(nodeIndex, { detail_products_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_include_products_reply)} onChange={e => updateNode(nodeIndex, { detail_include_products_reply: e.target.checked })} />} label={t('messengerBot.fields.moreProducts')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.productsText')} value={node.detail_products_label} onChange={e => updateNode(nodeIndex, { detail_products_label: e.target.value })} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 3 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_inquiry_button)} onChange={e => updateNode(nodeIndex, { detail_show_inquiry_button: e.target.checked })} />} label="استفسار" />
-                                                                        <TextField fullWidth size="small" label="نص الاستفسار" value={node.detail_inquiry_label} onChange={e => updateNode(nodeIndex, { detail_inquiry_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_inquiry_button)} onChange={e => updateNode(nodeIndex, { detail_show_inquiry_button: e.target.checked })} />} label={t('messengerBot.fields.inquiry')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.inquiryText')} value={node.detail_inquiry_label} onChange={e => updateNode(nodeIndex, { detail_inquiry_label: e.target.value })} />
                                                                     </Grid>
                                                                     <Grid size={{ xs: 12, md: 3 }}>
-                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_link_button)} onChange={e => updateNode(nodeIndex, { detail_show_link_button: e.target.checked })} />} label="زر الرابط" />
-                                                                        <TextField fullWidth size="small" label="نص الرابط" value={node.detail_link_label} onChange={e => updateNode(nodeIndex, { detail_link_label: e.target.value })} />
+                                                                        <FormControlLabel control={<Switch checked={Boolean(node.detail_show_link_button)} onChange={e => updateNode(nodeIndex, { detail_show_link_button: e.target.checked })} />} label={t('messengerBot.fields.linkButton')} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.linkText')} value={node.detail_link_label} onChange={e => updateNode(nodeIndex, { detail_link_label: e.target.value })} />
                                                                     </Grid>
                                                                 </Grid>
                                                             </Paper>
@@ -1497,26 +1500,26 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                 {node.node_type !== 'handoff' && node.node_type !== 'end' && (
                                                     <Grid size={{ xs: 12 }}>
                                                         <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                                                            <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>قائمة الردود الافتراضية</Typography>
+                                                            <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>{t('messengerBot.fields.defaultReplies')}</Typography>
                                                             <Grid container spacing={1}>
                                                                 <Grid size={{ xs: 12, md: 4 }}>
                                                                     <TextField
                                                                         select
                                                                         fullWidth
                                                                         size="small"
-                                                                        label="طريقة عرض الردود"
+                                                                        label={t('messengerBot.fields.replyDisplay')}
                                                                         value={node.reply_display}
                                                                         onChange={e => updateNode(nodeIndex, { reply_display: e.target.value })}
                                                                     >
                                                                         <MenuItem value="quick_replies">Quick Replies</MenuItem>
-                                                                        <MenuItem value="cards">بطاقات</MenuItem>
+                                                                        <MenuItem value="cards">{t('messengerBot.fields.cards')}</MenuItem>
                                                                     </TextField>
                                                                 </Grid>
                                                                 <Grid size={{ xs: 12, md: 4 }}>
                                                                     <TextField
                                                                         fullWidth
                                                                         size="small"
-                                                                        label="نص زر البطاقة"
+                                                                        label={t('messengerBot.fields.cardButtonText')}
                                                                         value={node.card_action_label}
                                                                         onChange={e => updateNode(nodeIndex, { card_action_label: e.target.value })}
                                                                         disabled={node.reply_display !== 'cards'}
@@ -1526,7 +1529,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                     <TextField
                                                                         fullWidth
                                                                         size="small"
-                                                                        label="نص/وصف بطاقات الرد"
+                                                                        label={t('messengerBot.fields.replyCardsText')}
                                                                         value={node.reply_cards_text}
                                                                         onChange={e => updateNode(nodeIndex, { reply_cards_text: e.target.value })}
                                                                         disabled={node.reply_display !== 'cards'}
@@ -1534,16 +1537,16 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                 </Grid>
                                                                 <Grid size={{ xs: 12 }}><Divider /></Grid>
                                                                 <Grid size={{ xs: 12, md: 4 }}>
-                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_menu)} onChange={e => updateNode(nodeIndex, { include_menu: e.target.checked })} />} label="إظهار القائمة الرئيسية" />
-                                                                    <TextField fullWidth size="small" label="نص القائمة الرئيسية" value={node.menu_label} onChange={e => updateNode(nodeIndex, { menu_label: e.target.value })} />
+                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_menu)} onChange={e => updateNode(nodeIndex, { include_menu: e.target.checked })} />} label={t('messengerBot.fields.showMainMenu')} />
+                                                                    <TextField fullWidth size="small" label={t('messengerBot.fields.mainMenuButtonText')} value={node.menu_label} onChange={e => updateNode(nodeIndex, { menu_label: e.target.value })} />
                                                                 </Grid>
                                                                 <Grid size={{ xs: 12, md: 4 }}>
-                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_products_reply)} onChange={e => updateNode(nodeIndex, { include_products_reply: e.target.checked })} />} label="إظهار المنتجات" />
-                                                                    <TextField fullWidth size="small" label="نص زر المنتجات" value={node.products_reply_label} onChange={e => updateNode(nodeIndex, { products_reply_label: e.target.value })} />
+                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_products_reply)} onChange={e => updateNode(nodeIndex, { include_products_reply: e.target.checked })} />} label={t('messengerBot.fields.showProducts')} />
+                                                                    <TextField fullWidth size="small" label={t('messengerBot.fields.productsButtonText')} value={node.products_reply_label} onChange={e => updateNode(nodeIndex, { products_reply_label: e.target.value })} />
                                                                 </Grid>
                                                                 <Grid size={{ xs: 12, md: 4 }}>
-                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_handoff_reply)} onChange={e => updateNode(nodeIndex, { include_handoff_reply: e.target.checked })} />} label="إظهار موظف بشري" />
-                                                                    <TextField fullWidth size="small" label="نص زر الموظف" value={node.handoff_reply_label} onChange={e => updateNode(nodeIndex, { handoff_reply_label: e.target.value })} />
+                                                                    <FormControlLabel control={<Switch checked={Boolean(node.include_handoff_reply)} onChange={e => updateNode(nodeIndex, { include_handoff_reply: e.target.checked })} />} label={t('messengerBot.fields.showHumanAgent')} />
+                                                                    <TextField fullWidth size="small" label={t('messengerBot.fields.humanAgentButtonText')} value={node.handoff_reply_label} onChange={e => updateNode(nodeIndex, { handoff_reply_label: e.target.value })} />
                                                                 </Grid>
                                                             </Grid>
                                                         </Paper>
@@ -1553,42 +1556,42 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                 {node.node_type !== 'product_list' && node.node_type !== 'handoff' && node.node_type !== 'end' && (
                                                     <Grid size={{ xs: 12 }}>
                                                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1 }}>
-                                                            <Typography variant="subtitle2" fontWeight={800}>الأزرار</Typography>
+                                                            <Typography variant="subtitle2" fontWeight={800}>{t('messengerBot.fields.buttons')}</Typography>
                                                             <Stack direction="row" spacing={1} alignItems="center">
-                                                                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addButton(nodeIndex)}>إضافة زر</Button>
+                                                                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addButton(nodeIndex)}>{t('messengerBot.fields.addButton')}</Button>
                                                             </Stack>
                                                         </Stack>
                                                         <Stack spacing={1}>
                                                             {node.buttons.map((button, buttonIndex) => (
                                                                 <Grid container spacing={1} key={`button-${nodeIndex}-${buttonIndex}`}>
                                                                     <Grid size={{ xs: 12, md: 3 }}>
-                                                                        <TextField fullWidth size="small" label="عنوان الزر" value={button.title} onChange={e => updateButton(nodeIndex, buttonIndex, { title: e.target.value })} />
+                                                                        <TextField fullWidth size="small" label={t('messengerBot.fields.buttonTitle')} value={button.title} onChange={e => updateButton(nodeIndex, buttonIndex, { title: e.target.value })} />
                                                                     </Grid>
                                                                     {node.reply_display === 'cards' && (
                                                                         <Grid size={{ xs: 12, md: 3 }}>
-                                                                            <TextField fullWidth size="small" label="وصف البطاقة" value={button.subtitle} onChange={e => updateButton(nodeIndex, buttonIndex, { subtitle: e.target.value })} />
+                                                                            <TextField fullWidth size="small" label={t('messengerBot.fields.cardDescription')} value={button.subtitle} onChange={e => updateButton(nodeIndex, buttonIndex, { subtitle: e.target.value })} />
                                                                         </Grid>
                                                                     )}
                                                                     <Grid size={{ xs: 12, md: 2 }}>
-                                                                        <TextField select fullWidth size="small" label="الفعل" value={button.action} onChange={e => updateButton(nodeIndex, buttonIndex, { action: e.target.value })}>
+                                                                        <TextField select fullWidth size="small" label={t('messengerBot.fields.action')} value={button.action} onChange={e => updateButton(nodeIndex, buttonIndex, { action: e.target.value })}>
                                                                             {Object.entries(actionOptions).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
                                                                         </TextField>
                                                                     </Grid>
                                                                     {button.action === 'products' && (
                                                                         <>
                                                                             <Grid size={{ xs: 12, md: 3 }}>
-                                                                                <TextField fullWidth size="small" label="تصنيف اختياري" value={button.category} onChange={e => updateButton(nodeIndex, buttonIndex, { category: e.target.value })} />
+                                                                                <TextField fullWidth size="small" label={t('messengerBot.fields.optionalCategory')} value={button.category} onChange={e => updateButton(nodeIndex, buttonIndex, { category: e.target.value })} />
                                                                             </Grid>
                                                                             <Grid size={{ xs: 12 }}>
                                                                                 <Alert severity="info" sx={{ py: 0 }}>
-                                                                                    هذا اختصار عام. للتحكم الكامل في البطاقات والتفاصيل، استخدم فعل “الانتقال لخطوة” واختر خطوة من نوع “قائمة منتجات”.
+                                                                                    {t('messengerBot.fields.shortcutWarning')}
                                                                                 </Alert>
                                                                             </Grid>
                                                                         </>
                                                                     )}
                                                                     {button.action === 'node' && (
                                                                         <Grid size={{ xs: 12, md: 3 }}>
-                                                                            <TextField select fullWidth size="small" label="الخطوة" value={button.node_key} onChange={e => updateButton(nodeIndex, buttonIndex, { node_key: e.target.value })}>
+                                                                            <TextField select fullWidth size="small" label={t('messengerBot.fields.step')} value={button.node_key} onChange={e => updateButton(nodeIndex, buttonIndex, { node_key: e.target.value })}>
                                                                                 {flowForm.nodes.map(target => <MenuItem key={target.node_key} value={target.node_key}>{target.node_key}</MenuItem>)}
                                                                             </TextField>
                                                                         </Grid>
@@ -1603,12 +1606,12 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                             <TextField
                                                                                 fullWidth
                                                                                 size="small"
-                                                                                label="صورة الخيار"
+                                                                                label={t('messengerBot.fields.optionImage')}
                                                                                 value={button.image_url}
                                                                                 onChange={e => updateButton(nodeIndex, buttonIndex, { image_url: e.target.value })}
                                                                             />
                                                                             <Button variant="outlined" size="small" component="label" sx={{ minWidth: 72 }}>
-                                                                                رفع
+                                                                                {t('messengerBot.fields.upload')}
                                                                                 <input hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadButtonImage(nodeIndex, buttonIndex, e.target.files?.[0])} />
                                                                             </Button>
                                                                         </Stack>
@@ -1626,7 +1629,7 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                                                                 </Grid>
                                                             ))}
                                                             {node.buttons.length === 0 && (
-                                                                <Typography variant="caption" color="text.secondary">لا توجد أزرار مخصصة لهذه الخطوة.</Typography>
+                                                                <Typography variant="caption" color="text.secondary">{t('messengerBot.fields.noButtons')}</Typography>
                                                             )}
                                                         </Stack>
                                                     </Grid>
@@ -1640,8 +1643,8 @@ const MessengerBotManager = ({ tenantMode = false }) => {
                     </Grid>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setFlowDialog(false)}>إلغاء</Button>
-                    <Button variant="contained" onClick={saveFlow}>حفظ</Button>
+                    <Button onClick={() => setFlowDialog(false)}>{t('common.cancel')}</Button>
+                    <Button variant="contained" onClick={saveFlow}>{t('common.save')}</Button>
                 </DialogActions>
             </Dialog>
 
