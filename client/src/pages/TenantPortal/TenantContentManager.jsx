@@ -19,10 +19,10 @@ import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 
 const POST_TABS = [
-    { value: 'text', label: 'نص', icon: <TextIcon /> },
-    { value: 'photo', label: 'صورة', icon: <ImageIcon /> },
-    { value: 'link', label: 'رابط', icon: <LinkIcon /> },
-    { value: 'schedule', label: 'جدولة', icon: <ScheduleIcon /> },
+    { value: 'text', icon: <TextIcon /> },
+    { value: 'photo', icon: <ImageIcon /> },
+    { value: 'link', icon: <LinkIcon /> },
+    { value: 'schedule', icon: <ScheduleIcon /> },
 ];
 
 const POST_TRUNCATE_LENGTH = 200;
@@ -91,24 +91,24 @@ const TenantContentManager = () => {
                 setSelectedPageId(data[0].id);
             }
         } catch (err) {
-            setPagesError(err.message || 'فشل جلب صفحات فيسبوك');
+            setPagesError(err.message || t('facebookContent.messages.pagesFetchFailed'));
             setPages([]);
         } finally {
             setPagesLoading(false);
         }
-    }, []);
+    }, [selectedPageId, t]);
 
     useEffect(() => { loadPages(); }, [loadPages]);
 
-    const loadPosts = useCallback(async (append = false) => {
+    const loadPosts = useCallback(async (append = false, afterCursor = null) => {
         if (!selectedPageId) return;
         try {
             if (!append) setPostsLoading(true);
             else setLoadingMore(true);
             setPostsError('');
             const params = {};
-            if (append && postsPaging?.cursors?.after) {
-                params.after = postsPaging.cursors.after;
+            if (append && afterCursor) {
+                params.after = afterCursor;
             }
             const data = await api.getPortalFbPosts(selectedPageId, params);
             if (append) {
@@ -118,12 +118,12 @@ const TenantContentManager = () => {
             }
             setPostsPaging(data.paging || null);
         } catch (err) {
-            setPostsError(err.message || 'فشل جلب المنشورات');
+            setPostsError(err.message || t('facebookContent.messages.postsFetchFailed'));
         } finally {
             setPostsLoading(false);
             setLoadingMore(false);
         }
-    }, [selectedPageId, postsPaging]);
+    }, [selectedPageId, t]);
 
     useEffect(() => {
         if (selectedPageId) {
@@ -134,7 +134,7 @@ const TenantContentManager = () => {
             setRepliesData({});
             loadPosts();
         }
-    }, [selectedPageId]);
+    }, [selectedPageId, loadPosts]);
 
     const handlePublish = async () => {
         if (!selectedPageId) return;
@@ -171,10 +171,10 @@ const TenantContentManager = () => {
             setComposerCaption('');
             setComposerPhotoFile(null);
             setComposerScheduleTime('');
-            setSnackbar({ open: true, message: 'تم نشر المنشور بنجاح', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.postPublished'), severity: 'success' });
             loadPosts();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل نشر المنشور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postPublishFailed'), severity: 'error' });
         } finally {
             setPublishing(false);
         }
@@ -205,7 +205,7 @@ const TenantContentManager = () => {
                 }
             }));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل جلب التعليقات', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentsFetchFailed'), severity: 'error' });
         } finally {
             setCommentsLoading(prev => ({ ...prev, [postId]: false }));
         }
@@ -229,7 +229,7 @@ const TenantContentManager = () => {
                 }
             }));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل جلب الردود', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.repliesFetchFailed'), severity: 'error' });
         } finally {
             setRepliesLoading(prev => ({ ...prev, [commentId]: false }));
         }
@@ -253,9 +253,9 @@ const TenantContentManager = () => {
             setReplyTexts(prev => ({ ...prev, [commentId]: '' }));
             if (postId) loadComments(postId);
             loadReplies(commentId);
-            setSnackbar({ open: true, message: 'تم إرسال الرد', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.replySent'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل إرسال الرد', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.replySendFailed'), severity: 'error' });
         } finally {
             setReplyLoading(prev => ({ ...prev, [commentId]: false }));
         }
@@ -265,9 +265,9 @@ const TenantContentManager = () => {
         try {
             await api.hidePortalFbComment(selectedPageId, commentId, !currentlyHidden);
             if (postId) loadComments(postId);
-            setSnackbar({ open: true, message: currentlyHidden ? 'تم إظهار التعليق' : 'تم إخفاء التعليق', severity: 'success' });
+            setSnackbar({ open: true, message: currentlyHidden ? t('facebookContent.messages.commentShown') : t('facebookContent.messages.commentHidden'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تحديث حالة التعليق', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentStateFailed'), severity: 'error' });
         }
     };
 
@@ -279,9 +279,9 @@ const TenantContentManager = () => {
             const postId = typeof deleteTarget === 'object' ? deleteTarget.postId : null;
             await api.deletePortalFbComment(selectedPageId, commentId);
             if (postId) loadComments(postId);
-            setSnackbar({ open: true, message: 'تم حذف التعليق', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.commentDeleted'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حذف التعليق', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentDeleteFailed'), severity: 'error' });
         } finally {
             setDeleteLoading(false);
             setDeleteTarget(null);
@@ -299,7 +299,7 @@ const TenantContentManager = () => {
             if (parentCommentId) loadReplies(parentCommentId);
             else loadComments(postId);
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تحديث الإعجاب', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.likeUpdateFailed'), severity: 'error' });
         }
     };
 
@@ -316,9 +316,9 @@ const TenantContentManager = () => {
             setEditingPostId(null);
             setEditMessage('');
             loadPosts();
-            setSnackbar({ open: true, message: 'تم تعديل المنشور', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.postEdited'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تعديل المنشور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postEditFailed'), severity: 'error' });
         } finally {
             setEditLoading(false);
         }
@@ -330,9 +330,9 @@ const TenantContentManager = () => {
             setDeleteLoading(true);
             await api.deletePortalFbPost(selectedPageId, deleteTarget);
             setPosts(prev => prev.filter(p => p.id !== deleteTarget));
-            setSnackbar({ open: true, message: 'تم حذف المنشور', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.postDeleted'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حذف المنشور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postDeleteFailed'), severity: 'error' });
         } finally {
             setDeleteLoading(false);
             setDeleteTarget(null);
@@ -348,7 +348,7 @@ const TenantContentManager = () => {
     const openAutoDialog = async (post) => {
         setAutoTargetPost(post);
         setAutoForm({
-            name: `رد تلقائي - ${(post.message || 'منشور').substring(0, 30)}`,
+            name: `${t('facebookContent.autoRuleNamePrefix')} - ${(post.message || t('facebookContent.defaultPostName')).substring(0, 30)}`,
             match_pattern: '', response_text: '', dm_text: '',
             response_action: 'comment', cooldown_seconds: 300, trigger_on: 'comment',
             auto_like: false,
@@ -394,11 +394,11 @@ const TenantContentManager = () => {
                 is_active: true,
                 priority: 100,
             });
-            setSnackbar({ open: true, message: 'تم إنشاء قاعدة الأتمتة', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.ruleCreated'), severity: 'success' });
             fetchAutoRules(autoTargetPost.id);
             setAutoForm(prev => ({ ...prev, name: '', match_pattern: '', response_text: '', dm_text: '' }));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل إنشاء القاعدة', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.ruleCreateFailed'), severity: 'error' });
         } finally {
             setAutoSaving(false);
         }
@@ -409,7 +409,7 @@ const TenantContentManager = () => {
             await api.togglePortalAutomationRule(ruleId);
             if (autoTargetPost) fetchAutoRules(autoTargetPost.id);
         } catch {
-            setSnackbar({ open: true, message: 'فشل تبديل حالة القاعدة', severity: 'error' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.ruleToggleFailed'), severity: 'error' });
         }
     };
 
@@ -713,7 +713,7 @@ const TenantContentManager = () => {
 
                             {postsPaging?.next && (
                                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                                    <Button variant="outlined" onClick={() => loadPosts(true)} disabled={loadingMore}>
+                                    <Button variant="outlined" onClick={() => loadPosts(true, postsPaging?.cursors?.after)} disabled={loadingMore}>
                                         {loadingMore ? <CircularProgress size={20} /> : t('facebookContent.loadMore')}
                                     </Button>
                                 </Box>
@@ -745,12 +745,12 @@ const TenantContentManager = () => {
             <Dialog open={autoDialogOpen} onClose={() => setAutoDialogOpen(false)} maxWidth="sm" fullWidth>
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BoltIcon color="primary" />
-                    أتمتة التعليقات
+                    {t('facebookContent.commentAutomation')}
                 </DialogTitle>
                 <DialogContent dividers>
                     {autoTargetPost && (
                         <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
-                            المنشور: "{(autoTargetPost.message || 'بدون نص').substring(0, 80)}{(autoTargetPost.message || '').length > 80 ? '...' : ''}"
+                            {t('facebookContent.post')}: "{(autoTargetPost.message || t('facebookContent.noText')).substring(0, 80)}{(autoTargetPost.message || '').length > 80 ? '...' : ''}"
                         </Alert>
                     )}
 
@@ -758,19 +758,19 @@ const TenantContentManager = () => {
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}><CircularProgress size={24} /></Box>
                     ) : autoRules.length > 0 && (
                         <Box sx={{ mb: 3 }}>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>القواعد الحالية</Typography>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('facebookContent.currentRules')}</Typography>
                             {autoRules.map(rule => (
                                 <Box key={rule.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, mb: 0.5, bgcolor: 'grey.50', borderRadius: 1 }}>
                                     <Switch checked={!!rule.is_active} onChange={() => handleToggleAutoRule(rule.id)} size="small" color="success" />
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant="body2" fontWeight="bold">{rule.name}</Typography>
                                         <Typography variant="caption" color="text.secondary">
-                                            {rule.trigger_on === 'reaction' ? 'تفاعلات' : rule.trigger_on === 'both' ? 'تعليقات+تفاعلات' : 'تعليقات'}
-                                            {rule.match_pattern ? ` • كلمات: ${rule.match_pattern}` : ''}
+                                            {rule.trigger_on === 'reaction' ? t('facebookContent.reactions') : rule.trigger_on === 'both' ? `${t('facebookContent.commentsOnly')}+${t('facebookContent.reactions')}` : t('facebookContent.commentsOnly')}
+                                            {rule.match_pattern ? ` • ${t('facebookContent.keywordsLabel')}: ${rule.match_pattern}` : ''}
                                             {' • '}
-                                            {rule.response_action === 'comment' ? 'رد عام' : rule.response_action === 'dm' ? 'رسالة خاصة' : 'كلاهما'}
+                                            {rule.response_action === 'comment' ? t('facebookContent.publicReply') : rule.response_action === 'dm' ? t('facebookContent.privateMessage') : t('facebookContent.both')}
                                             {' • '}
-                                            {rule.trigger_count || 0} تشغيل
+                                            {t('facebookContent.runs', { count: rule.trigger_count || 0 })}
                                         </Typography>
                                     </Box>
                                 </Box>
@@ -779,53 +779,53 @@ const TenantContentManager = () => {
                     )}
 
                     <Divider sx={{ mb: 2 }} />
-                    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>إنشاء قاعدة جديدة لهذا المنشور</Typography>
+                    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{t('facebookContent.newRule')}</Typography>
 
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <TextField label="اسم القاعدة" value={autoForm.name} onChange={e => setAutoForm(p => ({ ...p, name: e.target.value }))} fullWidth size="small" />
-                        <TextField label="كلمات مفتاحية (اتركه فارغاً للرد على الكل)" value={autoForm.match_pattern} onChange={e => setAutoForm(p => ({ ...p, match_pattern: e.target.value }))} fullWidth size="small" placeholder="مثال: سعر,تفاصيل,كم" />
+                        <TextField label={t('facebookContent.ruleName')} value={autoForm.name} onChange={e => setAutoForm(p => ({ ...p, name: e.target.value }))} fullWidth size="small" />
+                        <TextField label={t('facebookContent.keywords')} value={autoForm.match_pattern} onChange={e => setAutoForm(p => ({ ...p, match_pattern: e.target.value }))} fullWidth size="small" placeholder={t('facebookContent.keywordsPlaceholder')} />
 
-                        <Typography variant="caption" color="primary">مشغل القاعدة</Typography>
+                        <Typography variant="caption" color="primary">{t('facebookContent.ruleTrigger')}</Typography>
                         <RadioGroup row value={autoForm.trigger_on} onChange={e => {
                             const val = e.target.value;
                             setAutoForm(p => ({ ...p, trigger_on: val, response_action: val === 'reaction' ? 'dm' : p.response_action }));
                         }}>
-                            <FormControlLabel value="comment" control={<Radio size="small" />} label="تعليقات" />
-                            <FormControlLabel value="reaction" control={<Radio size="small" />} label="تفاعلات" />
-                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" />
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label={t('facebookContent.commentsOnly')} />
+                            <FormControlLabel value="reaction" control={<Radio size="small" />} label={t('facebookContent.reactions')} />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label={t('facebookContent.both')} />
                         </RadioGroup>
 
-                        <Typography variant="caption" color="primary">نوع الرد</Typography>
+                        <Typography variant="caption" color="primary">{t('facebookContent.responseType')}</Typography>
                         <RadioGroup row value={autoForm.response_action} onChange={e => setAutoForm(p => ({ ...p, response_action: e.target.value }))}>
-                            <FormControlLabel value="comment" control={<Radio size="small" />} label="رد عام" disabled={autoForm.trigger_on === 'reaction'} />
-                            <FormControlLabel value="dm" control={<Radio size="small" />} label="رسالة خاصة" />
-                            <FormControlLabel value="both" control={<Radio size="small" />} label="كلاهما" disabled={autoForm.trigger_on === 'reaction'} />
+                            <FormControlLabel value="comment" control={<Radio size="small" />} label={t('facebookContent.publicReply')} disabled={autoForm.trigger_on === 'reaction'} />
+                            <FormControlLabel value="dm" control={<Radio size="small" />} label={t('facebookContent.privateMessage')} />
+                            <FormControlLabel value="both" control={<Radio size="small" />} label={t('facebookContent.both')} disabled={autoForm.trigger_on === 'reaction'} />
                         </RadioGroup>
 
                         {(autoForm.trigger_on === 'comment' || autoForm.trigger_on === 'both') && (
                             <FormControlLabel
                                 control={<Switch checked={autoForm.auto_like} onChange={e => setAutoForm(p => ({ ...p, auto_like: e.target.checked }))} color="primary" size="small" />}
-                                label="إعجاب تلقائي على التعليق"
+                                label={t('facebookContent.autoLike')}
                             />
                         )}
 
                         {(autoForm.response_action === 'comment' || autoForm.response_action === 'both') && (
-                            <TextField label="نص التعليق العام" value={autoForm.response_text} onChange={e => setAutoForm(p => ({ ...p, response_text: e.target.value }))} multiline rows={2} fullWidth size="small" placeholder="الرد الذي سيظهر كتعليق..." />
+                            <TextField label={t('facebookContent.publicReplyText')} value={autoForm.response_text} onChange={e => setAutoForm(p => ({ ...p, response_text: e.target.value }))} multiline rows={2} fullWidth size="small" placeholder={t('facebookContent.publicReplyPlaceholder')} />
                         )}
                         {(autoForm.response_action === 'dm' || autoForm.response_action === 'both') && (
-                            <TextField label="نص الرسالة الخاصة" value={autoForm.dm_text} onChange={e => setAutoForm(p => ({ ...p, dm_text: e.target.value }))} multiline rows={2} fullWidth size="small" placeholder="الرسالة الخاصة التي ستُرسل للمعلق..." />
+                            <TextField label={t('facebookContent.privateMessageText')} value={autoForm.dm_text} onChange={e => setAutoForm(p => ({ ...p, dm_text: e.target.value }))} multiline rows={2} fullWidth size="small" placeholder={t('facebookContent.privateMessagePlaceholder')} />
                         )}
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setAutoDialogOpen(false)}>إغلاق</Button>
+                    <Button onClick={() => setAutoDialogOpen(false)}>{t('common.close')}</Button>
                     <Button
                         variant="contained"
                         onClick={handleCreateAutoRule}
                         disabled={autoSaving || !autoForm.name || (!autoForm.response_text && !autoForm.dm_text)}
                         startIcon={autoSaving ? <CircularProgress size={16} color="inherit" /> : <BoltIcon />}
                     >
-                        {autoSaving ? 'جاري الحفظ...' : 'إنشاء قاعدة'}
+                        {autoSaving ? t('common.saving') : t('facebookContent.createRule')}
                     </Button>
                 </DialogActions>
             </Dialog>

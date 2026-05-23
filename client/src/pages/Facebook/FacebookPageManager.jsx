@@ -20,10 +20,10 @@ import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 
 const POST_TABS = [
-    { value: 'text', label: 'نص', icon: <TextIcon /> },
-    { value: 'photo', label: 'صورة', icon: <ImageIcon /> },
-    { value: 'link', label: 'رابط', icon: <LinkIcon /> },
-    { value: 'schedule', label: 'جدولة', icon: <ScheduleIcon /> },
+    { value: 'text', icon: <TextIcon /> },
+    { value: 'photo', icon: <ImageIcon /> },
+    { value: 'link', icon: <LinkIcon /> },
+    { value: 'schedule', icon: <ScheduleIcon /> },
 ];
 
 const POST_TRUNCATE_LENGTH = 200;
@@ -97,12 +97,12 @@ const FacebookPageManager = () => {
                 setSelectedPageId(data[0].id);
             }
         } catch (err) {
-            setPagesError(err.message || 'فشل جلب صفحات فيسبوك');
+            setPagesError(err.message || t('facebookContent.messages.pagesFetchFailed'));
             setAllPages([]);
         } finally {
             setPagesLoading(false);
         }
-    }, []);
+    }, [selectedPageId, t]);
 
     useEffect(() => {
         loadAllPages();
@@ -115,26 +115,26 @@ const FacebookPageManager = () => {
             const data = await api.getFacebookWebhookDiagnostic();
             setWebhookDiagnostics(data);
         } catch (err) {
-            setWebhookError(err.message || 'فشل فحص Webhook فيسبوك');
+            setWebhookError(err.message || t('facebookContent.messages.webhookFetchFailed'));
             setWebhookDiagnostics(null);
         } finally {
             setWebhookLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadWebhookDiagnostics();
     }, [loadWebhookDiagnostics]);
 
-    const loadPosts = useCallback(async (append = false) => {
+    const loadPosts = useCallback(async (append = false, afterCursor = null) => {
         if (!selectedPageId) return;
         try {
             if (!append) setPostsLoading(true);
             else setLoadingMore(true);
             setPostsError('');
             const params = {};
-            if (append && postsPaging?.cursors?.after) {
-                params.after = postsPaging.cursors.after;
+            if (append && afterCursor) {
+                params.after = afterCursor;
             }
             const data = await api.getFacebookPosts(selectedPageId, params);
             if (append) {
@@ -144,12 +144,12 @@ const FacebookPageManager = () => {
             }
             setPostsPaging(data.paging || null);
         } catch (err) {
-            setPostsError(err.message || 'فشل جلب المنشورات');
+            setPostsError(err.message || t('facebookContent.messages.postsFetchFailed'));
         } finally {
             setPostsLoading(false);
             setLoadingMore(false);
         }
-    }, [selectedPageId, postsPaging]);
+    }, [selectedPageId, t]);
 
     useEffect(() => {
         if (selectedPageId) {
@@ -160,7 +160,7 @@ const FacebookPageManager = () => {
             setRepliesData({});
             loadPosts();
         }
-    }, [selectedPageId]);
+    }, [selectedPageId, loadPosts]);
 
     const handlePublish = async () => {
         if (!selectedPageId) return;
@@ -197,10 +197,10 @@ const FacebookPageManager = () => {
             setComposerCaption('');
             setComposerPhotoFile(null);
             setComposerScheduleTime('');
-            setSnackbar({ open: true, message: 'تم نشر المنشور بنجاح', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.postPublished'), severity: 'success' });
             loadPosts();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل نشر المنشور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postPublishFailed'), severity: 'error' });
         } finally {
             setPublishing(false);
         }
@@ -231,7 +231,7 @@ const FacebookPageManager = () => {
                 }
             }));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل جلب التعليقات', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentsFetchFailed'), severity: 'error' });
         } finally {
             setCommentsLoading(prev => ({ ...prev, [postId]: false }));
         }
@@ -255,7 +255,7 @@ const FacebookPageManager = () => {
                 }
             }));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل جلب الردود', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.repliesFetchFailed'), severity: 'error' });
         } finally {
             setRepliesLoading(prev => ({ ...prev, [commentId]: false }));
         }
@@ -281,9 +281,9 @@ const FacebookPageManager = () => {
             setReplyTexts(prev => ({ ...prev, [commentId]: '' }));
             if (postId) loadComments(postId);
             loadReplies(commentId);
-            setSnackbar({ open: true, message: 'تم إرسال الرد', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.replySent'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل إرسال الرد', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.replySendFailed'), severity: 'error' });
         } finally {
             setReplyLoading(prev => ({ ...prev, [commentId]: false }));
         }
@@ -293,9 +293,9 @@ const FacebookPageManager = () => {
         try {
             await api.hideFacebookComment(selectedPageId, commentId, !currentlyHidden);
             if (postId) loadComments(postId);
-            setSnackbar({ open: true, message: currentlyHidden ? 'تم إظهار التعليق' : 'تم إخفاء التعليق', severity: 'success' });
+            setSnackbar({ open: true, message: currentlyHidden ? t('facebookContent.messages.commentShown') : t('facebookContent.messages.commentHidden'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تحديث حالة التعليق', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentStateFailed'), severity: 'error' });
         }
     };
 
@@ -307,9 +307,9 @@ const FacebookPageManager = () => {
             const postId = typeof deleteTarget === 'object' ? deleteTarget.postId : null;
             await api.deleteFacebookComment(selectedPageId, commentId);
             if (postId) loadComments(postId);
-            setSnackbar({ open: true, message: 'تم حذف التعليق', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.commentDeleted'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حذف التعليق', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentDeleteFailed'), severity: 'error' });
         } finally {
             setDeleteLoading(false);
             setDeleteTarget(null);
@@ -327,7 +327,7 @@ const FacebookPageManager = () => {
             if (parentCommentId) loadReplies(parentCommentId);
             else loadComments(postId);
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تحديث الإعجاب', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.likeUpdateFailed'), severity: 'error' });
         }
     };
 
@@ -344,9 +344,9 @@ const FacebookPageManager = () => {
             setEditingPostId(null);
             setEditMessage('');
             loadPosts();
-            setSnackbar({ open: true, message: 'تم تعديل المنشور', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.postEdited'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل تعديل المنشور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postEditFailed'), severity: 'error' });
         } finally {
             setEditLoading(false);
         }
@@ -358,9 +358,9 @@ const FacebookPageManager = () => {
             setDeleteLoading(true);
             await api.deleteFacebookPost(selectedPageId, deleteTarget);
             setPosts(prev => prev.filter(p => p.id !== deleteTarget));
-            setSnackbar({ open: true, message: 'تم حذف المنشور', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.postDeleted'), severity: 'success' });
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل حذف المنشور', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postDeleteFailed'), severity: 'error' });
         } finally {
             setDeleteLoading(false);
             setDeleteTarget(null);
@@ -377,7 +377,7 @@ const FacebookPageManager = () => {
     const openAutoDialog = async (post) => {
         setAutoTargetPost(post);
         setAutoForm({
-            name: `رد تلقائي - ${(post.message || 'منشور').substring(0, 30)}`,
+            name: `${t('facebookContent.autoRuleNamePrefix')} - ${(post.message || t('facebookContent.defaultPostName')).substring(0, 30)}`,
             match_pattern: '',
             response_text: '',
             dm_text: '',
@@ -429,11 +429,11 @@ const FacebookPageManager = () => {
                 is_active: true,
                 priority: 100,
             });
-            setSnackbar({ open: true, message: 'تم إنشاء قاعدة الأتمتة', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.ruleCreated'), severity: 'success' });
             fetchAutoRules(autoTargetPost.id);
             setAutoForm(prev => ({ ...prev, name: '', match_pattern: '', response_text: '', dm_text: '' }));
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل إنشاء القاعدة', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.ruleCreateFailed'), severity: 'error' });
         } finally {
             setAutoSaving(false);
         }
@@ -444,7 +444,7 @@ const FacebookPageManager = () => {
             await api.toggleAutomationRule(ruleId);
             if (autoTargetPost) fetchAutoRules(autoTargetPost.id);
         } catch {
-            setSnackbar({ open: true, message: 'فشل تبديل حالة القاعدة', severity: 'error' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.ruleToggleFailed'), severity: 'error' });
         }
     };
 
@@ -452,11 +452,11 @@ const FacebookPageManager = () => {
         try {
             setWebhookSetupLoading(true);
             await api.setupFacebookAppWebhook();
-            setSnackbar({ open: true, message: 'تم إعادة إعداد Webhook التطبيق', severity: 'success' });
+            setSnackbar({ open: true, message: t('facebookContent.messages.appWebhookSetup'), severity: 'success' });
             await loadWebhookDiagnostics();
             await loadAllPages();
         } catch (err) {
-            setSnackbar({ open: true, message: err.message || 'فشل إعادة إعداد Webhook التطبيق', severity: 'error' });
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.appWebhookSetupFailed'), severity: 'error' });
         } finally {
             setWebhookSetupLoading(false);
         }
@@ -919,7 +919,7 @@ const FacebookPageManager = () => {
 
                             {postsPaging?.next && (
                                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                                    <Button variant="outlined" onClick={() => loadPosts(true)} disabled={loadingMore}>
+                                    <Button variant="outlined" onClick={() => loadPosts(true, postsPaging?.cursors?.after)} disabled={loadingMore}>
                                         {loadingMore ? <CircularProgress size={20} /> : t('facebookContent.loadMore')}
                                     </Button>
                                 </Box>
@@ -980,11 +980,11 @@ const FacebookPageManager = () => {
                                         <Typography variant="body2" fontWeight="bold">{rule.name}</Typography>
                                         <Typography variant="caption" color="text.secondary">
                                             {rule.trigger_on === 'reaction' ? t('facebookContent.reactions') : rule.trigger_on === 'both' ? `${t('facebookContent.commentsOnly')}+${t('facebookContent.reactions')}` : t('facebookContent.commentsOnly')}
-                                            {rule.match_pattern ? ` • كلمات: ${rule.match_pattern}` : ''}
+                                            {rule.match_pattern ? ` • ${t('facebookContent.keywordsLabel')}: ${rule.match_pattern}` : ''}
                                             {' • '}
                                             {rule.response_action === 'comment' ? t('facebookContent.publicReply') : rule.response_action === 'dm' ? t('facebookContent.privateMessage') : t('facebookContent.both')}
                                             {' • '}
-                                            {rule.trigger_count || 0} تشغيل
+                                            {t('facebookContent.runs', { count: rule.trigger_count || 0 })}
                                         </Typography>
                                     </Box>
                                     <Chip

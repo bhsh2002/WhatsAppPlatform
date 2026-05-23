@@ -47,42 +47,40 @@ const MainLayout = ({ children }) => {
                 </AppBar>
             )}
 
-            <Box
-                component="nav"
-                sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+            <Drawer
+                variant="temporary"
+                anchor={theme.direction === 'rtl' ? 'right' : 'left'}
+                open={mobileOpen}
+                onClose={handleDrawerToggle}
+                ModalProps={{ keepMounted: true }}
+                sx={{
+                    display: { xs: 'block', md: 'none' },
+                    '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+                }}
             >
-                <Drawer
-                    variant="temporary"
-                    anchor={theme.direction === 'rtl' ? 'left' : 'right'}
-                    open={mobileOpen}
-                    onClose={handleDrawerToggle}
-                    ModalProps={{ keepMounted: true }}
-                    sx={{
-                        display: { xs: 'block', md: 'none' },
-                        '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
-                    }}
-                >
-                    <Sidebar />
-                </Drawer>
+                <Sidebar />
+            </Drawer>
 
-                <Drawer
-                    variant="permanent"
-                    anchor={theme.direction === 'rtl' ? 'left' : 'right'}
-                    sx={{
-                        display: { xs: 'none', md: 'block' },
-                        '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
-                    }}
-                    open
-                >
-                    <Sidebar />
-                </Drawer>
+            <Box
+                component="aside"
+                sx={{
+                    width: drawerWidth,
+                    flexShrink: 0,
+                    display: { xs: 'none', md: 'block' },
+                    height: '100vh',
+                    position: 'sticky',
+                    top: 0,
+                    overflow: 'hidden',
+                }}
+            >
+                <Sidebar />
             </Box>
 
             <Box
                 component="main"
                 sx={{
-                    flexGrow: 1,
-                    width: { md: `calc(100% - ${drawerWidth}px)` },
+                    flex: 1,
+                    minWidth: 0,
                     minHeight: '100vh',
                     position: 'relative',
                     overflowX: 'hidden',
