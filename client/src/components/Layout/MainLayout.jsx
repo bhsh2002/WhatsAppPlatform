@@ -18,9 +18,10 @@ const MainLayout = ({ children }) => {
 
     return (
         <Box
+            dir={direction}
+            style={{ direction }}
             sx={{
                 display: 'flex',
-                direction,
                 flexDirection: 'row',
                 minHeight: '100vh',
                 bgcolor: 'background.default',
