@@ -265,6 +265,26 @@ router.patch('/prices/:id', (req, res) => {
         ];
         const sets = [];
         const values = [];
+        const existing = db.prepare('SELECT * FROM billing_price_items WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'سعر العملية غير موجود' });
+        const nextBillable = 'is_billable' in req.body ? Boolean(req.body.is_billable) : Boolean(existing.is_billable);
+        const nextActive = 'is_active' in req.body ? Boolean(req.body.is_active) : Boolean(existing.is_active);
+        if (
+            'unit_price_credits' in req.body
+            && nextBillable
+            && nextActive
+            && (parseInt(req.body.unit_price_credits, 10) || 0) < 1
+        ) {
+            req.body.unit_price_credits = 1;
+        }
+        if (
+            !('unit_price_credits' in req.body)
+            && nextBillable
+            && nextActive
+            && (parseInt(existing.unit_price_credits, 10) || 0) < 1
+        ) {
+            req.body.unit_price_credits = 1;
+        }
 
         for (const field of allowed) {
             if (field in req.body) {
@@ -273,7 +293,7 @@ router.patch('/prices/:id', (req, res) => {
                 else if (field === 'unit_price_credits') values.push(Math.max(parseInt(req.body[field], 10) || 0, 0));
                 else if (field === 'local_pricing_model') {
                     const model = String(req.body[field] || 'fixed').trim().toLowerCase();
-                    values.push(['fixed', 'meta_like', 'meta_cost_plus_credits', 'free_tracked'].includes(model) ? model : 'fixed');
+                    values.push(['fixed', 'meta_like', 'meta_cost_plus_credits'].includes(model) ? model : 'fixed');
                 }
                 else if (field === 'meta_cost_basis') {
                     const basis = String(req.body[field] || 'not_applicable').trim().toLowerCase();

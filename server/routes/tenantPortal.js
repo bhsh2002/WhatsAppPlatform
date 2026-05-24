@@ -233,7 +233,7 @@ router.get('/dashboard', (req, res) => {
 // ============================================
 router.get('/billing/summary', (req, res) => {
     try {
-        const summary = getBillingSummary(req.user.tenant_id);
+        const summary = getBillingSummary(req.user.tenant_id, { includeInternal: false });
         res.json(summary);
     } catch (error) {
         if (handleBillingError(res, error)) return;
