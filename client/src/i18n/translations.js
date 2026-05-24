@@ -253,7 +253,13 @@ export const translations = {
       tenantAccounts: 'حسابات العملاء',
       ledger: 'السجل',
       ledgerInvoices: 'السجل والفواتير',
-      metaReconciliation: 'Meta Cost Reconciliation'
+      metaReconciliation: 'Meta Cost Reconciliation',
+      metaCostPlusCredits: 'تكلفة Meta + هامش',
+      metaCostPlusHint: 'يحجز تقديريا ثم يخصم عند delivered/read حسب تكلفة Meta المحولة إلى credits.',
+      creditValueLyd: 'قيمة credit بالدينار',
+      metaMarginPercent: 'هامش Meta %',
+      strictMetaRateRequired: 'منع الإرسال عند غياب سعر Meta',
+      whatsappWindowPricingWarning: 'قوالب Marketing وAuthentication ليست مجانية لمجرد وجود نافذة 24 ساعة. القرار النهائي يعتمد على pricing.billable القادم من Meta.'
     },
     metaReview: {
       title: 'جاهزية مراجعة Meta',
@@ -2346,7 +2352,13 @@ export const translations = {
       tenantAccounts: 'Tenant Accounts',
       ledger: 'Ledger',
       ledgerInvoices: 'Ledger & Invoices',
-      metaReconciliation: 'Meta Cost Reconciliation'
+      metaReconciliation: 'Meta Cost Reconciliation',
+      metaCostPlusCredits: 'Meta cost + margin',
+      metaCostPlusHint: 'Reserves an estimate, then charges on delivered/read from Meta cost converted to credits.',
+      creditValueLyd: 'Credit value in LYD',
+      metaMarginPercent: 'Meta margin %',
+      strictMetaRateRequired: 'Block sends when Meta rate is missing',
+      whatsappWindowPricingWarning: 'Marketing and Authentication templates are not free just because the 24-hour window is open. The final decision follows Meta pricing.billable.'
     },
     metaReview: {
       title: 'Meta Review Readiness',

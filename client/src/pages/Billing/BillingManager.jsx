@@ -131,7 +131,10 @@ const BillingManager = () => {
   const [metaReconciliation, setMetaReconciliation] = useState(null);
   const [metaSettings, setMetaSettings] = useState({
     meta_cost_exchange_rate_to_lyd: 1,
-    meta_cost_margin_note: ''
+    meta_cost_margin_note: '',
+    credit_value_lyd: 0.1,
+    meta_cost_margin_percent: 20,
+    strict_meta_rate_required: true
   });
   const [tenants, setTenants] = useState([]);
   const [selectedTenantId, setSelectedTenantId] = useState('');
@@ -261,7 +264,10 @@ const BillingManager = () => {
     setMetaInvoices(invoicesData.invoices || []);
     setMetaSettings(settingsData.settings || {
       meta_cost_exchange_rate_to_lyd: 1,
-      meta_cost_margin_note: ''
+      meta_cost_margin_note: '',
+      credit_value_lyd: 0.1,
+      meta_cost_margin_percent: 20,
+      strict_meta_rate_required: true
     });
     setMetaSnapshots(snapshotsData.snapshots || []);
     setMetaComparison(comparisonData || null);
@@ -844,12 +850,13 @@ const BillingManager = () => {
 
                                                         <MenuItem value="fixed">{tx("auto.k_29117462682c")}</MenuItem>
                                                         <MenuItem value="meta_like">{tx("auto.k_53f8b7daf69f")}</MenuItem>
+                                                        <MenuItem value="meta_cost_plus_credits">{t('billing.metaCostPlusCredits')}</MenuItem>
                                                     </Select>
                                                 </FormControl>
                                                 <Typography variant="caption" color="text.secondary" display="block" sx={{
                     mt: 0.5
                   }}>
-                                                    {price.local_pricing_model === 'meta_like' ? tx("auto.k_d24f8118b42a") : tx("auto.k_42127c419fee")}
+                                                    {price.local_pricing_model === 'meta_cost_plus_credits' ? t('billing.metaCostPlusHint') : price.local_pricing_model === 'meta_like' ? tx("auto.k_d24f8118b42a") : tx("auto.k_42127c419fee")}
                                                 </Typography>
                                             </TableCell>
                                             <TableCell sx={{
@@ -1106,10 +1113,13 @@ const BillingManager = () => {
           }}>{tx("auto.k_6b938adb4f19")}
 
             </Typography>
+                            <Alert severity="warning" sx={{
+              mb: 2
+            }}>{t('billing.whatsappWindowPricingWarning')}</Alert>
                             <Grid container spacing={1.5}>
                                 <Grid size={{
               xs: 12,
-              sm: 5
+              sm: 6
             }}>
                                     <TextField fullWidth type="number" label={tx("auto.k_419632cdb375")} value={metaSettings.meta_cost_exchange_rate_to_lyd} onChange={e => setMetaSettings({
                 ...metaSettings,
@@ -1119,7 +1129,36 @@ const BillingManager = () => {
                                 </Grid>
                                 <Grid size={{
               xs: 12,
-              sm: 7
+              sm: 6
+            }}>
+                                    <TextField fullWidth type="number" label={t('billing.creditValueLyd')} value={metaSettings.credit_value_lyd} onChange={e => setMetaSettings({
+                ...metaSettings,
+                credit_value_lyd: Number(e.target.value) || 0.1
+              })} />
+
+                                </Grid>
+                                <Grid size={{
+              xs: 12,
+              sm: 6
+            }}>
+                                    <TextField fullWidth type="number" label={t('billing.metaMarginPercent')} value={metaSettings.meta_cost_margin_percent} onChange={e => setMetaSettings({
+                ...metaSettings,
+                meta_cost_margin_percent: Number(e.target.value) || 0
+              })} />
+
+                                </Grid>
+                                <Grid size={{
+              xs: 12,
+              sm: 6
+            }}>
+                                    <FormControlLabel control={<Switch checked={!!metaSettings.strict_meta_rate_required} onChange={e => setMetaSettings({
+                  ...metaSettings,
+                  strict_meta_rate_required: e.target.checked
+                })} />} label={t('billing.strictMetaRateRequired')} />
+
+                                </Grid>
+                                <Grid size={{
+              xs: 12
             }}>
                                     <TextField fullWidth label={tx("auto.k_198a82b3b10b")} value={metaSettings.meta_cost_margin_note} onChange={e => setMetaSettings({
                 ...metaSettings,

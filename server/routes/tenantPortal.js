@@ -47,6 +47,7 @@ import {
 import {
     BILLING_OPERATIONS,
     commit as commitBilling,
+    deferBroadcastReservationUntilStatuses,
     getBillingSummary,
     getInvoices as getBillingInvoices,
     getLedger as getBillingLedger,
@@ -1632,7 +1633,18 @@ async function processTenantBroadcastJob(jobId, params) {
             const successfulRecipients = results
                 .filter((result) => result.status === 'sent')
                 .map((result) => result.recipient);
-            const successfulLocalBilling = localBillingModel === 'meta_like'
+            if (localBillingModel === 'meta_cost_plus_credits') {
+                deferBroadcastReservationUntilStatuses(billingReservation, {
+                    jobId,
+                    quantity: sent,
+                    metadata: {
+                        template_name,
+                        template_category: templateRecord?.category || null,
+                        recipient_country_counts: summarizeMetaRecipientCountries(successfulRecipients),
+                    },
+                });
+            } else {
+                const successfulLocalBilling = localBillingModel === 'meta_like'
                 ? resolveLocalBillableQuantity({
                     tenantId,
                     operationKey: BILLING_OPERATIONS.WHATSAPP_BROADCAST_RECIPIENT,
@@ -1642,18 +1654,19 @@ async function processTenantBroadcastJob(jobId, params) {
                     fallbackQuantity: sent,
                 })
                 : { quantity: sent, summary: null };
-            commitBilling(billingReservation, {
-                quantity: successfulLocalBilling.quantity,
-                referenceId: String(jobId),
-                description: `خصم بث WhatsApp: ${template_name} (${successfulLocalBilling.quantity} من ${sent} مستلم قابل للفوترة محليا)`,
-                meta: {
-                    template_name,
-                    template_category: templateRecord?.category || null,
-                    recipient_country_counts: summarizeMetaRecipientCountries(successfulRecipients),
-                    meta_like_billable_quantity: successfulLocalBilling.quantity,
-                    meta_like_summary: successfulLocalBilling.summary,
-                },
-            });
+                commitBilling(billingReservation, {
+                    quantity: successfulLocalBilling.quantity,
+                    referenceId: String(jobId),
+                    description: `خصم بث WhatsApp: ${template_name} (${successfulLocalBilling.quantity} من ${sent} مستلم قابل للفوترة محليا)`,
+                    meta: {
+                        template_name,
+                        template_category: templateRecord?.category || null,
+                        recipient_country_counts: summarizeMetaRecipientCountries(successfulRecipients),
+                        meta_like_billable_quantity: successfulLocalBilling.quantity,
+                        meta_like_summary: successfulLocalBilling.summary,
+                    },
+                });
+            }
         } else {
             releaseBilling(billingReservation, 'No successful broadcast recipients');
         }
