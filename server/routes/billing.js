@@ -252,18 +252,32 @@ router.get('/prices', (req, res) => {
 
 router.patch('/prices/:id', (req, res) => {
     try {
-        const allowed = ['display_name_ar', 'unit_price_credits', 'local_pricing_model', 'local_pricing_description', 'is_billable', 'is_active'];
+        const allowed = [
+            'display_name_ar',
+            'unit_price_credits',
+            'local_pricing_model',
+            'local_pricing_description',
+            'meta_cost_basis',
+            'tenant_visible_usage',
+            'pricing_note',
+            'is_billable',
+            'is_active',
+        ];
         const sets = [];
         const values = [];
 
         for (const field of allowed) {
             if (field in req.body) {
                 sets.push(`${field} = ?`);
-                if (['is_billable', 'is_active'].includes(field)) values.push(req.body[field] ? 1 : 0);
+                if (['is_billable', 'is_active', 'tenant_visible_usage'].includes(field)) values.push(req.body[field] ? 1 : 0);
                 else if (field === 'unit_price_credits') values.push(Math.max(parseInt(req.body[field], 10) || 0, 0));
                 else if (field === 'local_pricing_model') {
                     const model = String(req.body[field] || 'fixed').trim().toLowerCase();
-                    values.push(['fixed', 'meta_like', 'meta_cost_plus_credits'].includes(model) ? model : 'fixed');
+                    values.push(['fixed', 'meta_like', 'meta_cost_plus_credits', 'free_tracked'].includes(model) ? model : 'fixed');
+                }
+                else if (field === 'meta_cost_basis') {
+                    const basis = String(req.body[field] || 'not_applicable').trim().toLowerCase();
+                    values.push(['meta_billed', 'meta_free', 'platform_fee', 'not_applicable'].includes(basis) ? basis : 'not_applicable');
                 }
                 else values.push(req.body[field]);
             }

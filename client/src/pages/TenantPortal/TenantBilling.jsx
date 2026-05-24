@@ -85,6 +85,8 @@ const TenantBilling = () => {
     const plan = summary?.plan;
     const lowBalance = Number(balances.available_credits || 0) < 10;
     const usingCreditLimit = Number(balances.credit_used_credits || 0) > 0;
+    const freeUsageMonth = summary?.free_usage_month || [];
+    const metaFreeOperationsCount = Number(summary?.meta_free_operations_count || 0);
     const number = (value) => Number(value || 0).toLocaleString(locale);
     const money = (value) => `${Number(value || 0).toLocaleString(locale)} LYD`;
 
@@ -125,6 +127,9 @@ const TenantBilling = () => {
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard title={t('billing.walletCredits')} value={number(balances.wallet_balance_credits)} icon={<WalletIcon />} color="secondary" caption={t('billing.walletCreditsCaption')} />
                 </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard title={t('billing.freeMetaOperations')} value={number(metaFreeOperationsCount)} icon={<UsageIcon />} color="success" caption={t('billing.freeMetaOperationsCaption')} />
+                </Grid>
             </Grid>
 
             <Grid container spacing={2}>
@@ -155,6 +160,35 @@ const TenantBilling = () => {
                                 </Table>
                             </TableContainer>
                         )}
+                        <Box sx={{ mt: 2 }}>
+                            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>{t('billing.freeMetaUsage')}</Typography>
+                            {freeUsageMonth.length === 0 ? (
+                                <Alert severity="info">{t('billing.noFreeMetaUsage')}</Alert>
+                            ) : (
+                                <TableContainer>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('common.channel')}</TableCell>
+                                                <TableCell>{t('common.type')}</TableCell>
+                                                <TableCell>{t('common.quantity')}</TableCell>
+                                                <TableCell>{t('common.credit')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {freeUsageMonth.map((row) => (
+                                                <TableRow key={`${row.channel}-${row.operation_type}`}>
+                                                    <TableCell><Chip size="small" label={row.channel} color="success" variant="outlined" /></TableCell>
+                                                    <TableCell>{row.operation_type}</TableCell>
+                                                    <TableCell>{number(row.quantity)}</TableCell>
+                                                    <TableCell>{number(row.credits)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            )}
+                        </Box>
                     </Paper>
                 </Grid>
 

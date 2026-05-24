@@ -68,7 +68,7 @@ const META_PRICED_WHATSAPP_OPERATIONS = new Set([
 ]);
 const META_COST_DIFF_THRESHOLD = 0.01;
 const META_RECONCILIATION_STATUSES = new Set(['open', 'synced', 'needs_review', 'invoice_reconciled']);
-const LOCAL_PRICING_MODELS = new Set(['fixed', 'meta_like', 'meta_cost_plus_credits']);
+const LOCAL_PRICING_MODELS = new Set(['fixed', 'meta_like', 'meta_cost_plus_credits', 'free_tracked']);
 
 const normalizeMetaCategory = (value) => {
     const category = String(value || '').trim().toLowerCase();
@@ -173,6 +173,24 @@ function isMetaLikeLocalPricing(priceItem) {
 
 function isMetaCostPlusLocalPricing(priceItem) {
     return localPricingModel(priceItem) === 'meta_cost_plus_credits';
+}
+
+function isFreeTrackedLocalPricing(priceItem) {
+    return localPricingModel(priceItem) === 'free_tracked';
+}
+
+function metaCostBasis(priceItem) {
+    const basis = String(priceItem?.meta_cost_basis || '').trim().toLowerCase();
+    if (['meta_billed', 'meta_free', 'platform_fee', 'not_applicable'].includes(basis)) return basis;
+    if (isMetaCostPlusLocalPricing(priceItem)) return 'meta_billed';
+    if (isFreeTrackedLocalPricing(priceItem)) return 'meta_free';
+    return 'platform_fee';
+}
+
+function tenantVisibleUsage(priceItem) {
+    return priceItem?.tenant_visible_usage === undefined || priceItem?.tenant_visible_usage === null
+        ? true
+        : Boolean(priceItem.tenant_visible_usage);
 }
 
 function getBillingSettingsValues() {
@@ -970,6 +988,25 @@ function getPriceItem(operationKey) {
     return db.prepare('SELECT * FROM billing_price_items WHERE operation_key = ?').get(operationKey);
 }
 
+function applyFreeTrackedPricing({ quantity, priceItem }) {
+    if (!isFreeTrackedLocalPricing(priceItem)) return null;
+    return {
+        quantity,
+        unit_price_credits: 0,
+        total_credits: 0,
+        billable: false,
+        track_usage: Boolean(priceItem?.is_active && tenantVisibleUsage(priceItem)),
+        customer_charge_type: 'free_meta',
+        reason: 'free_tracked_pricing',
+        details: {
+            status: 'not_charged',
+            pricing_basis: 'free_tracked',
+            meta_cost_basis: metaCostBasis(priceItem),
+            pricing_note: priceItem?.pricing_note || null,
+        },
+    };
+}
+
 function applyLocalMetaLikePricing({ tenantId, operationKey, quantity, unitPrice, metadata = {}, priceItem }) {
     if (!isMetaLikeLocalPricing(priceItem) || !META_PRICED_WHATSAPP_OPERATIONS.has(operationKey)) {
         return {
@@ -977,6 +1014,8 @@ function applyLocalMetaLikePricing({ tenantId, operationKey, quantity, unitPrice
             unit_price_credits: unitPrice,
             total_credits: unitPrice * quantity,
             billable: unitPrice > 0 && quantity > 0,
+            track_usage: unitPrice > 0 && quantity > 0,
+            customer_charge_type: unitPrice > 0 ? 'platform_fee' : 'not_charged',
             reason: 'fixed_pricing',
             details: null,
         };
@@ -989,6 +1028,8 @@ function applyLocalMetaLikePricing({ tenantId, operationKey, quantity, unitPrice
             unit_price_credits: unitPrice,
             total_credits: billableQuantity * unitPrice,
             billable: unitPrice > 0 && billableQuantity > 0,
+            track_usage: unitPrice > 0 && billableQuantity > 0,
+            customer_charge_type: unitPrice > 0 && billableQuantity > 0 ? 'paid_meta_like' : 'free_meta',
             reason: 'meta_like_precomputed_recipients',
             details: metadata.meta_like_summary || null,
         };
@@ -1007,6 +1048,8 @@ function applyLocalMetaLikePricing({ tenantId, operationKey, quantity, unitPrice
         unit_price_credits: isFree ? 0 : unitPrice,
         total_credits: isFree ? 0 : unitPrice * quantity,
         billable: !isFree && unitPrice > 0 && quantity > 0,
+        track_usage: quantity > 0,
+        customer_charge_type: isFree ? 'free_meta' : 'paid_meta_like',
         reason: estimate.reason,
         details: {
             status: estimate.status,
@@ -1036,6 +1079,8 @@ function applyLocalMetaCostPlusPricing({ tenantId, operationKey, quantity, metad
             unit_price_credits: 0,
             total_credits: 0,
             billable: true,
+            track_usage: true,
+            customer_charge_type: 'blocked',
             reason: 'customer_service_window_closed',
             details: {
                 status: 'blocked',
@@ -1062,6 +1107,8 @@ function applyLocalMetaCostPlusPricing({ tenantId, operationKey, quantity, metad
         unit_price_credits: quantity > 0 ? Math.ceil(charge.credits / quantity) : 0,
         total_credits: notCharged || rateMissing ? 0 : charge.credits,
         billable: rateMissing || (!notCharged && quantity > 0),
+        track_usage: quantity > 0,
+        customer_charge_type: rateMissing ? 'needs_review' : (notCharged ? 'pending_meta' : 'pending_meta'),
         reason: rateMissing ? 'meta_rate_missing' : estimate.reason,
         details: {
             status: estimate.status,
@@ -1082,6 +1129,10 @@ export function quote({ tenantId, operationKey, quantity = 1, metadata = null } 
     const normalizedQuantity = Math.max(toInt(quantity, 1), 1);
     const priceItem = getPriceItem(operationKey);
     const unitPrice = priceItem?.is_active && priceItem?.is_billable ? toInt(priceItem.unit_price_credits, 1) : 0;
+    const freeTrackedPricing = applyFreeTrackedPricing({
+        quantity: normalizedQuantity,
+        priceItem,
+    });
     const metaCostPlusPricing = applyLocalMetaCostPlusPricing({
         tenantId,
         operationKey,
@@ -1089,7 +1140,7 @@ export function quote({ tenantId, operationKey, quantity = 1, metadata = null } 
         metadata: metadata || {},
         priceItem,
     });
-    const localPricing = metaCostPlusPricing || applyLocalMetaLikePricing({
+    const localPricing = freeTrackedPricing || metaCostPlusPricing || applyLocalMetaLikePricing({
         tenantId,
         operationKey,
         quantity: normalizedQuantity,
@@ -1112,6 +1163,10 @@ export function quote({ tenantId, operationKey, quantity = 1, metadata = null } 
         unit_price_credits: localPricing.unit_price_credits,
         total_credits: localPricing.total_credits,
         billable: Boolean(priceItem?.is_active && priceItem?.is_billable && localPricing.billable),
+        track_usage: Boolean(priceItem?.is_active && tenantVisibleUsage(priceItem) && localPricing.track_usage),
+        tenant_visible_usage: tenantVisibleUsage(priceItem),
+        customer_charge_type: localPricing.customer_charge_type || 'platform_fee',
+        meta_cost_basis: metaCostBasis(priceItem),
         local_pricing_model: localPricingModel(priceItem),
         local_pricing_reason: localPricing.reason,
         local_pricing_details: localPricing.details,
@@ -1167,6 +1222,8 @@ export function reserve({
         const shouldTrackMetaCostPlus = currentQuote.local_pricing_model === 'meta_cost_plus_credits'
             && META_PRICED_WHATSAPP_OPERATIONS.has(operationKey)
             && Boolean(currentQuote.price_item?.is_active && currentQuote.price_item?.is_billable);
+        const shouldTrackFreeUsage = currentQuote.local_pricing_model === 'free_tracked'
+            && Boolean(currentQuote.price_item?.is_active && currentQuote.track_usage);
         const pricingDetails = currentQuote.local_pricing_details || {};
         const settings = getBillingSettingsValues();
 
@@ -1192,7 +1249,7 @@ export function reserve({
             });
         }
 
-        if ((!currentQuote.billable || currentQuote.total_credits <= 0) && !shouldTrackMetaCostPlus) {
+        if ((!currentQuote.billable || currentQuote.total_credits <= 0) && !shouldTrackMetaCostPlus && !shouldTrackFreeUsage) {
             return {
                 skipped: true,
                 tenant_id: tenantId,
@@ -1223,8 +1280,8 @@ export function reserve({
                 meta_estimated_amount, meta_rate_card_id, meta_charge_reason,
                 meta_cost_lyd, customer_charge_lyd, customer_service_window_open,
                 ctwa_free_entry_open, template_category_sent, pricing_decision_reason,
-                billing_formula_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                billing_formula_json, customer_charge_type, tenant_visible_usage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             tenantId,
             currentQuote.price_item.id,
@@ -1242,10 +1299,14 @@ export function reserve({
                 local_pricing_model: currentQuote.local_pricing_model,
                 local_pricing_reason: currentQuote.local_pricing_reason,
                 local_pricing_details: currentQuote.local_pricing_details,
+                meta_cost_basis: currentQuote.meta_cost_basis,
+                customer_charge_type: currentQuote.customer_charge_type,
                 requested_quantity: currentQuote.requested_quantity,
             }),
             currentQuote.total_credits,
-            shouldTrackMetaCostPlus ? (pricingDetails.status === 'rate_missing' ? 'rate_missing' : (currentQuote.total_credits > 0 ? 'pending' : 'pending')) : 'not_applicable',
+            shouldTrackMetaCostPlus
+                ? (pricingDetails.status === 'rate_missing' ? 'rate_missing' : 'pending')
+                : (shouldTrackFreeUsage ? 'not_charged' : 'not_applicable'),
             pricingDetails.pricing_basis || null,
             pricingDetails.category || null,
             pricingDetails.country_calling_code || null,
@@ -1259,7 +1320,9 @@ export function reserve({
             pricingDetails.ctwa_free_entry_open === undefined ? null : (pricingDetails.ctwa_free_entry_open ? 1 : 0),
             pricingDetails.template_category_sent || metadata?.template_category || null,
             currentQuote.local_pricing_reason || null,
-            serializeJson(pricingDetails.customer_charge || null)
+            serializeJson(pricingDetails.customer_charge || null),
+            currentQuote.customer_charge_type,
+            currentQuote.tenant_visible_usage ? 1 : 0
         );
 
         syncTenantCredits(tenantId);
@@ -1375,6 +1438,66 @@ export function commit(reservation, options = {}) {
         const chargedCredits = options.finalCredits === undefined
             ? commitQuantity * unitPrice
             : Math.max(toInt(options.finalCredits), 0);
+
+        if (chargedCredits <= 0) {
+            const freeChargeType = options.customerChargeType
+                || metadata.customer_charge_type
+                || usage.customer_charge_type
+                || (usage.meta_charge_status === 'not_charged' ? 'free_meta' : 'not_charged');
+
+            db.prepare(`
+                UPDATE billing_usage_events
+                SET quantity = ?,
+                    unit_price_credits = 0,
+                    total_credits = 0,
+                    final_credits = 0,
+                    status = 'committed',
+                    reference_id = COALESCE(?, reference_id),
+                    metadata_json = ?,
+                    customer_charge_type = ?,
+                    committed_at = ${nowSql}
+                WHERE id = ?
+            `).run(
+                commitQuantity,
+                options.referenceId || null,
+                serializeJson({
+                    ...metadata,
+                    customer_charge_type: freeChargeType,
+                    free_usage_committed: true,
+                }),
+                freeChargeType,
+                usage.id
+            );
+
+            if (options.meta || usage.channel === 'whatsapp') {
+                updateUsageMetaEstimate(usage.id, options.meta || options.metaMetadata || null);
+            }
+
+            const committedUsage = db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
+            if (
+                committedUsage?.channel === 'whatsapp'
+                && committedUsage.reference_type === 'message'
+                && committedUsage.reference_id
+            ) {
+                const committedMetadata = parseJson(committedUsage.metadata_json, {});
+                recordMetaMessageCost({
+                    tenantId: committedUsage.tenant_id,
+                    usageEventId: committedUsage.id,
+                    wamid: committedUsage.reference_id,
+                    recipient: committedMetadata.recipient || committedMetadata.to || committedMetadata.phone || null,
+                    operationKey: committedUsage.operation_key,
+                    messageType: committedMetadata.message_type || committedMetadata.type || null,
+                    templateName: committedMetadata.template_name || null,
+                    templateCategory: committedMetadata.template_category || null,
+                    metadata: committedMetadata,
+                    sentAt: committedUsage.committed_at,
+                });
+            }
+
+            syncTenantCredits(usage.tenant_id);
+            return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
+        }
+
         const account = db.prepare('SELECT * FROM tenant_billing_accounts WHERE tenant_id = ?').get(usage.tenant_id);
         if (!account) {
             throw new BillingError('حساب الفوترة غير موجود عند اعتماد الخصم', {
@@ -1409,6 +1532,7 @@ export function commit(reservation, options = {}) {
                 status = 'committed',
                 reference_id = COALESCE(?, reference_id),
                 metadata_json = ?,
+                customer_charge_type = ?,
                 committed_at = ${nowSql}
             WHERE id = ?
         `).run(
@@ -1417,6 +1541,7 @@ export function commit(reservation, options = {}) {
             chargedCredits,
             options.referenceId || null,
             serializeJson(metadata),
+            options.customerChargeType || metadata.customer_charge_type || usage.customer_charge_type || 'platform_fee',
             usage.id
         );
 
@@ -1440,6 +1565,7 @@ export function commit(reservation, options = {}) {
                 quantity: commitQuantity,
                 unit_price_credits: options.finalCredits === undefined ? unitPrice : (commitQuantity > 0 ? chargedCredits / commitQuantity : chargedCredits),
                 final_credits: chargedCredits,
+                customer_charge_type: options.customerChargeType || metadata.customer_charge_type || usage.customer_charge_type || 'platform_fee',
             })
         );
 
@@ -1557,8 +1683,39 @@ function tryFinalizeBroadcastReservationFromStatus(broadcastJobId) {
 
     const totalMetaAmount = terminalCosts.reduce((sum, row) => sum + (Number(row.final_amount) || 0), 0);
     const finalCredits = calculateCustomerCreditsFromMetaCost(totalMetaAmount).credits;
+    const customerCharge = calculateCustomerCreditsFromMetaCost(totalMetaAmount);
     if (finalCredits <= 0) {
-        release(usage, 'meta_broadcast_not_charged');
+        commit(usage, {
+            forceCommit: true,
+            finalCredits: 0,
+            quantity: toInt(job.sent_count),
+            referenceId: String(broadcastJobId),
+            customerChargeType: 'free_meta',
+            description: `تسجيل بث WhatsApp مجاني بعد تأكيد التسليم: job ${broadcastJobId}`,
+            meta: {
+                broadcast_job_id: broadcastJobId,
+                final_meta_amount: totalMetaAmount,
+                final_credits: 0,
+            },
+        });
+        db.prepare(`
+            UPDATE billing_usage_events
+            SET meta_charge_status = 'not_charged',
+                meta_final_amount = ?,
+                meta_cost_lyd = ?,
+                customer_charge_lyd = ?,
+                final_credits = 0,
+                customer_charge_type = 'free_meta',
+                pricing_decision_reason = 'broadcast_statuses_not_charged',
+                billing_formula_json = ?
+            WHERE id = ?
+        `).run(
+            totalMetaAmount,
+            customerCharge.meta_cost_lyd,
+            customerCharge.customer_charge_lyd,
+            serializeJson(customerCharge),
+            usage.id
+        );
         return db.prepare('SELECT * FROM billing_usage_events WHERE id = ?').get(usage.id);
     }
 
@@ -1567,6 +1724,7 @@ function tryFinalizeBroadcastReservationFromStatus(broadcastJobId) {
         finalCredits,
         quantity: toInt(job.sent_count),
         referenceId: String(broadcastJobId),
+        customerChargeType: 'paid_meta',
         description: `خصم بث WhatsApp بعد تأكيد التسليم: job ${broadcastJobId}`,
         meta: {
             broadcast_job_id: broadcastJobId,
@@ -1574,7 +1732,6 @@ function tryFinalizeBroadcastReservationFromStatus(broadcastJobId) {
             final_credits: finalCredits,
         },
     });
-    const customerCharge = calculateCustomerCreditsFromMetaCost(totalMetaAmount);
     db.prepare(`
         UPDATE billing_usage_events
         SET meta_charge_status = 'final',
@@ -1906,7 +2063,12 @@ export function createInvoice({ tenantId, periodStart = null, periodEnd = null, 
 
         const usageWhere = periodClause.length ? `AND ${periodClause.join(' AND ')}` : '';
         const usage = db.prepare(`
-            SELECT COALESCE(SUM(total_credits), 0) AS credits
+            SELECT COALESCE(SUM(
+                CASE
+                    WHEN COALESCE(final_credits, 0) > 0 THEN final_credits
+                    ELSE COALESCE(total_credits, 0)
+                END
+            ), 0) AS credits
             FROM billing_usage_events
             WHERE tenant_id = ?
               AND status = 'committed'
@@ -1943,15 +2105,66 @@ export function getBillingSummary(tenantId) {
     const reservedCredits = getReservedCredits(tenantId);
     const availability = computeAvailable(fullAccount, reservedCredits);
 
+    const chargedCreditsSql = `
+        CASE
+            WHEN COALESCE(final_credits, 0) > 0 THEN final_credits
+            ELSE COALESCE(total_credits, 0)
+        END
+    `;
+
     const usageByChannel = db.prepare(`
-        SELECT channel, COALESCE(SUM(total_credits), 0) AS credits, COALESCE(SUM(quantity), 0) AS quantity
+        SELECT channel,
+               COALESCE(SUM(${chargedCreditsSql}), 0) AS credits,
+               COALESCE(SUM(quantity), 0) AS quantity
         FROM billing_usage_events
         WHERE tenant_id = ?
           AND status = 'committed'
           AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND (${chargedCreditsSql}) > 0
         GROUP BY channel
         ORDER BY channel
     `).all(tenantId);
+
+    const freeUsageByChannel = db.prepare(`
+        SELECT channel,
+               operation_type,
+               COALESCE(SUM(quantity), 0) AS quantity,
+               COALESCE(SUM(${chargedCreditsSql}), 0) AS credits
+        FROM billing_usage_events
+        WHERE tenant_id = ?
+          AND status = 'committed'
+          AND tenant_visible_usage != 0
+          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND (${chargedCreditsSql}) = 0
+          AND customer_charge_type IN ('free_meta', 'free_tracked', 'not_charged')
+        GROUP BY channel, operation_type
+        ORDER BY channel, operation_type
+    `).all(tenantId);
+
+    const platformFeeUsageByChannel = db.prepare(`
+        SELECT channel,
+               COALESCE(SUM(${chargedCreditsSql}), 0) AS credits,
+               COALESCE(SUM(quantity), 0) AS quantity
+        FROM billing_usage_events
+        WHERE tenant_id = ?
+          AND status = 'committed'
+          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND (${chargedCreditsSql}) > 0
+          AND customer_charge_type IN ('platform_fee', 'paid')
+        GROUP BY channel
+        ORDER BY channel
+    `).all(tenantId);
+
+    const metaFreeOperationsCount = db.prepare(`
+        SELECT COALESCE(SUM(quantity), 0) AS count
+        FROM billing_usage_events
+        WHERE tenant_id = ?
+          AND status = 'committed'
+          AND tenant_visible_usage != 0
+          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND (${chargedCreditsSql}) = 0
+          AND customer_charge_type IN ('free_meta', 'free_tracked', 'not_charged')
+    `).get(tenantId)?.count || 0;
 
     const metaCostMonth = db.prepare(`
         SELECT meta_charge_currency AS currency,
@@ -1999,6 +2212,10 @@ export function getBillingSummary(tenantId) {
         } : null,
         balances: availability,
         usage_month: usageByChannel,
+        paid_usage_month: usageByChannel,
+        free_usage_month: freeUsageByChannel,
+        platform_fee_usage_month: platformFeeUsageByChannel,
+        meta_free_operations_count: metaFreeOperationsCount,
         meta_cost_month: metaCostMonth,
         last_payment: lastPayment,
         last_invoice: lastInvoice,
@@ -2096,6 +2313,7 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
             meta_cost_lyd = ?,
             customer_charge_lyd = ?,
             final_credits = ?,
+            customer_charge_type = ?,
             billing_formula_json = ?,
             meta_delivered_at = COALESCE(meta_delivered_at, ?),
             meta_priced_at = ${nowSql}
@@ -2118,6 +2336,7 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
         customerCharge.meta_cost_lyd,
         customerCharge.customer_charge_lyd,
         finalCredits,
+        finalStatus === 'rate_missing' ? 'needs_review' : (finalCredits <= 0 ? 'free_meta' : 'paid_meta'),
         serializeJson(customerCharge),
         timestamp ? sqlDate(Number(timestamp) * 1000) : sqlDate(),
         usage.id
@@ -2131,7 +2350,18 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
     }
 
     if (usage.status === 'reserved' && finalCredits <= 0) {
-        release(usage, `meta_${finalStatus}`);
+        commit(usage, {
+            quantity: usage.quantity,
+            referenceId: wamid,
+            forceCommit: true,
+            finalCredits: 0,
+            customerChargeType: 'free_meta',
+            description: `تسجيل WhatsApp مجاني بعد تأكيد ${normalizedStatus}: ${wamid}`,
+            meta: {
+                status_pricing: normalizeStatusPricing(pricing),
+                delivered_status: normalizedStatus,
+            },
+        });
         if (metaCostRow?.broadcast_job_id) {
             tryFinalizeBroadcastReservationFromStatus(metaCostRow.broadcast_job_id);
         }
@@ -2144,6 +2374,7 @@ export function updateMetaChargeFromStatus({ wamid, status, pricing = null, time
             referenceId: wamid,
             forceCommit: true,
             finalCredits,
+            customerChargeType: 'paid_meta',
             description: `خصم WhatsApp بعد تأكيد ${normalizedStatus}: ${wamid}`,
             meta: {
                 status_pricing: normalizeStatusPricing(pricing),

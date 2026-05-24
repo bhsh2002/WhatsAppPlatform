@@ -42,6 +42,13 @@ const isMetaRateEffective = rate => {
   return (!from || from <= today) && (!to || to >= today);
 };
 const getMetaReferenceForPrice = (price, metaRates, exchangeRate) => {
+  if (price.meta_cost_basis === 'meta_free' || price.local_pricing_model === 'free_tracked') {
+    return {
+      label: '0',
+      caption: tx("auto.k_a0383761c875"),
+      color: 'success'
+    };
+  }
   const metaConfig = metaCategoriesForOperation(price.operation_key);
   if (!metaConfig) {
     return {
@@ -80,6 +87,35 @@ const getMetaReferenceForPrice = (price, metaRates, exchangeRate) => {
       value2: lydRange
     }),
     color: 'info'
+  };
+};
+const pricingModelHint = (price, t) => {
+  if (price.local_pricing_model === 'meta_cost_plus_credits') return t('billing.metaCostPlusHint');
+  if (price.local_pricing_model === 'free_tracked') return t('billing.freeTrackedHint');
+  if (price.local_pricing_model === 'meta_like') return tx("auto.k_d24f8118b42a");
+  return t('billing.fixedPricingHint');
+};
+const pricingPatchForModel = (model, price) => {
+  if (model === 'free_tracked') {
+    return {
+      local_pricing_model: model,
+      unit_price_credits: 0,
+      is_billable: false,
+      meta_cost_basis: 'meta_free',
+      tenant_visible_usage: true
+    };
+  }
+  if (model === 'meta_cost_plus_credits') {
+    return {
+      local_pricing_model: model,
+      is_billable: true,
+      meta_cost_basis: 'meta_billed',
+      tenant_visible_usage: true
+    };
+  }
+  return {
+    local_pricing_model: model,
+    meta_cost_basis: price.meta_cost_basis === 'meta_free' ? 'platform_fee' : price.meta_cost_basis || 'platform_fee'
   };
 };
 const StatCard = ({
@@ -653,6 +689,18 @@ const BillingManager = () => {
           }}>
                                 <StatCard title={tx("auto.k_924595cfad32")} value={`${number(billing?.balances?.credit_used_credits)} / ${number(billing?.balances?.credit_limit_credits)}`} icon={<InvoiceIcon />} color="warning" />
                             </Grid>
+                            <Grid size={{
+            xs: 12,
+            sm: 6
+          }}>
+                                <StatCard title={t('billing.freeMetaOperations')} value={number(billing?.meta_free_operations_count)} icon={<PriceIcon />} color="success" caption={t('billing.freeMetaOperationsCaption')} />
+                            </Grid>
+                            <Grid size={{
+            xs: 12,
+            sm: 6
+          }}>
+                                <StatCard title={t('billing.platformFeeUsage')} value={number((billing?.platform_fee_usage_month || []).reduce((sum, row) => sum + Number(row.credits || 0), 0))} icon={<InvoiceIcon />} color="secondary" caption={t('billing.platformFeeUsageCaption')} />
+                            </Grid>
                         </Grid>
                         <Grid container spacing={2} sx={{
           mt: 0
@@ -817,6 +865,7 @@ const BillingManager = () => {
                                     <TableCell>{tx("auto.k_0a92494ea1eb")}</TableCell>
                                     <TableCell>{tx("auto.k_c998673fa80f")}</TableCell>
                                     <TableCell>{tx("auto.k_e86eeb2d427a")}</TableCell>
+                                    <TableCell>{t('billing.metaCostBasis')}</TableCell>
                                     <TableCell>{tx("auto.k_2dae571fb604")}</TableCell>
                                     <TableCell>{tx("auto.k_40af5dffb316")}</TableCell>
                                     <TableCell>{tx("auto.k_6cf44b8c32d1")}</TableCell>
@@ -832,7 +881,7 @@ const BillingManager = () => {
                                             <TableCell sx={{
                   width: 120
                 }}>
-                                                <TextField size="small" type="number" value={price.unit_price_credits} onChange={e => setPrices(items => items.map(item => item.id === price.id ? {
+                                                <TextField size="small" type="number" disabled={price.local_pricing_model === 'free_tracked'} value={price.unit_price_credits} onChange={e => setPrices(items => items.map(item => item.id === price.id ? {
                     ...item,
                     unit_price_credits: Number(e.target.value) || 0
                   } : item))} onBlur={e => updatePrice(price, {
@@ -844,20 +893,36 @@ const BillingManager = () => {
                   minWidth: 180
                 }}>
                                                 <FormControl fullWidth size="small">
-                                                    <Select value={price.local_pricing_model || 'fixed'} onChange={e => updatePrice(price, {
-                      local_pricing_model: e.target.value
-                    })}>
+                                                    <Select value={price.local_pricing_model || 'fixed'} onChange={e => updatePrice(price, pricingPatchForModel(e.target.value, price))}>
 
                                                         <MenuItem value="fixed">{tx("auto.k_29117462682c")}</MenuItem>
                                                         <MenuItem value="meta_like">{tx("auto.k_53f8b7daf69f")}</MenuItem>
+                                                        <MenuItem value="free_tracked">{t('billing.freeTrackedPricing')}</MenuItem>
                                                         <MenuItem value="meta_cost_plus_credits">{t('billing.metaCostPlusCredits')}</MenuItem>
                                                     </Select>
                                                 </FormControl>
                                                 <Typography variant="caption" color="text.secondary" display="block" sx={{
                     mt: 0.5
                   }}>
-                                                    {price.local_pricing_model === 'meta_cost_plus_credits' ? t('billing.metaCostPlusHint') : price.local_pricing_model === 'meta_like' ? tx("auto.k_d24f8118b42a") : tx("auto.k_42127c419fee")}
+                                                    {pricingModelHint(price, t)}
                                                 </Typography>
+                                            </TableCell>
+                                            <TableCell sx={{
+                  minWidth: 170
+                }}>
+                                                <FormControl fullWidth size="small">
+                                                    <Select value={price.meta_cost_basis || 'not_applicable'} onChange={e => updatePrice(price, {
+                      meta_cost_basis: e.target.value
+                    })}>
+                                                        <MenuItem value="meta_billed">{t('billing.metaBilled')}</MenuItem>
+                                                        <MenuItem value="meta_free">{t('billing.metaFree')}</MenuItem>
+                                                        <MenuItem value="platform_fee">{t('billing.platformFee')}</MenuItem>
+                                                        <MenuItem value="not_applicable">{t('billing.notApplicable')}</MenuItem>
+                                                    </Select>
+                                                </FormControl>
+                                                {price.pricing_note && <Typography variant="caption" color="text.secondary" display="block" sx={{
+                    mt: 0.5
+                  }}>{price.pricing_note}</Typography>}
                                             </TableCell>
                                             <TableCell sx={{
                   minWidth: 220
@@ -870,7 +935,7 @@ const BillingManager = () => {
                                                 </Typography>
                                             </TableCell>
                                             <TableCell>
-                                                <FormControlLabel control={<Switch checked={!!price.is_billable} onChange={e => updatePrice(price, {
+                                                <FormControlLabel control={<Switch disabled={price.local_pricing_model === 'free_tracked'} checked={!!price.is_billable && price.local_pricing_model !== 'free_tracked'} onChange={e => updatePrice(price, {
                     is_billable: e.target.checked
                   })} />} label="" />
 
