@@ -938,6 +938,8 @@ function extractMessageContent(message) {
                 return message.interactive.list_reply?.title || '[List reply]';
             }
             return '[Interactive message]';
+        case 'reaction':
+            return message.reaction?.emoji ? `[Reaction: ${message.reaction.emoji}]` : '[Reaction message]';
         default:
             return `[${message.type} message]`;
     }

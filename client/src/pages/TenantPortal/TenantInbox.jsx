@@ -13,7 +13,7 @@ import { getCurrentLocale } from "../../utils/locale";
 const TenantInbox = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialChannel = ['whatsapp', 'messenger'].includes(searchParams.get('channel')) ? searchParams.get('channel') : '';
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
@@ -178,13 +178,31 @@ const TenantInbox = () => {
       setBotSession(null);
     }
   }, [selectedChat, fetchMessages, fetchTemplates, fetchWindowStatus, fetchBotSession, markAsRead]);
-  const handleSelectChat = useCallback(conv => {
+  const clearContactQuery = useCallback(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    let changed = false;
+    ['contact', 'name', 'tenant_id'].forEach(key => {
+      if (nextParams.has(key)) {
+        nextParams.delete(key);
+        changed = true;
+      }
+    });
+    if (changed) {
+      setSearchParams(nextParams, {
+        replace: true
+      });
+    }
+  }, [searchParams, setSearchParams]);
+  const handleSelectChat = useCallback((conv, options = {}) => {
     isFirstLoad.current = true;
     setMessages([]);
     setSelectedChat(conv);
     setNewMessage('');
     setUtilityFallback(null);
-  }, []);
+    if (!options.fromQuery) {
+      clearContactQuery();
+    }
+  }, [clearContactQuery]);
   useEffect(() => {
     const requestedChannel = searchParams.get('channel') || 'whatsapp';
     const requestedContact = searchParams.get('contact');
@@ -203,9 +221,12 @@ const TenantInbox = () => {
       last_ctwa_received_at: null
     };
     if (!isSameUnifiedConversation(selectedChatRef.current, nextChat)) {
-      handleSelectChat(nextChat);
+      handleSelectChat(nextChat, {
+        fromQuery: true
+      });
     }
-  }, [conversations, handleSelectChat, loading, searchParams]);
+    clearContactQuery();
+  }, [clearContactQuery, conversations, handleSelectChat, loading, searchParams]);
 
   // Smart scroll
   useEffect(() => {

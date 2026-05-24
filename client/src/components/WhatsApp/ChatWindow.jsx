@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, TextField, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Button, Alert, Chip, Menu, MenuItem, ListItemIcon, ListItemText, useMediaQuery, useTheme, Tooltip } from '@mui/material';
-import { ArrowBack as ArrowBackIcon, MoreVert as MoreVertIcon, Search as SearchIcon, Send as SendIcon, InsertEmoticon as EmojiIcon, Description as TemplateIcon, AttachFile as AttachFileIcon, Image as ImageIcon, Close as CloseIcon, PictureAsPdf as PdfIcon, InsertDriveFile as FileIcon, SmartButton as InteractiveIcon, AddCircleOutline as MoreActionsIcon } from '@mui/icons-material';
+import { ArrowBack as ArrowBackIcon, MoreVert as MoreVertIcon, Search as SearchIcon, Send as SendIcon, Description as TemplateIcon, AttachFile as AttachFileIcon, Image as ImageIcon, Close as CloseIcon, PictureAsPdf as PdfIcon, InsertDriveFile as FileIcon, SmartButton as InteractiveIcon, AddCircleOutline as MoreActionsIcon } from '@mui/icons-material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TemplatePicker from './TemplatePicker';
 import MessageBubble from './MessageBubble';
@@ -368,7 +368,6 @@ const ChatWindow = ({
         alignItems: 'center',
         gap: 0.5
       }}>
-                        <IconButton size="small"><EmojiIcon /></IconButton>
                         <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title={tx("auto.k_1efe52278509")}>
                             <TemplateIcon />
                         </IconButton>
@@ -384,8 +383,6 @@ const ChatWindow = ({
                                 <InteractiveIcon />
                             </IconButton>}
                     </Box>}
-
-                {isMobile && <IconButton size="small"><EmojiIcon /></IconButton>}
 
                 <TextField fullWidth size="small" placeholder={tx("auto.k_aa54ca9529fa")} value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={handleKeyDown} multiline maxRows={4} sx={{
         minWidth: 0,

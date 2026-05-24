@@ -16,6 +16,12 @@ const MessageBubble = ({
   // Normalize message fields
   const rawType = message.type || message.message_type || 'text';
   const content = message.body || message.content || '';
+  const normalizedContent = typeof content === 'string' ? content.trim() : '';
+  const reactionMatch = normalizedContent.match(/^\[reaction:\s*(.*?)\]$/i);
+  const reactionEmoji = message.reaction?.emoji || message.reaction_emoji || reactionMatch?.[1] || '';
+  const isReactionMessage = String(rawType).toLowerCase() === 'reaction'
+    || /^\[reaction message\]$/i.test(normalizedContent)
+    || Boolean(reactionMatch);
   const isLegacyTemplatePayload = (() => {
     if (typeof content !== 'string' || !content.trim().startsWith('{')) return false;
     try {
@@ -25,7 +31,7 @@ const MessageBubble = ({
       return false;
     }
   })();
-  const type = rawType === 'text' && isLegacyTemplatePayload ? 'template' : rawType;
+  const type = isReactionMessage ? 'reaction' : rawType === 'text' && isLegacyTemplatePayload ? 'template' : rawType;
   const getHeaderMediaUrl = header => header?.url || header?.link || (typeof header?.text === 'string' && /^https?:\/\//i.test(header.text) ? header.text : '');
   const renderTemplateHeader = header => {
     if (!header) return null;
@@ -223,6 +229,17 @@ const MessageBubble = ({
 
   // Helper to render content based on type
   const renderContent = () => {
+    if (type === 'reaction') {
+      return <Chip size="small" variant="outlined" color="default" label={reactionEmoji ? tx("inbox.reactionWithEmoji", {
+        emoji: reactionEmoji
+      }) : tx("inbox.reactionMessage")} sx={{
+        maxWidth: '100%',
+        '& .MuiChip-label': {
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }
+      }} />;
+    }
     if (type === 'text') {
       return <Typography variant="body1" sx={{
         whiteSpace: 'pre-wrap',
