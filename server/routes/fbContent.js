@@ -406,6 +406,164 @@ router.delete('/:linkedPageId/posts/:postId', async (req, res) => {
 });
 
 // ============================================
+// Like a post
+// ============================================
+router.post('/:linkedPageId/posts/:postId/like', async (req, res) => {
+    let billingReservation = null;
+    try {
+        const { linkedPageId, postId } = req.params;
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        billingReservation = reserveBilling({
+            tenantId: page.tenant_id,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_POST_LIKE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, post_id: postId },
+        });
+
+        const response = await graphPostForm(`${postId}/likes`, accessToken);
+        const data = await response.json();
+
+        if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta post like failed');
+            return res.status(response.status).json({ error: data.error?.message || 'فشل الإعجاب بالمنشور', details: data.error });
+        }
+
+        commitBilling(billingReservation, {
+            referenceId: postId,
+            description: `خصم إعجاب منشور Facebook في ${page.page_name || page.page_id}`,
+        });
+
+        logFacebookActivity(page, 'fb_post_liked', `إعجاب بمنشور في صفحة ${page.page_name || page.page_id}`);
+        res.json({ success: true, data });
+    } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[FBContent] Like post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
+        console.error('[FBContent] Like post error:', error);
+        res.status(500).json({ error: 'فشل الإعجاب بالمنشور' });
+    }
+});
+
+// ============================================
+// Unlike a post
+// ============================================
+router.delete('/:linkedPageId/posts/:postId/like', async (req, res) => {
+    let billingReservation = null;
+    try {
+        const { linkedPageId, postId } = req.params;
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        billingReservation = reserveBilling({
+            tenantId: page.tenant_id,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_POST_UNLIKE,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, post_id: postId },
+        });
+
+        const response = await fetch(`${META_API_BASE}/${postId}/likes`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
+
+        if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta post unlike failed');
+            return res.status(response.status).json({ error: data.error?.message || 'فشل إزالة الإعجاب من المنشور', details: data.error });
+        }
+
+        commitBilling(billingReservation, {
+            referenceId: postId,
+            description: `خصم إزالة إعجاب منشور Facebook في ${page.page_name || page.page_id}`,
+        });
+
+        logFacebookActivity(page, 'fb_post_unliked', `إزالة إعجاب من منشور في صفحة ${page.page_name || page.page_id}`);
+        res.json({ success: true, data });
+    } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[FBContent] Unlike post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
+        console.error('[FBContent] Unlike post error:', error);
+        res.status(500).json({ error: 'فشل إزالة الإعجاب من المنشور' });
+    }
+});
+
+// ============================================
+// Comment on a post
+// ============================================
+router.post('/:linkedPageId/posts/:postId/comments', async (req, res) => {
+    let billingReservation = null;
+    try {
+        const { linkedPageId, postId } = req.params;
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        if (error) return res.status(status).json({ error });
+
+        const { message } = req.body;
+        if (!message) {
+            return res.status(400).json({ error: 'نص التعليق مطلوب' });
+        }
+
+        billingReservation = reserveBilling({
+            tenantId: page.tenant_id,
+            operationKey: BILLING_OPERATIONS.FACEBOOK_POST_COMMENT,
+            quantity: 1,
+            referenceType: 'facebook_content',
+            metadata: { linked_page_id: linkedPageId, page_id: page.page_id, post_id: postId },
+        });
+
+        const response = await fetch(`${META_API_BASE}/${postId}/comments`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            releaseBilling(billingReservation, data.error?.message || 'Meta post comment failed');
+            return res.status(response.status).json({ error: data.error?.message || 'فشل إضافة التعليق', details: data.error });
+        }
+
+        commitBilling(billingReservation, {
+            referenceId: data.id || null,
+            description: `خصم تعليق على منشور Facebook في ${page.page_name || page.page_id}`,
+        });
+
+        logFacebookActivity(page, 'fb_post_commented', `تعليق على منشور في صفحة ${page.page_name || page.page_id}`);
+
+        res.status(201).json({ id: data.id, message: data.message });
+    } catch (error) {
+        if (billingReservation) {
+            try {
+                releaseBilling(billingReservation, error.message);
+            } catch (releaseError) {
+                console.error('[FBContent] Comment on post billing release error:', releaseError);
+            }
+        }
+        if (handleBillingError(res, error)) return;
+        console.error('[FBContent] Comment on post error:', error);
+        res.status(500).json({ error: 'فشل إضافة التعليق' });
+    }
+});
+
+// ============================================
 // List comments on a post
 // ============================================
 router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {

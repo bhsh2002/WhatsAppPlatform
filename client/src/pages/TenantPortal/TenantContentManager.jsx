@@ -57,6 +57,9 @@ const TenantContentManager = () => {
     const [repliesLoading, setRepliesLoading] = useState({});
     const [replyTexts, setReplyTexts] = useState({});
     const [replyLoading, setReplyLoading] = useState({});
+    const [likedPosts, setLikedPosts] = useState({});
+    const [commentTexts, setCommentTexts] = useState({});
+    const [commentSubmitting, setCommentSubmitting] = useState({});
 
     const [editingPostId, setEditingPostId] = useState(null);
     const [editMessage, setEditMessage] = useState('');
@@ -249,10 +252,37 @@ const TenantContentManager = () => {
         if (!message?.trim() || !selectedPageId) return;
         try {
             setReplyLoading(prev => ({ ...prev, [commentId]: true }));
-            await api.replyPortalFbComment(selectedPageId, commentId, message);
+            const result = await api.replyPortalFbComment(selectedPageId, commentId, message);
             setReplyTexts(prev => ({ ...prev, [commentId]: '' }));
-            if (postId) loadComments(postId);
-            loadReplies(commentId);
+            // Optimistic: add new reply locally
+            if (result?.id) {
+                setRepliesData(prev => ({
+                    ...prev,
+                    [commentId]: {
+                        ...prev[commentId],
+                        replies: [...(prev[commentId]?.replies || []), {
+                            id: result.id,
+                            message: message,
+                            created_time: new Date().toISOString(),
+                            from: { name: selectedPage?.page_name || '' },
+                            like_count: 0,
+                            user_likes: false,
+                        }],
+                    }
+                }));
+            }
+            // Optimistic: increment comment_count in commentsData
+            if (postId) {
+                setCommentsData(prev => ({
+                    ...prev,
+                    [postId]: {
+                        ...prev[postId],
+                        comments: (prev[postId]?.comments || []).map(c =>
+                            c.id === commentId ? { ...c, comment_count: (c.comment_count || 0) + 1 } : c
+                        ),
+                    }
+                }));
+            }
             setSnackbar({ open: true, message: t('facebookContent.messages.replySent'), severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err.message || t('facebookContent.messages.replySendFailed'), severity: 'error' });
@@ -264,7 +294,18 @@ const TenantContentManager = () => {
     const handleHideComment = async (commentId, currentlyHidden, postId) => {
         try {
             await api.hidePortalFbComment(selectedPageId, commentId, !currentlyHidden);
-            if (postId) loadComments(postId);
+            // Optimistic: toggle is_hidden locally
+            if (postId) {
+                setCommentsData(prev => ({
+                    ...prev,
+                    [postId]: {
+                        ...prev[postId],
+                        comments: (prev[postId]?.comments || []).map(c =>
+                            c.id === commentId ? { ...c, is_hidden: !currentlyHidden } : c
+                        ),
+                    }
+                }));
+            }
             setSnackbar({ open: true, message: currentlyHidden ? t('facebookContent.messages.commentShown') : t('facebookContent.messages.commentHidden'), severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentStateFailed'), severity: 'error' });
@@ -278,7 +319,16 @@ const TenantContentManager = () => {
             const commentId = typeof deleteTarget === 'object' ? deleteTarget.id : deleteTarget;
             const postId = typeof deleteTarget === 'object' ? deleteTarget.postId : null;
             await api.deletePortalFbComment(selectedPageId, commentId);
-            if (postId) loadComments(postId);
+            // Optimistic: remove comment locally
+            if (postId) {
+                setCommentsData(prev => ({
+                    ...prev,
+                    [postId]: {
+                        ...prev[postId],
+                        comments: (prev[postId]?.comments || []).filter(c => c.id !== commentId),
+                    }
+                }));
+            }
             setSnackbar({ open: true, message: t('facebookContent.messages.commentDeleted'), severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: err.message || t('facebookContent.messages.commentDeleteFailed'), severity: 'error' });
@@ -290,16 +340,146 @@ const TenantContentManager = () => {
     };
 
     const handleLikeComment = async (comment, postId, parentCommentId = null) => {
+        const newLiked = !comment.user_likes;
+        // Optimistic: update locally first
+        if (parentCommentId) {
+            setRepliesData(prev => ({
+                ...prev,
+                [parentCommentId]: {
+                    ...prev[parentCommentId],
+                    replies: (prev[parentCommentId]?.replies || []).map(r =>
+                        r.id === comment.id ? { ...r, user_likes: newLiked, like_count: (r.like_count || 0) + (newLiked ? 1 : -1) } : r
+                    ),
+                }
+            }));
+        } else {
+            setCommentsData(prev => ({
+                ...prev,
+                [postId]: {
+                    ...prev[postId],
+                    comments: (prev[postId]?.comments || []).map(c =>
+                        c.id === comment.id ? { ...c, user_likes: newLiked, like_count: (c.like_count || 0) + (newLiked ? 1 : -1) } : c
+                    ),
+                }
+            }));
+        }
         try {
             if (comment.user_likes) {
                 await api.unlikePortalFbComment(selectedPageId, comment.id);
             } else {
                 await api.likePortalFbComment(selectedPageId, comment.id);
             }
-            if (parentCommentId) loadReplies(parentCommentId);
-            else loadComments(postId);
         } catch (err) {
+            // Revert optimistic update on error
+            if (parentCommentId) {
+                setRepliesData(prev => ({
+                    ...prev,
+                    [parentCommentId]: {
+                        ...prev[parentCommentId],
+                        replies: (prev[parentCommentId]?.replies || []).map(r =>
+                            r.id === comment.id ? { ...r, user_likes: comment.user_likes, like_count: comment.like_count || 0 } : r
+                        ),
+                    }
+                }));
+            } else {
+                setCommentsData(prev => ({
+                    ...prev,
+                    [postId]: {
+                        ...prev[postId],
+                        comments: (prev[postId]?.comments || []).map(c =>
+                            c.id === comment.id ? { ...c, user_likes: comment.user_likes, like_count: comment.like_count || 0 } : c
+                        ),
+                    }
+                }));
+            }
             setSnackbar({ open: true, message: err.message || t('facebookContent.messages.likeUpdateFailed'), severity: 'error' });
+        }
+    };
+
+    const handleLikePost = async (post) => {
+        const isLiked = likedPosts[post.id];
+        // Optimistic update
+        setLikedPosts(prev => ({ ...prev, [post.id]: !isLiked }));
+        setPosts(prev => prev.map(p =>
+            p.id === post.id ? {
+                ...p,
+                likes: {
+                    ...p.likes,
+                    summary: {
+                        ...p.likes?.summary,
+                        total_count: (p.likes?.summary?.total_count || 0) + (isLiked ? -1 : 1),
+                    }
+                }
+            } : p
+        ));
+        try {
+            if (isLiked) {
+                await api.unlikePortalFbPost(selectedPageId, post.id);
+            } else {
+                await api.likePortalFbPost(selectedPageId, post.id);
+            }
+        } catch (err) {
+            // Revert on error
+            setLikedPosts(prev => ({ ...prev, [post.id]: isLiked }));
+            setPosts(prev => prev.map(p =>
+                p.id === post.id ? {
+                    ...p,
+                    likes: {
+                        ...p.likes,
+                        summary: {
+                            ...p.likes?.summary,
+                            total_count: (p.likes?.summary?.total_count || 0) + (isLiked ? 1 : -1),
+                        }
+                    }
+                } : p
+            ));
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.likeUpdateFailed'), severity: 'error' });
+        }
+    };
+
+    const handleCommentOnPost = async (postId) => {
+        const message = commentTexts[postId];
+        if (!message?.trim() || !selectedPageId) return;
+        try {
+            setCommentSubmitting(prev => ({ ...prev, [postId]: true }));
+            const result = await api.commentOnPortalFbPost(selectedPageId, postId, message);
+            setCommentTexts(prev => ({ ...prev, [postId]: '' }));
+            // Optimistic: add comment locally
+            if (result?.id) {
+                setCommentsData(prev => ({
+                    ...prev,
+                    [postId]: {
+                        ...prev[postId],
+                        comments: [...(prev[postId]?.comments || []), {
+                            id: result.id,
+                            message: message,
+                            created_time: new Date().toISOString(),
+                            from: { name: selectedPage?.page_name || '' },
+                            like_count: 0,
+                            user_likes: false,
+                            comment_count: 0,
+                        }],
+                    }
+                }));
+            }
+            // Optimistic: increment post comment count
+            setPosts(prev => prev.map(p =>
+                p.id === postId ? {
+                    ...p,
+                    comments: {
+                        ...p.comments,
+                        summary: {
+                            ...p.comments?.summary,
+                            total_count: (p.comments?.summary?.total_count || 0) + 1,
+                        }
+                    }
+                } : p
+            ));
+            setSnackbar({ open: true, message: t('facebookContent.messages.replySent'), severity: 'success' });
+        } catch (err) {
+            setSnackbar({ open: true, message: err.message || t('facebookContent.messages.replySendFailed'), severity: 'error' });
+        } finally {
+            setCommentSubmitting(prev => ({ ...prev, [postId]: false }));
         }
     };
 
@@ -592,6 +772,9 @@ const TenantContentManager = () => {
 
                                     <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1 }}>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                            <Button size="small" startIcon={<LikeIcon />} onClick={() => handleLikePost(post)} color={likedPosts[post.id] ? 'primary' : 'inherit'}>
+                                                {likedPosts[post.id] ? t('facebookContent.unlike') : t('facebookContent.like')}
+                                            </Button>
                                             <Button size="small" startIcon={<CommentIcon />} onClick={() => toggleComments(post.id)}>
                                                 {expandedComments[post.id] ? t('facebookContent.hideComments') : t('facebookContent.comments')}
                                                 {expandedComments[post.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -704,6 +887,20 @@ const TenantContentManager = () => {
                                                             </Button>
                                                         </Box>
                                                     )}
+                                                    {/* Add new comment on post */}
+                                                    <Box sx={{ display: 'flex', gap: 1, mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                                                        <TextField
+                                                            size="small"
+                                                            placeholder={t('facebookContent.commentPlaceholder') || t('facebookContent.replyPlaceholder')}
+                                                            value={commentTexts[post.id] || ''}
+                                                            onChange={(e) => setCommentTexts(prev => ({ ...prev, [post.id]: e.target.value }))}
+                                                            sx={{ flex: 1 }}
+                                                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentOnPost(post.id); } }}
+                                                        />
+                                                        <IconButton size="small" color="primary" onClick={() => handleCommentOnPost(post.id)} disabled={commentSubmitting[post.id]}>
+                                                            {commentSubmitting[post.id] ? <CircularProgress size={16} /> : <SendIcon />}
+                                                        </IconButton>
+                                                    </Box>
                                                 </>
                                             )}
                                         </Box>

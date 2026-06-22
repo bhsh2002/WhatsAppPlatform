@@ -875,6 +875,26 @@ class ApiService {
             method: 'DELETE',
         });
     }
+
+    async likeFacebookPost(linkedPageId, postId) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}/like`, {
+            method: 'POST',
+        });
+    }
+
+    async unlikeFacebookPost(linkedPageId, postId) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}/like`, {
+            method: 'DELETE',
+        });
+    }
+
+    async commentOnFacebookPost(linkedPageId, postId, message) {
+        return this.request(`/api/fb-content/${linkedPageId}/posts/${postId}/comments`, {
+            method: 'POST',
+            body: JSON.stringify({ message }),
+        });
+    }
+
     // ============================================
     // Facebook Messenger (Admin)
     // ============================================
@@ -1715,6 +1735,25 @@ class ApiService {
     async unlikePortalFbComment(linkedPageId, commentId) {
         return this.request(`/api/portal/fb-content/${linkedPageId}/comments/${commentId}/like`, {
             method: 'DELETE',
+        });
+    }
+
+    async likePortalFbPost(linkedPageId, postId) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}/like`, {
+            method: 'POST',
+        });
+    }
+
+    async unlikePortalFbPost(linkedPageId, postId) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}/like`, {
+            method: 'DELETE',
+        });
+    }
+
+    async commentOnPortalFbPost(linkedPageId, postId, message) {
+        return this.request(`/api/portal/fb-content/${linkedPageId}/posts/${postId}/comments`, {
+            method: 'POST',
+            body: JSON.stringify({ message }),
         });
     }
 

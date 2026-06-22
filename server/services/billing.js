@@ -21,6 +21,9 @@ export const BILLING_OPERATIONS = Object.freeze({
     FACEBOOK_COMMENT_LIKE: 'facebook.comment_like',
     FACEBOOK_COMMENT_UNLIKE: 'facebook.comment_unlike',
     FACEBOOK_COMMENT_DELETE: 'facebook.comment_delete',
+    FACEBOOK_POST_LIKE: 'facebook.post_like',
+    FACEBOOK_POST_UNLIKE: 'facebook.post_unlike',
+    FACEBOOK_POST_COMMENT: 'facebook.post_comment',
     WHATSAPP_EVENT_CONVERSION: 'whatsapp.event_conversion',
 });
 
