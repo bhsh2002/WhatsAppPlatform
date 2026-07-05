@@ -926,23 +926,70 @@ function getTenant(tenantId) {
     return db.prepare('SELECT id, name, status, credits FROM tenants WHERE id = ?').get(tenantId);
 }
 
+function getBillingCycleState(account) {
+    const hasPlan = !!account?.plan_id;
+    const cycleStart = account?.billing_cycle_start || null;
+    const cycleEnd = account?.billing_cycle_end || null;
+
+    if (!hasPlan) {
+        return {
+            billing_cycle_active: true,
+            billing_cycle_blocked: false,
+            billing_cycle_expired: false,
+            billing_cycle_block_reason: null,
+            billing_cycle_start: cycleStart,
+            billing_cycle_end: cycleEnd,
+        };
+    }
+
+    if (!cycleEnd) {
+        return {
+            billing_cycle_active: false,
+            billing_cycle_blocked: true,
+            billing_cycle_expired: true,
+            billing_cycle_block_reason: 'missing_cycle_end',
+            billing_cycle_start: cycleStart,
+            billing_cycle_end: null,
+        };
+    }
+
+    const active = db.prepare(`
+        SELECT CASE WHEN datetime(?) > datetime('now', 'localtime') THEN 1 ELSE 0 END AS active
+    `).get(cycleEnd)?.active === 1;
+
+    return {
+        billing_cycle_active: active,
+        billing_cycle_blocked: !active,
+        billing_cycle_expired: !active,
+        billing_cycle_block_reason: active ? null : 'cycle_expired',
+        billing_cycle_start: cycleStart,
+        billing_cycle_end: cycleEnd,
+    };
+}
+
 function computeAvailable(account, reservedCredits = 0) {
+    const cycleState = getBillingCycleState(account);
     const planBalance = toInt(account?.plan_balance_credits);
     const walletBalance = toInt(account?.wallet_balance_credits);
     const creditLimit = toInt(account?.credit_limit_credits);
     const creditUsed = toInt(account?.credit_used_credits);
-    const remainingCreditLimit = Math.max(creditLimit - creditUsed, 0);
-    const grossAvailable = planBalance + walletBalance + remainingCreditLimit;
+    const rawRemainingCreditLimit = Math.max(creditLimit - creditUsed, 0);
+    const rawGrossAvailable = planBalance + walletBalance + rawRemainingCreditLimit;
+    const effectiveGrossAvailable = cycleState.billing_cycle_blocked ? 0 : rawGrossAvailable;
+    const effectiveReservedCredits = Math.max(toInt(reservedCredits), 0);
 
     return {
         plan_balance_credits: planBalance,
         wallet_balance_credits: walletBalance,
         credit_limit_credits: creditLimit,
         credit_used_credits: creditUsed,
-        remaining_credit_limit_credits: remainingCreditLimit,
-        gross_available_credits: grossAvailable,
-        reserved_credits: Math.max(toInt(reservedCredits), 0),
-        available_credits: Math.max(grossAvailable - Math.max(toInt(reservedCredits), 0), 0),
+        remaining_credit_limit_credits: cycleState.billing_cycle_blocked ? 0 : rawRemainingCreditLimit,
+        raw_remaining_credit_limit_credits: rawRemainingCreditLimit,
+        gross_available_credits: effectiveGrossAvailable,
+        raw_gross_available_credits: rawGrossAvailable,
+        reserved_credits: effectiveReservedCredits,
+        available_credits: Math.max(effectiveGrossAvailable - effectiveReservedCredits, 0),
+        ...cycleState,
     };
 }
 
@@ -1237,6 +1284,18 @@ export function reserve({
                 status: 402,
                 code: 'BILLING_ACCOUNT_SUSPENDED',
                 operation: operationKey,
+            });
+        }
+
+        const cycleState = getBillingCycleState(account);
+        if (cycleState.billing_cycle_blocked) {
+            throw new BillingError('انتهت دورة الاشتراك، يجب تجديد الباقة قبل تنفيذ العملية', {
+                status: 402,
+                code: 'BILLING_CYCLE_EXPIRED',
+                operation: operationKey,
+                billing_cycle_start: cycleState.billing_cycle_start,
+                billing_cycle_end: cycleState.billing_cycle_end,
+                reason: cycleState.billing_cycle_block_reason,
             });
         }
 

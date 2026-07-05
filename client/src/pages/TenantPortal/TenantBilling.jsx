@@ -110,7 +110,8 @@ const TenantBilling = () => {
     const plan = summary?.plan;
     const account = summary?.account || {};
     const usageRows = summary?.usage_period || summary?.usage_month || [];
-    const lowBalance = Number(balances.available_credits || 0) < 10;
+    const cycleBlocked = Boolean(balances.billing_cycle_blocked);
+    const lowBalance = !cycleBlocked && Number(balances.available_credits || 0) < 10;
     const usingCreditLimit = Number(balances.credit_used_credits || 0) > 0;
     const number = (value) => Number(value || 0).toLocaleString(locale);
     const money = (value) => `${Number(value || 0).toLocaleString(locale)} LYD`;
@@ -134,6 +135,11 @@ const TenantBilling = () => {
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {cycleBlocked && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                    انتهت دورة الاشتراك الحالية، ولا يمكن تنفيذ عمليات جديدة حتى يتم تجديد الباقة من الإدارة.
+                </Alert>
+            )}
             {lowBalance && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
                     {t('billing.lowBalanceWarning')}

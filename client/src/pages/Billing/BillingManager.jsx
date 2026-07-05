@@ -790,7 +790,9 @@ const BillingManager = () => {
                                 <Typography variant="h6" fontWeight={700}>دورة الاشتراك</Typography>
                                 <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={saving || !selectedTenantId || !cycleRenewDue}>تجديد الدورة</Button>
                             </Box>
-                            {!cycleRenewDue && <Alert severity="info" sx={{
+                            {cycleRenewDue ? <Alert severity="warning" sx={{
+            mb: 2
+          }}>دورة الاشتراك غير فعالة، وسيتم حظر الاستخدام حتى يتم تجديدها.</Alert> : <Alert severity="info" sx={{
             mb: 2
           }}>دورة الاشتراك الحالية لم تنته بعد.</Alert>}
                             <Grid container spacing={2}>
