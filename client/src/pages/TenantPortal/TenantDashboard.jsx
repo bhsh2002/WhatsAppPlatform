@@ -26,16 +26,21 @@ import {
     History as HistoryIcon,
     AccountBalanceWallet as CreditsIcon,
     WhatsApp as WhatsAppIcon,
-    Facebook as FacebookIcon
+    Facebook as FacebookIcon,
+    EventAvailable as SubscriptionIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 
+const EXPIRY_WARNING_DAYS = 7;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 const TenantDashboard = () => {
     const { tenant } = useAuth();
     const { locale, t } = useLanguage();
     const [dashboardData, setDashboardData] = useState(null);
+    const [billingSummary, setBillingSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -43,8 +48,15 @@ const TenantDashboard = () => {
         try {
             setLoading(true);
             setError(null);
-            const data = await api.getPortalDashboard();
-            setDashboardData(data);
+            const [dashboardResult, billingResult] = await Promise.allSettled([
+                api.getPortalDashboard(),
+                api.getPortalBillingSummary(),
+            ]);
+            if (dashboardResult.status === 'rejected') {
+                throw dashboardResult.reason;
+            }
+            setDashboardData(dashboardResult.value);
+            setBillingSummary(billingResult.status === 'fulfilled' ? billingResult.value : null);
         } catch (err) {
             console.error('Failed to fetch dashboard:', err);
             setError(err.message);
@@ -117,6 +129,23 @@ const TenantDashboard = () => {
     const stats = dashboardData?.stats || {};
     const recentActivity = dashboardData?.recentActivity || [];
     const formatNumber = (value) => Number(value || 0).toLocaleString(locale);
+    const formatDateTime = (value) => {
+        if (!value) return t('common.notSet');
+        const parsed = new Date(String(value).replace(' ', 'T'));
+        if (Number.isNaN(parsed.getTime())) return value;
+        return parsed.toLocaleString(locale);
+    };
+    const cycleEnd = billingSummary?.account?.billing_cycle_end || null;
+    const cycleEndDate = cycleEnd ? new Date(String(cycleEnd).replace(' ', 'T')) : null;
+    const cycleEndMs = cycleEndDate && !Number.isNaN(cycleEndDate.getTime()) ? cycleEndDate.getTime() : null;
+    const daysUntilExpiry = cycleEndMs ? Math.ceil((cycleEndMs - Date.now()) / MS_PER_DAY) : null;
+    const cycleBlocked = Boolean(billingSummary?.balances?.billing_cycle_blocked);
+    const cycleExpired = cycleBlocked || (daysUntilExpiry !== null && daysUntilExpiry <= 0);
+    const cycleNearExpiry = !cycleExpired && daysUntilExpiry !== null && daysUntilExpiry <= EXPIRY_WARNING_DAYS;
+    const cycleStatusColor = !cycleEnd ? 'info' : (cycleExpired ? 'error' : (cycleNearExpiry ? 'warning' : 'success'));
+    const cycleCaption = cycleExpired
+        ? 'منتهي'
+        : (cycleNearExpiry ? `ينتهي خلال ${formatNumber(daysUntilExpiry)} يوم` : (cycleEnd ? 'نشط' : t('common.notSet')));
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -139,6 +168,17 @@ const TenantDashboard = () => {
                     {t('common.refresh')}
                 </Button>
             </Box>
+
+            {cycleExpired && (
+                <Alert severity="error" sx={{ mb: 3 }}>
+                    انتهت فترة الاشتراك، ولا يمكن تنفيذ عمليات جديدة حتى يتم تجديد الباقة.
+                </Alert>
+            )}
+            {cycleNearExpiry && (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                    فترة الاشتراك ستنتهي خلال {formatNumber(daysUntilExpiry)} يوم. يرجى التواصل مع الإدارة لتجديد الباقة.
+                </Alert>
+            )}
 
             {/* Stats Grid */}
             <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -206,6 +246,15 @@ const TenantDashboard = () => {
                             (dashboardData?.tenant?.credits ?? 999) >= 10 ? 'warning' : 'error'
                         }
                         description={t('dashboard.messageCredits')}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <StatCard
+                        title="انتهاء الاشتراك"
+                        value={formatDateTime(cycleEnd)}
+                        icon={<SubscriptionIcon />}
+                        color={cycleStatusColor}
+                        description={cycleCaption}
                     />
                 </Grid>
             </Grid>
