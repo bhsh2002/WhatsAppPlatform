@@ -4,6 +4,7 @@ import { META_API_BASE } from '../config/index.js';
 import { checkSingleTenant } from '../services/tokenMonitor.js';
 import { getAccessToken } from '../services/credentials.js';
 import {
+    applyMonthlyAllowance,
     createInvoice,
     ensureTenantBillingAccount,
     getBillingSummary,
@@ -445,7 +446,10 @@ router.get('/:id/billing', (req, res) => {
         if (!tenant) {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
-        res.json(getBillingSummary(req.params.id));
+        res.json(getBillingSummary(req.params.id, {
+            periodStart: req.query.period_start || null,
+            periodEnd: req.query.period_end || null,
+        }));
     } catch (error) {
         if (handleBillingError(res, error)) return;
         console.error('Error fetching tenant billing:', error);
@@ -461,6 +465,17 @@ router.patch('/:id/billing/account', (req, res) => {
         if (handleBillingError(res, error)) return;
         console.error('Error updating tenant billing account:', error);
         res.status(500).json({ error: 'فشل تحديث حساب الفوترة' });
+    }
+});
+
+router.post('/:id/billing/renew-cycle', (req, res) => {
+    try {
+        const result = applyMonthlyAllowance(req.params.id);
+        res.json(result);
+    } catch (error) {
+        if (handleBillingError(res, error)) return;
+        console.error('Error renewing tenant billing cycle:', error);
+        res.status(500).json({ error: 'فشل تجديد دورة الاشتراك' });
     }
 });
 

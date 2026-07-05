@@ -1418,8 +1418,9 @@ class ApiService {
         });
     }
 
-    async getTenantBilling(tenantId) {
-        return this.request(`/api/tenants/${tenantId}/billing`);
+    async getTenantBilling(tenantId, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/tenants/${tenantId}/billing${query ? '?' + query : ''}`);
     }
 
     async updateTenantBillingAccount(tenantId, data) {
@@ -1443,6 +1444,12 @@ class ApiService {
         });
     }
 
+    async renewTenantBillingCycle(tenantId) {
+        return this.request(`/api/tenants/${tenantId}/billing/renew-cycle`, {
+            method: 'POST',
+        });
+    }
+
     async getTenantBillingLedger(tenantId, params = {}) {
         const query = new URLSearchParams(params).toString();
         return this.request(`/api/tenants/${tenantId}/billing/ledger${query ? '?' + query : ''}`);
@@ -1460,8 +1467,9 @@ class ApiService {
         });
     }
 
-    async getPortalBillingSummary() {
-        return this.request('/api/portal/billing/summary');
+    async getPortalBillingSummary(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/billing/summary${query ? '?' + query : ''}`);
     }
 
     async getPortalBillingLedger(params = {}) {
@@ -1997,10 +2005,20 @@ class ApiService {
         });
     }
 
-    async connectWhatsApp(code, phoneNumberId, wabaId, businessId) {
+    async getPortalWhatsAppStatus() {
+        return this.request('/api/portal/whatsapp/status');
+    }
+
+    async connectWhatsApp(code, phoneNumberId, wabaId, businessId, forceReconnect = false) {
         return this.request('/api/portal/whatsapp/connect', {
             method: 'POST',
-            body: JSON.stringify({ code, phone_number_id: phoneNumberId, waba_id: wabaId, business_id: businessId }),
+            body: JSON.stringify({
+                code,
+                phone_number_id: phoneNumberId,
+                waba_id: wabaId,
+                business_id: businessId,
+                force_reconnect: forceReconnect,
+            }),
         });
     }
 }

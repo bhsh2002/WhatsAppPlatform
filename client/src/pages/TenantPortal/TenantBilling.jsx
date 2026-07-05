@@ -15,6 +15,7 @@ import {
     TableContainer,
     TableHead,
     TableRow,
+    TextField,
     Typography,
 } from '@mui/material';
 import {
@@ -42,11 +43,23 @@ const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
     </Card>
 );
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const monthStartIso = () => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+};
+const defaultPeriod = () => ({
+    period_start: monthStartIso(),
+    period_end: todayIso(),
+});
+
 const TenantBilling = () => {
     const { locale, t } = useLanguage();
     const [summary, setSummary] = useState(null);
     const [ledger, setLedger] = useState([]);
     const [invoices, setInvoices] = useState([]);
+    const [periodForm, setPeriodForm] = useState(defaultPeriod);
+    const [appliedPeriod, setAppliedPeriod] = useState(defaultPeriod);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -55,7 +68,7 @@ const TenantBilling = () => {
             setLoading(true);
             setError(null);
             const [summaryData, ledgerData, invoicesData] = await Promise.all([
-                api.getPortalBillingSummary(),
+                api.getPortalBillingSummary(appliedPeriod),
                 api.getPortalBillingLedger({ limit: 10 }),
                 api.getPortalBillingInvoices({ limit: 5 }),
             ]);
@@ -67,7 +80,19 @@ const TenantBilling = () => {
         } finally {
             setLoading(false);
         }
-    }, [t]);
+    }, [appliedPeriod, t]);
+
+    const applyPeriod = useCallback(() => {
+        const nextPeriod = { ...periodForm };
+        if (
+            nextPeriod.period_start === appliedPeriod.period_start
+            && nextPeriod.period_end === appliedPeriod.period_end
+        ) {
+            fetchBilling();
+            return;
+        }
+        setAppliedPeriod(nextPeriod);
+    }, [appliedPeriod, fetchBilling, periodForm]);
 
     useEffect(() => {
         fetchBilling();
@@ -83,10 +108,18 @@ const TenantBilling = () => {
 
     const balances = summary?.balances || {};
     const plan = summary?.plan;
+    const account = summary?.account || {};
+    const usageRows = summary?.usage_period || summary?.usage_month || [];
     const lowBalance = Number(balances.available_credits || 0) < 10;
     const usingCreditLimit = Number(balances.credit_used_credits || 0) > 0;
     const number = (value) => Number(value || 0).toLocaleString(locale);
     const money = (value) => `${Number(value || 0).toLocaleString(locale)} LYD`;
+    const formatDateTime = (value) => {
+        if (!value) return t('common.notSet');
+        const parsed = new Date(String(value).replace(' ', 'T'));
+        if (Number.isNaN(parsed.getTime())) return value;
+        return parsed.toLocaleString(locale);
+    };
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -112,6 +145,41 @@ const TenantBilling = () => {
                 </Alert>
             )}
 
+            <Paper sx={{ p: 2, mb: 3 }}>
+                <Grid container spacing={1.5} alignItems="center">
+                    <Grid size={{ xs: 12, sm: 5 }}>
+                        <TextField
+                            fullWidth
+                            type="date"
+                            label="من تاريخ"
+                            InputLabelProps={{ shrink: true }}
+                            value={periodForm.period_start}
+                            onChange={(e) => setPeriodForm((prev) => ({ ...prev, period_start: e.target.value }))}
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 5 }}>
+                        <TextField
+                            fullWidth
+                            type="date"
+                            label="إلى تاريخ"
+                            InputLabelProps={{ shrink: true }}
+                            value={periodForm.period_end}
+                            onChange={(e) => setPeriodForm((prev) => ({ ...prev, period_end: e.target.value }))}
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 2 }}>
+                        <Button fullWidth variant="contained" onClick={applyPeriod}>
+                            تطبيق
+                        </Button>
+                    </Grid>
+                    <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary">
+                            فترة الاستخدام: {summary?.period?.start_date || appliedPeriod.period_start} - {summary?.period?.end_date || appliedPeriod.period_end}
+                        </Typography>
+                    </Grid>
+                </Grid>
+            </Paper>
+
             <Grid container spacing={2} sx={{ mb: 3 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard title={t('billing.availableCredits')} value={number(balances.available_credits)} icon={<WalletIcon />} color={lowBalance ? 'warning' : 'success'} caption={t('billing.availableCreditsCaption')} />
@@ -127,11 +195,33 @@ const TenantBilling = () => {
                 </Grid>
             </Grid>
 
+            <Paper sx={{ p: 2, mb: 3 }}>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>دورة الاشتراك</Typography>
+                <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">تاريخ التفعيل</Typography>
+                        <Typography fontWeight={700}>{formatDateTime(account.billing_cycle_start)}</Typography>
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">تاريخ الانتهاء</Typography>
+                        <Typography fontWeight={700}>{formatDateTime(account.billing_cycle_end)}</Typography>
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">حالة الفوترة</Typography>
+                        <Chip size="small" label={account.status || t('common.notSet')} color={account.status === 'active' ? 'success' : 'warning'} />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">حد الائتمان</Typography>
+                        <Typography fontWeight={700}>{number(balances.credit_limit_credits)}</Typography>
+                    </Grid>
+                </Grid>
+            </Paper>
+
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 5 }}>
                     <Paper sx={{ p: 2 }}>
-                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>{t('billing.monthlyUsageByChannel')}</Typography>
-                        {(summary?.usage_month || []).length === 0 ? (
+                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>الاستخدام حسب الفترة</Typography>
+                        {usageRows.length === 0 ? (
                             <Alert severity="info">{t('billing.noPaidUsage')}</Alert>
                         ) : (
                             <TableContainer>
@@ -145,7 +235,7 @@ const TenantBilling = () => {
                                             </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {summary.usage_month.map((row) => (
+                                        {usageRows.map((row) => (
                                             <TableRow key={`${row.channel}-${row.operation_type}`}>
                                                 <TableCell><Chip size="small" label={row.channel} /></TableCell>
                                                 <TableCell>{row.operation_type}</TableCell>

@@ -233,7 +233,11 @@ router.get('/dashboard', (req, res) => {
 // ============================================
 router.get('/billing/summary', (req, res) => {
     try {
-        const summary = getBillingSummary(req.user.tenant_id, { includeInternal: false });
+        const summary = getBillingSummary(req.user.tenant_id, {
+            includeInternal: false,
+            periodStart: req.query.period_start || null,
+            periodEnd: req.query.period_end || null,
+        });
         res.json(summary);
     } catch (error) {
         if (handleBillingError(res, error)) return;
@@ -4926,6 +4930,31 @@ router.post('/fb-messenger/:linkedPageId/conversations/:convId/utility-message',
     }
 });
 
+const getTenantWhatsAppStatus = (tenantId) => {
+    const tenant = db.prepare(`
+        SELECT id, waba_id, phone_number_id, business_id, access_token, access_token_encrypted, updated_at
+        FROM tenants
+        WHERE id = ?
+    `).get(tenantId);
+    const lastConnected = db.prepare(`
+        SELECT created_at
+        FROM activity_logs
+        WHERE tenant_id = ? AND event_type = 'whatsapp_connected' AND status = 'success'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+    `).get(tenantId);
+    const tokenPresent = !!(tenant?.access_token || tenant?.access_token_encrypted);
+    return {
+        connected: !!(tenant?.waba_id && tenant?.phone_number_id && tokenPresent),
+        waba_id: tenant?.waba_id || null,
+        phone_number_id: tenant?.phone_number_id || null,
+        business_id: tenant?.business_id || null,
+        token_present: tokenPresent,
+        connected_at: lastConnected?.created_at || null,
+        updated_at: tenant?.updated_at || null,
+    };
+};
+
 // ============================================
 // Meta Config (exposes non-secret config to frontend)
 // ============================================
@@ -5413,13 +5442,31 @@ router.delete('/facebook/disconnect/:linkedPageId', async (req, res) => {
 // ============================================
 // WhatsApp Embedded Signup
 // ============================================
+router.get('/whatsapp/status', (req, res) => {
+    try {
+        res.json(getTenantWhatsAppStatus(req.user.tenant_id));
+    } catch (error) {
+        console.error('[TenantPortal] WhatsApp status error:', error);
+        res.status(500).json({ error: 'فشل جلب حالة ربط واتساب' });
+    }
+});
+
 router.post('/whatsapp/connect', async (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
-        const { code, phone_number_id, waba_id, business_id } = req.body;
+        const { code, phone_number_id, waba_id, business_id, force_reconnect = false } = req.body;
 
         if (!code || !phone_number_id || !waba_id) {
             return res.status(400).json({ error: 'code, phone_number_id, and waba_id are required' });
+        }
+
+        const existingStatus = getTenantWhatsAppStatus(tenantId);
+        if (existingStatus.connected && !force_reconnect) {
+            return res.status(409).json({
+                error: 'حساب WhatsApp مربوط بالفعل',
+                code: 'WHATSAPP_ALREADY_CONNECTED',
+                status: existingStatus,
+            });
         }
 
         if (!META_APP_ID || !META_APP_SECRET) {
@@ -5465,7 +5512,7 @@ router.post('/whatsapp/connect', async (req, res) => {
             VALUES (?, ?, 'whatsapp_connected', ?, 'success')
         `).run(tenantId, tenant?.name, `ربط حساب WhatsApp: ${phone_number_id}`);
 
-        res.json({ success: true, waba_id, phone_number_id });
+        res.json({ success: true, waba_id, phone_number_id, status: getTenantWhatsAppStatus(tenantId) });
     } catch (error) {
         console.error('[TenantPortal] WhatsApp connect error:', error);
         res.status(500).json({ error: 'فشل ربط واتساب' });

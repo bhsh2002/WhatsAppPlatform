@@ -126,6 +126,45 @@ function normalizeSqlDate(value, endOfDay = false) {
     return sqlDate(raw);
 }
 
+function normalizeBillingPeriod({ periodStart = null, periodEnd = null } = {}) {
+    const defaults = db.prepare(`
+        SELECT datetime('now', 'start of month', 'localtime') AS start_sql,
+               datetime('now', 'localtime') AS end_sql
+    `).get();
+    const normalizeRequiredDate = (value, endOfDay = false) => {
+        if (!value) return null;
+        const raw = String(value).trim();
+        if (!raw) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            return `${raw} ${endOfDay ? '23:59:59' : '00:00:00'}`;
+        }
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) {
+            throw new BillingError('نطاق التاريخ غير صالح', { status: 400, code: 'INVALID_BILLING_PERIOD' });
+        }
+        return parsed.toISOString().slice(0, 19).replace('T', ' ');
+    };
+
+    const startSql = normalizeRequiredDate(periodStart, false) || defaults.start_sql;
+    const endSql = normalizeRequiredDate(periodEnd, true) || defaults.end_sql;
+    const startMs = new Date(startSql.replace(' ', 'T')).getTime();
+    const endMs = new Date(endSql.replace(' ', 'T')).getTime();
+    if (Number.isNaN(startMs) || Number.isNaN(endMs) || startMs > endMs) {
+        throw new BillingError('نطاق التاريخ غير صالح', { status: 400, code: 'INVALID_BILLING_PERIOD' });
+    }
+
+    return {
+        start: startSql,
+        end: endSql,
+        period_start: startSql,
+        period_end: endSql,
+        start_date: startSql.slice(0, 10),
+        end_date: endSql.slice(0, 10),
+        default_start: !periodStart,
+        default_end: !periodEnd,
+    };
+}
+
 function toUnixSeconds(value, endOfDay = false) {
     const normalized = normalizeSqlDate(value, endOfDay);
     const parsed = new Date(normalized.replace(' ', 'T'));
@@ -1769,18 +1808,27 @@ export function recordAdjustment({ tenantId, creditsDelta, reason, createdBy = n
 export function applyMonthlyAllowance(tenantId) {
     const transaction = db.transaction(() => {
         const account = ensureTenantBillingAccount(tenantId);
-        if (!account?.plan_id) return { applied: false, reason: 'no_plan' };
+        if (!account) {
+            throw new BillingError('العميل غير موجود', { status: 404, code: 'TENANT_NOT_FOUND' });
+        }
+        if (!account?.plan_id) return { applied: false, reason: 'no_plan', summary: getBillingSummary(tenantId) };
 
         const plan = db.prepare('SELECT * FROM billing_plans WHERE id = ?').get(account.plan_id);
-        if (!plan || !plan.is_active) return { applied: false, reason: 'inactive_plan' };
+        if (!plan || !plan.is_active) return { applied: false, reason: 'inactive_plan', summary: getBillingSummary(tenantId) };
 
-        const currentMonth = db.prepare("SELECT strftime('%Y-%m', datetime('now', 'localtime')) AS month").get().month;
-        const cycleMonth = account.billing_cycle_start
-            ? db.prepare("SELECT strftime('%Y-%m', ?) AS month").get(account.billing_cycle_start).month
-            : null;
-
-        if (cycleMonth === currentMonth) {
-            return { applied: false, reason: 'already_current_cycle' };
+        if (account.billing_cycle_end) {
+            const expired = db.prepare(`
+                SELECT CASE WHEN datetime(?) <= datetime('now', 'localtime') THEN 1 ELSE 0 END AS expired
+            `).get(account.billing_cycle_end)?.expired;
+            if (!expired) {
+                return {
+                    applied: false,
+                    reason: 'cycle_not_due',
+                    billing_cycle_start: account.billing_cycle_start || null,
+                    billing_cycle_end: account.billing_cycle_end || null,
+                    summary: getBillingSummary(tenantId),
+                };
+            }
         }
 
         const included = Math.max(toInt(plan.monthly_included_credits), 0);
@@ -1961,14 +2009,13 @@ export function createInvoice({ tenantId, periodStart = null, periodEnd = null, 
         ensureTenantBillingAccount(tenantId);
         const periodClause = [];
         const params = [tenantId];
+        const period = periodStart || periodEnd ? normalizeBillingPeriod({ periodStart, periodEnd }) : null;
 
-        if (periodStart) {
-            periodClause.push('created_at >= ?');
-            params.push(periodStart);
-        }
-        if (periodEnd) {
-            periodClause.push('created_at <= ?');
-            params.push(periodEnd);
+        if (period) {
+            periodClause.push('committed_at >= ?');
+            params.push(period.start);
+            periodClause.push('committed_at <= ?');
+            params.push(period.end);
         }
 
         const usageWhere = periodClause.length ? `AND ${periodClause.join(' AND ')}` : '';
@@ -1992,7 +2039,7 @@ export function createInvoice({ tenantId, periodStart = null, periodEnd = null, 
                 tenant_id, invoice_number, period_start, period_end,
                 subtotal_credits, subtotal_lyd, status, due_date, notes, created_by
             ) VALUES (?, ?, ?, ?, ?, 0, 'issued', ?, ?, ?)
-        `).run(tenantId, invoiceNumber, periodStart, periodEnd, credits, dueDate, notes, createdBy);
+        `).run(tenantId, invoiceNumber, period?.start || periodStart, period?.end || periodEnd, credits, dueDate, notes, createdBy);
 
         return db.prepare('SELECT * FROM billing_invoices WHERE id = ?').get(invoice.lastInsertRowid);
     });
@@ -2000,7 +2047,7 @@ export function createInvoice({ tenantId, periodStart = null, periodEnd = null, 
     return transaction();
 }
 
-export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
+export function getBillingSummary(tenantId, { includeInternal = true, periodStart = null, periodEnd = null } = {}) {
     const account = ensureTenantBillingAccount(tenantId);
     if (!account) return null;
 
@@ -2014,6 +2061,7 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
 
     const reservedCredits = getReservedCredits(tenantId);
     const availability = computeAvailable(fullAccount, reservedCredits);
+    const period = normalizeBillingPeriod({ periodStart, periodEnd });
 
     const chargedCreditsSql = `
         CASE
@@ -2030,11 +2078,12 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
         FROM billing_usage_events
         WHERE tenant_id = ?
           AND status = 'committed'
-          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND committed_at >= ?
+          AND committed_at <= ?
           AND (${chargedCreditsSql}) > 0
         GROUP BY channel, operation_type
         ORDER BY channel, operation_type
-    `).all(tenantId);
+    `).all(tenantId, period.start, period.end);
 
     const platformFeeUsageByChannel = includeInternal ? db.prepare(`
         SELECT channel,
@@ -2043,12 +2092,13 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
         FROM billing_usage_events
         WHERE tenant_id = ?
           AND status = 'committed'
-          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND committed_at >= ?
+          AND committed_at <= ?
           AND (${chargedCreditsSql}) > 0
           AND customer_charge_type IN ('platform_fee', 'paid')
         GROUP BY channel
         ORDER BY channel
-    `).all(tenantId) : [];
+    `).all(tenantId, period.start, period.end) : [];
 
     const metaFreeCostUsageByChannel = includeInternal ? db.prepare(`
         SELECT channel,
@@ -2059,13 +2109,14 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
         WHERE tenant_id = ?
           AND status = 'committed'
           AND tenant_visible_usage != 0
-          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND committed_at >= ?
+          AND committed_at <= ?
           AND (${chargedCreditsSql}) > 0
           AND COALESCE(meta_final_amount, 0) = 0
           AND COALESCE(meta_charge_status, 'not_applicable') IN ('not_charged', 'not_applicable', 'final')
         GROUP BY channel, operation_type
         ORDER BY channel, operation_type
-    `).all(tenantId) : [];
+    `).all(tenantId, period.start, period.end) : [];
 
     const metaCostMonth = includeInternal ? db.prepare(`
         SELECT meta_charge_currency AS currency,
@@ -2076,10 +2127,11 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
         WHERE tenant_id = ?
           AND status = 'committed'
           AND channel = 'whatsapp'
-          AND committed_at >= datetime('now', 'start of month', 'localtime')
+          AND committed_at >= ?
+          AND committed_at <= ?
         GROUP BY meta_charge_currency
         ORDER BY final_amount DESC, estimated_amount DESC
-    `).all(tenantId) : [];
+    `).all(tenantId, period.start, period.end) : [];
 
     const billingSettings = getBillingSettingsValues();
     const creditValueLyd = Number(billingSettings.credit_value_lyd) || 0.1;
@@ -2089,8 +2141,9 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
         SELECT COALESCE(SUM(amount_lyd), 0) AS total
         FROM billing_payments
         WHERE tenant_id = ?
-          AND created_at >= datetime('now', 'start of month', 'localtime')
-    `).get(tenantId)?.total || 0 : 0;
+          AND created_at >= ?
+          AND created_at <= ?
+    `).get(tenantId, period.start, period.end)?.total || 0 : 0;
     const metaCostLydMonth = metaCostMonth.reduce((sum, row) => {
         const currency = row.currency || 'USD';
         const amount = Number(row.final_amount) || 0;
@@ -2126,6 +2179,7 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
 
     const summary = {
         tenant_id: tenantId,
+        period,
         account: fullAccount,
         plan: fullAccount?.plan_id ? {
             id: fullAccount.plan_id,
@@ -2138,7 +2192,9 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
         } : null,
         balances: availability,
         usage_month: usageByChannel,
+        usage_period: usageByChannel,
         paid_usage_month: usageByChannel,
+        paid_usage_period: usageByChannel,
         last_payment: lastPayment,
         last_invoice: lastInvoice,
         recent_ledger: recentLedger,
@@ -2146,9 +2202,13 @@ export function getBillingSummary(tenantId, { includeInternal = true } = {}) {
 
     if (includeInternal) {
         summary.platform_fee_usage_month = platformFeeUsageByChannel;
+        summary.platform_fee_usage_period = platformFeeUsageByChannel;
         summary.meta_free_cost_usage_month = metaFreeCostUsageByChannel;
+        summary.meta_free_cost_usage_period = metaFreeCostUsageByChannel;
         summary.meta_cost_month = metaCostMonth;
+        summary.meta_cost_period = metaCostMonth;
         summary.profitability_month = profitabilityMonth;
+        summary.profitability_period = profitabilityMonth;
     }
 
     return summary;

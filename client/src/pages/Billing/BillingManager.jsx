@@ -11,6 +11,14 @@ const money = (value, currency = '') => `${Number(value || 0).toLocaleString(get
   maximumFractionDigits: 4
 })}${currency ? ` ${currency}` : ''}`;
 const todayIso = () => new Date().toISOString().slice(0, 10);
+const monthStartIso = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+};
+const defaultBillingPeriod = () => ({
+  period_start: monthStartIso(),
+  period_end: todayIso()
+});
 const metaCategoriesForOperation = operationKey => {
   if (['whatsapp.text', 'whatsapp.media', 'whatsapp.interactive'].includes(operationKey)) {
     return {
@@ -164,6 +172,8 @@ const BillingManager = () => {
   const [tenants, setTenants] = useState([]);
   const [selectedTenantId, setSelectedTenantId] = useState('');
   const [billing, setBilling] = useState(null);
+  const [billingPeriodForm, setBillingPeriodForm] = useState(defaultBillingPeriod);
+  const [billingPeriod, setBillingPeriod] = useState(defaultBillingPeriod);
   const [planDialog, setPlanDialog] = useState(false);
   const [planForm, setPlanForm] = useState({
     code: '',
@@ -227,6 +237,14 @@ const BillingManager = () => {
   const metaDisplayCurrency = reconciliationMetrics?.currency || latestMetaSnapshot?.currency || metaSummary?.by_category?.[0]?.currency || '';
   const metaExchangeRate = Number(metaSettings.meta_cost_exchange_rate_to_lyd || 1) || 1;
   const metaCostLyd = (Number(reconciliationMetrics?.comparison?.meta_cost_amount || latestMetaSnapshot?.meta_cost_amount || 0) || 0) * metaExchangeRate;
+  const formatDateTime = value => {
+    if (!value) return t('common.notSet');
+    const parsed = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(getCurrentLocale());
+  };
+  const cycleEnd = billing?.account?.billing_cycle_end || null;
+  const cycleRenewDue = !cycleEnd || new Date(String(cycleEnd).replace(' ', 'T')).getTime() <= Date.now();
   const fetchAll = async () => {
     try {
       setLoading(true);
@@ -248,12 +266,12 @@ const BillingManager = () => {
       setLoading(false);
     }
   };
-  const fetchTenantBilling = async tenantId => {
+  const fetchTenantBilling = async (tenantId, periodOverride = billingPeriod) => {
     if (!tenantId) {
       setBilling(null);
       return;
     }
-    const data = await api.getTenantBilling(tenantId);
+    const data = await api.getTenantBilling(tenantId, periodOverride);
     setBilling(data);
     setAccountForm({
       plan_id: data?.account?.plan_id || '',
@@ -310,6 +328,16 @@ const BillingManager = () => {
       await fetchMetaBilling(tenantId);
     } catch (err) {
       setError(err.message || tx("auto.k_fbaaf9c370c9"));
+    }
+  };
+  const applyBillingPeriod = async () => {
+    const nextPeriod = { ...billingPeriodForm };
+    setBillingPeriod(nextPeriod);
+    if (!selectedTenantId) return;
+    try {
+      await fetchTenantBilling(selectedTenantId, nextPeriod);
+    } catch (err) {
+      setError(err.message || 'فشل تطبيق فترة الإحصائيات');
     }
   };
   const createPlan = async () => {
@@ -445,10 +473,23 @@ const BillingManager = () => {
     if (!selectedTenantId) return;
     setSaving(true);
     try {
-      await api.createTenantBillingInvoice(selectedTenantId, {});
+      await api.createTenantBillingInvoice(selectedTenantId, billingPeriod);
       await fetchTenantBilling(selectedTenantId);
     } catch (err) {
       setError(err.message || tx("auto.k_4a0cafc92b78"));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const renewBillingCycle = async () => {
+    if (!selectedTenantId) return;
+    setSaving(true);
+    try {
+      const result = await api.renewTenantBillingCycle(selectedTenantId);
+      setBilling(result.summary || result?.summary || billing);
+      await fetchTenantBilling(selectedTenantId);
+    } catch (err) {
+      setError(err.message || 'فشل تجديد دورة الاشتراك');
     } finally {
       setSaving(false);
     }
@@ -651,6 +692,36 @@ const BillingManager = () => {
 
             </Button>
                         </Paper>
+                        <Paper sx={{
+          p: 2,
+          mt: 2
+        }}>
+                            <Typography variant="h6" fontWeight={700} sx={{
+            mb: 2
+          }}>فترة إحصائيات الاستخدام</Typography>
+                            <TextField fullWidth type="date" label="من تاريخ" InputLabelProps={{
+            shrink: true
+          }} value={billingPeriodForm.period_start} onChange={e => setBillingPeriodForm({
+            ...billingPeriodForm,
+            period_start: e.target.value
+          })} sx={{
+            mb: 1.5
+          }} />
+                            <TextField fullWidth type="date" label="إلى تاريخ" InputLabelProps={{
+            shrink: true
+          }} value={billingPeriodForm.period_end} onChange={e => setBillingPeriodForm({
+            ...billingPeriodForm,
+            period_end: e.target.value
+          })} sx={{
+            mb: 1.5
+          }} />
+                            <Button fullWidth variant="outlined" startIcon={<RefreshIcon />} onClick={applyBillingPeriod} disabled={saving || !selectedTenantId}>تطبيق الفترة</Button>
+                            {billing?.period && <Typography variant="caption" color="text.secondary" display="block" sx={{
+            mt: 1
+          }}>
+                                النتائج: {billing.period.start_date} - {billing.period.end_date}
+                            </Typography>}
+                        </Paper>
                     </Grid>
                     <Grid size={{
         xs: 12,
@@ -704,6 +775,59 @@ const BillingManager = () => {
             })} />
                             </Grid>
                         </Grid>
+                        <Paper sx={{
+          p: 2,
+          mt: 2
+        }}>
+                            <Box sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            mb: 2
+          }}>
+                                <Typography variant="h6" fontWeight={700}>دورة الاشتراك</Typography>
+                                <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={saving || !selectedTenantId || !cycleRenewDue}>تجديد الدورة</Button>
+                            </Box>
+                            {!cycleRenewDue && <Alert severity="info" sx={{
+            mb: 2
+          }}>دورة الاشتراك الحالية لم تنته بعد.</Alert>}
+                            <Grid container spacing={2}>
+                                <Grid size={{
+              xs: 12,
+              sm: 6,
+              md: 3
+            }}>
+                                    <Typography variant="body2" color="text.secondary">تاريخ التفعيل</Typography>
+                                    <Typography fontWeight={700}>{formatDateTime(billing?.account?.billing_cycle_start)}</Typography>
+                                </Grid>
+                                <Grid size={{
+              xs: 12,
+              sm: 6,
+              md: 3
+            }}>
+                                    <Typography variant="body2" color="text.secondary">تاريخ الانتهاء</Typography>
+                                    <Typography fontWeight={700}>{formatDateTime(billing?.account?.billing_cycle_end)}</Typography>
+                                </Grid>
+                                <Grid size={{
+              xs: 12,
+              sm: 6,
+              md: 3
+            }}>
+                                    <Typography variant="body2" color="text.secondary">حالة الفوترة</Typography>
+                                    <Chip size="small" label={billing?.account?.status || t('common.notSet')} color={billing?.account?.status === 'active' ? 'success' : 'warning'} />
+                                </Grid>
+                                <Grid size={{
+              xs: 12,
+              sm: 6,
+              md: 3
+            }}>
+                                    <Typography variant="body2" color="text.secondary">الباقة الشهرية</Typography>
+                                    <Typography fontWeight={700}>{billing?.plan?.name || t('common.notSet')} / {money(billing?.plan?.monthly_price_lyd, 'LYD')}</Typography>
+                                </Grid>
+                            </Grid>
+                        </Paper>
                         <Grid container spacing={2} sx={{
           mt: 0
         }}>

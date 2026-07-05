@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Paper, Typography, Button, CircularProgress, Alert, Snackbar, Stepper, Step, StepLabel, TextField, Divider } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Box, Paper, Typography, Button, CircularProgress, Alert, Snackbar, Stepper, Step, StepLabel, TextField, Divider, Chip, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
 import { WhatsApp as WhatsAppIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
@@ -11,6 +11,10 @@ const WhatsAppConnect = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [config, setConfig] = useState(null);
+  const [whatsappStatus, setWhatsappStatus] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [reconnectMode, setReconnectMode] = useState(false);
+  const [confirmReconnectOpen, setConfirmReconnectOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -23,7 +27,19 @@ const WhatsAppConnect = ({
     business_id: ''
   });
   const [sdkReady, setSdkReady] = useState(false);
+  const fetchWhatsAppStatus = useCallback(async () => {
+    try {
+      setStatusLoading(true);
+      const status = await api.getPortalWhatsAppStatus();
+      setWhatsappStatus(status);
+    } catch {
+      setWhatsappStatus(null);
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
   useEffect(() => {
+    fetchWhatsAppStatus();
     api.getMetaConfig().then(cfg => {
       setConfig(cfg);
       if (cfg.whatsapp_signup_available && cfg.app_id) {
@@ -54,7 +70,7 @@ const WhatsAppConnect = ({
         }, 15000);
       }
     }).catch(() => {});
-  }, []);
+  }, [fetchWhatsAppStatus]);
   const handleEmbeddedSignup = () => {
     if (!window.FB || !config?.config_id) {
       setError(tx("auto.k_ee56c8749b16"));
@@ -105,7 +121,7 @@ const WhatsAppConnect = ({
           business_id: ''
         });
         setActiveStep(2);
-        handleSubmitConnect(code, phoneId, wabaId, '');
+        handleSubmitConnect(code, phoneId, wabaId, '', reconnectMode);
       } else if (response.status === 'not_authorized') {
         setError(tx("auto.k_a50b09067579"));
       } else {
@@ -126,12 +142,15 @@ const WhatsAppConnect = ({
       }
     });
   };
-  const handleSubmitConnect = async (code, phoneId, wabaId, bizId) => {
+  const handleSubmitConnect = async (code, phoneId, wabaId, bizId, forceReconnect = reconnectMode) => {
     try {
       setLoading(true);
       setError('');
       setActiveStep(2);
-      await api.connectWhatsApp(code, phoneId, wabaId, bizId);
+      const result = await api.connectWhatsApp(code, phoneId, wabaId, bizId, forceReconnect);
+      setWhatsappStatus(result?.status || null);
+      await fetchWhatsAppStatus();
+      setReconnectMode(false);
       setActiveStep(3);
       setSnackbar({
         open: true,
@@ -151,15 +170,80 @@ const WhatsAppConnect = ({
       setError(tx("auto.k_b11534fcd58e"));
       return;
     }
-    handleSubmitConnect(formData.code, formData.phone_number_id, formData.waba_id, formData.business_id);
+    handleSubmitConnect(formData.code, formData.phone_number_id, formData.waba_id, formData.business_id, reconnectMode);
   };
-  if (!config) {
+  const connected = whatsappStatus?.connected;
+  const formatDateTime = value => {
+    if (!value) return '';
+    const parsed = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  };
+  if (!config || statusLoading) {
     return <Paper sx={{
       p: 4,
       textAlign: 'center'
     }}>
                 <CircularProgress />
             </Paper>;
+  }
+  if (connected && !reconnectMode) {
+    return <Paper sx={{
+      p: 3
+    }}>
+            <Box sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        mb: 2
+      }}>
+                <CheckCircleIcon sx={{
+          fontSize: 48,
+          color: 'success.main'
+        }} />
+                <Box>
+                    <Typography variant="h6" fontWeight={700}>حساب WhatsApp مربوط بالفعل</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        يمكن استخدام الحساب الحالي للإرسال واستقبال الرسائل.
+                    </Typography>
+                </Box>
+            </Box>
+            <Box sx={{
+        display: 'flex',
+        gap: 1,
+        flexWrap: 'wrap',
+        mb: 2
+      }}>
+                <Chip color="success" label="مرتبط" />
+                {whatsappStatus.waba_id && <Chip label={`WABA: ${whatsappStatus.waba_id}`} variant="outlined" />}
+                {whatsappStatus.phone_number_id && <Chip label={`Phone: ${whatsappStatus.phone_number_id}`} variant="outlined" />}
+                {whatsappStatus.business_id && <Chip label={`Business: ${whatsappStatus.business_id}`} variant="outlined" />}
+            </Box>
+            {whatsappStatus.connected_at && <Typography variant="body2" color="text.secondary" sx={{
+        mb: 2
+      }}>
+                آخر ربط: {formatDateTime(whatsappStatus.connected_at)}
+            </Typography>}
+            <Button variant="outlined" color="warning" onClick={() => setConfirmReconnectOpen(true)}>
+                إعادة الربط
+            </Button>
+            <Dialog open={confirmReconnectOpen} onClose={() => setConfirmReconnectOpen(false)}>
+                <DialogTitle>تأكيد إعادة ربط WhatsApp</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        إعادة الربط ستستبدل بيانات WABA ورقم الهاتف والتوكن الحالي لهذا الحساب.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmReconnectOpen(false)}>إلغاء</Button>
+                    <Button color="warning" variant="contained" onClick={() => {
+            setConfirmReconnectOpen(false);
+            setReconnectMode(true);
+            setActiveStep(0);
+          }}>متابعة إعادة الربط</Button>
+                </DialogActions>
+            </Dialog>
+        </Paper>;
   }
   if (!config.whatsapp_signup_available) {
     return <Paper sx={{
@@ -188,6 +272,9 @@ const WhatsAppConnect = ({
             {error && <Alert severity="error" sx={{
       mb: 2
     }}>{error}</Alert>}
+            {reconnectMode && <Alert severity="warning" sx={{
+      mb: 2
+    }}>أنت في وضع إعادة الربط. نجاح العملية سيستبدل بيانات WhatsApp الحالية.</Alert>}
 
             {activeStep === 0 && <Box sx={{
       textAlign: 'center',
