@@ -1,14 +1,13 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
+import { dirname } from 'path';
 import { configureDatabaseConnection } from './configure.js';
+import { resolveDatabasePath } from './path.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const databasePath = process.env.DATABASE_PATH
-    ? resolve(process.env.DATABASE_PATH)
-    : join(__dirname, 'platform.db');
+const databasePath = resolveDatabasePath({ databaseDirectory: __dirname });
 const db = new Database(databasePath);
 
 // Configure durability and lock contention before running migrations.
