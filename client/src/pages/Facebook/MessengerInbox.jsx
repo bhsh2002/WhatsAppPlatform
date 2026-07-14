@@ -197,29 +197,12 @@ const MessengerInbox = () => {
 
   // SSE listener
   useEffect(() => {
-    const authToken = localStorage.getItem('auth_token');
-    if (!authToken) return;
-    const baseUrl = import.meta.env.VITE_API_URL || '';
     let evtSource = null;
     let reconnectTimeout = null;
     const connectSSE = async () => {
       try {
-        const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (!sseTokenRes.ok) {
-          console.warn('[SSE/Messenger] Failed to get SSE token');
-          reconnectTimeout = setTimeout(connectSSE, 5000);
-          return;
-        }
-        const {
-          token
-        } = await sseTokenRes.json();
-        evtSource = new EventSource(`${baseUrl}/api/messages/events?token=${token}`);
+        const sseUrl = await api.getSseUrl('/api/messages/events');
+        evtSource = new EventSource(sseUrl);
         evtSource.addEventListener('fb_message:new', e => {
           try {
             const data = JSON.parse(e.data);
@@ -492,7 +475,7 @@ const MessengerInbox = () => {
             borderColor: 'divider',
             bgcolor: 'background.paper'
           }}>
-                                    {isMobile && <IconButton onClick={() => setSelectedConv(null)}><ArrowBackIcon /></IconButton>}
+                                    {isMobile && <IconButton aria-label="Back to conversations" onClick={() => setSelectedConv(null)}><ArrowBackIcon /></IconButton>}
                                     <Avatar src={selectedConv.user_profile_pic} sx={{
               bgcolor: '#0084ff'
             }}>
@@ -516,7 +499,7 @@ const MessengerInbox = () => {
                                     <Button size="small" variant="outlined" startIcon={<BotIcon />} onClick={handleBotStatusChange}>
                                         {botSession?.status === 'handoff' ? tx("auto.k_831062aca5c7") : tx("auto.k_ab2f060b4db6")}
                                     </Button>
-                                    <IconButton onClick={() => {
+                                    <IconButton aria-label={tx("auto.k_4309a75e6882")} onClick={() => {
               loadMessages();
               loadConversations();
             }}><RefreshIcon /></IconButton>
@@ -637,7 +620,7 @@ const MessengerInbox = () => {
               }
             }} disabled={sendingReply} multiline maxRows={3} />
 
-                                    <IconButton color="primary" onClick={handleSendReply} disabled={sendingReply || !replyText.trim()} sx={{
+                                    <IconButton color="primary" aria-label="Send reply" onClick={handleSendReply} disabled={sendingReply || !replyText.trim()} sx={{
               bgcolor: '#0084ff',
               color: 'white',
               '&:hover': {

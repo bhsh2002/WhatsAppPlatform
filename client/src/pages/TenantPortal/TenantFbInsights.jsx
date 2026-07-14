@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Typography, Paper, Grid, Card, CardContent, CircularProgress, Alert, Snackbar, FormControl, InputLabel, Select, MenuItem, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import { Box, Typography, Paper, Grid, Card, CardContent, CircularProgress, Alert, Snackbar, FormControl, InputLabel, MenuItem, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { BarChart as BarChartIcon, Visibility as ViewsIcon, ThumbUp as ReactionsIcon, ChatBubble as CommentsIcon, People as FollowersIcon, Refresh as RefreshIcon, Share as ShareIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const TenantFbInsights = () => {
   const [pages, setPages] = useState([]);
@@ -198,7 +200,7 @@ const TenantFbInsights = () => {
           color: '#1877f2'
         }} />
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>{tx("auto.k_d96818c8ec20")}</Typography>
+                        <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_d96818c8ec20")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_bab80653a0c9")}</Typography>
                     </Box>
                 </Box>
@@ -249,7 +251,7 @@ const TenantFbInsights = () => {
                 color: card.color,
                 mb: 1
               }}>{card.icon}</Box>
-                                            <Typography variant="h4" fontWeight={700} sx={{
+                                            <Typography component="p" variant="h4" fontWeight={700} sx={{
                 color: card.color
               }}>
                                                 {typeof card.value === 'number' ? formatNumber(card.value) : card.value}
@@ -272,7 +274,7 @@ const TenantFbInsights = () => {
           flexWrap: 'wrap',
           gap: 1
         }}>
-                            <Typography variant="h6" fontWeight={600}>{tx("auto.k_afb391de4935")}</Typography>
+                            <Typography component="h2" variant="h6" fontWeight={600}>{tx("auto.k_afb391de4935")}</Typography>
                             <Box sx={{
             display: 'flex',
             gap: 1,
@@ -324,7 +326,7 @@ const TenantFbInsights = () => {
                     <Paper sx={{
         p: 3
       }}>
-                        <Typography variant="h6" fontWeight={600} sx={{
+                        <Typography component="h2" variant="h6" fontWeight={600} sx={{
           mb: 2
         }}>{tx("auto.k_bc3c2ae694da")}</Typography>
                         {postsWarning && <Alert severity="warning" sx={{
@@ -411,7 +413,7 @@ const TenantFbInsights = () => {
         color: 'grey.300',
         mb: 2
       }} />
-                    <Typography variant="h6" color="text.secondary">{tx("auto.k_43a46f260ab6")}</Typography>
+                    <Typography component="p" variant="h6" color="text.secondary">{tx("auto.k_43a46f260ab6")}</Typography>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_ffaf9692ed80")}</Typography>
                 </Paper>}
 

@@ -80,7 +80,7 @@ const Dashboard = () => {
         <Card elevation={2} sx={{ height: '100%' }}>
             <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary">
+                    <Typography variant="subtitle2" component="p" color="text.secondary">
                         {title}
                     </Typography>
                     <Box sx={{
@@ -95,7 +95,7 @@ const Dashboard = () => {
                         {icon}
                     </Box>
                 </Box>
-                <Typography variant="h4" fontWeight={600} gutterBottom>
+                <Typography variant="h4" component="p" fontWeight={600} gutterBottom>
                     {statsLoading ? '-' : value}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
@@ -110,7 +110,7 @@ const Dashboard = () => {
             {/* Header */}
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                    <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>
                         {t('dashboard.overview')}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -168,7 +168,7 @@ const Dashboard = () => {
             </Grid>
 
             {/* Message Stats */}
-            <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+            <Typography variant="h6" component="h2" fontWeight={600} sx={{ mb: 2 }}>
                 {t('dashboard.messageStats')}
             </Typography>
             <Grid container spacing={3} sx={{ mb: 3 }}>
@@ -214,7 +214,7 @@ const Dashboard = () => {
             {(stats.wa_week > 0 || stats.fb_week > 0) && (
                 <Card elevation={2} sx={{ mb: 3 }}>
                     <CardContent>
-                        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                        <Typography variant="subtitle1" component="h2" fontWeight={600} gutterBottom>
                             {t('dashboard.channelDistribution')}
                         </Typography>
                         {(() => {
@@ -261,7 +261,7 @@ const Dashboard = () => {
             {/* Recent Activity */}
             <Card elevation={2}>
                 <Box sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
-                    <Typography variant="h6" fontWeight={600}>
+                    <Typography variant="h6" component="h2" fontWeight={600}>
                         {t('dashboard.recentActivity')}
                     </Typography>
                     <Button

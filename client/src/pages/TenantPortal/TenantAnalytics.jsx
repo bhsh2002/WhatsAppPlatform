@@ -3,6 +3,7 @@ import { Box, Typography, Paper, Grid, Card, CardContent, Chip, CircularProgress
 import { TrendingUp, TrendingDown, Message as MessageIcon, WhatsApp as WhatsAppIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const TenantAnalytics = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +70,7 @@ const TenantAnalytics = () => {
         color: '#25D366'
       }} />
                 <Box>
-                    <Typography variant="h5" fontWeight={700}>{tx("auto.k_11e139eafe1b")}</Typography>
+                    <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_11e139eafe1b")}</PageTitle>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_434df6040ead")}</Typography>
                 </Box>
             </Box>
@@ -92,7 +93,7 @@ const TenantAnalytics = () => {
               color: card.color,
               mb: 1
             }}>{card.icon}</Box>
-                                <Typography variant="h4" fontWeight={700} sx={{
+                                <Typography component="p" variant="h4" fontWeight={700} sx={{
               color: card.color
             }}>{card.value}</Typography>
                                 <Typography variant="body2" color="text.secondary">{card.label}</Typography>
@@ -109,7 +110,7 @@ const TenantAnalytics = () => {
                     <Paper sx={{
           p: 3
         }}>
-                        <Typography variant="h6" gutterBottom fontWeight={600}>{tx("auto.k_8029b7a6e37d")}</Typography>
+                        <Typography component="h2" variant="h6" gutterBottom fontWeight={600}>{tx("auto.k_8029b7a6e37d")}</Typography>
                         <TableContainer sx={{
             overflowX: 'auto'
           }}>
@@ -156,7 +157,7 @@ const TenantAnalytics = () => {
                     <Paper sx={{
           p: 3
         }}>
-                        <Typography variant="h6" gutterBottom fontWeight={600}>{tx("auto.k_d0ed141b50fe")}</Typography>
+                        <Typography component="h2" variant="h6" gutterBottom fontWeight={600}>{tx("auto.k_d0ed141b50fe")}</Typography>
                         {(stats?.typeDistribution || []).map((type, i) => <Box key={i} sx={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -165,7 +166,7 @@ const TenantAnalytics = () => {
             borderBottom: '1px solid rgba(0,0,0,0.06)'
           }}>
                                 <Chip label={type.message_type || tx("auto.k_b2c702e73c91")} size="small" variant="outlined" />
-                                <Typography variant="h6" fontWeight={600}>{type.count}</Typography>
+                                <Typography component="p" variant="h6" fontWeight={600}>{type.count}</Typography>
                             </Box>)}
                         {(!stats?.typeDistribution || stats.typeDistribution.length === 0) && <Typography color="text.secondary" sx={{
             py: 4,

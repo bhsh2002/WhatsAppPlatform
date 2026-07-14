@@ -4,6 +4,7 @@ import { TrendingUp as TrendingUpIcon, Add as AddIcon, ShoppingCart, PersonAdd, 
 import api from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const getEventTypes = () => [{
   value: 'Purchase',
@@ -56,12 +57,7 @@ const formatMetaResponse = (value, status) => {
   const parts = [];
   if (error.message) parts.push(error.message);
   if (error.code !== undefined) parts.push(`code: ${error.code}`);
-  if (error.error_subcode !== undefined) parts.push(`subcode: ${error.error_subcode}`);
-  if (error.error_user_msg) parts.push(error.error_user_msg);
-  if (error.fbtrace_id || meta.fbtrace_id) parts.push(`fbtrace_id: ${error.fbtrace_id || meta.fbtrace_id}`);
-  if (error.error_data?.blame_field_specs) {
-    parts.push(`field: ${JSON.stringify(error.error_data.blame_field_specs)}`);
-  }
+  if (error.subcode !== undefined && error.subcode !== null) parts.push(`subcode: ${error.subcode}`);
   return parts.join(' | ') || '-';
 };
 const TenantConversions = () => {
@@ -241,7 +237,7 @@ const TenantConversions = () => {
           color: 'secondary.main'
         }} />
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>{tx("auto.k_ab3289bb27af")}</Typography>
+                        <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_ab3289bb27af")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_796d07321412")}</Typography>
                     </Box>
                 </Box>
@@ -268,7 +264,7 @@ const TenantConversions = () => {
                             <CardContent sx={{
             textAlign: 'center'
           }}>
-                                <Typography variant="h3" fontWeight={700} sx={{
+                                <Typography component="p" variant="h3" fontWeight={700} sx={{
               color: card.color
             }}>{card.value}</Typography>
                                 <Typography variant="body2" color="text.secondary">{card.label}</Typography>
@@ -298,7 +294,6 @@ const TenantConversions = () => {
                     {lastFailure?.error_message ? ` | ${lastFailure.error_message}` : ''}
                     {lastFailure?.error_code ? ` | code: ${lastFailure.error_code}` : ''}
                     {lastFailure?.error_subcode ? ` | subcode: ${lastFailure.error_subcode}` : ''}
-                    {lastFailure?.fbtrace_id ? ` | fbtrace_id: ${lastFailure.fbtrace_id}` : ''}
                 </Typography>
                 <Typography variant="caption" component="div">{tx("auto.k_a5642c93484e")}
 
@@ -309,7 +304,7 @@ const TenantConversions = () => {
       p: 3,
       mb: 3
     }}>
-                <Typography variant="h6" fontWeight={700} gutterBottom>{tx("auto.k_bff5776b814d")}
+                <Typography component="h2" variant="h6" fontWeight={700} gutterBottom>{tx("auto.k_bff5776b814d")}
 
         </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{
@@ -368,7 +363,7 @@ const TenantConversions = () => {
       p: 3,
       mb: 3
     }}>
-                    <Typography variant="h6" gutterBottom fontWeight={600}>{tx("auto.k_b19c413b6eb9")}</Typography>
+                    <Typography component="h2" variant="h6" gutterBottom fontWeight={600}>{tx("auto.k_b19c413b6eb9")}</Typography>
                     <Box sx={{
         display: 'flex',
         gap: 2,
@@ -437,7 +432,7 @@ const TenantConversions = () => {
                 </TableContainer>
             </Paper>
 
-            <Dialog open={logOpen} onClose={() => setLogOpen(false)} maxWidth="sm" fullWidth>
+            <Dialog open={logOpen} onClose={() => setLogOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_933706b569ef") } }}>
                 <DialogTitle>{tx("auto.k_933706b569ef")}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{

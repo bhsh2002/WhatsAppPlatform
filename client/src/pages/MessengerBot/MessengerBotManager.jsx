@@ -3,6 +3,7 @@ import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, Dial
 import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Inventory2 as ProductIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, SmartToy as BotIcon, UploadFile as UploadIcon } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { tx } from "../../i18n/tx";
 const emptyProduct = {
   sku: '',
@@ -539,7 +540,7 @@ const StatBox = ({
   height: '100%'
 }}>
         <Typography variant="caption" color="text.secondary">{title}</Typography>
-        <Typography variant="h5" fontWeight={800} color={`${color}.main`}>{value}</Typography>
+        <Typography component="p" variant="h5" fontWeight={800} color={`${color}.main`}>{value}</Typography>
     </Paper>;
 const DiagnosticsPanel = ({
   diagnostics,
@@ -998,6 +999,7 @@ const MessengerBotManager = ({
     return <Box sx={{
       p: 3
     }}>
+                <PageTitle variant="h5" visuallyHidden>Messenger Bot</PageTitle>
                 <Alert severity="info">{t('messengerBot.noTenant')}</Alert>
             </Box>;
   }
@@ -1019,13 +1021,13 @@ const MessengerBotManager = ({
       mb: 2
     }}>
                 <Box>
-                    <Typography variant="h5" fontWeight={800} sx={{
+                    <PageTitle variant="h5" fontWeight={800} sx={{
           display: 'flex',
           gap: 1,
           alignItems: 'center'
         }}>
                         <BotIcon color="primary" /> Messenger Bot
-                    </Typography>
+                    </PageTitle>
                     <Typography variant="body2" color="text.secondary">
                         {t('messengerBot.subtitle')}
                     </Typography>
@@ -1092,7 +1094,7 @@ const MessengerBotManager = ({
                                     <Button variant="contained" startIcon={<AddIcon />} onClick={() => openProductDialog()}>
                                         {t('messengerBot.addProduct')}
                                     </Button>
-                                    <Button variant="outlined" component="label" startIcon={<UploadIcon />}>
+                                    <Button variant="outlined" component="label" role={undefined} startIcon={<UploadIcon />}>
                                         {t('messengerBot.importCsv')}
                                         <input hidden type="file" accept=".csv,text/csv" onChange={e => importProducts(e.target.files?.[0])} />
                                     </Button>
@@ -1125,8 +1127,8 @@ const MessengerBotManager = ({
 
                                                 </TableCell>
                                                 <TableCell align="right">
-                                                    <IconButton size="small" onClick={() => openProductDialog(product)}><EditIcon fontSize="small" /></IconButton>
-                                                    <IconButton size="small" color="error" onClick={() => deleteProduct(product)}><DeleteIcon fontSize="small" /></IconButton>
+                                                    <IconButton size="small" aria-label="Edit product" onClick={() => openProductDialog(product)}><EditIcon fontSize="small" /></IconButton>
+                                                    <IconButton size="small" color="error" aria-label="Delete product" onClick={() => deleteProduct(product)}><DeleteIcon fontSize="small" /></IconButton>
                                                 </TableCell>
                                             </TableRow>)}
                                         {products.length === 0 && <TableRow><TableCell colSpan={5} align="center">{t('messengerBot.noProducts')}</TableCell></TableRow>}
@@ -1197,10 +1199,10 @@ const MessengerBotManager = ({
                                                 </TableCell>
                                                 <TableCell align="right">
                                                     <Button size="small" onClick={() => loadFlowEvents(flow)}>{t('messengerBot.tabs.performance')}</Button>
-                                                    <IconButton size="small" onClick={() => testFlow(flow)}><TestIcon fontSize="small" /></IconButton>
-                                                    <IconButton size="small" onClick={() => openFlowDialog(flow)}><EditIcon fontSize="small" /></IconButton>
+                                                    <IconButton size="small" aria-label="Test flow" onClick={() => testFlow(flow)}><TestIcon fontSize="small" /></IconButton>
+                                                    <IconButton size="small" aria-label="Edit flow" onClick={() => openFlowDialog(flow)}><EditIcon fontSize="small" /></IconButton>
                                                     <Button size="small" onClick={() => toggleFlow(flow)}>{flow.status === 'active' ? t('messengerBot.deactivate') : t('messengerBot.activate')}</Button>
-                                                    <IconButton size="small" color="error" onClick={() => deleteFlow(flow)}><DeleteIcon fontSize="small" /></IconButton>
+                                                    <IconButton size="small" color="error" aria-label="Delete flow" onClick={() => deleteFlow(flow)}><DeleteIcon fontSize="small" /></IconButton>
                                                 </TableCell>
                                             </TableRow>)}
                                         {flows.length === 0 && <TableRow><TableCell colSpan={7} align="center">{t('messengerBot.noFlows')}</TableCell></TableRow>}
@@ -1329,7 +1331,7 @@ const MessengerBotManager = ({
                     </Paper>
                 </>}
 
-            <Dialog open={productDialog} onClose={() => setProductDialog(false)} maxWidth="md" fullWidth>
+            <Dialog open={productDialog} onClose={() => setProductDialog(false)} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct') } }}>
                 <DialogTitle>{productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct')}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{
@@ -1406,7 +1408,7 @@ const MessengerBotManager = ({
               }}>
                                     {t('messengerBot.add')}
                                 </Button>
-                                <Button variant="outlined" component="label" sx={{
+                                <Button variant="outlined" component="label" role={undefined} sx={{
                 minWidth: 120
               }}>
                                     {t('messengerBot.uploadImages')}
@@ -1431,7 +1433,7 @@ const MessengerBotManager = ({
                   mt: 0.5
                 }}>
                                                 <Button size="small" disabled={index === 0} onClick={() => setPrimaryProductImage(index)}>{t('messengerBot.primary')}</Button>
-                                                <IconButton size="small" color="error" onClick={() => removeProductImage(index)}>
+                                                <IconButton size="small" color="error" aria-label="Remove product image" onClick={() => removeProductImage(index)}>
                                                     <DeleteIcon fontSize="small" />
                                                 </IconButton>
                                             </Stack>
@@ -1462,7 +1464,7 @@ const MessengerBotManager = ({
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={flowDialog} onClose={() => setFlowDialog(false)} maxWidth="lg" fullWidth>
+            <Dialog open={flowDialog} onClose={() => setFlowDialog(false)} maxWidth="lg" fullWidth slotProps={{ paper: { 'aria-label': flowForm.id ? t('messengerBot.editFlowTitle') : t('messengerBot.addFlowTitle') } }}>
                 <DialogTitle>{flowForm.id ? t('messengerBot.editFlowTitle') : t('messengerBot.addFlowTitle')}</DialogTitle>
                 <DialogContent>
                     <Grid container spacing={2} sx={{
@@ -1636,7 +1638,7 @@ const MessengerBotManager = ({
                       display: 'flex',
                       justifyContent: 'flex-end'
                     }}>
-                                                    <IconButton disabled={nodeIndex === 0} color="error" onClick={() => removeNode(nodeIndex)}>
+                                                    <IconButton disabled={nodeIndex === 0} color="error" aria-label="Remove flow node" onClick={() => removeNode(nodeIndex)}>
                                                         <DeleteIcon fontSize="small" />
                                                     </IconButton>
                                                 </Grid>
@@ -2118,7 +2120,7 @@ const MessengerBotManager = ({
                                 image_url: e.target.value
                               })} />
 
-                                                                            <Button variant="outlined" size="small" component="label" sx={{
+                                                                            <Button variant="outlined" size="small" component="label" role={undefined} sx={{
                                 minWidth: 72
                               }}>
                                                                                 {t('messengerBot.fields.upload')}
@@ -2143,7 +2145,7 @@ const MessengerBotManager = ({
                             xs: 12,
                             md: 1
                           }}>
-                                                                        <IconButton size="small" color="error" onClick={() => removeButton(nodeIndex, buttonIndex)}>
+                                                                        <IconButton size="small" color="error" aria-label="Remove flow button" onClick={() => removeButton(nodeIndex, buttonIndex)}>
                                                                             <DeleteIcon fontSize="small" />
                                                                         </IconButton>
                                                                     </Grid>

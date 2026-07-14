@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
+import { MetricValue, PageTitle, SectionTitle } from '../../components/Layout/PageTitle';
 
 const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
     <Card elevation={1} sx={{ height: '100%' }}>
@@ -34,7 +35,7 @@ const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
                 <Box>
                     <Typography variant="body2" color="text.secondary">{title}</Typography>
-                    <Typography variant="h5" fontWeight={800} sx={{ mt: 1 }}>{value}</Typography>
+                    <MetricValue variant="h5" fontWeight={800} sx={{ mt: 1 }}>{value}</MetricValue>
                     {caption && <Typography variant="caption" color="text.secondary">{caption}</Typography>}
                 </Box>
                 <Box sx={{ color: `${color}.main`, display: 'flex', alignItems: 'center' }}>{icon}</Box>
@@ -126,7 +127,7 @@ const TenantBilling = () => {
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 3 }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={800}>{t('billing.tenantTitle')}</Typography>
+                    <PageTitle variant="h4" fontWeight={800}>{t('billing.tenantTitle')}</PageTitle>
                     <Typography variant="body2" color="text.secondary">
                         {t('billing.tenantSubtitle')}
                     </Typography>
@@ -202,7 +203,7 @@ const TenantBilling = () => {
             </Grid>
 
             <Paper sx={{ p: 2, mb: 3 }}>
-                <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>دورة الاشتراك</Typography>
+                <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 2 }}>دورة الاشتراك</SectionTitle>
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <Typography variant="body2" color="text.secondary">تاريخ التفعيل</Typography>
@@ -226,7 +227,7 @@ const TenantBilling = () => {
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 5 }}>
                     <Paper sx={{ p: 2 }}>
-                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>الاستخدام حسب الفترة</Typography>
+                        <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 2 }}>الاستخدام حسب الفترة</SectionTitle>
                         {usageRows.length === 0 ? (
                             <Alert severity="info">{t('billing.noPaidUsage')}</Alert>
                         ) : (
@@ -258,7 +259,7 @@ const TenantBilling = () => {
 
                 <Grid size={{ xs: 12, md: 7 }}>
                     <Paper sx={{ p: 2 }}>
-                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>{t('billing.latestLedger')}</Typography>
+                        <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 2 }}>{t('billing.latestLedger')}</SectionTitle>
                         <TableContainer>
                             <Table size="small">
                                 <TableHead>
@@ -286,7 +287,7 @@ const TenantBilling = () => {
 
                 <Grid size={{ xs: 12 }}>
                     <Paper sx={{ p: 2 }}>
-                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>{t('billing.invoices')}</Typography>
+                        <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 2 }}>{t('billing.invoices')}</SectionTitle>
                         {invoices.length === 0 ? (
                             <Alert severity="info">{t('billing.noInvoices')}</Alert>
                         ) : (

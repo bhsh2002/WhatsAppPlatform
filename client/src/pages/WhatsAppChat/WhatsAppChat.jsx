@@ -162,8 +162,6 @@ const WhatsAppChat = () => {
     fetchConversations();
     api.getMediaToken(); // Pre-fetch media token for image/doc URLs
 
-    const authToken = localStorage.getItem('auth_token');
-    const baseUrl = import.meta.env.VITE_API_URL || '';
     let pollingInterval = null;
     let evtSource = null;
     let reconnectTimeout = null;
@@ -182,23 +180,8 @@ const WhatsAppChat = () => {
     };
     const connectSSE = async () => {
       try {
-        // Get a one-time SSE token
-        const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (!sseTokenRes.ok) {
-          console.warn('[SSE] Failed to get SSE token, using polling only');
-          startPolling(15000);
-          return;
-        }
-        const {
-          token
-        } = await sseTokenRes.json();
-        evtSource = new EventSource(`${baseUrl}/api/messages/events?token=${token}`);
+        const sseUrl = await api.getSseUrl('/api/messages/events');
+        evtSource = new EventSource(sseUrl);
         evtSource.addEventListener('connected', () => {
           sseConnected = true;
           // Stop polling when SSE is active
@@ -237,12 +220,7 @@ const WhatsAppChat = () => {
       }
     };
 
-    // Initial connection
-    if (authToken) {
-      connectSSE();
-    } else {
-      startPolling(15000);
-    }
+    connectSSE();
     return () => {
       if (evtSource) evtSource.close();
       stopPolling();

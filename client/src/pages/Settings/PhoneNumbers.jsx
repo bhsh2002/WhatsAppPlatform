@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Card, CardContent, Typography, Button, Grid, Chip, Alert, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem, FormControl, InputLabel, IconButton, Tooltip } from '@mui/material';
+import { Box, Card, CardContent, Typography, Button, Grid, Chip, Alert, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, FormControl, InputLabel, IconButton, Tooltip } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Phone as PhoneIcon, Refresh as RefreshIcon, AppRegistration as RegisterIcon, Info as InfoIcon, CheckCircle as CheckCircleIcon, Warning as WarningIcon, Error as ErrorIcon, VerifiedUser as VerifiedIcon, Close as CloseIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const PhoneNumbers = () => {
   const [phoneNumbers, setPhoneNumbers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -131,9 +133,9 @@ const PhoneNumbers = () => {
             <Box sx={{
       mb: 4
     }}>
-                <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_ac3f0f277d42")}
+                <PageTitle variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_ac3f0f277d42")}
 
-        </Typography>
+        </PageTitle>
                 <Typography variant="body2" color="text.secondary">{tx("auto.k_3c71fb38f581")}
 
         </Typography>
@@ -200,7 +202,7 @@ const PhoneNumbers = () => {
             gap: 1
           }}>
                             <PhoneIcon color="primary" />
-                            <Typography variant="h6">{tx("auto.k_ccbb7138698c")}</Typography>
+                            <Typography component="h2" variant="h6">{tx("auto.k_ccbb7138698c")}</Typography>
                             <Chip label={phoneNumbers.length} size="small" color="primary" />
                         </Box>
                     </Box>
@@ -254,12 +256,12 @@ const PhoneNumbers = () => {
                                             </TableCell>
                                             <TableCell align="center">
                                                 <Tooltip title={tx("auto.k_9fbd1bf7f5bc")}>
-                                                    <IconButton size="small" onClick={() => fetchPhoneInfo(phone.id)}>
+                                                    <IconButton size="small" aria-label={tx("auto.k_9fbd1bf7f5bc")} onClick={() => fetchPhoneInfo(phone.id)}>
                                                         <InfoIcon fontSize="small" />
                                                     </IconButton>
                                                 </Tooltip>
                                                 <Tooltip title={tx("auto.k_c49bce24698e")}>
-                                                    <IconButton size="small" color="primary" onClick={() => {
+                                                    <IconButton size="small" color="primary" aria-label={tx("auto.k_c49bce24698e")} onClick={() => {
                       setRegisterPhoneId(phone.id);
                       setRegisterDialog(true);
                     }}>
@@ -275,7 +277,7 @@ const PhoneNumbers = () => {
             </Card>
 
             {/* Register Dialog */}
-            <Dialog open={registerDialog} onClose={() => setRegisterDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={registerDialog} onClose={() => setRegisterDialog(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_a214f818fd6a") } }}>
                 <DialogTitle>
                     <Box sx={{
           display: 'flex',
@@ -290,7 +292,7 @@ const PhoneNumbers = () => {
                             <RegisterIcon color="primary" />
                             <span>{tx("auto.k_a214f818fd6a")}</span>
                         </Box>
-                        <IconButton onClick={() => setRegisterDialog(false)} size="small">
+                        <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={() => setRegisterDialog(false)} size="small">
                             <CloseIcon />
                         </IconButton>
                     </Box>
@@ -323,7 +325,7 @@ const PhoneNumbers = () => {
             </Dialog>
 
             {/* Phone Info Dialog */}
-            <Dialog open={infoDialog} onClose={() => setInfoDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={infoDialog} onClose={() => setInfoDialog(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_242d1b52342a") } }}>
                 <DialogTitle>
                     <Box sx={{
           display: 'flex',
@@ -331,7 +333,7 @@ const PhoneNumbers = () => {
           alignItems: 'center'
         }}>
                         <span>{tx("auto.k_242d1b52342a")}</span>
-                        <IconButton onClick={() => setInfoDialog(false)} size="small">
+                        <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={() => setInfoDialog(false)} size="small">
                             <CloseIcon />
                         </IconButton>
                     </Box>

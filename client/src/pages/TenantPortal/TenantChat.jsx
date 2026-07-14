@@ -104,8 +104,6 @@ const TenantChat = () => {
     fetchTemplates();
     api.getMediaToken(); // Pre-fetch media token for image/doc URLs
 
-    const baseUrl = import.meta.env.VITE_API_URL || '';
-    const authToken = localStorage.getItem('auth_token');
     let pollingInterval = null;
     let evtSource = null;
     let reconnectTimeout = null;
@@ -122,22 +120,8 @@ const TenantChat = () => {
     };
     const connectSSE = async () => {
       try {
-        const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (!sseTokenRes.ok) {
-          console.warn('[SSE] Failed to get SSE token, using polling only');
-          startPolling(15000);
-          return;
-        }
-        const {
-          token
-        } = await sseTokenRes.json();
-        evtSource = new EventSource(`${baseUrl}/api/portal/events?token=${token}`);
+        const sseUrl = await api.getSseUrl('/api/portal/events');
+        evtSource = new EventSource(sseUrl);
         evtSource.addEventListener('connected', () => {
           sseConnected = true;
           console.log('[SSE] Tenant connected — real-time updates active');
@@ -174,11 +158,7 @@ const TenantChat = () => {
         startPolling(15000);
       }
     };
-    if (authToken) {
-      connectSSE();
-    } else {
-      startPolling(15000);
-    }
+    connectSSE();
     return () => {
       if (evtSource) evtSource.close();
       stopPolling();

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Box, CircularProgress, Typography, Alert } from '@mui/material';
 import { Facebook as FacebookIcon } from '@mui/icons-material';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const FacebookOAuthCallback = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -25,7 +26,7 @@ const FacebookOAuthCallback = () => {
       window.close();
     }
   }, []);
-  return <Box sx={{
+  return <Box component="main" sx={{
     minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
@@ -40,10 +41,10 @@ const FacebookOAuthCallback = () => {
         color: '#1877f2',
         mb: 2
       }} />
-                <CircularProgress sx={{
+                <CircularProgress aria-label={tx("auto.k_c40284b3be1d")} sx={{
         mb: 2
       }} />
-                <Typography variant="h6">{tx("auto.k_c40284b3be1d")}</Typography>
+                <PageTitle variant="h6">{tx("auto.k_c40284b3be1d")}</PageTitle>
                 <Typography variant="body2" color="text.secondary">{tx("auto.k_612e60ecaa92")}
 
         </Typography>

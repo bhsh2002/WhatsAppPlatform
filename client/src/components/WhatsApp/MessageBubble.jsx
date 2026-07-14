@@ -307,11 +307,11 @@ const MessageBubble = ({
                         </Typography>}
 
                     {/* Image Lightbox */}
-                    <Dialog open={lightboxOpen} onClose={() => setLightboxOpen(false)} maxWidth="lg">
+                    <Dialog open={lightboxOpen} onClose={() => setLightboxOpen(false)} maxWidth="lg" slotProps={{ paper: { 'aria-label': tx("auto.k_b941956874fe") } }}>
                         <Box sx={{
             position: 'relative'
           }}>
-                            <IconButton onClick={() => setLightboxOpen(false)} sx={{
+                            <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={() => setLightboxOpen(false)} sx={{
               position: 'absolute',
               top: 8,
               right: 8,

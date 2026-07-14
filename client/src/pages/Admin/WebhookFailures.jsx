@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Paper, Typography, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, FormControl, Select, MenuItem, CircularProgress, IconButton, InputLabel, Collapse, Alert, Card, CardContent, Grid } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Box, Paper, Typography, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, FormControl, MenuItem, CircularProgress, IconButton, InputLabel, Collapse, Alert, Card, CardContent, Grid } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Refresh as RefreshIcon, Replay as ReplayIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Warning as WarningIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, HourglassEmpty as HourglassEmptyIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const WebhookFailures = () => {
   const [failures, setFailures] = useState([]);
@@ -18,7 +20,7 @@ const WebhookFailures = () => {
   const [expandedRow, setExpandedRow] = useState(null);
   const [actionLoading, setActionLoading] = useState({});
   const [message, setMessage] = useState(null);
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const params = {
@@ -38,10 +40,10 @@ const WebhookFailures = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, filterTenant, filterType, filterStatus]);
   useEffect(() => {
     fetchData();
-  }, [page, filterTenant, filterType, filterStatus]);
+  }, [fetchData]);
   useEffect(() => {
     api.getWebhookFailures({
       limit: 1000
@@ -147,9 +149,9 @@ const WebhookFailures = () => {
       alignItems: 'center',
       mb: 3
     }}>
-                <Typography variant="h5" fontWeight="bold">{tx("auto.k_87641ff22da7")}
+                <PageTitle variant="h5" fontWeight="bold">{tx("auto.k_87641ff22da7")}
 
-        </Typography>
+        </PageTitle>
                 <Box sx={{
         display: 'flex',
         gap: 1
@@ -183,7 +185,7 @@ const WebhookFailures = () => {
                                 <ErrorIcon color="error" sx={{
               fontSize: 30
             }} />
-                                <Typography variant="h4" fontWeight="bold" color="error.main">
+                                <Typography component="p" variant="h4" fontWeight="bold" color="error.main">
                                     {stats.byStatus?.pending || 0}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">{tx("auto.k_2fa782fb9348")}</Typography>
@@ -201,7 +203,7 @@ const WebhookFailures = () => {
                                 <HourglassEmptyIcon color="warning" sx={{
               fontSize: 30
             }} />
-                                <Typography variant="h4" fontWeight="bold" color="warning.main">
+                                <Typography component="p" variant="h4" fontWeight="bold" color="warning.main">
                                     {stats.byStatus?.resolved || 0}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">{tx("auto.k_2ff7397b3e05")}</Typography>
@@ -219,7 +221,7 @@ const WebhookFailures = () => {
                                 <CheckCircleIcon color="success" sx={{
               fontSize: 30
             }} />
-                                <Typography variant="h4" fontWeight="bold">
+                                <Typography component="p" variant="h4" fontWeight="bold">
                                     {stats.byStatus?.total || 0}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">{tx("auto.k_413c51af19b5")}</Typography>

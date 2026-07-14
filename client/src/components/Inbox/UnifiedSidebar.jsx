@@ -172,20 +172,20 @@ const UnifiedSidebar = ({
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography variant="h6" fontWeight="bold">
+                    <Typography component="h2" variant="h6" fontWeight="bold">
                         {t('inbox.title')}
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         {onRefresh && (
                             <Tooltip title={t('inbox.refresh')}>
-                                <IconButton size="small" onClick={onRefresh}>
+                                <IconButton size="small" aria-label={t('inbox.refresh')} onClick={onRefresh}>
                                     <RefreshIcon fontSize="small" />
                                 </IconButton>
                             </Tooltip>
                         )}
                         {onSyncMessenger && (
                             <Tooltip title={t('inbox.syncMessenger')}>
-                                <IconButton size="small" onClick={onSyncMessenger} disabled={syncing}>
+                                <IconButton size="small" aria-label={t('inbox.syncMessenger')} onClick={onSyncMessenger} disabled={syncing}>
                                     {syncing ? <CircularProgress size={18} /> : <SyncIcon fontSize="small" sx={{ color: '#0084ff' }} />}
                                 </IconButton>
                             </Tooltip>

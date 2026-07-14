@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useTenants } from '../../context/TenantContext';
 import api from '../../api';
-import { Box, Paper, Typography, Button, TextField, InputAdornment, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, IconButton, Menu, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Grid, FormControl, InputLabel, Select, CircularProgress, Alert, ListItemIcon, Divider } from '@mui/material';
+import { Box, Paper, Typography, Button, TextField, InputAdornment, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, IconButton, Menu, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Grid, FormControl, InputLabel, CircularProgress, Alert, ListItemIcon, Divider } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Search as SearchIcon, Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Delete as DeleteIcon, WhatsApp as WhatsAppIcon, PersonAdd as PersonAddIcon, Key as KeyIcon, CheckCircle as CheckCircleIcon, AccountBalanceWallet as CreditsIcon, Facebook as FacebookIcon, Link as LinkIcon, Cancel as CancelIcon, Refresh as RefreshIcon, VerifiedUser as VerifiedUserIcon, WarningAmber as WarningAmberIcon, Cancel as CancelIconR, RemoveCircleOutline as UncheckedIcon } from '@mui/icons-material';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
@@ -418,14 +419,14 @@ const TenantList = () => {
       }
     }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_32564e22337c")}
+                    <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>{tx("auto.k_32564e22337c")}
 
           </Typography>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_0c59bcec711f")}
 
           </Typography>
                 </Box>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateModal}>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateModal} aria-label={tx("auto.k_302fd8913419")}>
 
                     <Box component="span" sx={{
           display: {
@@ -444,7 +445,7 @@ const TenantList = () => {
         display: 'flex',
         gap: 2
       }}>
-                    <TextField fullWidth size="small" placeholder={tx("auto.k_a4cdcf571535")} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} InputProps={{
+                    <TextField fullWidth size="small" placeholder={tx("auto.k_a4cdcf571535")} inputProps={{ 'aria-label': tx("auto.k_a4cdcf571535") }} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} InputProps={{
           startAdornment: <InputAdornment position="start">
                                     <SearchIcon color="action" />
                                 </InputAdornment>
@@ -453,7 +454,7 @@ const TenantList = () => {
                     <FormControl size="small" sx={{
           minWidth: 200
         }}>
-                        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} displayEmpty>
+                        <Select inputProps={{ 'aria-label': tx("auto.k_d6370401145d") }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} displayEmpty>
 
                             <MenuItem value="">{tx("auto.k_8029f660a234")}</MenuItem>
                             <MenuItem value="active">{tx("auto.k_41b054617ef6")}</MenuItem>
@@ -516,7 +517,7 @@ const TenantList = () => {
                                     <TableCell>{getStatusChip(tenant.status, tenant.quality)}</TableCell>
                                     <TableCell>{getTokenStatusChip(tenant.token_status)}</TableCell>
                                     <TableCell align="right">
-                                        <IconButton size="small" onClick={e => handleMenuOpen(e, tenant.id)}>
+                                        <IconButton aria-label={tx("auto.k_8edfb81a349f")} size="small" onClick={e => handleMenuOpen(e, tenant.id)}>
                                             <MoreVertIcon />
                                         </IconButton>
                                     </TableCell>
@@ -571,7 +572,7 @@ const TenantList = () => {
             </Menu>
 
             {/* Edit/Create Dialog */}
-            <Dialog open={showModal} onClose={() => setShowModal(false)} maxWidth="sm" fullWidth>
+            <Dialog open={showModal} onClose={() => setShowModal(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': editingTenant ? tx("auto.k_f58bd40274e3") : tx("auto.k_302fd8913419") } }}>
                 <form onSubmit={handleSubmit}>
                     <DialogTitle>
                         {editingTenant ? tx("auto.k_f58bd40274e3") : tx("auto.k_302fd8913419")}
@@ -601,7 +602,7 @@ const TenantList = () => {
             }}>
                                 <FormControl fullWidth>
                                     <InputLabel>{tx("auto.k_6ffd81e2c547")}</InputLabel>
-                                    <Select value={formData.tier} label={tx("auto.k_6ffd81e2c547")} onChange={e => setFormData({
+                                    <Select inputProps={{ 'aria-label': tx("auto.k_6ffd81e2c547") }} value={formData.tier} label={tx("auto.k_6ffd81e2c547")} onChange={e => setFormData({
                   ...formData,
                   tier: e.target.value
                 })}>
@@ -627,7 +628,7 @@ const TenantList = () => {
             }}>
                                 <FormControl fullWidth>
                                     <InputLabel>{tx("auto.k_d6370401145d")}</InputLabel>
-                                    <Select value={formData.status} label={tx("auto.k_d6370401145d")} onChange={e => setFormData({
+                                    <Select inputProps={{ 'aria-label': tx("auto.k_d6370401145d") }} value={formData.status} label={tx("auto.k_d6370401145d")} onChange={e => setFormData({
                   ...formData,
                   status: e.target.value
                 })}>
@@ -643,7 +644,7 @@ const TenantList = () => {
             }}>
                                 <FormControl fullWidth>
                                     <InputLabel>{tx("auto.k_a3035054d6c1")}</InputLabel>
-                                    <Select value={formData.quality} label={tx("auto.k_a3035054d6c1")} onChange={e => setFormData({
+                                    <Select inputProps={{ 'aria-label': tx("auto.k_a3035054d6c1") }} value={formData.quality} label={tx("auto.k_a3035054d6c1")} onChange={e => setFormData({
                   ...formData,
                   quality: e.target.value
                 })}>
@@ -664,7 +665,7 @@ const TenantList = () => {
                 borderTop: 1,
                 borderColor: 'divider'
               }}>
-                                    <Typography variant="subtitle2" gutterBottom sx={{
+                                    <Typography variant="subtitle2" component="h3" gutterBottom sx={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 1
@@ -749,7 +750,7 @@ const TenantList = () => {
             </Dialog>
 
             {/* Account Management Dialog */}
-            <Dialog open={showAccountModal} onClose={() => setShowAccountModal(false)} maxWidth="sm" fullWidth>
+            <Dialog open={showAccountModal} onClose={() => setShowAccountModal(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_c57a4a9a3946") } }}>
                 <DialogTitle sx={{
         display: 'flex',
         alignItems: 'center',
@@ -885,7 +886,7 @@ const TenantList = () => {
             </Dialog>
 
             {/* Credits Top-Up Dialog */}
-            <Dialog open={showCreditsModal} onClose={() => !creditsLoading && setShowCreditsModal(false)} maxWidth="xs" fullWidth>
+            <Dialog open={showCreditsModal} onClose={() => !creditsLoading && setShowCreditsModal(false)} maxWidth="xs" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_f59fc10a27f4") } }}>
                 <DialogTitle sx={{
         display: 'flex',
         alignItems: 'center',
@@ -944,7 +945,7 @@ const TenantList = () => {
             </Dialog>
 
             {/* Facebook Pages Management Dialog */}
-            <Dialog open={showFbPagesModal} onClose={() => setShowFbPagesModal(false)} maxWidth="md" fullWidth>
+            <Dialog open={showFbPagesModal} onClose={() => setShowFbPagesModal(false)} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_fbc00016e89a") } }}>
                 <DialogTitle sx={{
         display: 'flex',
         alignItems: 'center',

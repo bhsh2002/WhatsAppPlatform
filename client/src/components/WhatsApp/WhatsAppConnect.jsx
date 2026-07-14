@@ -227,7 +227,7 @@ const WhatsAppConnect = ({
             <Button variant="outlined" color="warning" onClick={() => setConfirmReconnectOpen(true)}>
                 إعادة الربط
             </Button>
-            <Dialog open={confirmReconnectOpen} onClose={() => setConfirmReconnectOpen(false)}>
+            <Dialog open={confirmReconnectOpen} onClose={() => setConfirmReconnectOpen(false)} slotProps={{ paper: { 'aria-label': 'تأكيد إعادة ربط WhatsApp' } }}>
                 <DialogTitle>تأكيد إعادة ربط WhatsApp</DialogTitle>
                 <DialogContent>
                     <Typography>

@@ -169,14 +169,14 @@ const InteractiveMessageDialog = ({
     }
     onSend(data);
   };
-  return <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+  return <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_13e0534c795e") } }}>
             <DialogTitle sx={{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center'
     }}>{tx("auto.k_13e0534c795e")}
 
-        <IconButton onClick={handleClose} disabled={sending} size="small">
+        <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={handleClose} disabled={sending} size="small">
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>
@@ -254,7 +254,7 @@ const InteractiveMessageDialog = ({
               maxLength: 20
             }} />
 
-                                    <IconButton size="small" onClick={() => removeButton(index)} disabled={buttons.length <= 1} color="error">
+                                    <IconButton size="small" aria-label="Remove button" onClick={() => removeButton(index)} disabled={buttons.length <= 1} color="error">
 
                                         <DeleteIcon fontSize="small" />
                                     </IconButton>
@@ -283,7 +283,7 @@ const InteractiveMessageDialog = ({
                                         <Typography variant="caption" fontWeight={600}>{tx("auto.k_c17b75236c1f")}
                   {sIdx + 1}
                                         </Typography>
-                                        <IconButton size="small" onClick={() => removeSection(sIdx)} disabled={sections.length <= 1} color="error">
+                                        <IconButton size="small" aria-label="Remove section" onClick={() => removeSection(sIdx)} disabled={sections.length <= 1} color="error">
 
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>
@@ -315,7 +315,7 @@ const InteractiveMessageDialog = ({
                 }} />
 
                                             </Box>
-                                            <IconButton size="small" onClick={() => removeRow(sIdx, rIdx)} disabled={section.rows.length <= 1} color="error">
+                                            <IconButton size="small" aria-label="Remove row" onClick={() => removeRow(sIdx, rIdx)} disabled={section.rows.length <= 1} color="error">
 
                                                 <DeleteIcon fontSize="small" />
                                             </IconButton>

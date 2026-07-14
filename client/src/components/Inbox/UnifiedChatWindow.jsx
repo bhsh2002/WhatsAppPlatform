@@ -15,12 +15,12 @@ import {
     Button,
     FormControl,
     InputLabel,
-    Select,
     MenuItem,
     Alert,
     Tooltip,
     Snackbar,
 } from '@mui/material';
+import Select from '../Form/AccessibleSelect';
 import {
     Send as SendIcon,
     WhatsApp as WhatsAppIcon,
@@ -183,7 +183,7 @@ const UnifiedChatWindow = ({
                 borderBottom: '4px solid #25D366',
             }}>
                 <WhatsAppIcon sx={{ fontSize: 80, color: 'grey.300', mb: 2 }} />
-                <Typography variant="h6" color="text.secondary">{t('inbox.chooseConversation')}</Typography>
+                <Typography component="p" variant="h6" color="text.secondary">{t('inbox.chooseConversation')}</Typography>
             </Box>
         );
     }
@@ -214,7 +214,7 @@ const UnifiedChatWindow = ({
                 borderColor: 'divider',
                 bgcolor: 'background.paper',
             }}>
-                <IconButton sx={{ display: { md: 'none' } }} onClick={onBack}>
+                <IconButton aria-label="Back to conversations" sx={{ display: { md: 'none' } }} onClick={onBack}>
                     <ArrowBackIcon />
                 </IconButton>
                 <Avatar
@@ -334,6 +334,7 @@ const UnifiedChatWindow = ({
                     {hasUtilitySupport && (
                         <Tooltip title={t('inbox.taggedMessageTooltip')} arrow>
                             <IconButton
+                                aria-label={t('inbox.taggedMessageTooltip')}
                                 onClick={handleOpenUtilityManual}
                                 sx={{
                                     flexShrink: 0,
@@ -364,6 +365,7 @@ const UnifiedChatWindow = ({
                         }}
                     />
                     <IconButton
+                        aria-label={t('common.send')}
                         onClick={() => onSendMessage(newMessage)}
                         disabled={sending || !newMessage?.trim()}
                         sx={{
@@ -381,7 +383,7 @@ const UnifiedChatWindow = ({
 
             {/* Utility Message Dialog */}
             {hasUtilitySupport && (
-                <Dialog open={utilityOpen} onClose={() => setUtilityOpen(false)} maxWidth="sm" fullWidth>
+                <Dialog open={utilityOpen} onClose={() => setUtilityOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': t('inbox.taggedDialogTitle') } }}>
                     <DialogTitle>{t('inbox.taggedDialogTitle')}</DialogTitle>
                     <DialogContent>
                         <Alert severity="warning" sx={{ mb: 2 }}>

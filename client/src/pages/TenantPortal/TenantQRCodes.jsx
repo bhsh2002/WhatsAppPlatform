@@ -4,6 +4,7 @@ import { QrCode as QrCodeIcon, Add as AddIcon, Delete as DeleteIcon, ContentCopy
 import api from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const TenantQRCodes = () => {
   const {
     tenant
@@ -63,6 +64,7 @@ const TenantQRCodes = () => {
       alignItems: 'center',
       minHeight: 400
     }}>
+                <PageTitle variant="h5" visuallyHidden>{tx("auto.k_dab7cf0eed77")}</PageTitle>
                 <CircularProgress />
             </Box>;
   }
@@ -71,6 +73,7 @@ const TenantQRCodes = () => {
       p: 3,
       textAlign: 'center'
     }}>
+                <PageTitle variant="h5" visuallyHidden>{tx("auto.k_dab7cf0eed77")}</PageTitle>
                 <Alert severity="warning">{tx("auto.k_caf47d3992f0")}</Alert>
             </Box>;
   }
@@ -107,7 +110,7 @@ const TenantQRCodes = () => {
           color: 'secondary.main'
         }} />
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>{tx("auto.k_dab7cf0eed77")}</Typography>
+                        <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_dab7cf0eed77")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_04b7033424c2")}</Typography>
                     </Box>
                 </Box>
@@ -181,7 +184,7 @@ const TenantQRCodes = () => {
                   }}>
                                                 {qr.deep_link_url || '-'}
                                             </Typography>
-                                            {qr.deep_link_url && <IconButton size="small" onClick={() => {
+                                            {qr.deep_link_url && <IconButton size="small" aria-label={tx("auto.k_12601ae12494")} onClick={() => {
                     navigator.clipboard.writeText(qr.deep_link_url);
                     setSuccess(tx("auto.k_12601ae12494"));
                   }}>
@@ -193,7 +196,7 @@ const TenantQRCodes = () => {
                                         <Chip label={tx("auto.k_41b054617ef6")} size="small" color="success" />
                                     </TableCell>
                                     <TableCell align="center">
-                                        <IconButton color="error" onClick={() => handleDelete(qr.id || qr.code)}>
+                                        <IconButton color="error" aria-label={tx("auto.k_72c0e0ffe845")} onClick={() => handleDelete(qr.id || qr.code)}>
                                             <DeleteIcon />
                                         </IconButton>
                                     </TableCell>
@@ -211,7 +214,7 @@ const TenantQRCodes = () => {
                 </TableContainer>
             </Paper>
 
-            <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
+            <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_594377e2cfcd") } }}>
                 <DialogTitle>{tx("auto.k_594377e2cfcd")}</DialogTitle>
                 <DialogContent>
                     <TextField fullWidth multiline rows={3} label={tx("auto.k_e96b9b9bc60a")} value={newMessage} onChange={e => setNewMessage(e.target.value)} sx={{

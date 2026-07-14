@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Paper, Grid, TextField, Button, Card, CardContent, Chip, CircularProgress, Alert, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { Box, Typography, Paper, Grid, TextField, Button, Card, CardContent, Chip, CircularProgress, Alert, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, FormControl, InputLabel, MenuItem } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Handshake as HandshakeIcon, Search as SearchIcon, Add as AddIcon, Delete as DeleteIcon, PersonAdd } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const PartnerSolutions = () => {
   const [businessId, setBusinessId] = useState('');
@@ -206,7 +208,7 @@ const PartnerSolutions = () => {
         color: 'primary.main'
       }} />
                 <Box>
-                    <Typography variant="h5" fontWeight={700}>{tx("auto.k_2cbbfa7bdd03")}</Typography>
+                    <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_2cbbfa7bdd03")}</PageTitle>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_0b3bde6bfcf8")}</Typography>
                 </Box>
             </Box>
@@ -344,7 +346,7 @@ const PartnerSolutions = () => {
                   })}>
                                                     System user
                                                 </Button>
-                                                <IconButton size="small" color="error" onClick={() => handleRemoveClient(client)} disabled={actionLoading === `remove:${client.id}`}>
+                                                <IconButton size="small" color="error" aria-label={tx("auto.k_2d2bbdc2d694")} onClick={() => handleRemoveClient(client)} disabled={actionLoading === `remove:${client.id}`}>
                                                     {actionLoading === `remove:${client.id}` ? <CircularProgress size={16} /> : <DeleteIcon fontSize="small" />}
                                                 </IconButton>
                                             </TableCell>
@@ -363,7 +365,7 @@ const PartnerSolutions = () => {
                     </Paper>
                 </>}
 
-            <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="sm" fullWidth>
+            <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_52a61a0d0d74") } }}>
                 <DialogTitle>{tx("auto.k_52a61a0d0d74")}</DialogTitle>
                 <DialogContent>
                     <Alert severity="info" sx={{
@@ -400,7 +402,7 @@ const PartnerSolutions = () => {
       open: false,
       client: null,
       accounts: []
-    })} maxWidth="sm" fullWidth>
+    })} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_fda4a89312d1") } }}>
                 <DialogTitle>{tx("auto.k_fda4a89312d1")}</DialogTitle>
                 <DialogContent dividers>
                     <Typography variant="subtitle2" sx={{
@@ -430,7 +432,7 @@ const PartnerSolutions = () => {
       client: null,
       name: '',
       role: 'ADMIN'
-    })} maxWidth="sm" fullWidth>
+    })} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_86e911e6b44e") } }}>
                 <DialogTitle>{tx("auto.k_86e911e6b44e")}</DialogTitle>
                 <DialogContent>
                     <Alert severity="info" sx={{

@@ -3,11 +3,13 @@ import { Box, Card, CardContent, Typography, Button, TextField, Switch, FormCont
 import { ContentCopy as CopyIcon, Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon, Refresh as RefreshIcon, Save as SaveIcon, ExpandMore as ExpandMoreIcon, Code as CodeIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const TenantApiSettings = () => {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [regeneratingWebhookSecret, setRegeneratingWebhookSecret] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -25,7 +27,11 @@ const TenantApiSettings = () => {
       setLoading(true);
       setError(null);
       const data = await api.getPortalApiSettings();
-      setSettings(data);
+      setSettings(current => ({
+        ...data,
+        api_key: data.api_key || current?.api_key,
+        webhook_secret: data.webhook_secret || current?.webhook_secret
+      }));
       setFormData({
         webhook_url: data.webhook_url || '',
         callback_url: data.callback_url || '',
@@ -60,9 +66,13 @@ const TenantApiSettings = () => {
     try {
       setRegenerating(true);
       setError(null);
-      await api.regeneratePortalApiKey();
-      setSuccess(tx("auto.k_7ac287780a8c"));
-      fetchSettings();
+      const data = await api.regeneratePortalApiKey();
+      setSettings(current => ({
+        ...current,
+        ...data
+      }));
+      setShowApiKey(true);
+      setSuccess(data.message || tx("auto.k_7ac287780a8c"));
     } catch (err) {
       console.error('Failed to regenerate key:', err);
       setError(err.message);
@@ -70,7 +80,30 @@ const TenantApiSettings = () => {
       setRegenerating(false);
     }
   };
+  const handleRegenerateWebhookSecret = async () => {
+    const isArabic = document.documentElement.lang === 'ar';
+    if (!window.confirm(isArabic ? 'سيتم إلغاء سر Webhook الحالي. هل تريد المتابعة؟' : 'The current webhook secret will be revoked. Continue?')) {
+      return;
+    }
+    try {
+      setRegeneratingWebhookSecret(true);
+      setError(null);
+      const data = await api.regeneratePortalWebhookSecret();
+      setSettings(current => ({
+        ...current,
+        ...data
+      }));
+      setShowWebhookSecret(true);
+      setSuccess(data.message);
+    } catch (err) {
+      console.error('Failed to regenerate webhook secret:', err);
+      setError(err.message);
+    } finally {
+      setRegeneratingWebhookSecret(false);
+    }
+  };
   const copyToClipboard = (text, label) => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
     setSuccess(tx("auto.k_aa0fe1341a72", {
       value1: label
@@ -86,6 +119,10 @@ const TenantApiSettings = () => {
             </Box>;
   }
   const apiBaseUrl = window.location.origin;
+  const isArabic = document.documentElement.lang === 'ar';
+  const storedCredentialText = isArabic ? 'محفوظ بأمان — أعد التدوير لعرض قيمة جديدة' : 'Stored securely — rotate to reveal a new value';
+  const apiKeyAvailable = Boolean(settings?.api_key);
+  const webhookSecretAvailable = Boolean(settings?.webhook_secret);
   return <Box sx={{
     p: {
       xs: 1.5,
@@ -96,9 +133,9 @@ const TenantApiSettings = () => {
             <Box sx={{
       mb: 4
     }}>
-                <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_dc090bbdeee1")}
+                <PageTitle variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_dc090bbdeee1")}
 
-        </Typography>
+        </PageTitle>
                 <Typography variant="body2" color="text.secondary">{tx("auto.k_a4108c3b1449")}
 
         </Typography>
@@ -121,7 +158,7 @@ const TenantApiSettings = () => {
       mb: 3
     }}>
                 <CardContent>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_fe7acea1037d")}
+                    <Typography component="h2" variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_fe7acea1037d")}
 
           </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{
@@ -135,35 +172,35 @@ const TenantApiSettings = () => {
           flexDirection: 'column',
           gap: 3
         }}>
-                        <TextField label="API Key" value={showApiKey ? settings?.api_key || '' : '••••••••••••••••••••••••••••••••'} fullWidth InputProps={{
+                        <TextField label="API Key" value={apiKeyAvailable ? showApiKey ? settings.api_key : '••••••••••••••••••••••••••••••••' : storedCredentialText} fullWidth InputProps={{
             readOnly: true,
             endAdornment: <InputAdornment position="end">
-                                        <Tooltip title={showApiKey ? tx("auto.k_0804220142f6") : tx("auto.k_f2dde4fd8674")}>
-                                            <IconButton onClick={() => setShowApiKey(!showApiKey)}>
+                                        <Tooltip describeChild title={showApiKey ? tx("auto.k_0804220142f6") : tx("auto.k_f2dde4fd8674")}>
+                                            <span><IconButton aria-label="Toggle API key visibility" onClick={() => setShowApiKey(!showApiKey)} disabled={!apiKeyAvailable}>
                                                 {showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                                            </IconButton>
+                                            </IconButton></span>
                                         </Tooltip>
-                                        <Tooltip title={tx("auto.k_46e6841e2136")}>
-                                            <IconButton onClick={() => copyToClipboard(settings?.api_key, 'API Key')}>
+                                        <Tooltip describeChild title={tx("auto.k_46e6841e2136")}>
+                                            <span><IconButton aria-label="Copy API key" onClick={() => copyToClipboard(settings?.api_key, 'API Key')} disabled={!apiKeyAvailable}>
                                                 <CopyIcon />
-                                            </IconButton>
+                                            </IconButton></span>
                                         </Tooltip>
                                     </InputAdornment>
           }} />
 
 
-                        <TextField label="Webhook Secret" value={showWebhookSecret ? settings?.webhook_secret || '' : '••••••••••••••••'} fullWidth InputProps={{
+                        <TextField label="Webhook Secret" value={webhookSecretAvailable ? showWebhookSecret ? settings.webhook_secret : '••••••••••••••••' : storedCredentialText} fullWidth InputProps={{
             readOnly: true,
             endAdornment: <InputAdornment position="end">
-                                        <Tooltip title={showWebhookSecret ? tx("auto.k_0804220142f6") : tx("auto.k_f2dde4fd8674")}>
-                                            <IconButton onClick={() => setShowWebhookSecret(!showWebhookSecret)}>
+                                        <Tooltip describeChild title={showWebhookSecret ? tx("auto.k_0804220142f6") : tx("auto.k_f2dde4fd8674")}>
+                                            <span><IconButton aria-label="Toggle webhook secret visibility" onClick={() => setShowWebhookSecret(!showWebhookSecret)} disabled={!webhookSecretAvailable}>
                                                 {showWebhookSecret ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                                            </IconButton>
+                                            </IconButton></span>
                                         </Tooltip>
-                                        <Tooltip title={tx("auto.k_46e6841e2136")}>
-                                            <IconButton onClick={() => copyToClipboard(settings?.webhook_secret, 'Webhook Secret')}>
+                                        <Tooltip describeChild title={tx("auto.k_46e6841e2136")}>
+                                            <span><IconButton aria-label="Copy webhook secret" onClick={() => copyToClipboard(settings?.webhook_secret, 'Webhook Secret')} disabled={!webhookSecretAvailable}>
                                                 <CopyIcon />
-                                            </IconButton>
+                                            </IconButton></span>
                                         </Tooltip>
                                     </InputAdornment>
           }} helperText={tx("auto.k_ce74c1aa8022")} />
@@ -175,6 +212,11 @@ const TenantApiSettings = () => {
 
 
             </Button>
+                        <Button variant="outlined" color="warning" startIcon={regeneratingWebhookSecret ? <CircularProgress size={20} /> : <RefreshIcon />} onClick={handleRegenerateWebhookSecret} disabled={regeneratingWebhookSecret} sx={{
+            alignSelf: 'flex-start'
+          }}>
+                            {isArabic ? 'تدوير سر Webhook' : 'Rotate webhook secret'}
+                        </Button>
                     </Box>
                 </CardContent>
             </Card>
@@ -184,7 +226,7 @@ const TenantApiSettings = () => {
       mb: 3
     }}>
                 <CardContent>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_ab70b8ee6e26")}
+                    <Typography component="h2" variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_ab70b8ee6e26")}
 
           </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{
@@ -229,7 +271,7 @@ const TenantApiSettings = () => {
             {/* API Documentation */}
             <Card elevation={2}>
                 <CardContent>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>
+                    <Typography component="h2" variant="h6" fontWeight={600} gutterBottom>
                         <CodeIcon sx={{
             mr: 1,
             verticalAlign: 'middle'

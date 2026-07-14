@@ -166,7 +166,7 @@ const ChatWindow = ({
                 <Toolbar sx={{
         px: 1
       }}>
-                    <IconButton onClick={onBack} sx={{
+                    <IconButton aria-label="Back to conversations" onClick={onBack} sx={{
           mr: 1,
           display: {
             md: 'none'
@@ -227,8 +227,8 @@ const ChatWindow = ({
                             </Typography>}
                     </Box>
 
-                    <IconButton><SearchIcon /></IconButton>
-                    <IconButton><MoreVertIcon /></IconButton>
+                    <IconButton aria-label="Search conversation"><SearchIcon /></IconButton>
+                    <IconButton aria-label="Conversation options"><MoreVertIcon /></IconButton>
                 </Toolbar>
             </AppBar>
 
@@ -330,7 +330,7 @@ const ChatWindow = ({
       boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
     }}>
                 {isMobile ? <>
-                        <IconButton size="small" onClick={e => setAttachMenuAnchor(e.currentTarget)} sx={{
+                        <IconButton size="small" aria-label="Open attachment menu" onClick={e => setAttachMenuAnchor(e.currentTarget)} sx={{
           flexShrink: 0
         }}>
 
@@ -393,7 +393,7 @@ const ChatWindow = ({
       }} />
 
 
-                <IconButton onClick={onSendMessage} disabled={sending || !newMessage.trim()} sx={{
+                <IconButton aria-label="Send message" onClick={onSendMessage} disabled={sending || !newMessage.trim()} sx={{
         flexShrink: 0,
         bgcolor: 'primary.main',
         color: 'white',
@@ -420,14 +420,14 @@ const ChatWindow = ({
             </Paper>
 
             {/* File/Image Preview Dialog */}
-            <Dialog open={showFileDialog} onClose={() => !sendingDoc && setShowFileDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={showFileDialog} onClose={() => !sendingDoc && setShowFileDialog(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': selectedFile?.type?.startsWith('image/') ? tx("auto.k_df9bac60e9b6") : tx("auto.k_f4e1e6f3d517") } }}>
                 <DialogTitle sx={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
                     {selectedFile?.type?.startsWith('image/') ? tx("auto.k_df9bac60e9b6") : tx("auto.k_f4e1e6f3d517")}
-                    <IconButton onClick={() => setShowFileDialog(false)} disabled={sendingDoc}>
+                    <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={() => setShowFileDialog(false)} disabled={sendingDoc}>
                         <CloseIcon />
                     </IconButton>
                 </DialogTitle>

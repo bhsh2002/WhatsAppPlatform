@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Paper, Grid, TextField, Button, Card, CardContent, Chip, CircularProgress, Alert, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Divider, Avatar, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { Box, Typography, Paper, Grid, TextField, Button, Card, CardContent, Chip, CircularProgress, Alert, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Divider, Avatar, FormControl, InputLabel, MenuItem } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Business as BusinessIcon, Search as SearchIcon, AccountBalance, Store } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const BusinessManager = () => {
   const [businessId, setBusinessId] = useState('');
   const [info, setInfo] = useState(null);
@@ -136,7 +138,7 @@ const BusinessManager = () => {
         color: 'primary.main'
       }} />
                 <Box>
-                    <Typography variant="h5" fontWeight={700}>{tx("auto.k_564bfedbff1b")}</Typography>
+                    <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_564bfedbff1b")}</PageTitle>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_d5042a53f126")}</Typography>
                 </Box>
             </Box>

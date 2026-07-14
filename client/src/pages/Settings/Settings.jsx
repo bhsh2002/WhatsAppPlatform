@@ -4,6 +4,7 @@ import { CheckCircle as CheckCircleIcon, Error as ErrorIcon, ContentCopy as Copy
 import api from '../../api';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const StatusChip = ({
   ok,
   label
@@ -76,7 +77,7 @@ const Settings = () => {
           fontSize: 32
         }} />
                     <Box>
-                        <Typography variant="h4" fontWeight={700}>{tx("auto.k_4c5a4acc6f8c")}</Typography>
+                        <PageTitle variant="h4" fontWeight={700}>{tx("auto.k_4c5a4acc6f8c")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_7cfd38fe3b03")}
 
             </Typography>
@@ -111,7 +112,7 @@ const Settings = () => {
               }}>
                                     <DnsIcon color="primary" />
                                     <Box>
-                                        <Typography variant="h6">{tx("auto.k_f5db7cbdaf9d")}</Typography>
+                                        <Typography component="h2" variant="h6">{tx("auto.k_f5db7cbdaf9d")}</Typography>
                                         <Typography variant="body2" color="text.secondary">
                                             {serverStatus === 'online' ? tx("auto.k_1016ec979455") : serverStatus === 'checking' ? tx("auto.k_bfd07a121f1f") : tx("auto.k_5f7c2b8e6600")}
                                         </Typography>
@@ -138,12 +139,12 @@ const Settings = () => {
               mb: 2
             }}>
                                 <WebhookIcon color="primary" />
-                                <Typography variant="h6">Meta Webhook</Typography>
+                                <Typography component="h2" variant="h6">Meta Webhook</Typography>
                             </Box>
                             <TextField fullWidth label="Callback URL" value={webhookUrl || tx("auto.k_e0578dbdc1e1")} InputProps={{
               readOnly: true,
               endAdornment: webhookUrl ? <InputAdornment position="end">
-                                            <IconButton onClick={() => copyValue('webhook', webhookUrl)} edge="end">
+                                            <IconButton aria-label="Copy webhook URL" onClick={() => copyValue('webhook', webhookUrl)} edge="end">
                                                 {copied === 'webhook' ? <CheckCircleIcon color="success" fontSize="small" /> : <CopyIcon fontSize="small" />}
                                             </IconButton>
                                         </InputAdornment> : null
@@ -186,7 +187,7 @@ const Settings = () => {
               mb: 2
             }}>
                                 <SecurityIcon color="primary" />
-                                <Typography variant="h6">{tx("auto.k_34c0e195543b")}</Typography>
+                                <Typography component="h2" variant="h6">{tx("auto.k_34c0e195543b")}</Typography>
                             </Box>
                             <Box sx={{
               display: 'flex',

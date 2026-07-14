@@ -10,6 +10,7 @@ import { getUnifiedConversationKey, isSameUnifiedConversation } from '../../util
 import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const TenantInbox = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -403,31 +404,15 @@ const TenantInbox = () => {
 
   // ============================================
   // SSE Integration (Portal endpoint)
-  // ============================================
+    // ============================================
 
   useEffect(() => {
-    const authToken = localStorage.getItem('auth_token');
-    if (!authToken) return;
-    const baseUrl = import.meta.env.VITE_API_URL || '';
     let evtSource = null;
     let reconnectTimeout = null;
     const connectSSE = async () => {
       try {
-        const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (!sseTokenRes.ok) {
-          console.warn('[TenantInbox] Failed to get SSE token');
-          return;
-        }
-        const {
-          token
-        } = await sseTokenRes.json();
-        evtSource = new EventSource(`${baseUrl}/api/portal/events?token=${token}`);
+        const sseUrl = await api.getSseUrl('/api/portal/events');
+        evtSource = new EventSource(sseUrl);
         evtSource.addEventListener('message:new', e => {
           fetchConversations();
           const current = selectedChatRef.current;
@@ -566,6 +551,7 @@ const TenantInbox = () => {
     },
     overflow: 'hidden'
   }}>
+            <PageTitle variant="h5" visuallyHidden>{tx('inbox.title')}</PageTitle>
             {/* Sidebar */}
             <Box sx={{
       width: isMobile ? selectedChat ? 0 : '100%' : 350,

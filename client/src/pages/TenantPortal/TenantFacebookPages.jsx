@@ -4,6 +4,7 @@ import { Facebook as FacebookIcon, CloudDone as CloudDoneIcon, CloudOff as Cloud
 import api from '../../api';
 import FacebookConnect from '../../components/Facebook/FacebookConnect';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const TenantFacebookPages = () => {
   const [pages, setPages] = useState([]);
@@ -125,7 +126,7 @@ const TenantFacebookPages = () => {
           color: '#1877f2'
         }} />
                     <Box>
-                        <Typography variant="h4" fontWeight={700}>{tx("auto.k_b77cc799dc2a")}</Typography>
+                        <PageTitle variant="h4" fontWeight={700}>{tx("auto.k_b77cc799dc2a")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_fa9dfda659d6")}</Typography>
                     </Box>
                 </Box>
@@ -143,7 +144,7 @@ const TenantFacebookPages = () => {
         flexWrap: 'wrap'
       }}>
                     <Box>
-                        <Typography variant="h6">{tx("auto.k_fbc00016e89a")}</Typography>
+                        <Typography component="h2" variant="h6">{tx("auto.k_fbc00016e89a")}</Typography>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_b2705c6a1390")}
 
             </Typography>
@@ -241,7 +242,7 @@ const TenantFacebookPages = () => {
         color: 'grey.300',
         mb: 2
       }} />
-                    <Typography variant="h6" color="text.secondary">{tx("auto.k_43a46f260ab6")}</Typography>
+                    <Typography component="p" variant="h6" color="text.secondary">{tx("auto.k_43a46f260ab6")}</Typography>
                     <Typography variant="body2" color="text.secondary" sx={{
         mb: 2
       }}>{tx("auto.k_0a6b03d9b9ac")}
@@ -276,7 +277,7 @@ const TenantFacebookPages = () => {
                                         <Box sx={{
                 flex: 1
               }}>
-                                            <Typography variant="h6" fontWeight={600}>
+                                            <Typography component="h3" variant="h6" fontWeight={600}>
                                                 {page.page_name || page.page_id}
                                             </Typography>
                                             {page.page_category && <Typography variant="body2" color="text.secondary">
@@ -340,7 +341,7 @@ const TenantFacebookPages = () => {
                 </Grid>}
 
 
-            <Dialog open={!!disconnectDialog} onClose={() => setDisconnectDialog(null)}>
+            <Dialog open={!!disconnectDialog} onClose={() => setDisconnectDialog(null)} slotProps={{ paper: { 'aria-label': tx("auto.k_827369dee439") } }}>
                 <DialogTitle>{tx("auto.k_827369dee439")}</DialogTitle>
                 <DialogContent>
                     <Typography>{tx("auto.k_14db208675a8")}

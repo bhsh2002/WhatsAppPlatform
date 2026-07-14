@@ -4,6 +4,7 @@ import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider,
 import { Article as ArticleIcon, Business as BusinessIcon, CheckCircle as CheckCircleIcon, ErrorOutline as ErrorOutlineIcon, Facebook as FacebookIcon, FactCheck as FactCheckIcon, Forum as ForumIcon, History as HistoryIcon, OpenInNew as OpenInNewIcon, PersonSearch as PersonSearchIcon, Refresh as RefreshIcon, Save as SaveIcon, TrendingUp as TrendingUpIcon, Webhook as WebhookIcon } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from '../../utils/locale';
 const STATUS_CONFIG = {
@@ -86,7 +87,7 @@ const PermissionMatrix = ({
     p: 3,
     mb: 3
   }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
+            <Typography component="h2" variant="h6" fontWeight={700} gutterBottom>
                 {t('metaReview.permissionMatrix')}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{
@@ -118,7 +119,7 @@ const PermissionMatrix = ({
             alignItems: 'flex-start'
           }}>
                                 <Box>
-                                    <Typography variant="subtitle2" fontWeight={700}>{permission.label}</Typography>
+                                    <Typography component="h3" variant="subtitle2" fontWeight={700}>{permission.label}</Typography>
                                     <Typography variant="caption" color="text.secondary">{permission.key}</Typography>
                                 </Box>
                                 <StatusChip status={permission.status} />
@@ -156,7 +157,7 @@ const WebhookEvidence = ({
     p: 3,
     mb: 3
   }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
+            <Typography component="h2" variant="h6" fontWeight={700} gutterBottom>
                 {t('metaReview.webhookEvidence')}
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -197,7 +198,7 @@ const ReviewSectionCard = ({
           color: 'primary.main',
           display: 'flex'
         }}>{icon}</Box>
-                    <Typography variant="h6" fontWeight={700}>{title}</Typography>
+                    <Typography component="h2" variant="h6" fontWeight={700}>{title}</Typography>
                 </Box>
                 <StatusChip status={section?.status} />
             </Box>
@@ -454,7 +455,7 @@ const TenantMetaReview = () => {
           color: 'primary.main'
         }} />
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>{t('metaReview.title')}</Typography>
+                        <PageTitle variant="h5" fontWeight={700}>{t('metaReview.title')}</PageTitle>
                         <Typography variant="body2" color="text.secondary">
                             {t('metaReview.subtitle')}
                         </Typography>
@@ -485,7 +486,7 @@ const TenantMetaReview = () => {
           mb: 2
         }}>
                             <Box>
-                                <Typography variant="h6" fontWeight={700}>{t('metaReview.overallStatus')}</Typography>
+                                <Typography component="h2" variant="h6" fontWeight={700}>{t('metaReview.overallStatus')}</Typography>
                                 <Typography variant="body2" color="text.secondary">
                                     {t('metaReview.lastCheck', {
                 date: formatDate(readiness.generated_at)
@@ -494,7 +495,7 @@ const TenantMetaReview = () => {
                             </Box>
                             <StatusChip status={readiness.overall?.status} />
                         </Box>
-                        <LinearProgress variant="determinate" value={(readiness.overall?.ready_count || 0) / (readiness.overall?.total_count || 1) * 100} sx={{
+                        <LinearProgress aria-label={t('metaReview.overallStatus')} variant="determinate" value={(readiness.overall?.ready_count || 0) / (readiness.overall?.total_count || 1) * 100} sx={{
           height: 8,
           borderRadius: 1,
           mb: 1.5
@@ -527,7 +528,7 @@ const TenantMetaReview = () => {
         p: 3,
         mb: 3
       }}>
-                            <Typography variant="h6" fontWeight={700} gutterBottom>
+                            <Typography component="h2" variant="h6" fontWeight={700} gutterBottom>
                                 {t('metaReview.remainingActions')}
                             </Typography>
                             <Stack spacing={1.5}>
@@ -550,7 +551,7 @@ const TenantMetaReview = () => {
           }}>
 
                                         <Box>
-                                            <Typography variant="subtitle2" fontWeight={700}>{item.label}</Typography>
+                                            <Typography component="h3" variant="subtitle2" fontWeight={700}>{item.label}</Typography>
                                             <Typography variant="body2" color="text.secondary">{item.reason}</Typography>
                                         </Box>
                                         <Stack direction="row" spacing={1} alignItems="center">
@@ -575,7 +576,7 @@ const TenantMetaReview = () => {
           mb: 2
         }}>
                                 <HistoryIcon color="primary" />
-                                <Typography variant="h6" fontWeight={700}>{t('metaReview.recentSnapshots')}</Typography>
+                                <Typography component="h2" variant="h6" fontWeight={700}>{t('metaReview.recentSnapshots')}</Typography>
                             </Box>
                             <Stack spacing={1}>
                                 {snapshots.map(snapshot => <Box key={snapshot.id} sx={{
@@ -668,7 +669,7 @@ const TenantMetaReview = () => {
         p: 3,
         mt: 3
       }}>
-                            <Typography variant="h6" fontWeight={700} gutterBottom>
+                            <Typography component="h2" variant="h6" fontWeight={700} gutterBottom>
                                 {t('metaReview.facebookPageDetails')}
                             </Typography>
                             <Stack spacing={2} divider={<Divider flexItem />}>
@@ -687,7 +688,7 @@ const TenantMetaReview = () => {
           }}>
 
                                         <Box>
-                                            <Typography variant="subtitle1" fontWeight={700}>
+                                            <Typography component="h3" variant="subtitle1" fontWeight={700}>
                                                 {page.page_name || page.page_id}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary">

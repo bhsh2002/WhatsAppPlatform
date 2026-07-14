@@ -70,7 +70,7 @@ const ChatSidebar = ({
           gap: 1
         }}>
                         <Tooltip title={tx("auto.k_0bf69f9a30fb")}>
-                            <IconButton onClick={() => navigate(broadcastPath)} size="small" sx={{
+                            <IconButton aria-label={tx("auto.k_0bf69f9a30fb")} onClick={() => navigate(broadcastPath)} size="small" sx={{
               bgcolor: 'secondary.main',
               color: 'white',
               '&:hover': {
@@ -84,7 +84,7 @@ const ChatSidebar = ({
                             </IconButton>
                         </Tooltip>
                         <Tooltip title={tx("auto.k_1c0785dfe87c")}>
-                            <IconButton onClick={() => navigate(contactsPath)} size="small" sx={{
+                            <IconButton aria-label={tx("auto.k_1c0785dfe87c")} onClick={() => navigate(contactsPath)} size="small" sx={{
               bgcolor: 'grey.100',
               '&:hover': {
                 bgcolor: 'grey.200'
@@ -97,7 +97,7 @@ const ChatSidebar = ({
                             </IconButton>
                         </Tooltip>
                         <Tooltip title={tx("auto.k_015d3289457b")}>
-                            <IconButton onClick={() => setShowNewChatDialog(true)} size="small" sx={{
+                            <IconButton aria-label={tx("auto.k_015d3289457b")} onClick={() => setShowNewChatDialog(true)} size="small" sx={{
               bgcolor: 'primary.main',
               color: 'white',
               '&:hover': {
@@ -225,7 +225,7 @@ const ChatSidebar = ({
             </Box>
 
             {/* New Chat Dialog */}
-            <Dialog open={showNewChatDialog} onClose={() => setShowNewChatDialog(false)} maxWidth="xs" fullWidth>
+            <Dialog open={showNewChatDialog} onClose={() => setShowNewChatDialog(false)} maxWidth="xs" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_015d3289457b") } }}>
 
                 <DialogTitle sx={{
         display: 'flex',
@@ -233,7 +233,7 @@ const ChatSidebar = ({
         alignItems: 'center'
       }}>{tx("auto.k_015d3289457b")}
 
-          <IconButton onClick={() => setShowNewChatDialog(false)} size="small">
+          <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={() => setShowNewChatDialog(false)} size="small">
                         <CloseIcon />
                     </IconButton>
                 </DialogTitle>

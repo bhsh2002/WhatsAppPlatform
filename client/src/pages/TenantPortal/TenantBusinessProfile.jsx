@@ -4,6 +4,7 @@ import { Store as StoreIcon, Edit as EditIcon, Save as SaveIcon, Cancel as Cance
 import api from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 const TenantBusinessProfile = () => {
   const {
     tenant
@@ -114,7 +115,7 @@ const TenantBusinessProfile = () => {
                         <StoreIcon />
                     </Avatar>
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>{tx("auto.k_252f7ceb9409")}</Typography>
+                        <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_252f7ceb9409")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_96c97ae403d8")}</Typography>
                     </Box>
                 </Box>

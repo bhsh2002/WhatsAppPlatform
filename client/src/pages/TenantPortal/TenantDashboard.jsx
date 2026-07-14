@@ -87,7 +87,7 @@ const TenantDashboard = () => {
         <Card elevation={2} sx={{ height: '100%' }}>
             <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary">
+                    <Typography variant="subtitle2" component="p" color="text.secondary">
                         {title}
                     </Typography>
                     <Box sx={{
@@ -102,7 +102,7 @@ const TenantDashboard = () => {
                         {icon}
                     </Box>
                 </Box>
-                <Typography variant="h4" fontWeight={600} gutterBottom>
+                <Typography variant="h4" component="p" fontWeight={600} gutterBottom>
                     {loading ? '-' : value}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
@@ -152,7 +152,7 @@ const TenantDashboard = () => {
             {/* Header */}
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                    <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>
                         {t('dashboard.tenantGreeting', { name: tenant?.name || t('dashboard.tenantFallbackName') })}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -259,7 +259,7 @@ const TenantDashboard = () => {
                 </Grid>
             </Grid>
 
-            <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+            <Typography variant="h6" component="h2" fontWeight={600} sx={{ mb: 2 }}>
                 {t('dashboard.channelSummary')}
             </Typography>
             <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -316,7 +316,7 @@ const TenantDashboard = () => {
             {/* Recent Activity */}
             <Card elevation={2}>
                 <Box sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
-                    <Typography variant="h6" fontWeight={600}>
+                    <Typography variant="h6" component="h2" fontWeight={600}>
                         {t('dashboard.recentActivity')}
                     </Typography>
                     <Button

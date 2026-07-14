@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Card, CardContent, Typography, Button, Grid, Chip, Alert, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Box, Card, CardContent, Typography, Button, Grid, Chip, Alert, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, FormControl, InputLabel, MenuItem } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Webhook as WebhookIcon, Refresh as RefreshIcon, PlayArrow as SubscribeIcon, CheckCircle as CheckCircleIcon, Cancel as CancelIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const getFieldLabel = () => ({
   messages: tx("auto.k_1a1814493410"),
@@ -18,7 +20,7 @@ const WebhookSubscriptions = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const selectedTenantData = useMemo(() => tenants.find(t => String(t.id) === String(selectedTenant)), [tenants, selectedTenant]);
-  const fetchTenants = async () => {
+  const fetchTenants = useCallback(async () => {
     try {
       const data = await api.getTenants();
       setTenants(data);
@@ -27,8 +29,8 @@ const WebhookSubscriptions = () => {
     } catch {
       setError(tx("auto.k_98585c51b956"));
     }
-  };
-  const fetchSubscriptions = async () => {
+  }, []);
+  const fetchSubscriptions = useCallback(async () => {
     if (!selectedTenant) return;
     setLoading(true);
     setError('');
@@ -41,7 +43,7 @@ const WebhookSubscriptions = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTenant]);
   const handleSubscribe = async () => {
     if (!selectedTenant) return;
     setSubscribing(true);
@@ -59,10 +61,10 @@ const WebhookSubscriptions = () => {
   };
   useEffect(() => {
     fetchTenants();
-  }, []);
+  }, [fetchTenants]);
   useEffect(() => {
     if (selectedTenant) fetchSubscriptions();
-  }, [selectedTenant]);
+  }, [selectedTenant, fetchSubscriptions]);
   const requiredFields = diagnostic?.required_fields || ['messages', 'message_template_status_update', 'account_alerts'];
   const subscribedFields = diagnostic?.subscribed_fields || [];
   const missingFields = diagnostic?.missing_fields || [];
@@ -78,9 +80,9 @@ const WebhookSubscriptions = () => {
             <Box sx={{
       mb: 3
     }}>
-                <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_f08615f44c97")}
+                <PageTitle variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_f08615f44c97")}
 
-        </Typography>
+        </PageTitle>
                 <Typography variant="body2" color="text.secondary">{tx("auto.k_5478353331ea")}
 
         </Typography>

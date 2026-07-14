@@ -22,6 +22,7 @@ import {
 } from '../../utils/conversationKeys';
 import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 import { useLanguage } from '../../context/LanguageContext';
+import { PageTitle } from '../../components/Layout/PageTitle';
 
 const UnifiedInbox = () => {
     const theme = useTheme();
@@ -476,30 +477,13 @@ const UnifiedInbox = () => {
     // ============================================
 
     useEffect(() => {
-        const authToken = localStorage.getItem('auth_token');
-        if (!authToken) return;
-
-        const baseUrl = import.meta.env.VITE_API_URL || '';
         let evtSource = null;
         let reconnectTimeout = null;
 
         const connectSSE = async () => {
             try {
-                const sseTokenRes = await fetch(`${baseUrl}/api/auth/sse-token`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
-
-                if (!sseTokenRes.ok) {
-                    console.warn('[UnifiedInbox] Failed to get SSE token');
-                    return;
-                }
-
-                const { token } = await sseTokenRes.json();
-                evtSource = new EventSource(`${baseUrl}/api/messages/events?token=${token}`);
+                const sseUrl = await api.getSseUrl('/api/messages/events');
+                evtSource = new EventSource(sseUrl);
 
                 evtSource.addEventListener('message:new', (e) => {
                     fetchConversations();
@@ -633,6 +617,7 @@ const UnifiedInbox = () => {
 
     return (
         <Box sx={{ display: 'flex', height: { xs: 'calc(100vh - 56px)', md: '100vh' }, overflow: 'hidden' }}>
+            <PageTitle variant="h5" visuallyHidden>{t('inbox.title')}</PageTitle>
             {/* Sidebar */}
             <Box sx={{
                 width: isMobile ? (selectedChat ? 0 : '100%') : 350,

@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, Grid, InputLabel, MenuItem, Paper, Select, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, Grid, InputLabel, MenuItem, Paper, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { AccountBalanceWallet as WalletIcon, Add as AddIcon, Payments as PaymentsIcon, PriceCheck as PriceIcon, ReceiptLong as InvoiceIcon, Refresh as RefreshIcon, Save as SaveIcon, CloudSync as SyncIcon, UploadFile as UploadIcon } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
+import { MetricValue, PageTitle } from '../../components/Layout/PageTitle';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
 const number = value => Number(value || 0).toLocaleString(getCurrentLocale());
@@ -132,9 +134,9 @@ const StatCard = ({
     }}>
                 <Box>
                     <Typography variant="body2" color="text.secondary">{title}</Typography>
-                    <Typography variant="h5" fontWeight={800} sx={{
+                    <MetricValue variant="h5" fontWeight={800} sx={{
           mt: 1
-        }}>{value}</Typography>
+        }}>{value}</MetricValue>
                     {caption && <Typography variant="caption" color="text.secondary">{caption}</Typography>}
                 </Box>
                 <Box sx={{
@@ -615,7 +617,7 @@ const BillingManager = () => {
       mb: 3
     }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={800}>{t('billing.adminTitle')}</Typography>
+                    <PageTitle variant="h4" fontWeight={800}>{t('billing.adminTitle')}</PageTitle>
                     <Typography variant="body2" color="text.secondary">
                         {t('billing.adminSubtitle')}
                     </Typography>
@@ -696,7 +698,7 @@ const BillingManager = () => {
           p: 2,
           mt: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>فترة إحصائيات الاستخدام</Typography>
                             <TextField fullWidth type="date" label="من تاريخ" InputLabelProps={{
@@ -787,7 +789,7 @@ const BillingManager = () => {
             alignItems: 'center',
             mb: 2
           }}>
-                                <Typography variant="h6" fontWeight={700}>دورة الاشتراك</Typography>
+                                <Typography component="h2" variant="h6" fontWeight={700}>دورة الاشتراك</Typography>
                                 <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={saving || !selectedTenantId || !cycleRenewDue}>تجديد الدورة</Button>
                             </Box>
                             {cycleRenewDue ? <Alert severity="warning" sx={{
@@ -841,7 +843,7 @@ const BillingManager = () => {
               p: 2,
               mt: 2
             }}>
-                                    <Typography variant="h6" fontWeight={700} sx={{
+                                    <Typography component="h2" variant="h6" fontWeight={700} sx={{
                 mb: 2
               }}>{tx("auto.k_f09fc7d9a59e")}</Typography>
                                     <TextField fullWidth type="number" label={tx("auto.k_f96a754ed8d1")} value={paymentForm.credits} onChange={e => setPaymentForm({
@@ -879,7 +881,7 @@ const BillingManager = () => {
               p: 2,
               mt: 2
             }}>
-                                    <Typography variant="h6" fontWeight={700} sx={{
+                                    <Typography component="h2" variant="h6" fontWeight={700} sx={{
                 mb: 2
               }}>{tx("auto.k_a7630d594814")}</Typography>
                                     <TextField fullWidth type="number" label={tx("auto.k_28ce80c8efbf")} value={adjustmentForm.credits_delta} onChange={e => setAdjustmentForm({
@@ -909,7 +911,7 @@ const BillingManager = () => {
         justifyContent: 'space-between',
         mb: 2
       }}>
-                        <Typography variant="h6" fontWeight={700}>{tx("auto.k_bb94fce1191d")}</Typography>
+                        <Typography component="h2" variant="h6" fontWeight={700}>{tx("auto.k_bb94fce1191d")}</Typography>
                         <Button startIcon={<AddIcon />} variant="contained" onClick={() => setPlanDialog(true)}>{tx("auto.k_92ad913d6acc")}</Button>
                     </Box>
                     <TableContainer>
@@ -976,7 +978,7 @@ const BillingManager = () => {
             {tab === 2 && <Paper sx={{
       p: 2
     }}>
-                    <Typography variant="h6" fontWeight={700} sx={{
+                    <Typography component="h2" variant="h6" fontWeight={700} sx={{
         mb: 2
       }}>{tx("auto.k_ae688396bda1")}</Typography>
                     <Alert severity="info" sx={{
@@ -1021,7 +1023,9 @@ const BillingManager = () => {
                   minWidth: 180
                 }}>
                                                 <FormControl fullWidth size="small">
-                                                    <Select value={['fixed', 'meta_like', 'meta_cost_plus_credits'].includes(price.local_pricing_model) ? price.local_pricing_model : 'fixed'} onChange={e => updatePrice(price, pricingPatchForModel(e.target.value))}>
+                                                    <Select inputProps={{
+                          'aria-label': tx("auto.k_e86eeb2d427a")
+                        }} value={['fixed', 'meta_like', 'meta_cost_plus_credits'].includes(price.local_pricing_model) ? price.local_pricing_model : 'fixed'} onChange={e => updatePrice(price, pricingPatchForModel(e.target.value))}>
 
                                                         <MenuItem value="fixed">{tx("auto.k_29117462682c")}</MenuItem>
                                                         <MenuItem value="meta_like">{tx("auto.k_53f8b7daf69f")}</MenuItem>
@@ -1038,7 +1042,9 @@ const BillingManager = () => {
                   minWidth: 170
                 }}>
                                                 <FormControl fullWidth size="small">
-                                                    <Select value={price.meta_cost_basis || 'not_applicable'} onChange={e => updatePrice(price, {
+                                                    <Select inputProps={{
+                          'aria-label': t('billing.metaCostBasis')
+                        }} value={price.meta_cost_basis || 'not_applicable'} onChange={e => updatePrice(price, {
                       meta_cost_basis: e.target.value
                     })}>
                                                         <MenuItem value="meta_billed">{t('billing.metaBilled')}</MenuItem>
@@ -1088,7 +1094,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_e50acc511afa")}</Typography>
                             <TableContainer>
@@ -1122,7 +1128,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_38bd1a4075c9")}</Typography>
                             <Button fullWidth variant="contained" startIcon={<InvoiceIcon />} onClick={createInvoice} disabled={saving || !selectedTenantId} sx={{
@@ -1187,7 +1193,7 @@ const BillingManager = () => {
             mb: 2
           }}>
                                 <Box>
-                                    <Typography variant="h6" fontWeight={700}>Meta Cost Reconciliation</Typography>
+                                    <Typography component="h2" variant="h6" fontWeight={700}>Meta Cost Reconciliation</Typography>
                                     <Typography variant="body2" color="text.secondary">{tx("auto.k_6aa481fce38d")}
 
                 </Typography>
@@ -1297,7 +1303,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 1
           }}>{tx("auto.k_d9511638209e")}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{
@@ -1383,7 +1389,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_f1cf3d56f4d6")}</Typography>
                             {(metaReconciliation?.action_items || []).length === 0 ? <Alert severity="success">{tx("auto.k_0e1d52d8555d")}</Alert> : <TableContainer sx={{
@@ -1422,7 +1428,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 1
           }}>{tx("auto.k_d5c8692636a9")}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{
@@ -1499,7 +1505,7 @@ const BillingManager = () => {
                             <Button sx={{
             mt: 2,
             mx: 1
-          }} variant="outlined" startIcon={<UploadIcon />} component="label" disabled={saving}>{tx("auto.k_e551e1bff940")}
+          }} variant="outlined" startIcon={<UploadIcon />} component="label" role={undefined} disabled={saving}>{tx("auto.k_e551e1bff940")}
 
               <input hidden type="file" accept=".csv,text/csv" onChange={e => importMetaRates(e.target.files?.[0])} />
                             </Button>
@@ -1518,7 +1524,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_05831e8eabe0")}</Typography>
                             <TableContainer sx={{
@@ -1571,7 +1577,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_eac86d7c9252")}</Typography>
                             <TableContainer>
@@ -1610,7 +1616,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_a7e84c720a24")}</Typography>
                             <Grid container spacing={1.5} sx={{
@@ -1705,7 +1711,7 @@ const BillingManager = () => {
                         <Paper sx={{
           p: 2
         }}>
-                            <Typography variant="h6" fontWeight={700} sx={{
+                            <Typography component="h2" variant="h6" fontWeight={700} sx={{
             mb: 2
           }}>{tx("auto.k_7848c6910def")}</Typography>
                             <TableContainer>
@@ -1742,7 +1748,7 @@ const BillingManager = () => {
                     </Grid>
                 </Grid>}
 
-            <Dialog open={planDialog} onClose={() => setPlanDialog(false)} maxWidth="sm" fullWidth>
+            <Dialog open={planDialog} onClose={() => setPlanDialog(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_511bb0b3792a") } }}>
                 <DialogTitle>{tx("auto.k_511bb0b3792a")}</DialogTitle>
                 <DialogContent sx={{
         display: 'grid',

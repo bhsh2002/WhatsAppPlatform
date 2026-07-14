@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Paper, Typography, Button, Tabs, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, FormControl, Select, MenuItem, CircularProgress, IconButton, InputLabel } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Box, Paper, Typography, Button, Tabs, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, FormControl, MenuItem, CircularProgress, IconButton, InputLabel } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Refresh as RefreshIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, Warning as WarningIcon, CallReceived as IncomingIcon, CallMade as OutgoingIcon, Code as CodeIcon, Message as MessageIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const Logs = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -13,7 +15,7 @@ const Logs = () => {
     direction: '',
     status: ''
   });
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     try {
       setLoading(true);
       const params = {};
@@ -25,8 +27,8 @@ const Logs = () => {
     } finally {
       setLoading(false);
     }
-  };
-  const fetchWebhookLogs = async () => {
+  }, [filter.direction]);
+  const fetchWebhookLogs = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getWebhookLogs(50);
@@ -36,14 +38,14 @@ const Logs = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
   useEffect(() => {
     if (activeTab === 0) {
       fetchMessages();
     } else {
       fetchWebhookLogs();
     }
-  }, [activeTab, filter]);
+  }, [activeTab, fetchMessages, fetchWebhookLogs]);
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
   };
@@ -99,9 +101,9 @@ const Logs = () => {
       }
     }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_cbc547eb096b")}
+                    <PageTitle variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_cbc547eb096b")}
 
-          </Typography>
+          </PageTitle>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_609e992f0c6b")}
 
           </Typography>

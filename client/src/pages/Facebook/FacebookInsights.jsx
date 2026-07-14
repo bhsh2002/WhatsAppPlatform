@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Typography, Paper, Grid, Card, CardContent, CircularProgress, Alert, Snackbar, FormControl, InputLabel, Select, MenuItem, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import { Box, Typography, Paper, Grid, Card, CardContent, CircularProgress, Alert, Snackbar, FormControl, InputLabel, MenuItem, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { BarChart as BarChartIcon, Visibility as ViewsIcon, ThumbUp as ReactionsIcon, ChatBubble as CommentsIcon, People as FollowersIcon, Refresh as RefreshIcon, Share as ShareIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const FacebookInsights = () => {
   const [allPages, setAllPages] = useState([]);
@@ -198,7 +200,7 @@ const FacebookInsights = () => {
           color: '#1877f2'
         }} />
                     <Box>
-                        <Typography variant="h5" fontWeight={700}>{tx("auto.k_d96818c8ec20")}</Typography>
+                        <PageTitle variant="h5" fontWeight={700}>{tx("auto.k_d96818c8ec20")}</PageTitle>
                         <Typography variant="body2" color="text.secondary">{tx("auto.k_9c0c7e9b9a95")}</Typography>
                     </Box>
                 </Box>

@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Grid, Card, CardContent, Typography, TextField, Button, FormControl, FormControlLabel, Radio, RadioGroup, Select, MenuItem, InputLabel, IconButton, Chip, Alert, CircularProgress } from '@mui/material';
+import { Box, Grid, Card, CardContent, Typography, TextField, Button, FormControl, FormControlLabel, Radio, RadioGroup, MenuItem, InputLabel, IconButton, Chip, Alert, CircularProgress } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import { Send as SendIcon, Smartphone as SmartphoneIcon, Add as AddIcon, Delete as DeleteIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, Terminal as TerminalIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import api from '../../api';
 import { useTenants } from '../../context/TenantContext';
 import { tx } from "../../i18n/tx";
+import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
 const WhatsAppConsole = () => {
   const {
@@ -149,9 +151,9 @@ const WhatsAppConsole = () => {
       gap: 1.5
     }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_bea6ddddbceb")}
+                    <PageTitle variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_bea6ddddbceb")}
 
-          </Typography>
+          </PageTitle>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_081a4cf45e36")}
 
           </Typography>
@@ -185,7 +187,7 @@ const WhatsAppConsole = () => {
         }}>
                         <Card>
                             <CardContent>
-                                <Typography variant="h6" gutterBottom>{tx("auto.k_e93a2c5b21c3")}</Typography>
+                                <Typography component="h2" variant="h6" gutterBottom>{tx("auto.k_e93a2c5b21c3")}</Typography>
                                 <Grid container spacing={2}>
                                     <Grid size={{
                   xs: 12,
@@ -229,7 +231,7 @@ const WhatsAppConsole = () => {
 
                         <Card>
                             <CardContent>
-                                <Typography variant="h6" gutterBottom sx={{
+                                <Typography component="h2" variant="h6" gutterBottom sx={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,
@@ -319,7 +321,7 @@ const WhatsAppConsole = () => {
                             width: 42
                           }}>{`{{${index + 1}}}`}</Typography>
                                                                 <TextField fullWidth size="small" value={param.text} onChange={e => updateParam(index, e.target.value)} />
-                                                                <IconButton size="small" onClick={() => removeParam(index)} color="error"><DeleteIcon fontSize="small" /></IconButton>
+                                                                <IconButton size="small" aria-label="Remove template parameter" onClick={() => removeParam(index)} color="error"><DeleteIcon fontSize="small" /></IconButton>
                                                             </Box>)}
                                                     </Box>
                                                 </Grid>
@@ -356,7 +358,7 @@ const WhatsAppConsole = () => {
             flexDirection: 'column',
             p: 2
           }}>
-                            <Typography variant="h6" gutterBottom sx={{
+                            <Typography component="h2" variant="h6" gutterBottom sx={{
               display: 'flex',
               alignItems: 'center',
               gap: 1
@@ -373,7 +375,7 @@ const WhatsAppConsole = () => {
               fontFamily: 'monospace',
               fontSize: '0.875rem'
             }}>
-                                {logs.length === 0 && <Typography color="text.secondary" variant="body2">{tx("auto.k_a2f02bc5b97e")}</Typography>}
+                                {logs.length === 0 && <Typography sx={{ color: '#d1d5db' }} variant="body2">{tx("auto.k_a2f02bc5b97e")}</Typography>}
                                 {logs.map((log, i) => <Box key={i} sx={{
                 color: log.includes('Success') ? '#4ade80' : '#f87171',
                 borderBottom: '1px solid #333',
