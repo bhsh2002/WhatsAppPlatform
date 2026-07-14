@@ -21,7 +21,7 @@ export function initEncryption() {
     if (!keyHex) {
         throw new Error('CRYPTO_KEY environment variable is not set');
     }
-    if (keyHex.length !== 64) {
+    if (!/^[0-9a-fA-F]{64}$/.test(keyHex)) {
         throw new Error('CRYPTO_KEY must be 64 hex characters (32 bytes)');
     }
     encryptionKey = Buffer.from(keyHex, 'hex');

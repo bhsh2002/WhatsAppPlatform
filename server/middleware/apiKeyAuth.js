@@ -1,6 +1,59 @@
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import db from '../db/database.js';
+import {
+    constantTimeEqual,
+    digestApiKey,
+    generateApiKey,
+    isLegacyBcryptDigest,
+} from '../security/apiKeys.js';
+
+const attachTenantSettings = (req, settings) => {
+    req.tenantId = settings.tenant_id;
+    req.tenantSettings = settings;
+};
+
+const findTenantSettings = async (apiKey) => {
+    const digest = digestApiKey(apiKey);
+    const current = db.prepare(
+        'SELECT * FROM tenant_api_settings WHERE api_key_hash = ? AND is_active = 1'
+    ).get(digest);
+    if (current) return current;
+
+    // Transitional path only. New keys never enter this scan; a successful
+    // plaintext match is upgraded to the indexed digest immediately.
+    const legacySettings = db.prepare(`
+        SELECT * FROM tenant_api_settings
+        WHERE is_active = 1
+          AND (
+            (api_key IS NOT NULL AND api_key != '')
+            OR api_key_hash LIKE '$2%'
+          )
+    `).all();
+
+    for (const settings of legacySettings) {
+        const bcryptMatch = isLegacyBcryptDigest(settings.api_key_hash)
+            ? await bcrypt.compare(apiKey, settings.api_key_hash)
+            : false;
+        const plaintextMatch = settings.api_key
+            ? constantTimeEqual(apiKey, settings.api_key)
+            : false;
+
+        if (bcryptMatch || plaintextMatch) {
+            if (plaintextMatch) {
+                db.prepare(`
+                    UPDATE tenant_api_settings
+                    SET api_key_hash = ?, api_key = NULL,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE id = ?
+                `).run(digest, settings.id);
+                return { ...settings, api_key: null, api_key_hash: digest };
+            }
+            return settings;
+        }
+    }
+
+    return null;
+};
 
 /**
  * API Key Authentication Middleware
@@ -19,27 +72,10 @@ export const apiKeyAuth = async (req, res, next) => {
     }
     
     try {
-        // First, try to find by hashed key
-        const allSettings = db.prepare('SELECT * FROM tenant_api_settings WHERE is_active = 1').all();
-        
-        for (const settings of allSettings) {
-            // Check hashed key first
-            if (settings.api_key_hash) {
-                const match = await bcrypt.compare(apiKey, settings.api_key_hash);
-                if (match) {
-                    req.tenantId = settings.tenant_id;
-                    req.tenantSettings = settings;
-                    return next();
-                }
-            }
-            // Fall back to plaintext for migration compatibility
-            // This is temporary - remove after all keys are migrated
-            else if (settings.api_key === apiKey) {
-                req.tenantId = settings.tenant_id;
-                req.tenantSettings = settings;
-                // TODO: Log warning about plaintext API key
-                return next();
-            }
+        const settings = await findTenantSettings(apiKey);
+        if (settings) {
+            attachTenantSettings(req, settings);
+            return next();
         }
         
         return res.status(401).json({ 
@@ -60,21 +96,18 @@ export const apiKeyAuth = async (req, res, next) => {
  * Use this when creating or rotating API keys
  * 
  * @param {string} apiKey - The plaintext API key
- * @returns {Promise<string>} Hashed API key for storage
+ * @returns {string} SHA-256 digest for indexed storage
  */
-export async function hashApiKey(apiKey) {
-    const salt = await bcrypt.genSalt(12);
-    return bcrypt.hash(apiKey, salt);
+export function hashApiKey(apiKey) {
+    return digestApiKey(apiKey);
 }
 
 /**
  * Generate a new API key
  * 
- * @returns {string} A random 32-character API key (base64url encoded)
+ * @returns {string} A prefixed high-entropy API key
  */
-export function generateApiKey() {
-    return crypto.randomBytes(24).toString('base64url');
-}
+export { generateApiKey };
 
 /**
  * Optional API Key Authentication
@@ -88,21 +121,10 @@ export const optionalApiKeyAuth = async (req, res, next) => {
     }
     
     try {
-        const allSettings = db.prepare('SELECT * FROM tenant_api_settings WHERE is_active = 1').all();
-        
-        for (const settings of allSettings) {
-            if (settings.api_key_hash) {
-                const match = await bcrypt.compare(apiKey, settings.api_key_hash);
-                if (match) {
-                    req.tenantId = settings.tenant_id;
-                    req.tenantSettings = settings;
-                    return next();
-                }
-            } else if (settings.api_key === apiKey) {
-                req.tenantId = settings.tenant_id;
-                req.tenantSettings = settings;
-                return next();
-            }
+        const settings = await findTenantSettings(apiKey);
+        if (settings) {
+            attachTenantSettings(req, settings);
+            return next();
         }
     } catch (error) {
         console.error('[OptionalApiKeyAuth] Error:', error);

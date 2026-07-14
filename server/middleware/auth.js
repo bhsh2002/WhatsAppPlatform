@@ -1,39 +1,55 @@
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import { JWT_SECRET } from '../config/index.js';
 import db from '../db/database.js';
+import {
+    createMediaToken,
+    isMediaDownloadRequest,
+    verifyMediaToken,
+} from '../security/mediaTokens.js';
+import { getSessionCookie } from '../security/sessionCookie.js';
+
+const getCurrentUserIdentity = userId => db.prepare(`
+    SELECT id, username, role, tenant_id, is_active, tokens_revoked_at
+    FROM users
+    WHERE id = ?
+`).get(userId);
+
+const applyCurrentIdentity = (decoded, user) => {
+    const identity = {
+        ...decoded,
+        id: user.id,
+        username: user.username,
+        role: user.role,
+    };
+
+    if (user.tenant_id === null || user.tenant_id === undefined) {
+        delete identity.tenant_id;
+    } else {
+        identity.tenant_id = user.tenant_id;
+    }
+
+    return identity;
+};
 
 // ============================================
 // Short-lived media token (for <img>/<video> URLs)
 // ============================================
-const MEDIA_TOKEN_TTL = 300; // 5 minutes
-
 /**
  * Generate a short-lived HMAC-signed token for media access.
  * This avoids exposing the full JWT in URL query params.
  */
 export function generateMediaToken(userId, tenantId = null, role = null) {
-    const payload = {
-        sub: userId,
-        tid: tenantId,
-        role: role,
-        purpose: 'media',
-    };
-    return jwt.sign(payload, JWT_SECRET, { expiresIn: MEDIA_TOKEN_TTL });
+    return createMediaToken({ userId, tenantId, role }, JWT_SECRET);
 }
 
-/**
- * Verify a media-specific token and return user info.
- */
-function verifyMediaToken(token) {
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.purpose !== 'media') return null;
-        return decoded;
-    } catch {
-        return null;
+export const getRequestAuthToken = req => {
+    const authHeader = req.headers?.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+        return { token: authHeader.slice(7).trim(), mode: 'bearer' };
     }
-}
+    const sessionToken = getSessionCookie(req);
+    return sessionToken ? { token: sessionToken, mode: 'cookie' } : { token: null, mode: null };
+};
 
 // ============================================
 // Main auth middleware (with media token fallback)
@@ -41,14 +57,20 @@ function verifyMediaToken(token) {
 export const authMiddleware = (req, res, next) => {
     const authHeader = req.headers.authorization;
     let token;
+    let authMode = null;
     let isMediaToken = false;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.split(' ')[1];
-    } else if (req.query && req.query.media_token) {
-        // Short-lived media token for <img>/<video> src URLs
+        authMode = 'bearer';
+    } else if (req.query?.media_token && isMediaDownloadRequest(req)) {
+        // Short-lived token is accepted only for the two media download routes.
         token = req.query.media_token;
         isMediaToken = true;
+        authMode = 'media';
+    } else {
+        token = getSessionCookie(req);
+        if (token) authMode = 'cookie';
     }
 
     if (!token) {
@@ -57,16 +79,33 @@ export const authMiddleware = (req, res, next) => {
 
     // Handle media token separately (simpler validation, no revocation check needed)
     if (isMediaToken) {
-        const mediaUser = verifyMediaToken(token);
+        const mediaUser = verifyMediaToken(token, JWT_SECRET);
         if (!mediaUser) {
             return res.status(401).json({ error: 'رمز وسائط غير صالح أو منتهي' });
         }
-        // Minimal user object for media routes (includes role for admin middleware)
+
+        const user = db.prepare(
+            'SELECT id, role, tenant_id, is_active, tokens_revoked_at FROM users WHERE id = ?'
+        ).get(mediaUser.sub);
+
+        const tokenTenantId = mediaUser.tid ?? null;
+        const currentTenantId = user?.tenant_id ?? null;
+        const roleMatches = user?.role === (mediaUser.role || null);
+        const tenantMatches = currentTenantId === tokenTenantId;
+        const issuedBeforeRevocation = user?.tokens_revoked_at && mediaUser.iat
+            ? mediaUser.iat < new Date(user.tokens_revoked_at).getTime() / 1000
+            : false;
+
+        if (!user?.is_active || !roleMatches || !tenantMatches || issuedBeforeRevocation) {
+            return res.status(401).json({ error: 'رمز وسائط غير صالح أو منتهي' });
+        }
+
         req.user = {
-            id: mediaUser.sub,
-            tenant_id: mediaUser.tid,
-            role: mediaUser.role || null,
+            id: user.id,
+            tenant_id: currentTenantId,
+            role: user.role,
         };
+        req.authMode = authMode;
         return next();
     }
 
@@ -82,7 +121,7 @@ export const authMiddleware = (req, res, next) => {
         }
 
         // Check if user account exists and is active
-        const user = db.prepare('SELECT is_active, tokens_revoked_at FROM users WHERE id = ?').get(decoded.id);
+        const user = getCurrentUserIdentity(decoded.id);
         if (!user || !user.is_active) {
             return res.status(401).json({ error: 'الحساب غير مُفعّل' });
         }
@@ -96,7 +135,11 @@ export const authMiddleware = (req, res, next) => {
             }
         }
 
-        req.user = decoded;
+        // Roles and tenant assignments can change while a JWT is still valid.
+        // Always enforce the current database identity instead of stale claims.
+        req.user = applyCurrentIdentity(decoded, user);
+        req.authToken = token;
+        req.authMode = authMode;
         next();
     } catch (error) {
         return res.status(401).json({ error: 'رمز غير صالح أو منتهي الصلاحية' });
@@ -114,10 +157,9 @@ export const adminMiddleware = (req, res, next) => {
 
 // Optional auth - doesn't fail if no token, but validates properly if present
 export const optionalAuth = (req, res, next) => {
-    const authHeader = req.headers.authorization;
+    const { token, mode } = getRequestAuthToken(req);
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
+    if (token) {
         try {
             const decoded = jwt.verify(token, JWT_SECRET);
 
@@ -130,7 +172,7 @@ export const optionalAuth = (req, res, next) => {
             }
 
             // Check if user account is still active
-            const user = db.prepare('SELECT is_active, tokens_revoked_at FROM users WHERE id = ?').get(decoded.id);
+            const user = getCurrentUserIdentity(decoded.id);
             if (!user || !user.is_active) {
                 return next(); // User inactive, continue without user
             }
@@ -143,7 +185,9 @@ export const optionalAuth = (req, res, next) => {
                 }
             }
 
-            req.user = decoded;
+            req.user = applyCurrentIdentity(decoded, user);
+            req.authToken = token;
+            req.authMode = mode;
         } catch (error) {
             // Token invalid, but we continue anyway
         }

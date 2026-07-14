@@ -1,6 +1,7 @@
 // ============================================
 // Standardized Error Handling Middleware
 // ============================================
+import { writeLog } from '../services/observability.js';
 
 /**
  * Standard error response format:
@@ -57,7 +58,7 @@ export function errorHandler(err, req, res, next) {
     }
 
     // Multer file type errors
-    if (err.message && err.message.includes('نوع الملف غير مدعوم')) {
+    if (err.code === 'INVALID_FILE_TYPE' || (err.message && err.message.includes('نوع الملف غير مدعوم'))) {
         return res.status(400).json({
             error: err.message,
             code: 'INVALID_FILE_TYPE',
@@ -84,7 +85,12 @@ export function errorHandler(err, req, res, next) {
     }
 
     // Unexpected errors
-    console.error('[Error]', err.stack || err.message || err);
+    writeLog('error', 'unhandled_error', {
+        request_id: req.requestId || null,
+        method: req.method,
+        path: req.path,
+        error: err,
+    });
     res.status(500).json({
         error: 'حدث خطأ داخلي',
         code: 'INTERNAL_ERROR',
