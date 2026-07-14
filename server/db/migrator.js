@@ -1,9 +1,71 @@
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const listMigrationFiles = () => {
+    const migrationsDir = path.join(__dirname, 'migrations');
+    if (!fs.existsSync(migrationsDir)) return [];
+    return fs.readdirSync(migrationsDir).filter(file => file.endsWith('.sql')).sort();
+};
+
+const migrationChecksum = (migrationsDir, file) => createHash('sha256')
+    .update(fs.readFileSync(path.join(migrationsDir, file)))
+    .digest('hex');
+
+const ensureMigrationChecksumColumn = db => {
+    const columns = db.pragma('table_info(_migrations)');
+    if (!columns.some(column => column.name === 'checksum')) {
+        db.exec('ALTER TABLE _migrations ADD COLUMN checksum TEXT');
+    }
+};
+
+const verifyAndBackfillMigrationChecksums = (db, checksums) => {
+    const appliedRows = db.prepare('SELECT name, checksum FROM _migrations').all();
+    const missingChecksums = [];
+
+    for (const row of appliedRows) {
+        const expectedChecksum = checksums.get(row.name);
+        if (!expectedChecksum) {
+            throw new Error(`[Migrator] Applied migration file is missing: ${row.name}`);
+        }
+        if (row.checksum && row.checksum !== expectedChecksum) {
+            throw new Error(`[Migrator] Checksum mismatch for applied migration: ${row.name}`);
+        }
+        if (!row.checksum) {
+            missingChecksums.push([expectedChecksum, row.name]);
+        }
+    }
+
+    if (missingChecksums.length > 0) {
+        const backfill = db.prepare(`
+            UPDATE _migrations
+            SET checksum = ?
+            WHERE name = ? AND checksum IS NULL
+        `);
+        db.transaction(rows => {
+            for (const row of rows) backfill.run(...row);
+        })(missingChecksums);
+    }
+};
+
+export function getMigrationStatusSync(db) {
+    const tableExists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations'"
+    ).get();
+    const files = listMigrationFiles();
+    const applied = tableExists
+        ? new Set(db.prepare('SELECT name FROM _migrations').all().map(row => row.name))
+        : new Set();
+    return {
+        total: files.length,
+        applied: files.filter(file => applied.has(file)).length,
+        pending: files.filter(file => !applied.has(file)).length,
+    };
+}
 
 // ============================================
 // Lightweight Migration Runner for SQLite
@@ -23,19 +85,21 @@ export function runMigrationsSync(db) {
         CREATE TABLE IF NOT EXISTS _migrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
+            checksum TEXT,
             applied_at DATETIME DEFAULT (datetime('now', 'localtime'))
         )
     `);
 
     const migrationsDir = path.join(__dirname, 'migrations');
-    if (!fs.existsSync(migrationsDir)) {
+    const files = listMigrationFiles();
+    ensureMigrationChecksumColumn(db);
+    const checksums = new Map(
+        files.map(file => [file, migrationChecksum(migrationsDir, file)])
+    );
+    verifyAndBackfillMigrationChecksums(db, checksums);
+    if (files.length === 0) {
         return { applied: 0, skipped: 0 };
     }
-
-    // Get all migration files sorted by name
-    const files = fs.readdirSync(migrationsDir)
-        .filter(f => f.endsWith('.sql'))
-        .sort();
 
     // Get already applied migrations
     const applied = new Set(
@@ -55,12 +119,17 @@ export function runMigrationsSync(db) {
         try {
             const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
 
+            // Applying the schema change and recording it must be atomic. If the
+            // process stops between those operations, the next startup could
+            // replay a migration whose schema/data changes already committed.
             const transaction = db.transaction(() => {
                 db.exec(sql);
+                db.prepare(`
+                    INSERT INTO _migrations (name, checksum)
+                    VALUES (?, ?)
+                `).run(file, checksums.get(file));
             });
             transaction();
-
-            db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
             console.log(`[Migrator] Applied: ${file}`);
             appliedCount++;
         } catch (error) {

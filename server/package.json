@@ -6,7 +6,13 @@
     "type": "module",
     "scripts": {
         "start": "node server.js",
-        "dev": "node --watch server.js"
+        "dev": "node --watch server.js",
+        "test": "node --test",
+        "test:coverage": "c8 --all --include 'routes/**/*.js' --include 'services/**/*.js' --include 'middleware/**/*.js' --include 'db/**/*.js' --reporter=text-summary --check-coverage --statements 51 --branches 66 --functions 71 --lines 51 node --test",
+        "setup:local": "node scripts/ensure-local-secrets.js",
+        "migrate:credentials": "node scripts/migrate-sensitive-credentials.js",
+        "backup": "node scripts/backup-database.js",
+        "verify:backup": "node scripts/verify-backup.js"
     },
     "dependencies": {
         "bcryptjs": "^3.0.3",
@@ -19,5 +25,8 @@
         "helmet": "^8.1.0",
         "jsonwebtoken": "^9.0.3",
         "multer": "^2.0.2"
+    },
+    "devDependencies": {
+        "c8": "^11.0.0"
     }
 }

@@ -1,26 +1,30 @@
--- ============================================
--- Migration 018: Automation Post Scope
--- ============================================
--- Adds per-post comment auto-reply support to automation rules.
--- Recreates the table to update CHECK constraint for rule_type.
+-- Add real ownership constraints while preserving global rules (tenant_id NULL),
+-- cooldown state and the local-time insert trigger.
 
--- Preserve child rows before dropping their parent. With foreign_keys=ON,
--- DROP TABLE automation_rules cascades into automation_cooldowns.
-DROP TABLE IF EXISTS automation_cooldowns_018_backup;
-CREATE TABLE automation_cooldowns_018_backup (
+-- Orphaned tenant rules must never become active global rules.
+UPDATE automation_rules
+SET is_active = 0, tenant_id = NULL
+WHERE tenant_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM tenants WHERE tenants.id = automation_rules.tenant_id);
+
+UPDATE automation_rules
+SET target_page_id = NULL
+WHERE target_page_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM tenant_pages WHERE tenant_pages.id = automation_rules.target_page_id);
+
+DROP TABLE IF EXISTS automation_cooldowns_039_backup;
+CREATE TABLE automation_cooldowns_039_backup (
     id INTEGER PRIMARY KEY,
     rule_id INTEGER NOT NULL,
     contact_id TEXT NOT NULL,
     channel TEXT NOT NULL,
     last_triggered_at DATETIME
 );
-INSERT INTO automation_cooldowns_018_backup
+INSERT INTO automation_cooldowns_039_backup
     (id, rule_id, contact_id, channel, last_triggered_at)
-SELECT id, rule_id, contact_id, channel, last_triggered_at
-FROM automation_cooldowns;
+SELECT id, rule_id, contact_id, channel, last_triggered_at FROM automation_cooldowns;
 
--- Step 1: Create new table with updated schema
-CREATE TABLE IF NOT EXISTS automation_rules_new (
+CREATE TABLE automation_rules_039_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER,
     name TEXT NOT NULL,
@@ -28,54 +32,41 @@ CREATE TABLE IF NOT EXISTS automation_rules_new (
     channel TEXT NOT NULL DEFAULT 'all' CHECK(channel IN ('all', 'whatsapp', 'messenger', 'facebook')),
     is_active INTEGER DEFAULT 1,
     priority INTEGER DEFAULT 100,
-
-    -- Keyword rule config
     match_type TEXT CHECK(match_type IN ('exact', 'contains', 'regex')),
     match_pattern TEXT,
     match_case_sensitive INTEGER DEFAULT 0,
-
-    -- Away rule config (schedule)
     schedule_days TEXT,
     schedule_start_time TEXT,
     schedule_end_time TEXT,
     schedule_timezone TEXT DEFAULT 'Africa/Tripoli',
-
-    -- Response config
     response_type TEXT DEFAULT 'text' CHECK(response_type IN ('text', 'template')),
     response_text TEXT,
     response_template_name TEXT,
     response_template_language TEXT DEFAULT 'ar',
-
-    -- Cooldown
     cooldown_seconds INTEGER DEFAULT 300,
-
-    -- Stats
     trigger_count INTEGER DEFAULT 0,
     last_triggered_at DATETIME,
-
-    -- Post scoping (comment_reply rules)
     target_post_id TEXT,
     target_page_id INTEGER,
     response_action TEXT DEFAULT 'comment' CHECK(response_action IN ('comment', 'dm', 'both')),
     dm_text TEXT,
     trigger_on TEXT DEFAULT 'comment' CHECK(trigger_on IN ('comment', 'reaction', 'both')),
-
-    -- Auto-like/react to the comment
     auto_like INTEGER DEFAULT 0,
     auto_like_type TEXT DEFAULT 'like',
-
-    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
-    updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_page_id) REFERENCES tenant_pages(id) ON DELETE SET NULL
 );
 
--- Step 2: Copy existing data
-INSERT INTO automation_rules_new (
+INSERT INTO automation_rules_039_new (
     id, tenant_id, name, rule_type, channel, is_active, priority,
     match_type, match_pattern, match_case_sensitive,
     schedule_days, schedule_start_time, schedule_end_time, schedule_timezone,
     response_type, response_text, response_template_name, response_template_language,
     cooldown_seconds, trigger_count, last_triggered_at,
-    created_at, updated_at
+    target_post_id, target_page_id, response_action, dm_text, trigger_on,
+    auto_like, auto_like_type, created_at, updated_at
 )
 SELECT
     id, tenant_id, name, rule_type, channel, is_active, priority,
@@ -83,22 +74,31 @@ SELECT
     schedule_days, schedule_start_time, schedule_end_time, schedule_timezone,
     response_type, response_text, response_template_name, response_template_language,
     cooldown_seconds, trigger_count, last_triggered_at,
-    created_at, updated_at
+    target_post_id, target_page_id, response_action, dm_text, trigger_on,
+    auto_like, auto_like_type, created_at, updated_at
 FROM automation_rules;
 
--- Step 3: Drop old table and rename
 DROP TABLE automation_rules;
-ALTER TABLE automation_rules_new RENAME TO automation_rules;
+ALTER TABLE automation_rules_039_new RENAME TO automation_rules;
 
--- Step 4: Recreate indexes
-CREATE INDEX IF NOT EXISTS idx_automation_rules_tenant ON automation_rules(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_automation_rules_active ON automation_rules(is_active, rule_type);
-CREATE INDEX IF NOT EXISTS idx_automation_rules_post ON automation_rules(target_post_id);
-CREATE INDEX IF NOT EXISTS idx_automation_rules_page ON automation_rules(target_page_id);
+CREATE INDEX idx_automation_rules_tenant ON automation_rules(tenant_id);
+CREATE INDEX idx_automation_rules_active ON automation_rules(is_active, rule_type);
+CREATE INDEX idx_automation_rules_post ON automation_rules(target_post_id);
+CREATE INDEX idx_automation_rules_page ON automation_rules(target_page_id);
 
--- Restore cooldown state after the parent table has been recreated.
 INSERT OR REPLACE INTO automation_cooldowns
     (id, rule_id, contact_id, channel, last_triggered_at)
 SELECT id, rule_id, contact_id, channel, last_triggered_at
-FROM automation_cooldowns_018_backup;
-DROP TABLE automation_cooldowns_018_backup;
+FROM automation_cooldowns_039_backup;
+DROP TABLE automation_cooldowns_039_backup;
+
+CREATE TRIGGER trg_automation_rules_localtime_insert
+AFTER INSERT ON automation_rules
+WHEN NEW.created_at = CURRENT_TIMESTAMP OR NEW.updated_at = CURRENT_TIMESTAMP
+BEGIN
+    UPDATE automation_rules
+    SET
+        created_at = CASE WHEN NEW.created_at = CURRENT_TIMESTAMP THEN datetime('now', 'localtime') ELSE created_at END,
+        updated_at = CASE WHEN NEW.updated_at = CURRENT_TIMESTAMP THEN datetime('now', 'localtime') ELSE updated_at END
+    WHERE id = NEW.id;
+END;
