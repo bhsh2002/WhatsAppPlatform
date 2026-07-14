@@ -1,6 +1,7 @@
 import db from '../db/database.js';
 import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js';
 import { decryptIfEncrypted } from './encryption.js';
+import { requestMetaJson } from './metaHttp.js';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKEN_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -21,6 +22,11 @@ const getTokenStatus = (tokenData) => {
 
 const expiresAtIso = (expiresAt) => (
     expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null
+);
+
+const debugToken = (token, appAccessToken) => requestMetaJson(
+    `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
+    { headers: { Authorization: `Bearer ${appAccessToken}` } }
 );
 
 export async function checkTokenHealth() {
@@ -50,13 +56,9 @@ export async function checkTokenHealth() {
         }
 
         try {
-            const response = await fetch(
-                `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
-                { headers: { Authorization: `Bearer ${appAccessToken}` } }
-            );
-            const data = await response.json();
+            const { data, error } = await debugToken(token, appAccessToken);
 
-            if (data.error) {
+            if (error) {
                 db.prepare(
                     "UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(tenant.id);
@@ -94,13 +96,9 @@ export async function checkTokenHealth() {
         }
 
         try {
-            const response = await fetch(
-                `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
-                { headers: { Authorization: `Bearer ${appAccessToken}` } }
-            );
-            const data = await response.json();
+            const { data, error } = await debugToken(token, appAccessToken);
 
-            if (data.error) {
+            if (error) {
                 db.prepare(
                     "UPDATE tenants SET facebook_user_token_status = 'invalid', facebook_user_token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(tenant.id);
@@ -151,13 +149,9 @@ export async function checkTokenHealth() {
         }
 
         try {
-            const response = await fetch(
-                `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
-                { headers: { Authorization: `Bearer ${appAccessToken}` } }
-            );
-            const data = await response.json();
+            const { data, error } = await debugToken(token, appAccessToken);
 
-            if (data.error) {
+            if (error) {
                 db.prepare(
                     "UPDATE tenant_pages SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(page.id);
@@ -210,15 +204,11 @@ export async function checkSingleTenant(tenantId) {
         return { status: 'invalid', expires_at: null };
     }
 
-    const response = await fetch(
-        `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
-        { headers: { Authorization: `Bearer ${appAccessToken}` } }
-    );
-    const data = await response.json();
+    const { data, error } = await debugToken(token, appAccessToken);
 
-    if (data.error) {
+    if (error) {
         db.prepare("UPDATE tenants SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?").run(tenantId);
-        return { status: 'invalid', error: data.error.message, expires_at: null };
+        return { status: 'invalid', error: error.message, expires_at: null };
     }
 
     const tokenData = data.data || {};

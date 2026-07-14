@@ -1,6 +1,8 @@
 import express from 'express';
 import db from '../db/database.js';
 import { testRules } from '../services/autoResponder.js';
+import { validateAutomationPattern } from '../services/automationPatterns.js';
+import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
 
@@ -10,6 +12,10 @@ const router = express.Router();
 router.get('/rules', (req, res) => {
     try {
         const { tenant_id, rule_type, channel, is_active } = req.query;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+        });
 
         let query = 'SELECT ar.*, t.name as tenant_name FROM automation_rules ar LEFT JOIN tenants t ON t.id = ar.tenant_id WHERE 1=1';
         const params = [];
@@ -35,7 +41,8 @@ router.get('/rules', (req, res) => {
             params.push(is_active === 'true' ? 1 : 0);
         }
 
-        query += ' ORDER BY ar.priority ASC, ar.id ASC';
+        query += ' ORDER BY ar.priority ASC, ar.id ASC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
 
         const rules = db.prepare(query).all(...params);
         res.json(rules);
@@ -87,9 +94,8 @@ router.post('/rules', (req, res) => {
             return res.status(400).json({ error: 'نوع القاعدة غير صالح' });
         }
 
-        if (rule_type === 'keyword' && (!match_type || !match_pattern)) {
-            return res.status(400).json({ error: 'نمط المطابقة مطلوب لقواعد الكلمات المفتاحية' });
-        }
+        const matchError = validateAutomationPattern({ ruleType: rule_type, matchType: match_type, matchPattern: match_pattern });
+        if (matchError) return res.status(400).json({ error: matchError });
 
         if (rule_type === 'away' && (!schedule_days || !schedule_start_time || !schedule_end_time)) {
             return res.status(400).json({ error: 'جدول المواعيد مطلوب لقواعد خارج الدوام' });
@@ -170,6 +176,13 @@ router.put('/rules/:id', (req, res) => {
             target_post_id, target_page_id, response_action, dm_text, trigger_on,
             auto_like, auto_like_type,
         } = req.body;
+
+        const matchError = validateAutomationPattern({
+            ruleType: rule_type || existing.rule_type,
+            matchType: match_type !== undefined ? match_type : existing.match_type,
+            matchPattern: match_pattern !== undefined ? match_pattern : existing.match_pattern,
+        });
+        if (matchError) return res.status(400).json({ error: matchError });
 
         db.prepare(`
             UPDATE automation_rules SET

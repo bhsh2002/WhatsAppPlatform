@@ -1,4 +1,5 @@
 import { META_API_BASE } from '../config/index.js';
+import { requestMetaJson } from './metaHttp.js';
 
 // ============================================
 // Meta WhatsApp Cloud API Client
@@ -86,7 +87,7 @@ export async function sendInteractiveMessage(phoneNumberId, accessToken, recipie
  * @returns {{ id: string }} The media ID
  */
 export async function uploadMedia(phoneNumberId, accessToken, formData, formHeaders) {
-    const response = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
+    return requestMetaJson(`${META_API_BASE}/${phoneNumberId}/media`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -94,19 +95,15 @@ export async function uploadMedia(phoneNumberId, accessToken, formData, formHead
         },
         body: formData,
     });
-    const data = await response.json();
-    return { ok: response.ok, status: response.status, data };
 }
 
 /**
  * Get media URL from Meta API
  */
 export async function getMediaUrl(accessToken, mediaId) {
-    const response = await fetch(`${META_API_BASE}/${mediaId}`, {
+    return requestMetaJson(`${META_API_BASE}/${mediaId}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
     });
-    const data = await response.json();
-    return { ok: response.ok, status: response.status, data };
 }
 
 /**
@@ -141,7 +138,7 @@ export async function markMessageAsRead(phoneNumberId, accessToken, messageId) {
         message_id: messageId,
     };
     
-    const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+    return requestMetaJson(`${META_API_BASE}/${phoneNumberId}/messages`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -149,20 +146,13 @@ export async function markMessageAsRead(phoneNumberId, accessToken, messageId) {
         },
         body: JSON.stringify(payload),
     });
-    
-    const data = await response.json();
-    return {
-        ok: response.ok,
-        status: response.status,
-        data,
-    };
 }
 
 // ============================================
 // Internal: Send payload to Meta API
 // ============================================
 async function sendToMeta(phoneNumberId, accessToken, payload) {
-    const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+    const result = await requestMetaJson(`${META_API_BASE}/${phoneNumberId}/messages`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -170,12 +160,8 @@ async function sendToMeta(phoneNumberId, accessToken, payload) {
         },
         body: JSON.stringify(payload),
     });
-    const data = await response.json();
     return {
-        ok: response.ok,
-        status: response.status,
-        messageId: data.messages?.[0]?.id || null,
-        error: data.error || null,
-        data,
+        ...result,
+        messageId: result.data?.messages?.[0]?.id || null,
     };
 }

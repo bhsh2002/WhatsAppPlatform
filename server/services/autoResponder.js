@@ -1,9 +1,11 @@
 import db from '../db/database.js';
+import { matchesAutomationPattern } from './automationPatterns.js';
 import { META_API_BASE } from '../config/index.js';
 import { resolveCredentials } from './credentials.js';
 import { decryptIfEncrypted } from './encryption.js';
 import eventBus from './eventBus.js';
 import { insertMessengerMessage, normalizeMessengerTimestamp } from './messengerMessages.js';
+import { readMetaResponse } from './metaHttp.js';
 
 // ============================================
 // Auto-Responder Service
@@ -247,34 +249,7 @@ function isWithinAwaySchedule(rule) {
  * Check if message text matches a keyword rule pattern.
  */
 function matchesKeyword(rule, messageText) {
-    if (!messageText || !rule.match_pattern) return false;
-
-    const text = rule.match_case_sensitive ? messageText : messageText.toLowerCase();
-    const pattern = rule.match_case_sensitive ? rule.match_pattern : rule.match_pattern.toLowerCase();
-
-    switch (rule.match_type) {
-        case 'exact':
-            return text.trim() === pattern.trim();
-
-        case 'contains': {
-            // Support comma-separated patterns: "سعر,أسعار,كم"
-            const patterns = pattern.split(',').map(p => p.trim()).filter(Boolean);
-            return patterns.some(p => text.includes(p));
-        }
-
-        case 'regex':
-            try {
-                const flags = rule.match_case_sensitive ? '' : 'i';
-                const regex = new RegExp(rule.match_pattern, flags);
-                return regex.test(messageText);
-            } catch {
-                console.warn(`[AutoResponder] Invalid regex pattern for rule ${rule.id}: ${rule.match_pattern}`);
-                return false;
-            }
-
-        default:
-            return false;
-    }
+    return matchesAutomationPattern(rule, messageText);
 }
 
 /**
@@ -369,9 +344,10 @@ async function sendWhatsAppReply(rule, { tenant_id, contact_id, phone_number_id,
         body: JSON.stringify(payload),
     });
 
-    const data = await response.json();
+    const metaResult = await readMetaResponse(response);
+    const data = metaResult.data || {};
 
-    if (response.ok) {
+    if (metaResult.ok) {
         const wamid = data.messages?.[0]?.id;
 
         // Store outgoing message
@@ -401,7 +377,7 @@ async function sendWhatsAppReply(rule, { tenant_id, contact_id, phone_number_id,
 
         return true;
     } else {
-        console.error(`[AutoResponder] WA API error:`, data.error?.message || JSON.stringify(data));
+        console.error('[AutoResponder] WhatsApp request failed:', metaResult.status, metaResult.error?.code);
         return false;
     }
 }
@@ -440,9 +416,10 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
         }),
     });
 
-    const data = await response.json();
+    const metaResult = await readMetaResponse(response);
+    const data = metaResult.data || {};
 
-    if (response.ok) {
+    if (metaResult.ok) {
         const mid = data.message_id;
 
         // Find conversation
@@ -493,10 +470,10 @@ async function sendMessengerReply(rule, { tenant_id, contact_id, page_id, page_a
 
         return true;
     } else {
-        if (data.error?.code === 10) {
+        if (metaResult.error?.code === 10) {
             console.warn(`[AutoResponder] Messenger auto-reply skipped: outside 24h window for ${contact_id}`);
         } else {
-            console.error(`[AutoResponder] Messenger API error:`, data.error?.message || JSON.stringify(data));
+            console.error('[AutoResponder] Messenger request failed:', metaResult.status, metaResult.error?.code);
         }
         return false;
     }
@@ -665,12 +642,12 @@ async function sendCommentAutoReply(rule, {
                 }),
             });
 
-            const data = await response.json();
-            if (response.ok) {
+            const metaResult = await readMetaResponse(response);
+            if (metaResult.ok) {
                 publicSent = true;
                 console.log(`[AutoResponder] Public reply sent on comment ${comment_id}`);
             } else {
-                console.error(`[AutoResponder] Public reply failed:`, data.error?.message);
+                console.error('[AutoResponder] Public reply failed:', metaResult.status, metaResult.error?.code);
             }
         } catch (err) {
             console.error(`[AutoResponder] Public reply error:`, err.message);
@@ -692,8 +669,9 @@ async function sendCommentAutoReply(rule, {
                 }),
             });
 
-            const data = await response.json();
-            if (response.ok) {
+            const metaResult = await readMetaResponse(response);
+            const data = metaResult.data || {};
+            if (metaResult.ok) {
                 dmSent = true;
                 console.log(`[AutoResponder] DM sent to commenter on comment ${comment_id}`);
 
@@ -725,7 +703,7 @@ async function sendCommentAutoReply(rule, {
                     `).run(dmMessage.substring(0, 100), createdAt, conv.id);
                 }
             } else {
-                console.error(`[AutoResponder] DM failed:`, data.error?.message);
+                console.error('[AutoResponder] DM failed:', metaResult.status, metaResult.error?.code);
             }
         } catch (err) {
             console.error(`[AutoResponder] DM error:`, err.message);
@@ -742,11 +720,11 @@ async function sendCommentAutoReply(rule, {
                 },
             });
 
-            if (likeResponse.ok) {
+            const likeResult = await readMetaResponse(likeResponse);
+            if (likeResult.ok) {
                 console.log(`[AutoResponder] Liked comment ${comment_id}`);
             } else {
-                const likeData = await likeResponse.json();
-                console.error(`[AutoResponder] Like failed:`, likeData.error?.message);
+                console.error('[AutoResponder] Like failed:', likeResult.status, likeResult.error?.code);
             }
         } catch (err) {
             console.error(`[AutoResponder] Like error:`, err.message);
@@ -879,8 +857,9 @@ async function sendReactionAutoReply(rule, {
             }),
         });
 
-        const data = await response.json();
-        if (response.ok) {
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
+        if (metaResult.ok) {
             console.log(`[AutoResponder] Reaction DM sent to ${reactor_id} (${reaction_type} on ${post_id})`);
 
             // Store in fb_messages if conversation exists
@@ -910,7 +889,7 @@ async function sendReactionAutoReply(rule, {
 
             return true;
         } else {
-            console.error(`[AutoResponder] Reaction DM failed:`, data.error?.message);
+            console.error('[AutoResponder] Reaction DM failed:', metaResult.status, metaResult.error?.code);
             return false;
         }
     } catch (err) {

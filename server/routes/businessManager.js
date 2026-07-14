@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 import { parseStoredArray } from '../services/metaReadiness.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -87,13 +88,14 @@ router.get('/:businessId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyBusinessError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyBusinessError(metaResult.error);
             logBusinessActivity(tenantId, 'business_info_failed', classified.label, 'error');
             // Permission error — return minimal info
-            if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
+            if (metaResult.error?.code === 100 || metaResult.error?.type === 'OAuthException') {
                 return res.json({
                     id: businessId,
                     name: 'غير متاح',
@@ -101,9 +103,9 @@ router.get('/:businessId', async (req, res) => {
                     reason_code: classified.code,
                 });
             }
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب معلومات مدير الأعمال',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل جلب معلومات مدير الأعمال',
+                details: metaResult.error,
                 reason_code: classified.code,
             });
         }
@@ -136,13 +138,14 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyBusinessError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyBusinessError(metaResult.error);
             logBusinessActivity(tenantId, 'business_ad_accounts_failed', classified.label, 'error');
             // If permission error, return empty list instead of failing
-            if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
+            if (metaResult.error?.code === 100 || metaResult.error?.type === 'OAuthException') {
                 return res.json({
                     ad_accounts: [],
                     paging: null,
@@ -150,9 +153,9 @@ router.get('/:businessId/ad-accounts', async (req, res) => {
                     reason_code: classified.code,
                 });
             }
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب الحسابات الإعلانية',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل جلب الحسابات الإعلانية',
+                details: metaResult.error,
                 reason_code: classified.code,
             });
         }
@@ -195,14 +198,15 @@ router.post('/:businessId/claim-ad-account', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyBusinessError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyBusinessError(metaResult.error);
             logBusinessActivity(tenant_id, 'business_ad_account_claim_failed', classified.label, 'error');
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل المطالبة بالحساب الإعلاني',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل المطالبة بالحساب الإعلاني',
+                details: metaResult.error,
                 reason_code: classified.code,
             });
         }
@@ -239,16 +243,11 @@ router.get('/:businessId/assets', async (req, res) => {
 
         const parseSafe = async (response) => {
             if (!response) return { data: [] };
-            try {
-                const json = await response.json();
-                // If permission error, return empty
-                if (!response.ok && (json.error?.code === 100 || json.error?.type === 'OAuthException')) {
-                    return { data: [], permission_error: json.error?.message };
-                }
-                return response.ok ? json : { data: [] };
-            } catch {
-                return { data: [] };
+            const metaResult = await readMetaResponse(response);
+            if (!metaResult.ok && (metaResult.error?.code === 100 || metaResult.error?.type === 'OAuthException')) {
+                return { data: [], permission_error: metaResult.error?.message };
             }
+            return metaResult.ok ? metaResult.data : { data: [] };
         };
 
         const [pagesData, wabaData] = await Promise.all([
@@ -299,13 +298,11 @@ router.get('/:businessId/whatsapp-accounts', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب حسابات واتساب',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب حسابات واتساب');
         }
 
         res.json({

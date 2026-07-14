@@ -1,4 +1,7 @@
 import express from 'express';
+import db from '../db/database.js';
+import { getMetricsSnapshot } from '../services/observability.js';
+import { getOperationalSignals, renderPrometheusMetrics } from '../services/operationalHealth.js';
 
 const router = express.Router();
 
@@ -53,6 +56,22 @@ router.get('/system-status', (req, res) => {
         cors_origins_configured: present(process.env.CORS_ORIGINS),
         checked_at: new Date().toISOString(),
     });
+});
+
+router.get('/metrics', (req, res) => {
+    const metrics = getMetricsSnapshot();
+    res.json({ ...metrics, operational: getOperationalSignals(db, metrics) });
+});
+
+router.get('/metrics/prometheus', (req, res) => {
+    const metrics = getMetricsSnapshot();
+    const operational = getOperationalSignals(db, metrics);
+    res.type('text/plain; version=0.0.4; charset=utf-8').send(renderPrometheusMetrics(metrics, operational));
+});
+
+router.get('/alerts', (req, res) => {
+    const metrics = getMetricsSnapshot();
+    res.json(getOperationalSignals(db, metrics));
 });
 
 export default router;

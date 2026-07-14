@@ -7,7 +7,6 @@ import {
     buildWhatsAppBusinessEvent,
     getLatestCtwaAttribution,
     normalizeCtwaClid,
-    normalizeMetaError,
     normalizePhone,
     parseCustomData,
 } from '../services/whatsappEvents.js';
@@ -18,6 +17,8 @@ import {
     release as releaseBilling,
     reserve as reserveBilling,
 } from '../services/billing.js';
+import { readMetaResponse, sanitizeStoredMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
 
@@ -54,13 +55,11 @@ router.get('/datasets/:wabaId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب datasets',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب datasets');
         }
 
         res.json({
@@ -129,10 +128,11 @@ router.post('/events/:datasetId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta conversion events failed');
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta conversion events failed');
             // Save failed events to local DB
             for (const event of events) {
                 db.prepare(`
@@ -146,17 +146,12 @@ router.post('/events/:datasetId', async (req, res) => {
                     event.phone || null,
                     event.wamid || null,
                     event.custom_data ? JSON.stringify(event.custom_data) : null,
-                    JSON.stringify(data.error || data),
+                    JSON.stringify({ error: metaResult.error }),
                     resolveEventCtwa(event) || null
                 );
             }
 
-            const metaError = normalizeMetaError(data);
-            return res.status(response.status).json({
-                error: metaError?.message || data.error?.message || 'فشل إرسال الأحداث',
-                details: data.error,
-                fbtrace_id: metaError?.fbtrace_id || null,
-            });
+            return sendMetaFailure(res, metaResult, 'فشل إرسال الأحداث');
         }
 
         // Save successful events to local DB
@@ -220,8 +215,10 @@ router.post('/events/:datasetId', async (req, res) => {
 router.get('/events/history', (req, res) => {
     try {
         const tenantId = req.query.tenant_id || req.user?.tenant_id;
-        const limit = parseInt(req.query.limit) || 50;
-        const offset = parseInt(req.query.offset) || 0;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 50,
+            maxLimit: 100,
+        });
         const eventName = req.query.event_name;
 
         let query = 'SELECT * FROM conversion_events';
@@ -245,7 +242,16 @@ router.get('/events/history', (req, res) => {
         query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
         params.push(limit, offset);
 
-        const events = db.prepare(query).all(...params);
+        const storedEvents = db.prepare(query).all(...params);
+        const events = storedEvents.map(event => {
+            const safeMeta = sanitizeStoredMetaResponse(event.meta_response, {
+                successFields: event.status === 'sent' ? ['events_received', 'fbtrace_id'] : [],
+            });
+            return {
+                ...event,
+                meta_response: safeMeta ? JSON.stringify(safeMeta) : null,
+            };
+        });
 
         // Get total count
         let countQuery = 'SELECT COUNT(*) as total FROM conversion_events';
@@ -347,8 +353,10 @@ router.post('/log-event', async (req, res) => {
             }
         );
 
-        const data = await response.json();
-        const status = response.ok ? 'sent' : 'failed';
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
+        const status = metaResult.ok ? 'sent' : 'failed';
+        const storedMetaResponse = metaResult.ok ? data : { error: metaResult.error };
 
         // Save to local DB
         db.prepare(`
@@ -363,11 +371,11 @@ router.post('/log-event', async (req, res) => {
             wamid || null,
             custom_data ? JSON.stringify(custom_data) : null,
             status,
-            JSON.stringify(data),
+            JSON.stringify(storedMetaResponse),
             resolvedCtwaClid || null
         );
 
-        if (response.ok) {
+        if (metaResult.ok) {
             commitBilling(billingReservation, {
                 referenceId: data.fbtrace_id || null,
                 description: `خصم إرسال حدث WhatsApp Events API: ${event_name}`,
@@ -380,13 +388,8 @@ router.post('/log-event', async (req, res) => {
 
             res.json({ success: true, data });
         } else {
-            releaseBilling(billingReservation, data.error?.message || 'Meta conversion event failed');
-            const metaError = normalizeMetaError(data);
-            res.status(response.status).json({
-                error: metaError?.message || data.error?.message || 'فشل إرسال الحدث',
-                details: data.error,
-                fbtrace_id: metaError?.fbtrace_id || null,
-            });
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta conversion event failed');
+            sendMetaFailure(res, metaResult, 'فشل إرسال الحدث');
         }
     } catch (error) {
         if (billingReservation) {

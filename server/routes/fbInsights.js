@@ -2,11 +2,15 @@ import express from 'express';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 
 const router = express.Router();
 
-const resolvePageCredentials = (linkedPageId) => {
-    const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND is_active = 1').get(linkedPageId);
+const resolvePageCredentials = (linkedPageId, tenantId = null) => {
+    const page = tenantId
+        ? db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND tenant_id = ? AND is_active = 1')
+            .get(linkedPageId, tenantId)
+        : db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND is_active = 1').get(linkedPageId);
     if (!page) return { error: 'الصفحة غير موجودة أو غير مفعلة', status: 404 };
     const accessToken = decrypt(page.page_access_token_encrypted);
     if (!accessToken) return { error: 'رمز الوصول غير صالح', status: 400 };
@@ -19,8 +23,6 @@ const safeMetricValue = (insightsData, metricName, period = 'days_28') => {
     const periodValue = metric.values.find(v => v.period === period) || metric.values[0];
     return periodValue?.value ?? null;
 };
-
-const metaErrorMessage = (data, fallback) => data?.error?.message || fallback;
 
 const normalizeMetricNumber = (value) => {
     if (typeof value === 'number') return value;
@@ -55,12 +57,13 @@ const fetchRecentPostEngagement = async (pageId, accessToken, days = 28) => {
     const response = await fetch(
         `${META_API_BASE}/${pageId}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=100&since=${since}&access_token=${accessToken}`
     );
-    const data = await response.json();
+    const metaResult = await readMetaResponse(response);
+    const data = metaResult.data || {};
 
-    if (!response.ok) {
+    if (!metaResult.ok) {
         return {
             totals: { likes: null, comments: null, reactions: null, shares: null, posts: 0 },
-            error: metaErrorMessage(data, 'تعذر جلب تفاعل المنشورات من Meta'),
+            error: metaResult.error?.message || 'تعذر جلب تفاعل المنشورات من Meta',
         };
     }
 
@@ -83,29 +86,31 @@ const fetchRecentPostEngagement = async (pageId, accessToken, days = 28) => {
 router.get('/:linkedPageId/overview', async (req, res) => {
     try {
         const { linkedPageId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         // Fetch page metadata
         const metaResponse = await fetch(
             `${META_API_BASE}/${page.page_id}?fields=name,followers_count,fan_count,talking_about_count,picture.width(100).height(100)&access_token=${accessToken}`
         );
-        const metaData = await metaResponse.json();
+        const pageResult = await readMetaResponse(metaResponse);
+        const metaData = pageResult.data || {};
 
-        if (!metaResponse.ok) {
-            return res.status(metaResponse.status).json({ error: metaData.error?.message || 'فشل جلب بيانات الصفحة', details: metaData.error });
+        if (!pageResult.ok) {
+            return sendMetaFailure(res, pageResult, 'فشل جلب بيانات الصفحة');
         }
 
         // Fetch 28-day insights
         const insightsResponse = await fetch(
             `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=days_28&access_token=${accessToken}`
         );
-        const insightsData = await insightsResponse.json();
-        const insightsError = insightsResponse.ok
+        const insightsResult = await readMetaResponse(insightsResponse);
+        const insightsData = insightsResult.data || {};
+        const insightsError = insightsResult.ok
             ? null
-            : metaErrorMessage(insightsData, 'تعذر جلب بعض مؤشرات الصفحة من Meta');
+            : (insightsResult.error?.message || 'تعذر جلب بعض مؤشرات الصفحة من Meta');
 
-        const insights = insightsResponse.ok ? (insightsData.data || []) : [];
+        const insights = insightsResult.ok ? (insightsData.data || []) : [];
         const recentEngagement = await fetchRecentPostEngagement(page.page_id, accessToken, 28);
         const insightReactions = safeMetricValue(insights, 'page_actions_post_reactions_total', 'days_28');
 
@@ -143,7 +148,7 @@ router.get('/:linkedPageId/daily', async (req, res) => {
         const { linkedPageId } = req.params;
         const { since, until } = req.query;
 
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const untilDate = until || new Date().toISOString().split('T')[0];
@@ -152,13 +157,14 @@ router.get('/:linkedPageId/daily', async (req, res) => {
         const response = await fetch(
             `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=day&since=${sinceDate}&until=${untilDate}&access_token=${accessToken}`
         );
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
+        if (!metaResult.ok) {
             return res.json({
                 daily: [],
-                insights_error: metaErrorMessage(data, 'تعذر جلب البيانات اليومية من Meta'),
-                details: data.error || null,
+                insights_error: metaResult.error?.message || 'تعذر جلب البيانات اليومية من Meta',
+                details: metaResult.error,
             });
         }
 
@@ -196,17 +202,18 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         const { linkedPageId } = req.params;
         const limit = Math.min(parseInt(req.query.limit) || 25, 25);
 
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         // Fetch posts
         const postsResponse = await fetch(
             `${META_API_BASE}/${page.page_id}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=${limit}&access_token=${accessToken}`
         );
-        const postsData = await postsResponse.json();
+        const postsResult = await readMetaResponse(postsResponse);
+        const postsData = postsResult.data || {};
 
-        if (!postsResponse.ok) {
-            return res.status(postsResponse.status).json({ error: postsData.error?.message || 'فشل جلب المنشورات', details: postsData.error });
+        if (!postsResult.ok) {
+            return sendMetaFailure(res, postsResult, 'فشل جلب المنشورات');
         }
 
         const posts = postsData.data || [];
@@ -229,9 +236,10 @@ router.get('/:linkedPageId/posts', async (req, res) => {
                     const insightsResponse = await fetch(
                         `${META_API_BASE}/${post.id}/insights?metric=post_reactions_by_type_total,post_clicks&period=lifetime&access_token=${accessToken}`
                     );
-                    const insightsData = await insightsResponse.json();
+                    const insightsResult = await readMetaResponse(insightsResponse);
+                    const insightsData = insightsResult.data || {};
 
-                    if (insightsResponse.ok && insightsData.data) {
+                    if (insightsResult.ok && insightsData.data) {
                         const clicksMetric = insightsData.data.find(m => m.name === 'post_clicks');
 
                         let clicks = null;
@@ -241,7 +249,7 @@ router.get('/:linkedPageId/posts', async (req, res) => {
 
                         postEntry.insights = { clicks };
                     } else {
-                        postEntry.insights_error = metaErrorMessage(insightsData, 'تعذر جلب مؤشرات المنشور');
+                        postEntry.insights_error = insightsResult.error?.message || 'تعذر جلب مؤشرات المنشور';
                     }
                 } catch (e) {
                     postEntry.insights_error = e.message || 'تعذر جلب مؤشرات المنشور';

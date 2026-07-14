@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { getAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { requestMetaJson } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ const getCredentials = (tenantId) => {
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     return {
         tenant,
-        accessToken: tenant?.access_token || getAccessToken(),
+        accessToken: getAccessToken(tenantId),
         wabaId: tenant?.waba_id
     };
 };
@@ -38,19 +39,19 @@ router.get('/conversations/:wabaId', async (req, res) => {
         params.append('granularity', granularity || 'DAY');
         if (phone_numbers) params.append('phone_numbers', phone_numbers);
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${wabaId}/conversation_analytics?${params.toString()}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب تحليلات المحادثات',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب تحليلات المحادثات',
+                details: metaError
             });
         }
 
@@ -80,19 +81,19 @@ router.get('/messages/:wabaId', async (req, res) => {
         params.append('granularity', granularity || 'DAY');
         if (phone_numbers) params.append('phone_numbers', phone_numbers);
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${wabaId}/analytics?${params.toString()}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب تحليلات الرسائل',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب تحليلات الرسائل',
+                details: metaError
             });
         }
 
@@ -121,19 +122,19 @@ router.get('/templates/:wabaId', async (req, res) => {
         if (end) params.append('end', end);
         if (template_ids) params.append('template_ids', template_ids);
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${wabaId}/template_analytics?${params.toString()}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب تحليلات القوالب',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب تحليلات القوالب',
+                details: metaError
             });
         }
 

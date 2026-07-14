@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { getAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { requestMetaJson } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -44,19 +45,19 @@ router.get('/:phoneNumberId', async (req, res) => {
         }
 
         const fields = 'about,address,description,email,profile_picture_url,vertical,websites,messaging_product';
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/whatsapp_business_profile?fields=${fields}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب ملف النشاط التجاري',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب ملف النشاط التجاري',
+                details: metaError
             });
         }
 
@@ -94,7 +95,7 @@ router.post('/:phoneNumberId', async (req, res) => {
         if (websites !== undefined) updatePayload.websites = Array.isArray(websites) ? websites : [websites];
         if (profile_picture_handle !== undefined) updatePayload.profile_picture_handle = profile_picture_handle;
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/whatsapp_business_profile`,
             {
                 method: 'POST',
@@ -106,12 +107,12 @@ router.post('/:phoneNumberId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل تحديث ملف النشاط التجاري',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل تحديث ملف النشاط التجاري',
+                details: metaError
             });
         }
 
@@ -148,19 +149,19 @@ router.get('/me/profile', async (req, res) => {
         }
 
         const fields = 'about,address,description,email,profile_picture_url,vertical,websites,messaging_product';
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_profile?fields=${fields}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب ملف النشاط التجاري',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب ملف النشاط التجاري',
+                details: metaError
             });
         }
 
@@ -199,7 +200,7 @@ router.put('/me/profile', async (req, res) => {
         if (websites !== undefined) updatePayload.websites = Array.isArray(websites) ? websites : [websites];
         if (profile_picture_handle !== undefined) updatePayload.profile_picture_handle = profile_picture_handle;
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_profile`,
             {
                 method: 'POST',
@@ -211,12 +212,12 @@ router.put('/me/profile', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل تحديث ملف النشاط التجاري',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل تحديث ملف النشاط التجاري',
+                details: metaError
             });
         }
 

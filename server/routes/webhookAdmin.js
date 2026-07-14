@@ -4,13 +4,17 @@ import { decryptIfEncrypted } from '../services/encryption.js';
 import { META_API_BASE } from '../config/index.js';
 import { resolveCredentials } from '../services/credentials.js';
 import eventBus from '../services/eventBus.js';
+import { parsePagePagination } from '../services/pagination.js';
 
 const router = express.Router();
 
 router.get('/failures', (req, res) => {
     try {
-        const { tenant_id, event_type, status, page = 1, limit = 20 } = req.query;
-        const offset = (parseInt(page) - 1) * parseInt(limit);
+        const { tenant_id, event_type, status } = req.query;
+        const { page, limit, offset } = parsePagePagination(req.query, {
+            defaultLimit: 20,
+            maxLimit: 100,
+        });
 
         let where = '1=1';
         const params = [];
@@ -40,14 +44,14 @@ router.get('/failures', (req, res) => {
              WHERE ${where}
              ORDER BY wf.created_at DESC
              LIMIT ? OFFSET ?`
-        ).all(...params, parseInt(limit), offset);
+        ).all(...params, limit, offset);
 
         res.json({
             failures,
             total: countRow.total,
-            page: parseInt(page),
-            limit: parseInt(limit),
-            totalPages: Math.ceil(countRow.total / parseInt(limit)),
+            page,
+            limit,
+            totalPages: Math.ceil(countRow.total / limit),
         });
     } catch (error) {
         console.error('Error fetching webhook failures:', error);
@@ -140,6 +144,7 @@ router.get('/stats', (req, res) => {
             LEFT JOIN tenants t ON wf.tenant_id = t.id
             GROUP BY wf.tenant_id
             ORDER BY count DESC
+            LIMIT 100
         `).all();
 
         const byEventType = db.prepare(`
@@ -148,6 +153,7 @@ router.get('/stats', (req, res) => {
             FROM webhook_failures
             GROUP BY event_type
             ORDER BY count DESC
+            LIMIT 100
         `).all();
 
         res.json({ byStatus, byTenant, byEventType });

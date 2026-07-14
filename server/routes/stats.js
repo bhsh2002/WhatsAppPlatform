@@ -1,5 +1,6 @@
 import express from 'express';
 import db from '../db/database.js';
+import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
 
@@ -34,7 +35,10 @@ router.get('/dashboard', (req, res) => {
 // Get recent activity
 router.get('/activity', (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 10;
+        const { limit } = parseListPagination(req.query, {
+            defaultLimit: 10,
+            maxLimit: 100,
+        });
         const activities = db.prepare(`
       SELECT * FROM activity_logs
       ORDER BY created_at DESC

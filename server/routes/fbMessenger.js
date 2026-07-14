@@ -17,6 +17,8 @@ import {
     reserve as reserveBilling,
 } from '../services/billing.js';
 import { markBotHandoffForConversation } from '../services/messengerBot.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
 
@@ -34,6 +36,11 @@ const resolvePageCredentials = (linkedPageId) => {
 router.get('/:linkedPageId/conversations', (req, res) => {
     try {
         const { linkedPageId } = req.params;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+            maxOffset: 5000,
+        });
         const page = db.prepare('SELECT id FROM tenant_pages WHERE id = ? AND is_active = 1').get(linkedPageId);
         if (!page) {
             return res.status(404).json({ error: 'الصفحة غير موجودة أو غير مفعلة' });
@@ -52,7 +59,8 @@ router.get('/:linkedPageId/conversations', (req, res) => {
             JOIN tenant_pages tp ON c.linked_page_id = tp.id
             WHERE c.linked_page_id = ? AND c.is_active = 1
             ORDER BY last_message_time DESC NULLS LAST
-        `).all(linkedPageId);
+            LIMIT ? OFFSET ?
+        `).all(linkedPageId, limit, offset);
 
         res.json(conversations);
     } catch (error) {
@@ -67,28 +75,30 @@ router.get('/:linkedPageId/conversations', (req, res) => {
 router.get('/:linkedPageId/conversations/:conversationId/messages', (req, res) => {
     try {
         const { linkedPageId, conversationId } = req.params;
-        const { limit = 50, before } = req.query;
+        const { before } = req.query;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 50,
+            maxLimit: 200,
+            maxOffset: 5000,
+        });
 
         const conv = db.prepare('SELECT * FROM fb_conversations WHERE id = ? AND linked_page_id = ?').get(conversationId, linkedPageId);
         if (!conv) {
             return res.status(404).json({ error: 'المحادثة غير موجودة' });
         }
 
-        let messages;
-        if (before) {
-            messages = selectMessengerMessages(db, {
-                conversationId: Number(conversationId),
-                beforeId: Number(before),
-                limit: Number(limit),
-                newestFirst: true,
-            }).reverse();
-        } else {
-            messages = selectMessengerMessages(db, {
-                conversationId: Number(conversationId),
-                limit: Number(limit),
-                newestFirst: true,
-            }).reverse();
+        const beforeId = before === undefined ? null : Number.parseInt(before, 10);
+        if (before !== undefined && !Number.isInteger(beforeId)) {
+            return res.status(400).json({ error: 'before غير صالح' });
         }
+
+        const messages = selectMessengerMessages(db, {
+            conversationId: Number(conversationId),
+            beforeId,
+            limit,
+            offset,
+            newestFirst: true,
+        }).reverse();
 
         // Return in chronological order (oldest first)
         res.json(messages);
@@ -141,22 +151,20 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
             }),
         });
 
-        const sendData = await sendResponse.json();
+        const sendResult = await readMetaResponse(sendResponse);
+        const sendData = sendResult.data || {};
 
-        if (!sendResponse.ok || sendData.error) {
-            releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger reply failed');
+        if (!sendResult.ok) {
+            releaseBilling(billingReservation, sendResult.error?.message || 'Meta Messenger reply failed');
             // Outside 24-hour messaging window
-            if (sendData.error?.code === 10) {
+            if (sendResult.error?.code === 10) {
                 return res.status(403).json({
                     error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
                     error_code: 'OUTSIDE_WINDOW',
-                    details: sendData.error,
+                    details: sendResult.error,
                 });
             }
-            return res.status(sendResponse.status || 400).json({
-                error: sendData.error?.message || 'فشل إرسال الرسالة',
-                details: sendData.error,
-            });
+            return sendMetaFailure(res, sendResult, 'فشل إرسال الرسالة');
         }
 
         const mid = sendData.message_id;
@@ -263,13 +271,11 @@ router.post('/:linkedPageId/sync', async (req, res) => {
         const response = await fetch(
             `${META_API_BASE}/${page.page_id}/conversations?fields=${fields}&access_token=${accessToken}`
         );
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok || data.error) {
-            return res.status(response.status || 400).json({
-                error: data.error?.message || 'فشل جلب المحادثات من فيسبوك',
-                details: data.error,
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب المحادثات من فيسبوك');
         }
 
         let syncedConversations = 0;
@@ -416,14 +422,12 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
             }),
         });
 
-        const sendData = await sendResponse.json();
+        const sendResult = await readMetaResponse(sendResponse);
+        const sendData = sendResult.data || {};
 
-        if (!sendResponse.ok || sendData.error) {
-            releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger utility failed');
-            return res.status(sendResponse.status || 400).json({
-                error: sendData.error?.message || 'فشل إرسال الرسالة',
-                details: sendData.error,
-            });
+        if (!sendResult.ok) {
+            releaseBilling(billingReservation, sendResult.error?.message || 'Meta Messenger utility failed');
+            return sendMetaFailure(res, sendResult, 'فشل إرسال الرسالة');
         }
 
         const mid = sendData.message_id;

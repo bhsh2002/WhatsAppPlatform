@@ -4,7 +4,8 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
-import { adminMiddleware, authMiddleware, generateMediaToken } from '../middleware/auth.js';
+import { adminMiddleware, authMiddleware, generateMediaToken, getRequestAuthToken } from '../middleware/auth.js';
+import { clearSessionCookie, setSessionCookie } from '../security/sessionCookie.js';
 
 const router = express.Router();
 
@@ -68,6 +69,7 @@ router.post('/register', authMiddleware, adminMiddleware, async (req, res) => {
 
         // Generate token with jti for revocation support
         const { token } = signToken({ id: user.id, username: user.username, role: user.role });
+        setSessionCookie(res, token);
 
         res.status(201).json({
             message: 'تم إنشاء الحساب بنجاح',
@@ -121,6 +123,7 @@ router.post('/login', async (req, res) => {
         }
 
         const { token } = signToken(tokenPayload);
+        setSessionCookie(res, token);
 
         // Return user without password
         const { password_hash, ...userWithoutPassword } = user;
@@ -171,9 +174,8 @@ router.get('/me', authMiddleware, (req, res) => {
 // Logout — server-side token revocation
 router.post('/logout', (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.split(' ')[1];
+        const { token } = getRequestAuthToken(req);
+        if (token) {
             const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
             if (decoded.jti) {
                 revokeToken(decoded.jti, decoded.id);
@@ -182,7 +184,21 @@ router.post('/logout', (req, res) => {
     } catch (e) {
         // Token invalid — no need to revoke
     }
+    clearSessionCookie(res);
     res.json({ message: 'تم تسجيل الخروج' });
+});
+
+// Rotate a legacy browser Bearer token into an HttpOnly cookie once.
+router.post('/session', authMiddleware, (req, res) => {
+    if (req.user.jti) revokeToken(req.user.jti, req.user.id);
+    const { token } = signToken({
+        id: req.user.id,
+        username: req.user.username,
+        role: req.user.role,
+        ...(req.user.tenant_id ? { tenant_id: req.user.tenant_id } : {}),
+    });
+    setSessionCookie(res, token);
+    res.json({ message: 'تم ترقية الجلسة بنجاح' });
 });
 
 // Change password
@@ -223,6 +239,7 @@ router.post('/change-password', authMiddleware, async (req, res) => {
             role: req.user.role,
             tenant_id: req.user.tenant_id,
         });
+        setSessionCookie(res, newToken);
 
         res.json({ message: 'تم تغيير كلمة المرور بنجاح', token: newToken });
     } catch (error) {
@@ -386,40 +403,7 @@ export function sseAuth(req, res, next) {
         return next();
     }
     
-    // Fallback: Check if it's a JWT token (backward compatibility, less secure)
-    // This allows existing clients to work, but logs a deprecation warning
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        // Log deprecation warning
-        console.warn('[SSE] WARNING: Using JWT in query parameter is deprecated. Use POST /auth/sse-token instead.');
-        
-        // Check if user account is still active
-        const user = db.prepare('SELECT id, username, role, tenant_id, is_active FROM users WHERE id = ?').get(decoded.id);
-        
-        if (!user || !user.is_active) {
-            return res.status(401).json({ error: 'Account inactive' });
-        }
-        
-        // Check if tenant is active (if applicable)
-        if (user.tenant_id) {
-            const tenant = db.prepare('SELECT status FROM tenants WHERE id = ?').get(user.tenant_id);
-            if (tenant && tenant.status === 'Suspended') {
-                return res.status(403).json({ error: 'Account suspended' });
-            }
-        }
-        
-        req.user = {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            tenant_id: user.tenant_id,
-        };
-        
-        return next();
-    } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
-    }
+    return res.status(401).json({ error: 'Invalid or expired SSE token' });
 }
 
 export default router;

@@ -18,6 +18,8 @@ import {
     reserve as reserveBilling,
 } from '../services/billing.js';
 import { markBotHandoffForConversation } from '../services/messengerBot.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
 
@@ -34,6 +36,12 @@ function resolvePageCredentials(linkedPageId) {
 router.get('/conversations', (req, res) => {
     try {
         const { channel: channelFilter, tenant_id: tenantIdFilter } = req.query;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+            maxOffset: 5000,
+        });
+        const sourceWindowSize = limit + offset;
 
         const waConversations = [];
         if (!channelFilter || channelFilter === 'whatsapp') {
@@ -82,6 +90,8 @@ router.get('/conversations', (req, res) => {
                 waQuery += ` AND t.tenant_id = ?`;
                 waParams.push(tenantIdFilter);
             }
+            waQuery += ` ORDER BY last_message_time DESC LIMIT ?`;
+            waParams.push(sourceWindowSize);
             waConversations.push(...enrichTemplateFallbackMessages(db.prepare(waQuery).all(...waParams), 'last_message'));
         }
 
@@ -117,12 +127,14 @@ router.get('/conversations', (req, res) => {
                 fbQuery += ` AND fc.tenant_id = ?`;
                 fbParams.push(tenantIdFilter);
             }
-            fbQuery += ` ORDER BY last_message_time DESC NULLS LAST`;
+            fbQuery += ` ORDER BY last_message_time DESC NULLS LAST LIMIT ?`;
+            fbParams.push(sourceWindowSize);
             fbConversations.push(...db.prepare(fbQuery).all(...fbParams));
         }
 
         const unified = [...waConversations, ...fbConversations]
-            .sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
+            .sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time))
+            .slice(offset, offset + limit);
 
         res.json(unified);
     } catch (error) {
@@ -136,6 +148,11 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
         const { channel } = req.params;
         const contactId = decodeURIComponent(req.params.id);
         const { tenant_id, linked_page_id, conversation_id } = req.query;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+            maxOffset: 5000,
+        });
 
         if (channel === 'whatsapp') {
             let query = `
@@ -151,13 +168,24 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
                 query += ` AND tenant_id IS NULL`;
             }
 
-            query += ` ORDER BY created_at ASC`;
+            query = `SELECT * FROM (${query} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?)
+                ORDER BY created_at ASC, id ASC`;
+            params.push(limit, offset);
             const messages = enrichTemplateFallbackMessages(db.prepare(query).all(...params));
 
-            db.prepare(`
-                UPDATE messages SET status = 'read'
-                WHERE sender = ? AND direction = 'incoming' AND status = 'received'
-            `).run(contactId);
+            if (tenant_id && tenant_id !== 'null' && tenant_id !== 'undefined') {
+                db.prepare(`
+                    UPDATE messages SET status = 'read'
+                    WHERE sender = ? AND tenant_id = ?
+                      AND direction = 'incoming' AND status = 'received'
+                `).run(contactId, tenant_id);
+            } else {
+                db.prepare(`
+                    UPDATE messages SET status = 'read'
+                    WHERE sender = ? AND tenant_id IS NULL
+                      AND direction = 'incoming' AND status = 'received'
+                `).run(contactId);
+            }
 
             res.json(messages);
         } else if (channel === 'messenger') {
@@ -165,10 +193,18 @@ router.get('/conversations/:channel/:id/messages', async (req, res) => {
                 return res.status(400).json({ error: 'conversation_id is required for messenger channel' });
             }
 
+            const conversationId = Number.parseInt(conversation_id, 10);
+            if (!Number.isInteger(conversationId)) {
+                return res.status(400).json({ error: 'conversation_id must be an integer' });
+            }
+
             const messages = selectMessengerMessages(db, {
-                conversationId: parseInt(conversation_id),
+                conversationId,
+                limit,
+                offset,
                 unified: true,
-            });
+                newestFirst: true,
+            }).reverse();
 
             res.json(messages);
         } else {
@@ -228,9 +264,10 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                 }),
             });
 
-            const data = await response.json();
+            const metaResult = await readMetaResponse(response);
+            const data = metaResult.data || {};
 
-            if (response.ok) {
+            if (metaResult.ok) {
                 const messageId = data.messages?.[0]?.id;
                 commitBilling(billingReservation, {
                     referenceId: messageId,
@@ -255,9 +292,9 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: messageId });
             } else {
-                releaseBilling(billingReservation, data.error?.message || 'Meta WhatsApp send failed');
-                console.error('[Unified] WA send error:', data.error);
-                res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرسالة' });
+                releaseBilling(billingReservation, metaResult.error?.message || 'Meta WhatsApp send failed');
+                console.error('[Unified] WhatsApp send failed:', metaResult.status, metaResult.error?.code);
+                sendMetaFailure(res, metaResult, 'فشل إرسال الرسالة');
             }
         } else if (channel === 'messenger') {
             if (!linked_page_id) {
@@ -294,9 +331,10 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
                 }),
             });
 
-            const sendData = await sendResponse.json();
+            const sendResult = await readMetaResponse(sendResponse);
+            const sendData = sendResult.data || {};
 
-            if (sendResponse.ok) {
+            if (sendResult.ok) {
                 const mid = sendData.message_id;
                 commitBilling(billingReservation, {
                     referenceId: mid,
@@ -353,16 +391,16 @@ router.post('/conversations/:channel/:id/send', async (req, res) => {
 
                 res.json({ success: true, message_id: mid });
             } else {
-                releaseBilling(billingReservation, sendData.error?.message || 'Meta Messenger send failed');
-                console.error('[Unified] Messenger send error:', sendData.error);
+                releaseBilling(billingReservation, sendResult.error?.message || 'Meta Messenger send failed');
+                console.error('[Unified] Messenger send failed:', sendResult.status, sendResult.error?.code);
                 // Outside 24-hour messaging window
-                if (sendData.error?.code === 10) {
+                if (sendResult.error?.code === 10) {
                     res.status(403).json({
                         error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
                         error_code: 'OUTSIDE_WINDOW',
                     });
                 } else {
-                    res.status(sendResponse.status).json({ error: sendData.error?.message || 'فشل إرسال الرسالة' });
+                    sendMetaFailure(res, sendResult, 'فشل إرسال الرسالة');
                 }
             }
         } else {

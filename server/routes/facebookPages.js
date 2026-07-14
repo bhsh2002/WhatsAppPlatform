@@ -12,6 +12,8 @@ import {
     getWebhookEvidence,
     parseStoredArray,
 } from '../services/metaReadiness.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
 
@@ -108,6 +110,10 @@ const summarizePageSubscription = (pageSubscription) => {
 // ============================================
 router.get('/', (req, res) => {
     try {
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+        });
         const pages = db.prepare(`
             SELECT tp.id, tp.tenant_id, tp.platform, tp.page_id, tp.page_name,
                    tp.page_category, tp.page_picture_url, tp.is_active,
@@ -116,7 +122,8 @@ router.get('/', (req, res) => {
             FROM tenant_pages tp
             JOIN tenants t ON tp.tenant_id = t.id
             ORDER BY tp.created_at DESC
-        `).all();
+            LIMIT ? OFFSET ?
+        `).all(limit, offset);
         res.json(pages);
     } catch (error) {
         console.error('[FacebookPages] List all error:', error);
@@ -130,14 +137,18 @@ router.get('/', (req, res) => {
 router.get('/tenant/:tenantId', (req, res) => {
     try {
         const { tenantId } = req.params;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+        });
         const tenant = db.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
         const pages = db.prepare(
-            'SELECT id, tenant_id, platform, page_id, page_name, page_category, page_picture_url, is_active, subscribed_fields, webhook_subscribed, created_at, updated_at FROM tenant_pages WHERE tenant_id = ? ORDER BY created_at DESC'
-        ).all(tenantId);
+            'SELECT id, tenant_id, platform, page_id, page_name, page_category, page_picture_url, is_active, subscribed_fields, webhook_subscribed, created_at, updated_at FROM tenant_pages WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        ).all(tenantId, limit, offset);
 
         res.json(pages);
     } catch (error) {
@@ -173,13 +184,13 @@ router.post('/tenant/:tenantId', async (req, res) => {
         const verifyResponse = await fetch(
             `${META_API_BASE}/${page_id}?fields=${fields}&access_token=${page_access_token}`
         );
-        const verifyData = await verifyResponse.json();
+        const verifyResult = await readMetaResponse(verifyResponse);
+        const verifyData = verifyResult.data || {};
 
-        if (!verifyResponse.ok || verifyData.error) {
-            const errMsg = verifyData.error?.message || 'رمز الوصول غير صالح أو الصفحة غير موجودة';
+        if (!verifyResult.ok) {
             return res.status(400).json({
                 error: 'فشل التحقق من رمز الوصول',
-                details: errMsg,
+                details: verifyResult.error,
             });
         }
 
@@ -204,23 +215,25 @@ router.post('/tenant/:tenantId', async (req, res) => {
                 const debugResponse = await fetch(
                     `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(page_access_token)}&access_token=${encodeURIComponent(appAccessToken)}`
                 );
-                const debugData = await debugResponse.json();
-                const tokenData = debugData.data || {};
-                db.prepare(`
-                    UPDATE tenant_pages
-                    SET token_status = ?,
-                        token_expires_at = ?,
-                        token_checked_at = datetime('now', 'localtime'),
-                        token_app_id = ?,
-                        token_scopes = ?
-                    WHERE id = ?
-                `).run(
-                    tokenData.is_valid === true ? 'valid' : 'invalid',
-                    tokenData.expires_at && tokenData.expires_at > 0 ? new Date(tokenData.expires_at * 1000).toISOString() : null,
-                    tokenData.app_id || null,
-                    JSON.stringify(tokenData.scopes || []),
-                    newPage.id
-                );
+                const debugResult = await readMetaResponse(debugResponse);
+                if (debugResult.ok) {
+                    const tokenData = debugResult.data?.data || {};
+                    db.prepare(`
+                        UPDATE tenant_pages
+                        SET token_status = ?,
+                            token_expires_at = ?,
+                            token_checked_at = datetime('now', 'localtime'),
+                            token_app_id = ?,
+                            token_scopes = ?
+                        WHERE id = ?
+                    `).run(
+                        tokenData.is_valid === true ? 'valid' : 'invalid',
+                        tokenData.expires_at && tokenData.expires_at > 0 ? new Date(tokenData.expires_at * 1000).toISOString() : null,
+                        tokenData.app_id || null,
+                        JSON.stringify(tokenData.scopes || []),
+                        newPage.id
+                    );
+                }
             } catch (err) {
                 console.warn('[FacebookPages] Page token debug failed:', err.message);
             }
@@ -245,14 +258,15 @@ router.post('/tenant/:tenantId', async (req, res) => {
                     }).toString(),
                 }
             );
-            const subscribeData = await subscribeResponse.json();
+            const subscribeResult = await readMetaResponse(subscribeResponse);
+            const subscribeData = subscribeResult.data || {};
 
-            if (subscribeResponse.ok && subscribeData.success !== false) {
+            if (subscribeResult.ok && subscribeData.success !== false) {
                 db.prepare("UPDATE tenant_pages SET webhook_subscribed = 1, updated_at = datetime('now', 'localtime') WHERE id = ?")
                     .run(newPage.id);
                 webhookSubscribed = true;
             } else {
-                webhookError = subscribeData.error?.message || 'فشل اشتراك Webhook';
+                webhookError = subscribeResult.error?.message || 'فشل اشتراك Webhook';
                 console.warn('[FacebookPages] Webhook subscription failed:', webhookError);
             }
         } catch (err) {
@@ -396,12 +410,13 @@ router.post('/:id/verify', async (req, res) => {
         const response = await fetch(
             `${META_API_BASE}/${existing.page_id}?fields=${fields}&access_token=${accessToken}`
         );
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok || data.error) {
+        if (!metaResult.ok) {
             return res.status(400).json({
                 valid: false,
-                error: data.error?.message || 'رمز الوصول غير صالح',
+                error: metaResult.error?.message || 'رمز الوصول غير صالح',
             });
         }
 
@@ -473,13 +488,11 @@ router.post('/:id/subscribe', async (req, res) => {
                 }).toString(),
             }
         );
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok || data.error) {
-            return res.status(response.status || 400).json({
-                error: data.error?.message || 'فشل اشتراك Webhook',
-                details: data.error,
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل اشتراك Webhook');
         }
 
         db.prepare("UPDATE tenant_pages SET webhook_subscribed = 1, updated_at = datetime('now', 'localtime') WHERE id = ?")
@@ -513,7 +526,12 @@ router.get('/:id/subscription-status', async (req, res) => {
         const response = await fetch(
             `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${accessToken}`
         );
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
+
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب حالة الاشتراك');
+        }
 
         res.json({
             page_id: page.page_id,
@@ -551,14 +569,24 @@ router.get('/webhook-diagnostic', async (req, res) => {
 
         // 1. Check app-level subscriptions
         const subsRes = await fetch(`${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`);
-        results.app_subscriptions = await subsRes.json();
+        const subscriptionsResult = await readMetaResponse(subsRes);
+        results.app_subscriptions = subscriptionsResult.ok
+            ? subscriptionsResult.data
+            : { error: subscriptionsResult.error };
         results.app_subscription_summary = summarizeAppSubscriptions(
             results.app_subscriptions,
             expectedCallbackUrl
         );
 
         // 2. Check all linked pages
-        const pages = db.prepare('SELECT * FROM tenant_pages WHERE is_active = 1').all();
+        const pages = db.prepare(
+            'SELECT * FROM tenant_pages WHERE is_active = 1 ORDER BY id ASC LIMIT 100'
+        ).all();
+        const activePageCount = db.prepare(
+            'SELECT COUNT(*) AS count FROM tenant_pages WHERE is_active = 1'
+        ).get()?.count || 0;
+        results.linked_pages_truncated = activePageCount > pages.length;
+        results.linked_pages_total = activePageCount;
         results.linked_pages = [];
 
         for (const page of pages) {
@@ -579,19 +607,24 @@ router.get('/webhook-diagnostic', async (req, res) => {
                 const pageSubRes = await fetch(
                     `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${pageToken}`
                 );
-                pageInfo.page_subscription = await pageSubRes.json();
+                const pageSubscriptionResult = await readMetaResponse(pageSubRes);
+                pageInfo.page_subscription = pageSubscriptionResult.ok
+                    ? pageSubscriptionResult.data
+                    : { error: pageSubscriptionResult.error };
                 pageInfo.page_subscription_summary = summarizePageSubscription(pageInfo.page_subscription);
 
                 // Check token permissions
                 const debugRes = await fetch(
                     `${META_API_BASE}/debug_token?input_token=${pageToken}&access_token=${appAccessToken}`
                 );
-                const debugData = await debugRes.json();
-                pageInfo.token_scopes = debugData.data?.scopes || [];
-                pageInfo.token_valid = debugData.data?.is_valid || false;
-                pageInfo.token_app_id = debugData.data?.app_id || null;
-                pageInfo.token_app_id_matches = !META_APP_ID || !debugData.data?.app_id || String(debugData.data.app_id) === String(META_APP_ID);
-                pageInfo.token_expires_at = debugData.data?.expires_at || null;
+                const debugResult = await readMetaResponse(debugRes);
+                const debugData = debugResult.ok ? (debugResult.data?.data || {}) : {};
+                pageInfo.token_scopes = debugData.scopes || [];
+                pageInfo.token_valid = debugData.is_valid || false;
+                pageInfo.token_app_id = debugData.app_id || null;
+                pageInfo.token_app_id_matches = !META_APP_ID || !debugData.app_id || String(debugData.app_id) === String(META_APP_ID);
+                pageInfo.token_expires_at = debugData.expires_at || null;
+                if (!debugResult.ok) pageInfo.token_error = debugResult.error;
             } else {
                 pageInfo.error = 'Cannot decrypt page token';
             }
@@ -706,14 +739,6 @@ router.post('/setup-app-webhook', async (req, res) => {
         // App access token = app_id|app_secret
         const appAccessToken = `${appId}|${appSecret}`;
 
-        // First, check current subscriptions
-        const getRes = await fetch(
-            `${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`
-        );
-        const currentSubs = await getRes.json();
-
-        console.log('[FacebookPages] Current app subscriptions:', JSON.stringify(currentSubs));
-
         // Subscribe to Page object
         const subscribeRes = await fetch(
             `${META_API_BASE}/${appId}/subscriptions`,
@@ -730,14 +755,13 @@ router.post('/setup-app-webhook', async (req, res) => {
                 }).toString(),
             }
         );
-        const subscribeData = await subscribeRes.json();
+        const subscribeResult = await readMetaResponse(subscribeRes);
+        const subscribeData = subscribeResult.data || {};
 
-        console.log('[FacebookPages] App webhook subscription result:', JSON.stringify(subscribeData));
-
-        if (!subscribeRes.ok || subscribeData.error) {
-            return res.status(subscribeRes.status || 400).json({
+        if (!subscribeResult.ok) {
+            return res.status(subscribeResult.status).json({
                 error: 'Failed to subscribe',
-                details: subscribeData.error || subscribeData,
+                details: subscribeResult.error,
                 callback_url_used: callbackUrl,
             });
         }
@@ -746,7 +770,11 @@ router.post('/setup-app-webhook', async (req, res) => {
         const verifyRes = await fetch(
             `${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`
         );
-        const verifySubs = await verifyRes.json();
+        const verifyResult = await readMetaResponse(verifyRes);
+        if (!verifyResult.ok) {
+            return sendMetaFailure(res, verifyResult, 'Failed to verify app webhook subscription');
+        }
+        const verifySubs = verifyResult.data;
 
         db.prepare(`
             INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)

@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 import { parseStoredArray } from '../services/metaReadiness.js';
+import { readMetaResponse } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -174,13 +175,14 @@ router.get('/clients', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyPartnerError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyPartnerError(metaResult.error);
             logPartnerActivity(tenantId, 'partner_clients_list_failed', classified.label, 'error');
             // Permission error — return empty list with explanation
-            if (data.error?.code === 100 || data.error?.type === 'OAuthException') {
+            if (metaResult.error?.code === 100 || metaResult.error?.type === 'OAuthException') {
                 return res.json({
                     clients: [],
                     paging: null,
@@ -190,9 +192,9 @@ router.get('/clients', async (req, res) => {
                     hint: 'هذه الميزة متاحة فقط لحسابات الشركاء (Partner accounts)'
                 });
             }
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب العملاء المُدارين.',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل جلب العملاء المُدارين.',
+                details: metaResult.error,
                 reason_code: classified.code,
                 operational_blocked: classified.code === 'PARTNER_ACCOUNT_REQUIRED',
                 hint: 'هذه الميزة متاحة فقط لحسابات الشركاء (Partner accounts)'
@@ -247,14 +249,15 @@ router.post('/clients', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyPartnerError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyPartnerError(metaResult.error);
             logPartnerActivity(tenant_id, 'partner_client_add_failed', classified.label, 'error');
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل إضافة العميل',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل إضافة العميل',
+                details: metaResult.error,
                 reason_code: classified.code,
                 operational_blocked: classified.code === 'PARTNER_ACCOUNT_REQUIRED',
             });
@@ -298,14 +301,14 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
 
-        if (!response.ok) {
-            const classified = classifyPartnerError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyPartnerError(metaResult.error);
             logPartnerActivity(tenant_id, 'partner_client_remove_failed', classified.label, 'error');
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل إزالة العميل',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل إزالة العميل',
+                details: metaResult.error,
                 reason_code: classified.code,
                 operational_blocked: classified.code === 'PARTNER_ACCOUNT_REQUIRED',
             });
@@ -339,14 +342,15 @@ router.get('/clients/:clientBusinessId/waba', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyPartnerError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyPartnerError(metaResult.error);
             logPartnerActivity(tenantId, 'partner_client_waba_failed', classified.label, 'error');
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب حسابات واتساب للعميل',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل جلب حسابات واتساب للعميل',
+                details: metaResult.error,
                 reason_code: classified.code,
                 operational_blocked: classified.code === 'PARTNER_ACCOUNT_REQUIRED',
             });
@@ -394,14 +398,15 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            const classified = classifyPartnerError(data.error);
+        if (!metaResult.ok) {
+            const classified = classifyPartnerError(metaResult.error);
             logPartnerActivity(tenant_id, 'partner_system_user_failed', classified.label, 'error');
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل إنشاء مستخدم نظام',
-                details: data.error,
+            return res.status(metaResult.status).json({
+                error: metaResult.error?.message || 'فشل إنشاء مستخدم نظام',
+                details: metaResult.error,
                 reason_code: classified.code,
                 operational_blocked: classified.code === 'PARTNER_ACCOUNT_REQUIRED',
             });

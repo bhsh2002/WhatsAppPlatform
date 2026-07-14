@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { getAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { requestMetaJson } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ const getCredentials = (tenantId) => {
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     return {
         tenant,
-        accessToken: tenant?.access_token || getAccessToken(),
+        accessToken: getAccessToken(tenantId),
         phoneNumberId: tenant?.phone_number_id
     };
 };
@@ -31,19 +32,19 @@ router.get('/:phoneNumberId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/message_qrdls`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب رموز QR',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب رموز QR',
+                details: metaError
             });
         }
 
@@ -74,7 +75,7 @@ router.post('/:phoneNumberId', async (req, res) => {
             return res.status(400).json({ error: 'نص الرسالة المعبأة مسبقاً مطلوب' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/message_qrdls`,
             {
                 method: 'POST',
@@ -89,12 +90,12 @@ router.post('/:phoneNumberId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل إنشاء رمز QR',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل إنشاء رمز QR',
+                details: metaError
             });
         }
 
@@ -127,7 +128,7 @@ router.put('/:phoneNumberId/:qrCodeId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/message_qrdls/${qrCodeId}`,
             {
                 method: 'POST',
@@ -139,12 +140,12 @@ router.put('/:phoneNumberId/:qrCodeId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل تحديث رمز QR',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل تحديث رمز QR',
+                details: metaError
             });
         }
 
@@ -168,7 +169,7 @@ router.delete('/:phoneNumberId/:qrCodeId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/message_qrdls/${qrCodeId}`,
             {
                 method: 'DELETE',
@@ -176,12 +177,12 @@ router.delete('/:phoneNumberId/:qrCodeId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل حذف رمز QR',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل حذف رمز QR',
+                details: metaError
             });
         }
 

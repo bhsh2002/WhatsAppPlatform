@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 
 // Import routes
@@ -31,21 +30,30 @@ import automationRouter from './routes/automation.js';
 import settingsRouter from './routes/settings.js';
 import billingRouter from './routes/billing.js';
 import messengerBotRouter from './routes/messengerBot.js';
+import dataDeletionRouter from './routes/dataDeletion.js';
+import metricsRouter from './routes/metrics.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
 
 // Import middleware
 import { authMiddleware, adminMiddleware } from './middleware/auth.js';
+import { tenantMiddleware } from './middleware/tenant.js';
 import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 
 // Import database and services
 import db from './db/database.js';
+import { getMigrationStatusSync } from './db/migrator.js';
 import { startMaintenanceScheduler } from './services/maintenance.js';
 import { botAssetsDir, uploadDir } from './config/upload.js';
 import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initEncryption } from './services/encryption.js';
+import { installGlobalFetchTimeout } from './runtime/fetchTimeout.js';
+import { requestObservability } from './services/observability.js';
+import { createOriginGuard } from './middleware/originGuard.js';
+import { createMetricsAuth } from './middleware/metricsAuth.js';
+import { ensureBootstrapAdmin } from './services/bootstrapAdmin.js';
 
 // ===========================================
 // Startup validation — fail fast on missing/insecure secrets
@@ -82,8 +90,8 @@ if (!process.env.CRYPTO_KEY) {
     process.exit(1);
 }
 
-if (process.env.CRYPTO_KEY.length < 64) {
-    console.error('❌ FATAL: CRYPTO_KEY must be at least 64 characters (32 bytes hex).');
+if (!/^[0-9a-fA-F]{64}$/.test(process.env.CRYPTO_KEY)) {
+    console.error('❌ FATAL: CRYPTO_KEY must be exactly 64 hexadecimal characters (32 bytes).');
     console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
     process.exit(1);
 }
@@ -98,6 +106,11 @@ if (process.env.NODE_ENV === 'production') {
     }
 }
 
+if (process.env.METRICS_TOKEN && process.env.METRICS_TOKEN.trim().length < 32) {
+    console.error('❌ FATAL: METRICS_TOKEN must be at least 32 characters when metrics scraping is enabled.');
+    process.exit(1);
+}
+
 // Initialize encryption service
 try {
     initEncryption();
@@ -106,38 +119,28 @@ try {
     process.exit(1);
 }
 
+// Every external fetch gets a bounded timeout unless the caller supplied a stricter signal.
+installGlobalFetchTimeout();
+
 const app = express();
 const PORT = process.env.PORT || 3031;
 
-// Seed admin user if none exists
-const seedAdmin = async () => {
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
-    if (userCount.count === 0) {
-        // Generate a random password instead of hardcoded 'admin123'
-        const crypto = await import('crypto');
-        const randomPassword = crypto.randomBytes(8).toString('hex');
-        const salt = await bcrypt.genSalt(10);
-        const password_hash = await bcrypt.hash(randomPassword, salt);
-
-        db.prepare(`
-      INSERT INTO users (username, email, password_hash, name, role)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('admin', 'admin@example.com', password_hash, 'مدير النظام', 'admin');
-
-        console.log('');
-        console.log('╔══════════════════════════════════════════════╗');
-        console.log('║  🔐 Default admin account created           ║');
-        console.log('║                                              ║');
-        console.log(`║  Username: admin                             ║`);
-        console.log(`║  Password: ${randomPassword}                 ║`);
-        console.log('║                                              ║');
-        console.log('║  ⚠️  Change this password after first login  ║');
-        console.log('╚══════════════════════════════════════════════╝');
-        console.log('');
+// Bootstrap is explicit and completes before the listener starts. Credentials
+// are never generated into or printed through application logs.
+try {
+    const bootstrap = await ensureBootstrapAdmin(db, {
+        password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
+        username: process.env.BOOTSTRAP_ADMIN_USERNAME,
+        email: process.env.BOOTSTRAP_ADMIN_EMAIL,
+        name: process.env.BOOTSTRAP_ADMIN_NAME,
+    });
+    if (bootstrap.created) {
+        console.log(`Bootstrap administrator created: ${bootstrap.username}. Rotate the password after first login.`);
     }
-};
-
-seedAdmin().catch(console.error);
+} catch (error) {
+    console.error(`❌ FATAL: ${error.message}`);
+    process.exit(1);
+}
 
 // Middleware
 const CORS_ORIGINS = process.env.CORS_ORIGINS
@@ -179,11 +182,12 @@ app.use(express.json({
     }
 }));
 
-// Request logging
-app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-    next();
-});
+// Same-origin browser session requests are cookie-authenticated. Reject
+// cross-origin mutations while retaining Origin-less API clients/webhooks.
+app.use(createOriginGuard({ allowedOrigins: CORS_ORIGINS }));
+
+// Structured request logs, correlation IDs and low-cardinality HTTP metrics.
+app.use(requestObservability);
 
 // Rate limiters
 const authLimiter = rateLimit({
@@ -208,8 +212,29 @@ app.use(apiLimiter);
 
 // Health check (public)
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    try {
+        db.prepare('SELECT 1').get();
+        const migrations = getMigrationStatusSync(db);
+        const ready = migrations.pending === 0;
+        return res.status(ready ? 200 : 503).json({
+            status: ready ? 'ok' : 'not_ready',
+            database: 'ok',
+            migrations,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (error) {
+        console.error('[Health] Readiness check failed:', error.message);
+        return res.status(503).json({
+            status: 'not_ready',
+            database: 'unavailable',
+            timestamp: new Date().toISOString(),
+        });
+    }
 });
+
+// Prometheus scraping is disabled unless a dedicated high-entropy bearer token
+// is configured. Browser/admin cookies are intentionally not accepted here.
+app.use('/metrics', createMetricsAuth(), metricsRouter);
 
 app.use('/bot-assets', express.static(botAssetsDir, {
     immutable: true,
@@ -342,98 +367,8 @@ h1{color:#075E54;border-bottom:3px solid #25D366;padding-bottom:10px}h2{color:#1
 </body></html>`);
 });
 
-// ============================================
-// Meta Compliance: Data Deletion Callback (public)
-// ============================================
-import crypto from 'crypto';
-
-app.post('/data-deletion', express.json(), (req, res) => {
-    try {
-        const { signed_request } = req.body;
-
-        if (!signed_request) {
-            return res.status(400).json({ error: 'signed_request is required' });
-        }
-
-        const APP_SECRET = process.env.FB_APP_SECRET || process.env.META_APP_SECRET || '';
-
-        // Parse the signed request
-        const [encodedSig, payload] = signed_request.split('.');
-        const sig = Buffer.from(encodedSig.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-        const data = JSON.parse(Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
-
-        // Verify signature
-        const expectedSig = crypto.createHmac('sha256', APP_SECRET).update(payload).digest();
-        if (!crypto.timingSafeEqual(sig, expectedSig)) {
-            console.warn('[DataDeletion] Invalid signature');
-            return res.status(403).json({ error: 'Invalid signature' });
-        }
-
-        const userId = data.user_id;
-        const confirmationCode = crypto.randomBytes(12).toString('hex');
-
-        console.log(`[DataDeletion] Received deletion request for user: ${userId}`);
-
-        // Delete user-related data from all tables
-        const tables = [
-            { table: 'fb_conversations', column: 'user_psid' },
-        ];
-
-        let deletedCount = 0;
-        for (const { table, column } of tables) {
-            try {
-                const result = db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(userId);
-                deletedCount += result.changes;
-            } catch (e) {
-                // Table might not exist, continue
-            }
-        }
-
-        // Also clean up any linked pages associated with this user
-        try {
-            db.prepare(`
-                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                VALUES (0, 'System', 'data_deletion', ?, 'success')
-            `).run(`Meta data deletion request for user ${userId} — ${deletedCount} records deleted. Code: ${confirmationCode}`);
-        } catch (e) {
-            // Log table might not exist
-        }
-
-        console.log(`[DataDeletion] Deleted ${deletedCount} records for user ${userId}. Code: ${confirmationCode}`);
-
-        // Return the response Meta expects
-        res.json({
-            url: `https://wa.savana.ly/deletion-status?code=${confirmationCode}`,
-            confirmation_code: confirmationCode
-        });
-    } catch (error) {
-        console.error('[DataDeletion] Error:', error);
-        res.status(500).json({ error: 'Failed to process deletion request' });
-    }
-});
-
-// Deletion status check page (public)
-app.get('/deletion-status', (req, res) => {
-    const code = req.query.code || '';
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>حالة حذف البيانات — Wa Savana</title>
-<style>body{font-family:'Segoe UI',Tahoma,sans-serif;max-width:600px;margin:80px auto;padding:0 20px;text-align:center;color:#333;background:#fafafa}
-.card{background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08)}
-h1{color:#075E54}
-.code{background:#f0f0f0;padding:12px 24px;border-radius:8px;font-family:monospace;font-size:1.1em;display:inline-block;margin:16px 0}
-.status{color:#25D366;font-size:1.2em;font-weight:bold}</style></head>
-<body><div class="card">
-<h1>حالة حذف البيانات</h1>
-<p class="status">✅ تم معالجة طلب الحذف بنجاح</p>
-<p>رمز التأكيد:</p>
-<div class="code">${code || 'N/A'}</div>
-<p>تم حذف جميع البيانات المرتبطة بحسابك من منصة Wa Savana.</p>
-<p style="color:#888;font-size:0.9em;margin-top:30px">للاستفسارات: privacy@savana.ly</p>
-</div></body></html>`);
-});
+// Meta compliance: public data-deletion callback and evidence-backed status page.
+app.use(dataDeletionRouter);
 
 // Auth routes (stricter rate limit only on credential-entry endpoints)
 app.use('/auth/login', authLimiter);
@@ -496,8 +431,10 @@ app.use('/billing', authMiddleware, adminMiddleware, billingRouter);
 app.use('/messenger-bot', authMiddleware, adminMiddleware, messengerBotRouter);
 
 // Protected API Routes - Tenant Portal
-app.use('/portal/messenger-bot', authMiddleware, messengerBotRouter);
-app.use('/portal', authMiddleware, tenantPortalRouter);
+app.use('/portal/messenger-bot', authMiddleware, tenantMiddleware, messengerBotRouter);
+app.use('/portal/fb-content', authMiddleware, tenantMiddleware, fbContentRouter);
+app.use('/portal/fb-insights', authMiddleware, tenantMiddleware, fbInsightsRouter);
+app.use('/portal', authMiddleware, tenantMiddleware, tenantPortalRouter);
 
 // External API Routes - v1 (requires API key)
 app.use('/v1', apiKeyAuth, apiV1Router);
@@ -544,8 +481,11 @@ const server = app.listen(PORT, () => {
 ╚══════════════════════════════════════════════════════════════╝
   `);
 
-    // Start background maintenance (log rotation, cleanup)
-    startMaintenanceScheduler(uploadDir);
+    // Isolated smoke/E2E environments can disable process-local schedulers so
+    // they never inspect shared uploads or call Meta while testing a temp DB.
+    if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+        startMaintenanceScheduler(uploadDir);
+    }
 });
 
 // ============================================

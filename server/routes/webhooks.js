@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import db from '../db/database.js';
 import eventBus from '../services/eventBus.js';
 import { META_API_BASE } from '../config/index.js';
-import { decrypt } from '../services/encryption.js';
+import { decrypt, decryptIfEncrypted } from '../services/encryption.js';
 import { processIncomingMessage, processIncomingComment, processIncomingReaction } from '../services/autoResponder.js';
 import {
     insertMessengerMessage,
@@ -12,14 +12,28 @@ import {
 import { normalizeFilename } from '../services/filenames.js';
 import { updateMetaChargeFromStatus } from '../services/billing.js';
 import { processMessengerBotEvent } from '../services/messengerBot.js';
+import {
+    unsignedWebhooksAllowed,
+    verifyMetaWebhookSignature,
+} from '../security/webhookSignature.js';
+import { safeOutboundFetch } from '../security/outboundUrl.js';
+import { readMetaResponse } from '../services/metaHttp.js';
 
 const router = express.Router();
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
 const APP_SECRET = process.env.META_APP_SECRET;
+const ALLOW_UNSIGNED_WEBHOOKS = process.env.ALLOW_UNSIGNED_WEBHOOKS === 'true';
 
 if (!VERIFY_TOKEN) console.warn('⚠️ WARNING: WEBHOOK_VERIFY_TOKEN is missing. Webhook verification will fail.');
-if (!APP_SECRET) console.warn('⚠️ WARNING: META_APP_SECRET is missing. Incoming webhooks cannot be securely verified.');
+if (!APP_SECRET) {
+    const behavior = unsignedWebhooksAllowed({
+        appSecret: APP_SECRET,
+        nodeEnv: process.env.NODE_ENV,
+        allowUnsigned: ALLOW_UNSIGNED_WEBHOOKS,
+    }) ? 'explicitly allowed for development' : 'will be rejected';
+    console.warn(`⚠️ WARNING: META_APP_SECRET is missing. Incoming webhooks ${behavior}.`);
+}
 
 const extractReferralInfo = (message) => {
     const referral = message?.referral;
@@ -80,8 +94,9 @@ const forwardToTenantWebhook = async (tenantId, event, data) => {
         };
 
         // Sign payload if webhook secret is configured
-        if (settings.webhook_secret) {
-            const signature = crypto.createHmac('sha256', settings.webhook_secret)
+        const webhookSecret = decryptIfEncrypted(settings.webhook_secret);
+        if (webhookSecret) {
+            const signature = crypto.createHmac('sha256', webhookSecret)
                 .update(body).digest('hex');
             headers['X-Signature'] = `sha256=${signature}`;
         }
@@ -91,11 +106,11 @@ const forwardToTenantWebhook = async (tenantId, event, data) => {
         let lastError = null;
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                const response = await fetch(settings.webhook_url, {
+                const response = await safeOutboundFetch(settings.webhook_url, {
                     method: 'POST',
                     headers,
                     body,
-                    signal: AbortSignal.timeout(10000), // 10s timeout
+                    timeoutMs: 10000,
                 });
                 if (response.ok) return; // Success
                 if (response.status >= 400 && response.status < 500) {
@@ -151,17 +166,18 @@ const sendStatusCallback = async (tenantId, data) => {
             'X-Tenant-Id': String(tenantId)
         };
 
-        if (settings.webhook_secret) {
-            const signature = crypto.createHmac('sha256', settings.webhook_secret)
+        const webhookSecret = decryptIfEncrypted(settings.webhook_secret);
+        if (webhookSecret) {
+            const signature = crypto.createHmac('sha256', webhookSecret)
                 .update(body).digest('hex');
             headers['X-Signature'] = `sha256=${signature}`;
         }
 
-        fetch(settings.callback_url, {
+        safeOutboundFetch(settings.callback_url, {
             method: 'POST',
             headers,
             body,
-            signal: AbortSignal.timeout(10000),
+            timeoutMs: 10000,
         }).catch(err => {
             console.error('[Callback] Status callback failed:', err.message);
         });
@@ -195,27 +211,32 @@ router.get('/', (req, res) => {
 router.post('/', async (req, res) => {
     console.log(`[Webhook] ★ POST received — headers: x-hub-signature-256=${req.headers['x-hub-signature-256'] ? 'present' : 'MISSING'}, content-type=${req.headers['content-type']}, body.object=${req.body?.object || 'EMPTY'}`);
 
-    // Validate signature if APP_SECRET is provided
-    if (APP_SECRET) {
-        const signature = req.headers['x-hub-signature-256'];
-        
-        if (!signature || !req.rawBody) {
-            console.error('[Webhook] Missing signature or rawBody');
+    // Fail closed unless unsigned payloads were explicitly enabled outside production.
+    if (!APP_SECRET) {
+        const unsignedAllowed = unsignedWebhooksAllowed({
+            appSecret: APP_SECRET,
+            nodeEnv: process.env.NODE_ENV,
+            allowUnsigned: ALLOW_UNSIGNED_WEBHOOKS,
+        });
+
+        if (!unsignedAllowed) {
+            console.error('[Webhook] META_APP_SECRET is missing — rejecting unsigned request');
             return res.sendStatus(403);
         }
 
-        const expectedSignature = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody).digest('hex');
-        
-        // Timing-safe comparison to prevent timing attacks
-        const sigBuffer = Buffer.from(signature, 'utf8');
-        const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
-        
-        if (sigBuffer.length !== expectedBuffer.length ||!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+        console.warn('[Webhook] Accepting unsigned request under explicit development override');
+    } else {
+        const signature = req.headers['x-hub-signature-256'];
+        const isValid = verifyMetaWebhookSignature({
+            appSecret: APP_SECRET,
+            signature,
+            rawBody: req.rawBody,
+        });
+
+        if (!isValid) {
             console.error('[Webhook] Invalid signature — rejecting request');
             return res.sendStatus(403);
         }
-    } else {
-        console.warn('[Webhook] Skipping signature validation — APP_SECRET not set');
     }
 
     const body = req.body;
@@ -417,11 +438,15 @@ router.post('/', async (req, res) => {
                     if (value.statuses) {
                         value.statuses.forEach(status => {
                             db.prepare(`
-                UPDATE messages SET status = ? WHERE wamid = ?
-              `).run(status.status, status.id);
+                UPDATE messages
+                SET status = ?
+                WHERE wamid = ?
+                  AND (? IS NULL OR tenant_id = ?)
+              `).run(status.status, status.id, tenant?.id || null, tenant?.id || null);
 
                             try {
                                 updateMetaChargeFromStatus({
+                                    tenantId: tenant?.id || null,
                                     wamid: status.id,
                                     status: status.status,
                                     pricing: status.pricing || null,
@@ -669,9 +694,11 @@ router.post('/', async (req, res) => {
                                         const profileRes = await fetch(
                                             `${META_API_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
                                         );
-                                        const profileData = await profileRes.json();
-                                        userName = profileData.name || null;
-                                        userPic = profileData.profile_pic || null;
+                                        const profileResult = await readMetaResponse(profileRes);
+                                        if (profileResult.ok) {
+                                            userName = profileResult.data?.name || null;
+                                            userPic = profileResult.data?.profile_pic || null;
+                                        }
                                     } catch (e) {
                                         console.warn('[Webhook/FB] Failed to fetch user profile:', e.message);
                                     }
@@ -814,9 +841,11 @@ router.post('/', async (req, res) => {
                                         const profileRes = await fetch(
                                             `${META_API_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
                                         );
-                                        const profileData = await profileRes.json();
-                                        userName = profileData.name || null;
-                                        userPic = profileData.profile_pic || null;
+                                        const profileResult = await readMetaResponse(profileRes);
+                                        if (profileResult.ok) {
+                                            userName = profileResult.data?.name || null;
+                                            userPic = profileResult.data?.profile_pic || null;
+                                        }
                                     } catch (e) {
                                         console.warn('[Webhook/FB] Failed to fetch user profile for postback:', e.message);
                                     }

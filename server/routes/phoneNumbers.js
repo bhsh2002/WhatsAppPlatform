@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { getAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
+import { requestMetaJson } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -34,19 +35,19 @@ router.get('/:wabaId', async (req, res) => {
         }
 
         const fields = 'display_phone_number,verified_name,quality_rating,status,name_status,code_verification_status,is_official_business_account,messaging_limit_tier';
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${wabaId}/phone_numbers?fields=${fields}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب أرقام الهاتف',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب أرقام الهاتف',
+                details: metaError
             });
         }
 
@@ -75,19 +76,19 @@ router.get('/info/:phoneNumberId', async (req, res) => {
         }
 
         const fields = 'display_phone_number,verified_name,quality_rating,status,name_status,code_verification_status,is_official_business_account,messaging_limit_tier,platform_type';
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}?fields=${fields}`,
             {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب معلومات الرقم',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل جلب معلومات الرقم',
+                details: metaError
             });
         }
 
@@ -116,7 +117,7 @@ router.post('/register/:phoneNumberId', async (req, res) => {
             return res.status(400).json({ error: 'رمز PIN يجب أن يكون 6 أرقام' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/register`,
             {
                 method: 'POST',
@@ -131,12 +132,12 @@ router.post('/register/:phoneNumberId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل تسجيل رقم الهاتف',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل تسجيل رقم الهاتف',
+                details: metaError
             });
         }
 
@@ -170,7 +171,7 @@ router.post('/request-code/:phoneNumberId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/request_code`,
             {
                 method: 'POST',
@@ -185,12 +186,12 @@ router.post('/request-code/:phoneNumberId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل طلب رمز التحقق',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل طلب رمز التحقق',
+                details: metaError
             });
         }
 
@@ -215,7 +216,7 @@ router.post('/verify-code/:phoneNumberId', async (req, res) => {
             return res.status(400).json({ error: 'بيانات الاعتماد مفقودة' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}/verify_code`,
             {
                 method: 'POST',
@@ -227,12 +228,12 @@ router.post('/verify-code/:phoneNumberId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل التحقق من الرمز',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل التحقق من الرمز',
+                details: metaError
             });
         }
 
@@ -261,7 +262,7 @@ router.post('/two-step/:phoneNumberId', async (req, res) => {
             return res.status(400).json({ error: 'رمز PIN يجب أن يكون 6 أرقام' });
         }
 
-        const response = await fetch(
+        const result = await requestMetaJson(
             `${META_API_BASE}/${phoneNumberId}`,
             {
                 method: 'POST',
@@ -273,12 +274,12 @@ router.post('/two-step/:phoneNumberId', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const { data, error: metaError } = result;
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل إعداد التحقق بخطوتين',
-                details: data.error
+        if (!result.ok) {
+            return res.status(result.status).json({
+                error: metaError?.message || 'فشل إعداد التحقق بخطوتين',
+                details: metaError
             });
         }
 

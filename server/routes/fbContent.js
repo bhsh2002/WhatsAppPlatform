@@ -4,7 +4,8 @@ import { Blob } from 'buffer';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
-import { simpleUpload, cleanupFile } from '../config/upload.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { imageUpload, cleanupFile } from '../config/upload.js';
 import {
     BILLING_OPERATIONS,
     commit as commitBilling,
@@ -15,8 +16,11 @@ import {
 
 const router = express.Router();
 
-const resolvePageCredentials = (linkedPageId) => {
-    const page = db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND is_active = 1').get(linkedPageId);
+const resolvePageCredentials = (linkedPageId, tenantId = null) => {
+    const page = tenantId
+        ? db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND tenant_id = ? AND is_active = 1')
+            .get(linkedPageId, tenantId)
+        : db.prepare('SELECT * FROM tenant_pages WHERE id = ? AND is_active = 1').get(linkedPageId);
     if (!page) return { error: 'الصفحة غير موجودة أو غير مفعلة', status: 404 };
     const accessToken = decrypt(page.page_access_token_encrypted);
     if (!accessToken) return { error: 'رمز الوصول غير صالح', status: 400 };
@@ -124,7 +128,7 @@ const COMMENT_FIELDS = [
 router.get('/:linkedPageId/posts', async (req, res) => {
     try {
         const { linkedPageId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { after } = req.query;
@@ -138,10 +142,11 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب المنشورات', details: data.error });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب المنشورات');
         }
 
         res.json({ posts: data.data || [], paging: data.paging || null });
@@ -158,7 +163,7 @@ router.post('/:linkedPageId/posts', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { message, link, published, scheduled_publish_time } = req.body;
@@ -185,11 +190,12 @@ router.post('/:linkedPageId/posts', async (req, res) => {
         });
 
         const response = await graphPostForm(`${page.page_id}/feed`, accessToken, body);
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta post create failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل إنشاء المنشور', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post create failed');
+            return sendMetaFailure(res, metaResult, 'فشل إنشاء المنشور');
         }
 
         commitBilling(billingReservation, {
@@ -218,12 +224,12 @@ router.post('/:linkedPageId/posts', async (req, res) => {
 // ============================================
 // Create a photo post (URL-based or file upload)
 // ============================================
-router.post('/:linkedPageId/posts/photo', simpleUpload.single('source'), async (req, res) => {
+router.post('/:linkedPageId/posts/photo', imageUpload.single('source'), async (req, res) => {
     let filePath = null;
     let billingReservation = null;
     try {
         const { linkedPageId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) {
             if (req.file) cleanupFile(req.file.path);
             return res.status(status).json({ error });
@@ -263,11 +269,12 @@ router.post('/:linkedPageId/posts/photo', simpleUpload.single('source'), async (
             });
         }
 
-        const data = await apiResponse.json();
+        const metaResult = await readMetaResponse(apiResponse);
+        const data = metaResult.data || {};
 
-        if (!apiResponse.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta photo post failed');
-            return res.status(apiResponse.status).json({ error: data.error?.message || 'فشل إنشاء منشور الصورة', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta photo post failed');
+            return sendMetaFailure(res, metaResult, 'فشل إنشاء منشور الصورة');
         }
 
         commitBilling(billingReservation, {
@@ -301,7 +308,7 @@ router.put('/:linkedPageId/posts/:postId', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, postId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { message } = req.body;
@@ -325,11 +332,11 @@ router.put('/:linkedPageId/posts/:postId', async (req, res) => {
             },
             body: JSON.stringify({ message }),
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta post edit failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل تعديل المنشور', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post edit failed');
+            return sendMetaFailure(res, metaResult, 'فشل تعديل المنشور');
         }
 
         commitBilling(billingReservation, {
@@ -361,7 +368,7 @@ router.delete('/:linkedPageId/posts/:postId', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, postId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         billingReservation = reserveBilling({
@@ -376,11 +383,11 @@ router.delete('/:linkedPageId/posts/:postId', async (req, res) => {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta post delete failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل حذف المنشور', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post delete failed');
+            return sendMetaFailure(res, metaResult, 'فشل حذف المنشور');
         }
 
         commitBilling(billingReservation, {
@@ -412,7 +419,7 @@ router.post('/:linkedPageId/posts/:postId/like', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, postId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         billingReservation = reserveBilling({
@@ -424,11 +431,12 @@ router.post('/:linkedPageId/posts/:postId/like', async (req, res) => {
         });
 
         const response = await graphPostForm(`${postId}/likes`, accessToken);
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta post like failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل الإعجاب بالمنشور', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post like failed');
+            return sendMetaFailure(res, metaResult, 'فشل الإعجاب بالمنشور');
         }
 
         commitBilling(billingReservation, {
@@ -459,7 +467,7 @@ router.delete('/:linkedPageId/posts/:postId/like', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, postId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         billingReservation = reserveBilling({
@@ -474,12 +482,12 @@ router.delete('/:linkedPageId/posts/:postId/like', async (req, res) => {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta post unlike failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل إزالة الإعجاب من المنشور', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post unlike failed');
+            return sendMetaFailure(res, metaResult, 'فشل إزالة الإعجاب من المنشور');
         }
 
         commitBilling(billingReservation, {
@@ -510,7 +518,7 @@ router.post('/:linkedPageId/posts/:postId/comments', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, postId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { message } = req.body;
@@ -534,11 +542,12 @@ router.post('/:linkedPageId/posts/:postId/comments', async (req, res) => {
             },
             body: JSON.stringify({ message }),
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta post comment failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل إضافة التعليق', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post comment failed');
+            return sendMetaFailure(res, metaResult, 'فشل إضافة التعليق');
         }
 
         commitBilling(billingReservation, {
@@ -569,7 +578,7 @@ router.post('/:linkedPageId/posts/:postId/comments', async (req, res) => {
 router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {
     try {
         const { linkedPageId, postId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { after } = req.query;
@@ -585,10 +594,11 @@ router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {
         const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب التعليقات', details: data.error });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب التعليقات');
         }
 
         res.json({
@@ -608,7 +618,7 @@ router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {
 router.get('/:linkedPageId/comments/:commentId/replies', async (req, res) => {
     try {
         const { linkedPageId, commentId } = req.params;
-        const { accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { after } = req.query;
@@ -623,10 +633,11 @@ router.get('/:linkedPageId/comments/:commentId/replies', async (req, res) => {
         const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({ error: data.error?.message || 'فشل جلب الردود', details: data.error });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب الردود');
         }
 
         res.json({
@@ -647,7 +658,7 @@ router.post('/:linkedPageId/comments/:commentId/reply', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, commentId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { message } = req.body;
@@ -671,11 +682,12 @@ router.post('/:linkedPageId/comments/:commentId/reply', async (req, res) => {
             },
             body: JSON.stringify({ message }),
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta comment reply failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل إرسال الرد', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment reply failed');
+            return sendMetaFailure(res, metaResult, 'فشل إرسال الرد');
         }
 
         commitBilling(billingReservation, {
@@ -707,7 +719,7 @@ router.post('/:linkedPageId/comments/:commentId/hide', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, commentId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         const { is_hidden } = req.body;
@@ -731,11 +743,11 @@ router.post('/:linkedPageId/comments/:commentId/hide', async (req, res) => {
             },
             body: JSON.stringify({ is_hidden: !!is_hidden }),
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta comment hide failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل تحديث حالة التعليق', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment hide failed');
+            return sendMetaFailure(res, metaResult, 'فشل تحديث حالة التعليق');
         }
 
         commitBilling(billingReservation, {
@@ -767,7 +779,7 @@ router.post('/:linkedPageId/comments/:commentId/like', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, commentId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         billingReservation = reserveBilling({
@@ -779,11 +791,12 @@ router.post('/:linkedPageId/comments/:commentId/like', async (req, res) => {
         });
 
         const response = await graphPostForm(`${commentId}/likes`, accessToken);
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta comment like failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل الإعجاب بالتعليق', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment like failed');
+            return sendMetaFailure(res, metaResult, 'فشل الإعجاب بالتعليق');
         }
 
         commitBilling(billingReservation, {
@@ -811,7 +824,7 @@ router.delete('/:linkedPageId/comments/:commentId/like', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, commentId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         billingReservation = reserveBilling({
@@ -826,12 +839,12 @@ router.delete('/:linkedPageId/comments/:commentId/like', async (req, res) => {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta comment unlike failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل إزالة الإعجاب', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment unlike failed');
+            return sendMetaFailure(res, metaResult, 'فشل إزالة الإعجاب');
         }
 
         commitBilling(billingReservation, {
@@ -862,7 +875,7 @@ router.delete('/:linkedPageId/comments/:commentId', async (req, res) => {
     let billingReservation = null;
     try {
         const { linkedPageId, commentId } = req.params;
-        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId);
+        const { page, accessToken, error, status } = resolvePageCredentials(linkedPageId, req.user?.tenant_id);
         if (error) return res.status(status).json({ error });
 
         billingReservation = reserveBilling({
@@ -877,11 +890,11 @@ router.delete('/:linkedPageId/comments/:commentId', async (req, res) => {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
 
-        if (!response.ok) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta comment delete failed');
-            return res.status(response.status).json({ error: data.error?.message || 'فشل حذف التعليق', details: data.error });
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment delete failed');
+            return sendMetaFailure(res, metaResult, 'فشل حذف التعليق');
         }
 
         commitBilling(billingReservation, {

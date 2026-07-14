@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 import { decryptIfEncrypted } from '../services/encryption.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -56,13 +57,11 @@ router.get('/me', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب الصفحات',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب الصفحات');
         }
 
         res.json({
@@ -96,13 +95,11 @@ router.get('/:pageId/info', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب معلومات الصفحة',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب معلومات الصفحة');
         }
 
         res.json(data);
@@ -132,13 +129,11 @@ router.get('/:pageId/linked-waba', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب WABA المرتبط',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب WABA المرتبط');
         }
 
         res.json({
