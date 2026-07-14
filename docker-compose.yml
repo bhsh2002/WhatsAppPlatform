@@ -4,13 +4,28 @@ services:
     container_name: whatsapp-platform-server
     environment:
       TZ: Africa/Tripoli
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/platform.db
     ports:
       - "3031:3031"
     volumes:
-      - ./server/db:/app/db
+      - ./server/db:/app/data
       - ./server/uploads:/app/uploads
-      - ./server/.env:/app/.env
+      - ./server/.env:/app/.env:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,uid=1000,gid=1000,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: always
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3031/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - proxy
 
@@ -20,9 +35,19 @@ services:
     environment:
       TZ: Africa/Tripoli
     ports:
-      - "3133:80"
+      - "3133:8080"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,uid=101,gid=101,mode=0755
+      - /var/run:rw,uid=101,gid=101,mode=0755
+      - /tmp:rw,uid=101,gid=101,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: always
     networks:
       - proxy

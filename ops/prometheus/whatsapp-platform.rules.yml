@@ -1,0 +1,34 @@
+groups:
+  - name: whatsapp-platform
+    rules:
+      - alert: WhatsAppPlatformHighHttp5xxRate
+        expr: whatsapp_http_requests_5m >= 20 and whatsapp_http_server_error_ratio_5m >= 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: WhatsApp Platform HTTP 5xx ratio is at least 5 percent
+
+      - alert: WhatsAppPlatformWebhookFailures
+        expr: whatsapp_webhook_failures_15m > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: WhatsApp Platform has recent unresolved webhook failures
+
+      - alert: WhatsAppPlatformBroadcastJobStuck
+        expr: whatsapp_broadcast_jobs_stuck > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A WhatsApp Platform broadcast job is stuck for over 15 minutes
+
+      - alert: WhatsAppPlatformMetaTokenUnhealthy
+        expr: whatsapp_meta_tokens_unhealthy > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: An active WhatsApp Platform tenant or page token is invalid or expired

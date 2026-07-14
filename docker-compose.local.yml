@@ -1,0 +1,10 @@
+services:
+  server:
+    environment:
+      NODE_ENV: development
+      DISABLE_BACKGROUND_JOBS: "true"
+      CORS_ORIGINS: http://localhost:3133,http://127.0.0.1:3133
+    restart: unless-stopped
+
+  client:
+    restart: unless-stopped
