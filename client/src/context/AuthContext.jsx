@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import api from '../api';
 import { tx } from "../i18n/tx";
 const AuthContext = createContext();
-const AUTH_TOKEN_KEY = 'auth_token';
 const AUTH_USER_KEY = 'auth_user';
 const AUTH_TENANT_KEY = 'auth_tenant';
 const readCachedSession = () => {
@@ -31,7 +30,6 @@ const writeCachedSession = (user, tenant) => {
   }
 };
 const clearStoredSession = () => {
-  localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
   localStorage.removeItem(AUTH_TENANT_KEY);
 };
@@ -46,37 +44,25 @@ export const AuthProvider = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check if user is logged in on mount
-  useEffect(() => {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    if (token) {
-      api.setAuthToken(token);
-      verifyToken(token);
-    } else {
-      setLoading(false);
-    }
-  }, []);
-  const verifyToken = async token => {
+  const verifySession = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.getCurrentUser(token);
+      const data = await api.getCurrentUser();
       setUser(data.user);
       setTenant(data.tenant || null);
-      api.setAuthToken(token);
       writeCachedSession(data.user, data.tenant || null);
     } catch (err) {
-      console.error('Token verification failed:', err);
       if (err.status === 401 || err.status === 403) {
         clearStoredSession();
-        api.setAuthToken(null);
+        api.resetSessionCaches();
         setUser(null);
         setTenant(null);
       } else {
+        console.error('Session verification failed:', err);
         const cached = readCachedSession();
         if (cached.user) {
           setUser(cached.user);
           setTenant(cached.tenant || null);
-          api.setAuthToken(token);
           setError(tx("auto.k_3ad626e2effa"));
         } else {
           setUser(null);
@@ -87,14 +73,31 @@ export const AuthProvider = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Check the HttpOnly session on mount. Rotate a legacy localStorage JWT
+  // once, then remove it from JavaScript-accessible storage permanently.
+  useEffect(() => {
+    const initializeSession = async () => {
+      const legacyToken = api.takeLegacyAuthToken();
+      if (legacyToken) {
+        try {
+          await api.adoptLegacySession(legacyToken);
+        } catch (err) {
+          if (err.status !== 401 && err.status !== 403) {
+            console.warn('Legacy session migration failed:', err);
+          }
+        }
+      }
+      await verifySession();
+    };
+    initializeSession();
+  }, [verifySession]);
   const login = useCallback(async (username, password) => {
     try {
       setError(null);
       setLoading(true);
       const data = await api.login(username, password);
-      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
-      api.setAuthToken(data.token);
       setUser(data.user);
       setTenant(data.tenant || null);
       writeCachedSession(data.user, data.tenant || null);
@@ -116,8 +119,6 @@ export const AuthProvider = ({
       setError(null);
       setLoading(true);
       const data = await api.register(userData);
-      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
-      api.setAuthToken(data.token);
       setUser(data.user);
       setTenant(data.tenant || null);
       writeCachedSession(data.user, data.tenant || null);
@@ -135,14 +136,19 @@ export const AuthProvider = ({
     }
   }, []);
   const logout = useCallback(() => {
+    const revokeRequest = api.logout().catch(err => {
+      console.warn('Server-side logout failed:', err);
+    });
     clearStoredSession();
-    api.setAuthToken(null);
+    api.resetSessionCaches();
     setUser(null);
     setTenant(null);
+    return revokeRequest;
   }, []);
   const changePassword = useCallback(async (currentPassword, newPassword) => {
     try {
       await api.changePassword(currentPassword, newPassword);
+      api.resetSessionCaches();
       return {
         success: true
       };

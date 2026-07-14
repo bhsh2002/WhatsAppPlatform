@@ -86,16 +86,15 @@ export const TenantProvider = ({ children }) => {
     useEffect(() => {
         if (isAuthenticated && isAdmin) {
             fetchTenants();
-            fetchStats();
         }
-    }, [isAuthenticated, isAdmin]);
+    }, [isAuthenticated, isAdmin, fetchTenants]);
 
-    // Refresh stats when tenants change (admin only)
+    // Refresh stats on login and whenever the tenant snapshot changes.
     useEffect(() => {
-        if (isAdmin && tenants.length > 0) {
+        if (isAuthenticated && isAdmin) {
             fetchStats();
         }
-    }, [tenants.length]);
+    }, [isAuthenticated, isAdmin, fetchStats]);
 
     return (
         <TenantContext.Provider value={{
