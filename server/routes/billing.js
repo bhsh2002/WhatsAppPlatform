@@ -2,8 +2,9 @@ import express from 'express';
 import fs from 'fs';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
-import { generalUpload as upload, cleanupFile } from '../config/upload.js';
+import { csvUpload as upload, cleanupFile } from '../config/upload.js';
 import { getFacebookUserAccessToken } from '../services/credentials.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 import {
     createMetaInvoice,
     createMetaRate,
@@ -23,6 +24,7 @@ import {
     updateBillingSettings,
     updateMetaRate,
     updateTenantBillingAccount,
+    upsertMetaRate,
 } from '../services/billing.js';
 
 const router = express.Router();
@@ -107,37 +109,6 @@ const normalizeRateRows = (rows, defaults = {}) => {
     }
 
     return normalized.filter((row) => row.country_calling_code && row.category && row.rate_amount !== '');
-};
-
-const upsertMetaRate = (rateData) => {
-    const normalizedRateData = {
-        ...rateData,
-        currency: String(rateData.currency || 'USD').toUpperCase(),
-        effective_from: rateData.effective_from || db.prepare("SELECT date('now') AS value").get().value,
-        volume_tier_min: parseInt(rateData.volume_tier_min, 10) || 1,
-    };
-    try {
-        return { action: 'created', rate: createMetaRate(normalizedRateData) };
-    } catch (error) {
-        if (error.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
-        const existing = db.prepare(`
-            SELECT id
-            FROM meta_whatsapp_rates
-            WHERE country_calling_code = ?
-              AND currency = ?
-              AND LOWER(category) = LOWER(?)
-              AND effective_from = ?
-              AND volume_tier_min = ?
-        `).get(
-            normalizedRateData.country_calling_code,
-            normalizedRateData.currency,
-            normalizedRateData.category,
-            normalizedRateData.effective_from,
-            normalizedRateData.volume_tier_min
-        );
-        if (!existing) throw error;
-        return { action: 'updated', rate: updateMetaRate(existing.id, normalizedRateData) };
-    }
 };
 
 router.get('/plans', (req, res) => {
@@ -452,6 +423,7 @@ router.patch('/meta/settings', (req, res) => {
     try {
         res.json(updateBillingSettings(req.body || {}));
     } catch (error) {
+        if (handleBillingError(res, error)) return;
         console.error('[Billing] Meta settings update error:', error);
         res.status(500).json({ error: 'فشل تحديث إعدادات تكلفة Meta' });
     }
@@ -465,6 +437,7 @@ router.get('/meta/summary', (req, res) => {
             periodEnd: req.query.period_end || null,
         }));
     } catch (error) {
+        if (handleBillingError(res, error)) return;
         console.error('[Billing] Meta summary error:', error);
         res.status(500).json({ error: 'فشل جلب ملخص تكلفة Meta' });
     }
@@ -653,13 +626,11 @@ router.post('/meta/invoices/sync', async (req, res) => {
             access_token: accessToken,
         }).toString()}`;
         const response = await fetch(url);
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب فواتير Meta',
-                details: data.error || data,
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب فواتير Meta');
         }
 
         const invoices = [];
