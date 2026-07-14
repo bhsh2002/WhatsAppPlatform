@@ -5,13 +5,30 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
     palette: {
         mode: 'light',
         primary: {
-            main: '#008069', // WhatsApp Teal Green
+            main: '#00725e', // Accessible WhatsApp Teal Green
             light: '#25D366',
             dark: '#015c4b',
             contrastText: '#ffffff',
         },
         secondary: {
-            main: '#25D366',
+            main: '#087f4f',
+            light: '#d7f7e3',
+            dark: '#065f3c',
+            contrastText: '#ffffff',
+        },
+        warning: {
+            main: '#a15c00',
+            dark: '#783f00',
+            contrastText: '#ffffff',
+        },
+        error: {
+            main: '#b42318',
+            dark: '#7a271a',
+            contrastText: '#ffffff',
+        },
+        success: {
+            main: '#1f6b2c',
+            dark: '#14532d',
             contrastText: '#ffffff',
         },
         background: {
@@ -20,7 +37,7 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
         },
         text: {
             primary: '#111b21',
-            secondary: '#667781',
+            secondary: '#526069',
         },
         action: {
             hover: 'rgba(0, 0, 0, 0.04)',
@@ -54,6 +71,26 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
                 root: {
                     textTransform: 'none',
                 },
+            },
+        },
+        MuiFormHelperText: {
+            styleOverrides: {
+                root: {
+                    color: '#526069',
+                    '&.Mui-disabled': {
+                        color: '#526069',
+                    },
+                },
+            },
+        },
+        MuiCircularProgress: {
+            defaultProps: {
+                'aria-label': 'Loading / جارٍ التحميل',
+            },
+        },
+        MuiLinearProgress: {
+            defaultProps: {
+                'aria-label': 'Progress / مستوى التقدم',
             },
         },
     },

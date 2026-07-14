@@ -60,7 +60,8 @@ export const translations = {
     layout: {
       tenantPortal: 'بوابة العميل',
       adminConsole: 'لوحة الإدارة المركزية',
-      openDrawer: 'فتح القائمة'
+      openDrawer: 'فتح القائمة',
+      mainNavigation: 'التنقل الرئيسي'
     },
     nav: {
       sections: {
@@ -2172,7 +2173,8 @@ export const translations = {
     layout: {
       tenantPortal: 'Tenant Portal',
       adminConsole: 'Admin Console',
-      openDrawer: 'Open navigation'
+      openDrawer: 'Open navigation',
+      mainNavigation: 'Main navigation'
     },
     nav: {
       sections: {

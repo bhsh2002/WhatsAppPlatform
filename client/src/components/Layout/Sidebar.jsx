@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
     Box,
@@ -51,6 +51,7 @@ const Sidebar = () => {
     const { language, setLanguage, t } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
+    const sidebarId = useId();
 
     const handleLogout = () => {
         logout();
@@ -69,7 +70,7 @@ const Sidebar = () => {
         },
         {
             title: t('nav.sections.whatsapp'),
-            color: '#25D366',
+            color: '#067647',
             items: [
                 { label: t('nav.whatsappConsole'), path: '/whatsapp', icon: <WhatsAppIcon /> },
                 { label: t('nav.whatsappContacts'), path: '/contacts', icon: <ContactPhoneIcon /> },
@@ -81,7 +82,7 @@ const Sidebar = () => {
         },
         {
             title: t('nav.sections.facebookMeta'),
-            color: '#1877f2',
+            color: '#0B57D0',
             items: [
                 { label: t('nav.facebookContent'), path: '/fb-manager', icon: <FacebookIcon /> },
                 { label: t('nav.messengerBot'), path: '/messenger-bot', icon: <SmartToyIcon /> },
@@ -112,7 +113,7 @@ const Sidebar = () => {
         },
         {
             title: t('nav.sections.whatsapp'),
-            color: '#25D366',
+            color: '#067647',
             items: [
                 { label: t('nav.whatsappConnect'), path: '/portal/whatsapp-connect', icon: <WhatsAppIcon /> },
                 { label: t('nav.whatsappAnalytics'), path: '/portal/analytics', icon: <AnalyticsIcon /> },
@@ -127,7 +128,7 @@ const Sidebar = () => {
         },
         {
             title: t('nav.sections.facebookMeta'),
-            color: '#1877f2',
+            color: '#0B57D0',
             items: [
                 { label: t('nav.facebookPages'), path: '/portal/fb-pages', icon: <FacebookIcon /> },
                 { label: t('nav.contentManager'), path: '/portal/fb-content', icon: <StoreIcon /> },
@@ -176,7 +177,7 @@ const Sidebar = () => {
                     {isTenant ? '🏢' : '⚡'}
                 </Box>
                 <Box>
-                    <Typography variant="h6" fontWeight={700} lineHeight={1.2}>
+                    <Typography variant="h6" component="div" fontWeight={700} lineHeight={1.2}>
                         {isTenant ? (tenant?.name || 'Wa Savana') : 'Wa Savana'}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -188,11 +189,17 @@ const Sidebar = () => {
             <Divider />
 
             {/* Navigation */}
-            <List sx={{ flex: 1, px: 1.5, py: 1.5, overflowY: 'auto' }}>
+            <Box component="nav" aria-label={t('layout.mainNavigation')} sx={{ flex: 1, px: 1.5, py: 1.5, overflowY: 'auto' }}>
                 {navSections.map((section, sectionIndex) => (
-                    <Box key={section.title} sx={{ mb: sectionIndex === navSections.length - 1 ? 0 : 1.5 }}>
+                    <Box
+                        component="section"
+                        key={section.title}
+                        aria-labelledby={`${sidebarId}-section-${sectionIndex}`}
+                        sx={{ mb: sectionIndex === navSections.length - 1 ? 0 : 1.5 }}
+                    >
                         {sectionIndex > 0 && <Divider sx={{ mb: 1 }} />}
                         <Typography
+                            id={`${sidebarId}-section-${sectionIndex}`}
                             variant="caption"
                             sx={{
                                 display: 'block',
@@ -205,43 +212,46 @@ const Sidebar = () => {
                         >
                             {section.title}
                         </Typography>
-                        {section.items.map((item) => {
-                            const isActive = location.pathname === item.path;
-                            return (
-                                <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
-                                    <ListItemButton
-                                        onClick={() => navigate(item.path)}
-                                        selected={isActive}
-                                        sx={{
-                                            borderRadius: 1.5,
-                                            minHeight: 40,
-                                            '&.Mui-selected': {
-                                                bgcolor: isTenant ? 'secondary.light' : 'primary.light',
-                                                color: isTenant ? 'secondary.contrastText' : 'primary.contrastText',
-                                                '&:hover': { bgcolor: isTenant ? 'secondary.dark' : 'primary.dark' },
-                                                '& .MuiListItemIcon-root': { color: 'inherit' }
-                                            }
-                                        }}
-                                    >
-                                        <ListItemIcon sx={{ minWidth: 36, color: isActive ? 'inherit' : (section.color || 'text.secondary') }}>
-                                            {item.icon}
-                                        </ListItemIcon>
-                                        <ListItemText
-                                            primary={item.label}
-                                            primaryTypographyProps={{
-                                                fontWeight: isActive ? 700 : 500,
-                                                fontSize: '0.9rem',
-                                                noWrap: true,
+                        <List disablePadding aria-labelledby={`${sidebarId}-section-${sectionIndex}`}>
+                            {section.items.map((item) => {
+                                const isActive = location.pathname === item.path;
+                                return (
+                                    <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
+                                        <ListItemButton
+                                            component={RouterLink}
+                                            to={item.path}
+                                            selected={isActive}
+                                            sx={{
+                                                borderRadius: 1.5,
+                                                minHeight: 40,
+                                                '&.Mui-selected': {
+                                                    bgcolor: isTenant ? '#d7f7e3' : '#d9f5ef',
+                                                    color: isTenant ? '#065f3c' : 'primary.dark',
+                                                    '&:hover': { bgcolor: isTenant ? '#bceccb' : '#bce8df' },
+                                                    '& .MuiListItemIcon-root': { color: 'inherit' }
+                                                }
                                             }}
-                                            sx={{ minWidth: 0 }}
-                                        />
-                                    </ListItemButton>
-                                </ListItem>
-                            );
-                        })}
+                                        >
+                                            <ListItemIcon sx={{ minWidth: 36, color: isActive ? 'inherit' : (section.color || 'text.secondary') }}>
+                                                {item.icon}
+                                            </ListItemIcon>
+                                            <ListItemText
+                                                primary={item.label}
+                                                primaryTypographyProps={{
+                                                    fontWeight: isActive ? 700 : 500,
+                                                    fontSize: '0.9rem',
+                                                    noWrap: true,
+                                                }}
+                                                sx={{ minWidth: 0 }}
+                                            />
+                                        </ListItemButton>
+                                    </ListItem>
+                                );
+                            })}
+                        </List>
                     </Box>
                 ))}
-            </List>
+            </Box>
 
             <Divider />
 
@@ -261,7 +271,7 @@ const Sidebar = () => {
                             <PersonIcon />
                         </Avatar>
                         <Box sx={{ overflow: 'hidden', flex: 1 }}>
-                            <Typography variant="subtitle2" noWrap>
+                            <Typography variant="subtitle2" component="div" noWrap>
                                 {user.name || user.username}
                             </Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -306,9 +316,9 @@ const Sidebar = () => {
                         startIcon={<PrivacyTipIcon fontSize="small" />}
                         sx={{
                             textTransform: 'none',
-                            color: 'text.disabled',
+                            color: 'text.secondary',
                             fontSize: '0.75rem',
-                            '&:hover': { color: 'text.secondary', bgcolor: 'transparent' },
+                            '&:hover': { color: 'text.primary', bgcolor: 'transparent' },
                         }}
                     >
                         {t('common.privacyPolicy')}

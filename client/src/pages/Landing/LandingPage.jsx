@@ -172,7 +172,7 @@ const FeatureCard = ({
 
                     {icon}
                 </Box>
-                <Typography variant="h6" fontWeight={700} gutterBottom>
+                <Typography component="h3" variant="h6" fontWeight={700} gutterBottom>
                     {title}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" lineHeight={1.8}>
@@ -246,7 +246,7 @@ const LandingPage = () => {
                 fontSize: 24
               }} />
                             </Box>
-                            <Typography variant="h6" fontWeight={800} sx={{
+                            <Typography component="span" variant="h6" fontWeight={800} sx={{
               color: scrolled ? '#111' : 'white',
               fontFamily: 'Cairo, sans-serif',
               letterSpacing: 0.5
@@ -314,6 +314,7 @@ const LandingPage = () => {
                 </Container>
             </Box>
 
+            <Box component="main">
             {/* ── Hero Section ───────────────────────────────── */}
             <Box id="hero" sx={{
       minHeight: '100vh',
@@ -424,7 +425,7 @@ const LandingPage = () => {
               px: 1
             }} />
 
-                            <Typography variant="h2" fontWeight={900} sx={{
+                            <Typography component="h1" variant="h2" fontWeight={900} sx={{
               color: 'white',
               fontFamily: 'Cairo, sans-serif',
               lineHeight: 1.25,
@@ -449,7 +450,7 @@ const LandingPage = () => {
                 </Box>{tx("auto.k_e229e7a090d8")}
 
               </Typography>
-                            <Typography variant="h6" sx={{
+                            <Typography component="p" variant="h6" sx={{
               color: 'rgba(255,255,255,0.82)',
               fontFamily: 'Cairo, sans-serif',
               fontWeight: 400,
@@ -587,7 +588,7 @@ const LandingPage = () => {
                     }} />
                                         </Box>
                                         <Box>
-                                            <Typography variant="subtitle2" fontWeight={700} color="#111">Wa Savana</Typography>
+                                            <Typography component="span" variant="subtitle2" fontWeight={700} color="#111">Wa Savana</Typography>
                                             <Typography variant="caption" color="text.secondary">{tx("auto.k_2d36ae51d35b")}</Typography>
                                         </Box>
                                         <Box sx={{
@@ -729,7 +730,7 @@ const LandingPage = () => {
       py: 8
     }}>
                 <Container maxWidth="lg">
-                    <Typography variant="overline" sx={{
+                    <Typography component="h2" variant="overline" sx={{
           color: 'rgba(255,255,255,0.4)',
           letterSpacing: 3,
           display: 'block',
@@ -753,7 +754,7 @@ const LandingPage = () => {
                 fontSize: '2.5rem',
                 mb: 1.5
               }}>{c.icon}</Typography>
-                                    <Typography variant="subtitle1" fontWeight={700} color="white" sx={{
+                                    <Typography component="h3" variant="subtitle1" fontWeight={700} color="white" sx={{
                 fontFamily: 'Cairo, sans-serif',
                 mb: 1
               }}>
@@ -794,13 +795,13 @@ const LandingPage = () => {
             mb: 2
           }} />
 
-                        <Typography variant="h3" fontWeight={800} sx={{
+                        <Typography component="h2" variant="h3" fontWeight={800} sx={{
             fontFamily: 'Cairo, sans-serif',
             mb: 2
           }}>{tx("auto.k_a7fda2dba8a5")}
 
             </Typography>
-                        <Typography variant="h6" color="text.secondary" sx={{
+                        <Typography component="p" variant="h6" color="text.secondary" sx={{
             fontFamily: 'Cairo, sans-serif',
             fontWeight: 400,
             maxWidth: 600,
@@ -843,13 +844,13 @@ const LandingPage = () => {
             mb: 2
           }} />
 
-                        <Typography variant="h3" fontWeight={800} sx={{
+                        <Typography component="h2" variant="h3" fontWeight={800} sx={{
             fontFamily: 'Cairo, sans-serif',
             mb: 2
           }}>{tx("auto.k_fb71cd5c6ba5")}
 
             </Typography>
-                        <Typography variant="h6" color="text.secondary" sx={{
+                        <Typography component="p" variant="h6" color="text.secondary" sx={{
             fontFamily: 'Cairo, sans-serif',
             fontWeight: 400
           }}>{tx("auto.k_cf62a0396f08")}
@@ -900,8 +901,8 @@ const LandingPage = () => {
                   md: i % 2 === 0 ? 'right' : 'left'
                 }
               }}>
-                                        <Typography variant="h1" fontWeight={900} sx={{
-                  color: `${step.color}18`,
+                                        <Typography component="span" aria-hidden="true" variant="h1" fontWeight={900} sx={{
+                  color: '#67747c',
                   fontSize: '5rem',
                   lineHeight: 1,
                   fontFamily: 'monospace',
@@ -910,7 +911,7 @@ const LandingPage = () => {
 
                                             {step.num}
                                         </Typography>
-                                        <Typography variant="h5" fontWeight={800} sx={{
+                                        <Typography component="h3" variant="h5" fontWeight={800} sx={{
                   fontFamily: 'Cairo, sans-serif',
                   mb: 1,
                   color: step.color
@@ -940,7 +941,7 @@ const LandingPage = () => {
                 zIndex: 1
               }}>
 
-                                        <Typography variant="subtitle1" fontWeight={800} color="white">
+                                        <Typography component="span" aria-hidden="true" variant="subtitle1" fontWeight={800} color="white">
                                             {i + 1}
                                         </Typography>
                                     </Box>
@@ -975,13 +976,13 @@ const LandingPage = () => {
             mb: 2
           }} />
 
-                        <Typography variant="h3" fontWeight={800} sx={{
+                        <Typography component="h2" variant="h3" fontWeight={800} sx={{
             fontFamily: 'Cairo, sans-serif',
             mb: 2
           }}>{tx("auto.k_a705ab7a3982")}
 
             </Typography>
-                        <Typography variant="h6" color="text.secondary" sx={{
+                        <Typography component="p" variant="h6" color="text.secondary" sx={{
             fontFamily: 'Cairo, sans-serif',
             fontWeight: 400,
             maxWidth: 500,
@@ -1018,7 +1019,7 @@ const LandingPage = () => {
                 }}>
                                             {u.emoji}
                                         </Typography>
-                                        <Typography variant="h6" fontWeight={800} sx={{
+                                        <Typography component="h3" variant="h6" fontWeight={800} sx={{
                   fontFamily: 'Cairo, sans-serif',
                   mb: 1.5
                 }}>
@@ -1040,8 +1041,8 @@ const LandingPage = () => {
                   flexWrap: 'wrap'
                 }}>
                                             {u.tags.map(tag => <Chip key={tag} label={tag} size="small" sx={{
-                    bgcolor: '#00806910',
-                    color: '#008069',
+                    bgcolor: '#00725e14',
+                    color: '#00725e',
                     fontFamily: 'Cairo, sans-serif',
                     fontSize: '0.7rem'
                   }} />)}
@@ -1087,13 +1088,13 @@ const LandingPage = () => {
         position: 'relative',
         zIndex: 1
       }}>
-                    <Typography variant="h3" fontWeight={900} color="white" sx={{
+                    <Typography component="h2" variant="h3" fontWeight={900} color="white" sx={{
           fontFamily: 'Cairo, sans-serif',
           mb: 2
         }}>{tx("auto.k_62aad83386f3")}
 
           </Typography>
-                    <Typography variant="h6" sx={{
+                    <Typography component="p" variant="h6" sx={{
           color: 'rgba(255,255,255,0.8)',
           fontFamily: 'Cairo, sans-serif',
           fontWeight: 400,
@@ -1124,9 +1125,10 @@ const LandingPage = () => {
           </Button>
                 </Container>
             </Box>
+            </Box>
 
             {/* ── Footer ───────────────────────────────────────── */}
-            <Box sx={{
+            <Box component="footer" sx={{
       bgcolor: '#0d1117',
       py: 6
     }}>
@@ -1158,7 +1160,7 @@ const LandingPage = () => {
                   fontSize: 20
                 }} />
                                 </Box>
-                                <Typography variant="h6" fontWeight={800} color="white" sx={{
+                                <Typography component="span" variant="h6" fontWeight={800} color="white" sx={{
                 fontFamily: 'Cairo, sans-serif'
               }}>
                                     Wa Savana
@@ -1176,7 +1178,7 @@ const LandingPage = () => {
             xs: 6,
             md: 2
           }}>
-                            <Typography variant="subtitle2" color="white" fontWeight={700} sx={{
+                            <Typography component="h2" variant="subtitle2" color="white" fontWeight={700} sx={{
               fontFamily: 'Cairo, sans-serif',
               mb: 2
             }}>{tx("auto.k_789f1271dd5d")}
@@ -1199,7 +1201,7 @@ const LandingPage = () => {
             xs: 6,
             md: 2
           }}>
-                            <Typography variant="subtitle2" color="white" fontWeight={700} sx={{
+                            <Typography component="h2" variant="subtitle2" color="white" fontWeight={700} sx={{
               fontFamily: 'Cairo, sans-serif',
               mb: 2
             }}>{tx("auto.k_2109a5cdfc30")}
@@ -1219,10 +1221,13 @@ const LandingPage = () => {
 
 
               </Typography>
-                            <Typography variant="body2" sx={{
+                            <Typography component="a" href="/api/terms" variant="body2" sx={{
               color: 'rgba(255,255,255,0.45)',
               fontFamily: 'Cairo, sans-serif',
-              mb: 1
+              mb: 1,
+              display: 'block',
+              textDecoration: 'none',
+              '&:hover': { color: '#008069' }
             }}>{tx("auto.k_d8670c074a20")}
 
               </Typography>
@@ -1231,7 +1236,7 @@ const LandingPage = () => {
             xs: 12,
             md: 4
           }}>
-                            <Typography variant="subtitle2" color="white" fontWeight={700} sx={{
+                            <Typography component="h2" variant="subtitle2" color="white" fontWeight={700} sx={{
               fontFamily: 'Cairo, sans-serif',
               mb: 2
             }}>{tx("auto.k_e976c8a955f0")}
@@ -1267,7 +1272,7 @@ const LandingPage = () => {
           gap: 2
         }}>
                         <Typography variant="caption" sx={{
-            color: 'rgba(255,255,255,0.35)',
+            color: 'rgba(255,255,255,0.78)',
             fontFamily: 'Cairo, sans-serif'
           }}>
                             © {new Date().getFullYear()}{tx("auto.k_d6cfcb0a9c58")}
@@ -1277,17 +1282,16 @@ const LandingPage = () => {
             gap: 1
           }}>
                             <Tooltip title={tx("auto.k_7b5629bcb45d")}>
-                                <IconButton size="small" sx={{
+                                <Box component="span" aria-hidden="true" sx={{
                 color: 'rgba(255,255,255,0.4)',
-                '&:hover': {
-                  color: '#25D366'
-                }
+                display: 'inline-flex',
+                p: 1
               }}>
                                     <WhatsAppIcon fontSize="small" />
-                                </IconButton>
+                                </Box>
                             </Tooltip>
                             <Tooltip title={tx("auto.k_8b7b36b70cdd")}>
-                                <IconButton component={RouterLink} to="/privacy-policy" size="small" sx={{
+                                <IconButton aria-label={tx("auto.k_8b7b36b70cdd")} component={RouterLink} to="/privacy-policy" size="small" sx={{
                 color: 'rgba(255,255,255,0.4)',
                 '&:hover': {
                   color: '#008069'

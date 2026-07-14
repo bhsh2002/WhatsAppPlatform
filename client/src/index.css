@@ -16,6 +16,14 @@ body {
   direction: inherit;
 }
 
+/* Keep keyboard focus visible across native controls and MUI components. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible,
+.Mui-focusVisible {
+  outline: 3px solid #005fcc !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 5px #005fcc !important;
+}
+
 /* Typography override for MUI to match system */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-sans) !important;

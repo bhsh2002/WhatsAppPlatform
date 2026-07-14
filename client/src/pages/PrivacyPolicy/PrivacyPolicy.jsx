@@ -90,7 +90,7 @@ const getSections = () => [{
 }];
 const PrivacyPolicy = () => {
   const navigate = useNavigate();
-  return <Box sx={{
+  return <Box component="main" sx={{
     minHeight: '100vh',
     bgcolor: '#f4f6f8',
     py: {
@@ -101,7 +101,7 @@ const PrivacyPolicy = () => {
 
             <Container maxWidth="md">
                 {/* Header */}
-                <Paper elevation={0} sx={{
+                <Paper component="header" elevation={0} sx={{
         background: 'linear-gradient(135deg, #008069 0%, #005c4b 100%)',
         color: 'white',
         borderRadius: 4,
@@ -151,7 +151,7 @@ const PrivacyPolicy = () => {
               fontSize: 32
             }} />
                         </Box>
-                        <Typography variant="h4" fontWeight={700}>{tx("auto.k_8b7b36b70cdd")}
+                        <Typography component="h1" variant="h4" fontWeight={700}>{tx("auto.k_8b7b36b70cdd")}
 
             </Typography>
                     </Box>
@@ -215,7 +215,7 @@ const PrivacyPolicy = () => {
 
                                 {section.icon}
                             </Box>
-                            <Typography variant="h6" fontWeight={700} color={section.color}>
+                            <Typography component="h2" variant="h6" fontWeight={700} color={section.color}>
                                 {section.title}
                             </Typography>
                         </Box>
@@ -232,7 +232,7 @@ const PrivacyPolicy = () => {
                                 {section.content.map((block, bIdx) => <Grid size={{
               xs: 12
             }} key={bIdx}>
-                                        <Typography variant="subtitle1" fontWeight={600} color="text.primary" gutterBottom>
+                                        <Typography component="h3" variant="subtitle1" fontWeight={600} color="text.primary" gutterBottom>
 
                                             {block.subtitle}
                                         </Typography>
@@ -272,7 +272,7 @@ const PrivacyPolicy = () => {
                     </Paper>)}
 
                 {/* Footer */}
-                <Paper elevation={0} sx={{
+                <Paper component="footer" elevation={0} sx={{
         borderRadius: 3,
         p: 3,
         textAlign: 'center',

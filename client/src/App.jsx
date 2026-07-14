@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import MainLayout from './components/Layout/MainLayout';
@@ -7,56 +7,52 @@ import { TenantProvider } from './context/TenantContext';
 import { useLanguage } from './context/LanguageContext';
 
 // Admin Pages
-import Login from './pages/Login/Login';
-import Dashboard from './pages/Dashboard/Dashboard';
-import TenantList from './pages/Tenants/TenantList';
-import WhatsAppConsole from './pages/WhatsAppConsole/WhatsAppConsole';
-import WhatsAppChat from './pages/WhatsAppChat/WhatsAppChat';
-import Logs from './pages/Logs/Logs';
-import Settings from './pages/Settings/Settings';
-import AdminTemplates from './pages/Templates/AdminTemplates';
+const Login = lazy(() => import('./pages/Login/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard/Dashboard'));
+const TenantList = lazy(() => import('./pages/Tenants/TenantList'));
+const WhatsAppConsole = lazy(() => import('./pages/WhatsAppConsole/WhatsAppConsole'));
+const Logs = lazy(() => import('./pages/Logs/Logs'));
+const Settings = lazy(() => import('./pages/Settings/Settings'));
+const AdminTemplates = lazy(() => import('./pages/Templates/AdminTemplates'));
 
 // Public Pages
-import PrivacyPolicy from './pages/PrivacyPolicy/PrivacyPolicy';
-import LandingPage from './pages/Landing/LandingPage';
-import FacebookOAuthCallback from './pages/Auth/FacebookOAuthCallback';
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy/PrivacyPolicy'));
+const LandingPage = lazy(() => import('./pages/Landing/LandingPage'));
+const FacebookOAuthCallback = lazy(() => import('./pages/Auth/FacebookOAuthCallback'));
 
 // Tenant Portal Pages
-import TenantDashboard from './pages/TenantPortal/TenantDashboard';
-import TenantChat from './pages/TenantPortal/TenantChat';
-import TenantTemplates from './pages/TenantPortal/TenantTemplates';
-import TenantApiSettings from './pages/TenantPortal/TenantApiSettings';
-import TenantBusinessProfile from './pages/TenantPortal/TenantBusinessProfile';
-import TenantAnalytics from './pages/TenantPortal/TenantAnalytics';
-import TenantQRCodes from './pages/TenantPortal/TenantQRCodes';
-import TenantConversions from './pages/TenantPortal/TenantConversions';
-import TenantContacts from './pages/TenantPortal/TenantContacts';
-import TenantBroadcast from './pages/TenantPortal/TenantBroadcast';
-import TenantInbox from './pages/TenantPortal/TenantInbox';
-import TenantFacebookPages from './pages/TenantPortal/TenantFacebookPages';
-import TenantWhatsAppConnect from './pages/TenantPortal/TenantWhatsAppConnect';
-import TenantContentManager from './pages/TenantPortal/TenantContentManager';
-import TenantAutomation from './pages/TenantPortal/TenantAutomation';
-import TenantFbInsights from './pages/TenantPortal/TenantFbInsights';
-import TenantMetaReview from './pages/TenantPortal/TenantMetaReview';
-import TenantBilling from './pages/TenantPortal/TenantBilling';
+const TenantDashboard = lazy(() => import('./pages/TenantPortal/TenantDashboard'));
+const TenantTemplates = lazy(() => import('./pages/TenantPortal/TenantTemplates'));
+const TenantApiSettings = lazy(() => import('./pages/TenantPortal/TenantApiSettings'));
+const TenantBusinessProfile = lazy(() => import('./pages/TenantPortal/TenantBusinessProfile'));
+const TenantAnalytics = lazy(() => import('./pages/TenantPortal/TenantAnalytics'));
+const TenantQRCodes = lazy(() => import('./pages/TenantPortal/TenantQRCodes'));
+const TenantConversions = lazy(() => import('./pages/TenantPortal/TenantConversions'));
+const TenantContacts = lazy(() => import('./pages/TenantPortal/TenantContacts'));
+const TenantBroadcast = lazy(() => import('./pages/TenantPortal/TenantBroadcast'));
+const TenantInbox = lazy(() => import('./pages/TenantPortal/TenantInbox'));
+const TenantFacebookPages = lazy(() => import('./pages/TenantPortal/TenantFacebookPages'));
+const TenantWhatsAppConnect = lazy(() => import('./pages/TenantPortal/TenantWhatsAppConnect'));
+const TenantContentManager = lazy(() => import('./pages/TenantPortal/TenantContentManager'));
+const TenantAutomation = lazy(() => import('./pages/TenantPortal/TenantAutomation'));
+const TenantFbInsights = lazy(() => import('./pages/TenantPortal/TenantFbInsights'));
+const TenantMetaReview = lazy(() => import('./pages/TenantPortal/TenantMetaReview'));
+const TenantBilling = lazy(() => import('./pages/TenantPortal/TenantBilling'));
 
 // Admin Feature Pages
-import BusinessManager from './pages/Settings/BusinessManager';
-import FacebookPages from './pages/Settings/FacebookPages';
-import FacebookPageManager from './pages/Facebook/FacebookPageManager';
-import MessengerInbox from './pages/Facebook/MessengerInbox';
-import FacebookInsights from './pages/Facebook/FacebookInsights';
-import PartnerSolutions from './pages/Settings/PartnerSolutions';
-import PhoneNumbers from './pages/Settings/PhoneNumbers';
-import WebhookSubscriptions from './pages/Settings/WebhookSubscriptions';
-import ContactManager from './pages/Contacts/ContactManager';
-import BroadcastManager from './pages/Broadcast/BroadcastManager';
-import WebhookFailures from './pages/Admin/WebhookFailures';
-import UnifiedInbox from './pages/Inbox/UnifiedInbox';
-import AutomationManager from './pages/Automation/AutomationManager';
-import BillingManager from './pages/Billing/BillingManager';
-import MessengerBotManager from './pages/MessengerBot/MessengerBotManager';
+const BusinessManager = lazy(() => import('./pages/Settings/BusinessManager'));
+const FacebookPageManager = lazy(() => import('./pages/Facebook/FacebookPageManager'));
+const FacebookInsights = lazy(() => import('./pages/Facebook/FacebookInsights'));
+const PartnerSolutions = lazy(() => import('./pages/Settings/PartnerSolutions'));
+const PhoneNumbers = lazy(() => import('./pages/Settings/PhoneNumbers'));
+const WebhookSubscriptions = lazy(() => import('./pages/Settings/WebhookSubscriptions'));
+const ContactManager = lazy(() => import('./pages/Contacts/ContactManager'));
+const BroadcastManager = lazy(() => import('./pages/Broadcast/BroadcastManager'));
+const WebhookFailures = lazy(() => import('./pages/Admin/WebhookFailures'));
+const UnifiedInbox = lazy(() => import('./pages/Inbox/UnifiedInbox'));
+const AutomationManager = lazy(() => import('./pages/Automation/AutomationManager'));
+const BillingManager = lazy(() => import('./pages/Billing/BillingManager'));
+const MessengerBotManager = lazy(() => import('./pages/MessengerBot/MessengerBotManager'));
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, requireAdmin = false, requireTenant = false }) => {
@@ -101,6 +97,7 @@ function AppRoutes() {
   const { t } = useLanguage();
 
   return (
+    <Suspense fallback={<Box sx={{ minHeight: '60vh', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}>
     <Routes>
       {/* Public routes */}
       <Route
@@ -149,7 +146,7 @@ function AppRoutes() {
         path="/chat"
         element={
           <ProtectedRoute requireAdmin>
-            <MainLayout><WhatsAppChat /></MainLayout>
+            <Navigate to="/inbox" replace />
           </ProtectedRoute>
         }
       />
@@ -237,7 +234,7 @@ function AppRoutes() {
         path="/facebook-pages"
         element={
           <ProtectedRoute requireAdmin>
-            <MainLayout><FacebookPages /></MainLayout>
+            <Navigate to="/tenants" replace />
           </ProtectedRoute>
         }
       />
@@ -253,7 +250,7 @@ function AppRoutes() {
         path="/messenger"
         element={
           <ProtectedRoute requireAdmin>
-            <MainLayout><MessengerInbox /></MainLayout>
+            <Navigate to="/inbox" replace />
           </ProtectedRoute>
         }
       />
@@ -329,7 +326,7 @@ function AppRoutes() {
         path="/portal/chat"
         element={
           <ProtectedRoute requireTenant>
-            <MainLayout><TenantChat /></MainLayout>
+            <Navigate to="/portal/inbox" replace />
           </ProtectedRoute>
         }
       />
@@ -468,6 +465,7 @@ function AppRoutes() {
         }
       />
     </Routes>
+    </Suspense>
   );
 }
 

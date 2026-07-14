@@ -42,7 +42,7 @@ const MainLayout = ({ children }) => {
                         >
                             <MenuIcon />
                         </IconButton>
-                        <Typography variant="subtitle1" fontWeight={600} sx={{ ml: 1 }}>
+                        <Typography variant="subtitle1" component="div" fontWeight={600} sx={{ ml: 1 }}>
                             Wa Savana
                         </Typography>
                     </Toolbar>
@@ -55,6 +55,7 @@ const MainLayout = ({ children }) => {
                 open={mobileOpen}
                 onClose={handleDrawerToggle}
                 ModalProps={{ keepMounted: true }}
+                slotProps={{ paper: { 'aria-label': t('layout.mainNavigation') } }}
                 sx={{
                     display: { xs: 'block', md: 'none' },
                     '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },

@@ -98,7 +98,7 @@ const Login = () => {
     };
 
     return (
-        <Box sx={{
+        <Box component="main" sx={{
             minHeight: '100vh',
             display: 'flex',
             alignItems: 'center',
@@ -140,9 +140,9 @@ const Login = () => {
                         mb: 2,
                         boxShadow: 3
                     }}>
-                        <Typography variant="h3">⚡</Typography>
+                        <Typography component="span" aria-hidden="true" variant="h3">⚡</Typography>
                     </Box>
-                    <Typography variant="h5" fontWeight={700}>
+                    <Typography component="h1" variant="h5" fontWeight={700}>
                         Wa Savana
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -153,6 +153,7 @@ const Login = () => {
                 <Card elevation={8} sx={{ borderRadius: 3 }}>
                     <CardContent sx={{ p: 4 }}>
                         <Tabs
+                            aria-label={t('auth.loginTab')}
                             value={tabValue}
                             onChange={(_, v) => { setTabValue(v); setLocalError(''); setSuccessMessage(''); }}
                             variant="fullWidth"
@@ -180,6 +181,7 @@ const Login = () => {
                                     fullWidth
                                     label={t('auth.username')}
                                     name="username"
+                                    autoComplete="username"
                                     value={formData.username}
                                     onChange={handleChange}
                                     required
@@ -196,6 +198,7 @@ const Login = () => {
                                     fullWidth
                                     label={t('auth.password')}
                                     name="password"
+                                    autoComplete="current-password"
                                     type={showPassword ? 'text' : 'password'}
                                     value={formData.password}
                                     onChange={handleChange}
@@ -208,7 +211,14 @@ const Login = () => {
                                         ),
                                         endAdornment: (
                                             <InputAdornment position="end">
-                                                <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                                <IconButton
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    edge="end"
+                                                    aria-label={language === 'ar'
+                                                        ? (showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور')
+                                                        : (showPassword ? 'Hide password' : 'Show password')}
+                                                >
                                                     {showPassword ? <VisibilityOff /> : <Visibility />}
                                                 </IconButton>
                                             </InputAdornment>
@@ -237,6 +247,8 @@ const Login = () => {
                                 <TextField
                                     fullWidth
                                     label={t('auth.businessName')}
+                                    name="organization"
+                                    autoComplete="organization"
                                     value={tenantFormData.business_name}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, business_name: e.target.value })}
                                     required
@@ -251,6 +263,8 @@ const Login = () => {
                                 <TextField
                                     fullWidth
                                     label={t('auth.phone')}
+                                    name="tel"
+                                    autoComplete="tel"
                                     value={tenantFormData.phone}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, phone: e.target.value })}
                                     required
@@ -266,6 +280,8 @@ const Login = () => {
                                 <TextField
                                     fullWidth
                                     label={t('auth.contactName')}
+                                    name="name"
+                                    autoComplete="name"
                                     value={tenantFormData.contact_name}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, contact_name: e.target.value })}
                                     InputProps={{
@@ -279,6 +295,8 @@ const Login = () => {
                                 <TextField
                                     fullWidth
                                     label={t('auth.username')}
+                                    name="username"
+                                    autoComplete="username"
                                     value={tenantFormData.username}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, username: e.target.value })}
                                     required
@@ -294,6 +312,8 @@ const Login = () => {
                                     fullWidth
                                     label={t('auth.email')}
                                     type="email"
+                                    name="email"
+                                    autoComplete="email"
                                     value={tenantFormData.email}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, email: e.target.value })}
                                     InputProps={{
@@ -308,6 +328,8 @@ const Login = () => {
                                     fullWidth
                                     label={t('auth.passwordWithHint')}
                                     type={showPassword ? 'text' : 'password'}
+                                    name="password"
+                                    autoComplete="new-password"
                                     value={tenantFormData.password}
                                     onChange={(e) => setTenantFormData({ ...tenantFormData, password: e.target.value })}
                                     required
@@ -319,7 +341,14 @@ const Login = () => {
                                         ),
                                         endAdornment: (
                                             <InputAdornment position="end">
-                                                <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                                <IconButton
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    edge="end"
+                                                    aria-label={language === 'ar'
+                                                        ? (showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور')
+                                                        : (showPassword ? 'Hide password' : 'Show password')}
+                                                >
                                                     {showPassword ? <VisibilityOff /> : <Visibility />}
                                                 </IconButton>
                                             </InputAdornment>
