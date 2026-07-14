@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Box, Typography, IconButton, FormControl, InputLabel, Select, MenuItem, Chip, Alert, CircularProgress, Grid, Checkbox, ListItemText, Card, CardContent, ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Box, Typography, IconButton, FormControl, InputLabel, MenuItem, Chip, Alert, CircularProgress, Grid, Checkbox, ListItemText, Card, CardContent, ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material';
+import Select from '../Form/AccessibleSelect';
 import { Close as CloseIcon, Send as SendIcon, TextFields as StaticIcon, Person as ContactIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
@@ -101,10 +102,6 @@ const BroadcastDialog = ({
     }
   }, [open]);
   useEffect(() => {
-    const defaults = {};
-    allVariableKeys.forEach(key => {
-      if (!(key in defaults)) defaults[key] = '';
-    });
     setVariableValues(prev => {
       const next = {};
       allVariableKeys.forEach(key => {
@@ -112,7 +109,7 @@ const BroadcastDialog = ({
       });
       return next;
     });
-  }, [selectedTemplate]);
+  }, [allVariableKeys]);
   const filteredContacts = contacts.filter(c => c.phone?.includes(searchTerm) || c.profile_name?.toLowerCase().includes(searchTerm.toLowerCase()));
   const allRecipients = [...selectedContacts, ...customNumbers.split(/[,\n]/).map(n => n.trim()).filter(n => n.length >= 9)];
   const handleToggleContact = phone => {
@@ -239,7 +236,7 @@ const BroadcastDialog = ({
                     <Typography variant="subtitle2" sx={{
           mb: 1
         }}>{label}</Typography>
-                    <Button variant="outlined" component="label" startIcon={<AttachFileIcon />} fullWidth color={variableValues[key] ? 'success' : 'primary'} sx={{
+                    <Button variant="outlined" component="label" role={undefined} startIcon={<AttachFileIcon />} fullWidth color={variableValues[key] ? 'success' : 'primary'} sx={{
           textTransform: 'none',
           justifyContent: 'flex-start',
           px: 2
@@ -263,14 +260,14 @@ const BroadcastDialog = ({
       mb: 1.5
     }} />;
   };
-  return <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+  return <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_f72dbc53d202") } }}>
             <DialogTitle sx={{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center'
     }}>
                 <Typography variant="h6">{tx("auto.k_f72dbc53d202")}</Typography>
-                <IconButton onClick={handleClose} disabled={sending}>
+                <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={handleClose} disabled={sending}>
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>

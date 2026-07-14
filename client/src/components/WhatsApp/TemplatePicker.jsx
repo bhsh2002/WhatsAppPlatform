@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, List, ListItem, ListItemText, TextField, Box, Typography, Chip, InputAdornment, IconButton, Paper, Divider, CircularProgress } from '@mui/material';
 import { Search as SearchIcon, Close as CloseIcon, Description as TemplateIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
 import api from '../../api';
@@ -14,14 +14,15 @@ const TemplatePicker = ({
   const [variables, setVariables] = useState({});
   const [uploading, setUploading] = useState(false);
 
-  // Reset state when opening
-  useEffect(() => {
+  const [previousOpen, setPreviousOpen] = useState(open);
+  if (open !== previousOpen) {
+    setPreviousOpen(open);
     if (open) {
       setSearchTerm('');
       setSelectedTemplate(null);
       setVariables({});
     }
-  }, [open]);
+  }
 
   // Filter templates
   const filteredTemplates = templates.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()) && t.status === 'approved' // Only show approved templates
@@ -208,14 +209,14 @@ const TemplatePicker = ({
     }
     return null;
   };
-  return <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+  return <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': tx("auto.k_8fa6558c1e58") } }}>
             <DialogTitle sx={{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center'
     }}>{tx("auto.k_8fa6558c1e58")}
 
-        <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
+        <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={onClose} size="small"><CloseIcon /></IconButton>
             </DialogTitle>
             <DialogContent dividers sx={{
       height: '60vh',
@@ -382,7 +383,7 @@ const TemplatePicker = ({
             }}>{tx("auto.k_0661a7637f37")}
                 {selectedTemplate.header_type === 'image' ? tx("auto.k_b941956874fe") : selectedTemplate.header_type === 'video' ? tx("auto.k_17daa024f2eb") : tx("auto.k_d9381107732e")}
                                         </Typography>
-                                        <Button variant="outlined" component="label" startIcon={<AttachFileIcon />} fullWidth color={variables[`header_${v}`] ? 'success' : 'primary'} sx={{
+                                        <Button variant="outlined" component="label" role={undefined} startIcon={<AttachFileIcon />} fullWidth color={variables[`header_${v}`] ? 'success' : 'primary'} sx={{
               textTransform: 'none',
               justifyContent: 'flex-start',
               px: 2

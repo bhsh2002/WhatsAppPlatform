@@ -1,38 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Paper, Typography, TextField, Button, FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stepper, Step, StepLabel, Card, CardContent, Divider, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip, Checkbox, InputAdornment, Tabs, Tab } from '@mui/material';
-import { Campaign as CampaignIcon, Send as SendIcon, People as PeopleIcon, CheckCircle as SuccessIcon, Error as ErrorIcon, TextFields as StaticIcon, Person as ContactIcon, Search as SearchIcon, SelectAll as SelectAllIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
+import { Box, Paper, Typography, TextField, Button, FormControl, InputLabel, MenuItem, CircularProgress, Alert, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stepper, Step, StepLabel, Card, CardContent, Divider, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
+import { Campaign as CampaignIcon, Send as SendIcon, CheckCircle as SuccessIcon, Error as ErrorIcon, TextFields as StaticIcon, Person as ContactIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
-const getCONTACT_FIELDS = () => [{
-  value: 'profile_name',
-  label: tx("auto.k_28fc609bc67b"),
-  icon: '👤'
-}, {
-  value: 'phone',
-  label: tx("auto.k_211cce4ca4ef"),
-  icon: '📱'
-}, {
-  value: 'label',
-  label: tx("auto.k_7c75fec5c0f8"),
-  icon: '🏷️'
-}, {
-  value: 'notes',
-  label: tx("auto.k_b172fc1d3b6d"),
-  icon: '📝'
-}];
-const MEDIA_HEADER_TYPES = ['image', 'video', 'document', 'audio'];
-const MEDIA_ACCEPT = {
-  image: 'image/jpeg,image/png,image/webp',
-  video: 'video/mp4,video/3gpp',
-  document: '.pdf,.doc,.docx,.xls,.xlsx,.txt',
-  audio: 'audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg'
-};
-const getMEDIA_LABEL = () => ({
-  image: tx("auto.k_b941956874fe"),
-  video: tx("auto.k_17daa024f2eb"),
-  document: tx("auto.k_d9381107732e"),
-  audio: tx("auto.k_06d9927a57ae")
-});
+import { BroadcastRecipientsStep } from '../Broadcast/BroadcastRecipientsStep';
+import {
+  MEDIA_ACCEPT,
+  MEDIA_HEADER_TYPES,
+  buildBroadcastRecipients,
+  extractNumberedVariables,
+  filterBroadcastContacts,
+  getBroadcastContactFields,
+  getBroadcastContactLabels,
+  getBroadcastMediaLabels,
+  previewBroadcastBody
+} from '../Broadcast/broadcastConfig';
 function extractAllVariables(template) {
   const result = {
     header: [],
@@ -41,16 +24,10 @@ function extractAllVariables(template) {
   };
   if (!template) return result;
   if (template.body) {
-    const matches = template.body.match(/\{\{(\d+)\}\}/g);
-    if (matches) {
-      result.body = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
-    }
+    result.body = extractNumberedVariables(template.body);
   }
   if (template.header_type === 'text' && template.header_content) {
-    const matches = template.header_content.match(/\{\{(\d+)\}\}/g);
-    if (matches) {
-      result.header = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b);
-    }
+    result.header = extractNumberedVariables(template.header_content);
   } else if (MEDIA_HEADER_TYPES.includes(template.header_type?.toLowerCase?.())) {
     result.header = ['MEDIA_LINK'];
   }
@@ -60,14 +37,14 @@ function extractAllVariables(template) {
       if (Array.isArray(buttons)) {
         buttons.forEach((btn, index) => {
           if (btn.type === 'URL' && btn.url) {
-            const matches = btn.url.match(/\{\{(\d+)\}\}/g);
-            if (matches) {
+            const variables = extractNumberedVariables(btn.url);
+            if (variables.length > 0) {
               result.buttons.push({
                 index: String(index),
                 sub_type: 'url',
                 text: btn.text,
                 url: btn.url,
-                variables: [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))].sort((a, b) => a - b)
+                variables
               });
             }
           }
@@ -85,19 +62,6 @@ function extractAllVariables(template) {
     } catch (_) {/* ignored */}
   }
   return result;
-}
-function previewBody(bodyText, variableConfigs) {
-  if (!bodyText) return '';
-  return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
-    const config = variableConfigs[`body_${num}`];
-    if (!config) return match;
-    if (config.source === 'static') return config.value || match;
-    if (config.source === 'contact') {
-      const field = getCONTACT_FIELDS().find(f => f.value === config.field);
-      return `[${field?.label || config.field}]`;
-    }
-    return match;
-  });
 }
 const TenantBroadcast = () => {
   const [activeStep, setActiveStep] = useState(0);
@@ -137,20 +101,15 @@ const TenantBroadcast = () => {
       return false;
     });
   }, [allVars, hasAnyVariables, variableConfigs]);
-  const uniqueLabels = useMemo(() => {
-    const labels = contacts.map(c => c.label).filter(Boolean);
-    return [...new Set(labels)].sort();
-  }, [contacts]);
-  const filteredContacts = useMemo(() => {
-    return contacts.filter(c => {
-      const matchesSearch = !contactSearch || (c.profile_name || '').toLowerCase().includes(contactSearch.toLowerCase()) || (c.phone || '').includes(contactSearch);
-      const matchesLabel = !labelFilter || c.label === labelFilter;
-      return matchesSearch && matchesLabel;
-    });
-  }, [contacts, contactSearch, labelFilter]);
-  const manualRecipients = recipientsText.split(/[\n,;]+/).map(r => r.replace(/[^0-9+]/g, '').trim()).filter(r => r.length >= 8);
-  const selectedContactPhones = contacts.filter(c => selectedContactIds.has(c.id)).map(c => c.phone);
-  const uniqueRecipients = [...new Set([...selectedContactPhones, ...manualRecipients])];
+  const uniqueLabels = useMemo(() => getBroadcastContactLabels(contacts), [contacts]);
+  const filteredContacts = useMemo(
+    () => filterBroadcastContacts(contacts, contactSearch, labelFilter),
+    [contacts, contactSearch, labelFilter]
+  );
+  const { manualRecipients, uniqueRecipients } = useMemo(
+    () => buildBroadcastRecipients(contacts, selectedContactIds, recipientsText),
+    [contacts, recipientsText, selectedContactIds]
+  );
   const canProceedStep0 = selectedTemplate && (!hasAnyVariables || allVariablesFilled);
   const canProceedStep1 = uniqueRecipients.length > 0 && uniqueRecipients.length <= 100;
   useEffect(() => {
@@ -476,7 +435,7 @@ const TenantBroadcast = () => {
           mb: 1.5
         }}>
                         <Chip label={tx("auto.k_ce4f7438a89f", {
-            value1: getMEDIA_LABEL()[headerMediaType] || tx("auto.k_e68d8fac0b6f")
+            value1: getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_e68d8fac0b6f")
           })} size="small" color="secondary" />
                         <ToggleButtonGroup value={config.source} exclusive onChange={(_, val) => val && handleConfigChange(varKey, 'source', val)} size="small">
                             <ToggleButton value="upload">
@@ -503,7 +462,7 @@ const TenantBroadcast = () => {
                         </ToggleButtonGroup>
                     </Box>
 
-                    {config.source === 'upload' && <Button variant="outlined" component="label" startIcon={<AttachFileIcon />} fullWidth color={config.file ? 'success' : 'primary'} sx={{
+                    {config.source === 'upload' && <Button variant="outlined" component="label" role={undefined} startIcon={<AttachFileIcon />} fullWidth color={config.file ? 'success' : 'primary'} sx={{
           justifyContent: 'flex-start',
           textTransform: 'none'
         }}>
@@ -514,7 +473,7 @@ const TenantBroadcast = () => {
             whiteSpace: 'nowrap'
           }}>
                                 {config.file?.name || tx("auto.k_0e55291e5349", {
-              value1: getMEDIA_LABEL()[headerMediaType] || tx("auto.k_ae56c3a546e8")
+              value1: getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_ae56c3a546e8")
             })}
                             </Box>
                             <input type="file" hidden accept={MEDIA_ACCEPT[headerMediaType] || '*/*'} onChange={e => handleConfigChange(varKey, 'file', e.target.files?.[0] || null)} />
@@ -522,7 +481,7 @@ const TenantBroadcast = () => {
                         </Button>}
 
                     {config.source === 'static' && <TextField label={tx("auto.k_8bdf1b0ed3e1", {
-          value1: getMEDIA_LABEL()[headerMediaType] || tx("auto.k_b9755ec895c4")
+          value1: getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_b9755ec895c4")
         })} value={config.value} onChange={e => handleConfigChange(varKey, 'value', e.target.value)} fullWidth size="small" required error={Boolean(config.value) && !/^https?:\/\//i.test(config.value)} helperText={tx("auto.k_18c735391bf9")} />}
 
                     {config.source === 'contact' && <Box sx={{
@@ -534,7 +493,7 @@ const TenantBroadcast = () => {
           }}>
                                 <InputLabel>{tx("auto.k_a63d4f7fb41e")}</InputLabel>
                                 <Select value={config.field} label={tx("auto.k_a63d4f7fb41e")} onChange={e => handleConfigChange(varKey, 'field', e.target.value)}>
-                                    {getCONTACT_FIELDS().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                    {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
                                 </Select>
                             </FormControl>
                             <TextField label={tx("auto.k_f473cee84052")} value={config.fallback} onChange={e => handleConfigChange(varKey, 'fallback', e.target.value)} size="small" sx={{
@@ -586,7 +545,7 @@ const TenantBroadcast = () => {
         }}>
                             <InputLabel>{tx("auto.k_0f05187d2257")}</InputLabel>
                             <Select value={config.field} label={tx("auto.k_0f05187d2257")} onChange={e => handleConfigChange(varKey, 'field', e.target.value)}>
-                                {getCONTACT_FIELDS().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
                             </Select>
                         </FormControl>
                         <TextField label={tx("auto.k_b895ad8558e1")} value={config.fallback} onChange={e => handleConfigChange(varKey, 'fallback', e.target.value)} size="small" sx={{
@@ -604,7 +563,7 @@ const TenantBroadcast = () => {
             <Box sx={{
       mb: 4
     }}>
-                <Typography variant="h4" fontWeight={700} gutterBottom sx={{
+                <Typography variant="h4" component="h1" fontWeight={700} gutterBottom sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1
@@ -634,7 +593,7 @@ const TenantBroadcast = () => {
             {activeStep === 0 && <Paper sx={{
       p: 3
     }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_3975a5ce4681")}</Typography>
+                    <Typography variant="h6" component="h2" fontWeight={600} gutterBottom>{tx("auto.k_3975a5ce4681")}</Typography>
                     <Box sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -723,7 +682,7 @@ const TenantBroadcast = () => {
                                         <Typography variant="body2" sx={{
                 whiteSpace: 'pre-wrap',
                 direction: 'auto'
-              }}>{previewBody(selectedTemplate?.body, variableConfigs)}</Typography>
+              }}>{previewBroadcastBody(selectedTemplate?.body, variableConfigs, 'body')}</Typography>
                                         {Object.values(variableConfigs).some(c => c?.source === 'contact') && <Typography variant="caption" color="text.secondary" sx={{
                 mt: 1,
                 display: 'block'
@@ -751,168 +710,43 @@ const TenantBroadcast = () => {
                 </Paper>}
 
             {/* ========== Step 1: Select recipients ========== */}
-            {activeStep === 1 && <Paper sx={{
-      p: 3
-    }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_5cadd95cd0c6")}</Typography>
-
-                    <Tabs value={recipientsTab} onChange={(_, v) => setRecipientsTab(v)} sx={{
-        mb: 2
-      }}>
-                        <Tab icon={<PeopleIcon />} iconPosition="start" label={tx("auto.k_e0f85c990efc", {
-          value1: contacts.length
-        })} />
-                        <Tab icon={<StaticIcon />} iconPosition="start" label={tx("auto.k_3fcbc349597c")} />
-                    </Tabs>
-
-                    {recipientsTab === 0 && <Box>
-                            {contactsLoading ? <Box sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          p: 4
-        }}><CircularProgress /></Box> : contacts.length === 0 ? <Alert severity="info" sx={{
-          mb: 2
-        }}>{tx("auto.k_0bb53a5444fb")}</Alert> : <>
-                                    <Box sx={{
-            display: 'flex',
-            gap: 2,
-            mb: 2,
-            flexWrap: 'wrap'
-          }}>
-                                        <TextField size="small" placeholder={tx("auto.k_6781448a8fb6")} value={contactSearch} onChange={e => setContactSearch(e.target.value)} sx={{
-              flex: 1,
-              minWidth: 200
-            }} InputProps={{
-              startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
-            }} />
-
-                                        <FormControl size="small" sx={{
-              minWidth: 150
-            }}>
-                                            <InputLabel>{tx("auto.k_d580c3a35b18")}</InputLabel>
-                                            <Select value={labelFilter} label={tx("auto.k_d580c3a35b18")} onChange={e => setLabelFilter(e.target.value)}>
-                                                <MenuItem value="">{tx("auto.k_11fdef2dc5f8")}</MenuItem>
-                                                {uniqueLabels.map(l => <MenuItem key={l} value={l}>{l}</MenuItem>)}
-                                            </Select>
-                                        </FormControl>
-                                    </Box>
-
-                                    <Box sx={{
-            display: 'flex',
-            gap: 1,
-            mb: 2,
-            flexWrap: 'wrap',
-            alignItems: 'center'
-          }}>
-                                        <Button size="small" variant="outlined" startIcon={<SelectAllIcon />} onClick={handleSelectAll}>{tx("auto.k_b04117b1dfee")}
-                {filteredContacts.length})
-                                        </Button>
-                                        <Button size="small" variant="outlined" color="inherit" onClick={handleDeselectAll}>{tx("auto.k_41640caf219b")}
-
-              </Button>
-                                        {uniqueLabels.length > 0 && <>
-                                                <Divider orientation="vertical" flexItem sx={{
-                mx: 1
-              }} />
-                                                <Typography variant="caption" color="text.secondary" sx={{
-                mr: 1
-              }}>{tx("auto.k_2f7d3481d42f")}</Typography>
-                                                {uniqueLabels.map(label => <Chip key={label} label={label} size="small" variant="outlined" onClick={() => handleSelectByLabel(label)} sx={{
-                cursor: 'pointer'
-              }} />)}
-                                            </>}
-                                    </Box>
-
-                                    <TableContainer sx={{
-            maxHeight: 400,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1
-          }}>
-                                        <Table stickyHeader size="small">
-                                            <TableHead>
-                                                <TableRow>
-                                                    <TableCell padding="checkbox">
-                                                        <Checkbox checked={allFilteredSelected} indeterminate={!allFilteredSelected && filteredContacts.some(c => selectedContactIds.has(c.id))} onChange={() => allFilteredSelected ? handleDeselectAll() : handleSelectAll()} />
-
-                                                    </TableCell>
-                                                    <TableCell>{tx("auto.k_0a92494ea1eb")}</TableCell>
-                                                    <TableCell>{tx("auto.k_3a4ffd0856f9")}</TableCell>
-                                                    <TableCell>{tx("auto.k_7c75fec5c0f8")}</TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {filteredContacts.map(contact => <TableRow key={contact.id} hover onClick={() => handleToggleContact(contact.id)} sx={{
-                  cursor: 'pointer'
-                }} selected={selectedContactIds.has(contact.id)}>
-
-                                                        <TableCell padding="checkbox">
-                                                            <Checkbox checked={selectedContactIds.has(contact.id)} />
-                                                        </TableCell>
-                                                        <TableCell>{contact.profile_name || '—'}</TableCell>
-                                                        <TableCell sx={{
-                    fontFamily: 'monospace',
-                    direction: 'ltr'
-                  }}>{contact.phone}</TableCell>
-                                                        <TableCell>
-                                                            {contact.label && <Chip label={contact.label} size="small" variant="outlined" />}
-                                                        </TableCell>
-                                                    </TableRow>)}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </>}
-                        </Box>}
-
-                    {recipientsTab === 1 && <Box>
-                            <Typography variant="body2" color="text.secondary" sx={{
-          mb: 2
-        }}>{tx("auto.k_6b8e334f448e")}
-
-          </Typography>
-                            <TextField fullWidth multiline rows={8} placeholder={"218911234567\n218921234567\n+218931234567"} value={recipientsText} onChange={e => setRecipientsText(e.target.value)} sx={{
-          fontFamily: 'monospace'
-        }} />
-
-                        </Box>}
-
-                    <Box sx={{
-        mt: 2,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        flexWrap: 'wrap'
-      }}>
-                        {selectedContactIds.size > 0 && <Chip icon={<PeopleIcon />} label={tx("auto.k_a56483eb6608", {
-          value1: selectedContactIds.size
-        })} color="secondary" size="small" />}
-                        {manualRecipients.length > 0 && <Chip icon={<StaticIcon />} label={tx("auto.k_4a828e378d8b", {
-          value1: manualRecipients.length
-        })} color="default" size="small" />}
-                        <Chip icon={<SendIcon />} label={tx("auto.k_6ea51819a496", {
-          value1: uniqueRecipients.length
-        })} color={uniqueRecipients.length > 100 ? 'error' : uniqueRecipients.length > 0 ? 'success' : 'default'} />
-
-                        {uniqueRecipients.length > 100 && <Alert severity="error" sx={{
-          flex: 1
-        }}>{tx("auto.k_4f7d2ec7bfef")}</Alert>}
-                    </Box>
-
-                    <Box sx={{
-        mt: 3,
-        display: 'flex',
-        justifyContent: 'space-between'
-      }}>
-                        <Button onClick={() => setActiveStep(0)}>{tx("auto.k_f533ebab64f4")}</Button>
-                        <Button variant="contained" color="secondary" disabled={!canProceedStep1} onClick={() => setActiveStep(2)}>{tx("auto.k_2fa619787bcb")}</Button>
-                    </Box>
-                </Paper>}
+            {activeStep === 1 && <BroadcastRecipientsStep
+                accentColor="secondary"
+                allFilteredSelected={allFilteredSelected}
+                availableCredits={null}
+                canProceed={canProceedStep1}
+                contactSearch={contactSearch}
+                contacts={contacts}
+                contactsLoading={contactsLoading}
+                emptyMessageKey="auto.k_0bb53a5444fb"
+                filteredContacts={filteredContacts}
+                labelFilter={labelFilter}
+                manualHelpKey="auto.k_6b8e334f448e"
+                manualRecipients={manualRecipients}
+                maxRecipients={100}
+                onBack={() => setActiveStep(0)}
+                onContactSearchChange={setContactSearch}
+                onDeselectAll={handleDeselectAll}
+                onLabelFilterChange={setLabelFilter}
+                onNext={() => setActiveStep(2)}
+                onRecipientsTabChange={setRecipientsTab}
+                onRecipientsTextChange={setRecipientsText}
+                onSelectAll={handleSelectAll}
+                onSelectByLabel={handleSelectByLabel}
+                onToggleContact={handleToggleContact}
+                overLimitMessageKey="auto.k_4f7d2ec7bfef"
+                recipientsTab={recipientsTab}
+                recipientsText={recipientsText}
+                selectedContactIds={selectedContactIds}
+                uniqueLabels={uniqueLabels}
+                uniqueRecipients={uniqueRecipients}
+            />}
 
             {/* ========== Step 2: Review & Send ========== */}
             {activeStep === 2 && <Paper sx={{
       p: 3
     }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_dc466ec07afb")}</Typography>
+                    <Typography variant="h6" component="h2" fontWeight={600} gutterBottom>{tx("auto.k_dc466ec07afb")}</Typography>
                     <Box sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -954,7 +788,7 @@ const TenantBroadcast = () => {
               borderRadius: 1,
               direction: 'auto'
             }}>
-                                        {previewBody(selectedTemplate.body, variableConfigs)}
+                                        {previewBroadcastBody(selectedTemplate.body, variableConfigs, 'body')}
                                     </Typography>
                                 </CardContent>
                             </Card>}
@@ -968,14 +802,14 @@ const TenantBroadcast = () => {
           }}>
                                     {allVars.header.map(v => {
               const config = variableConfigs[`header_${v}`];
-              const label = v === 'MEDIA_LINK' ? config?.source === 'upload' ? config?.file?.name || tx("auto.k_ae56c3a546e8") : config?.source === 'contact' ? getCONTACT_FIELDS().find(f => f.value === config.field)?.label || config.field : config?.value || '—' : config?.source === 'contact' ? getCONTACT_FIELDS().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
+              const label = v === 'MEDIA_LINK' ? config?.source === 'upload' ? config?.file?.name || tx("auto.k_ae56c3a546e8") : config?.source === 'contact' ? getBroadcastContactFields().find(f => f.value === config.field)?.label || config.field : config?.value || '—' : config?.source === 'contact' ? getBroadcastContactFields().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
               return <Chip key={`h${v}`} label={`${v === 'MEDIA_LINK' ? tx("auto.k_804354673912") : tx("auto.k_f3b8405ca275", {
                 value1: v
               })} = ${label}`} size="small" color="secondary" variant="outlined" />;
             })}
                                     {allVars.body.map(v => {
               const config = variableConfigs[`body_${v}`];
-              const label = config?.source === 'contact' ? getCONTACT_FIELDS().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
+              const label = config?.source === 'contact' ? getBroadcastContactFields().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
               return <Chip key={`b${v}`} label={tx("auto.k_3d8840079f8b", {
                 value1: v,
                 value2: label
@@ -983,7 +817,7 @@ const TenantBroadcast = () => {
             })}
                                     {allVars.buttons.flatMap(btn => btn.variables.map(v => {
               const config = variableConfigs[`button_${btn.index}_${v}`];
-              const label = config?.source === 'contact' ? getCONTACT_FIELDS().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
+              const label = config?.source === 'contact' ? getBroadcastContactFields().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
               return <Chip key={`btn${btn.index}_${v}`} label={tx("auto.k_f45ba20f1295", {
                 value1: v,
                 value2: label
@@ -998,7 +832,7 @@ const TenantBroadcast = () => {
                     {sending && <Box sx={{
         mt: 3
       }}>
-                            <LinearProgress variant="determinate" value={progressPct} color="secondary" sx={{
+                            <LinearProgress aria-label={tx("auto.k_65e6177e70ae")} variant="determinate" value={progressPct} color="secondary" sx={{
           height: 8,
           borderRadius: 4
         }} />
@@ -1030,7 +864,7 @@ const TenantBroadcast = () => {
             {activeStep === 3 && results && <Paper sx={{
       p: 3
     }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_1e7bc3076360")}
+                    <Typography variant="h6" component="h2" fontWeight={600} gutterBottom>{tx("auto.k_1e7bc3076360")}
           {results.sent}{tx("auto.k_2eb748dcb5b1")}{results.failed > 0 ? tx("auto.k_5055aa295fb0", {
           value1: results.failed
         }) : ''}

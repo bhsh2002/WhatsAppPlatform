@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Box, Typography, IconButton, Alert } from '@mui/material';
 import { Close as CloseIcon, PersonAdd as PersonAddIcon } from '@mui/icons-material';
 import { tx } from "../../i18n/tx";
@@ -9,31 +9,25 @@ const ContactDialog = ({
   contact = null,
   loading = false
 }) => {
-  const [formData, setFormData] = useState({
-    phone: '',
-    profile_name: '',
-    label: '',
-    notes: ''
-  });
+  const [formData, setFormData] = useState(() => ({
+    phone: contact?.phone || '',
+    profile_name: contact?.profile_name || '',
+    label: contact?.label || '',
+    notes: contact?.notes || ''
+  }));
   const [error, setError] = useState('');
-  useEffect(() => {
-    if (contact) {
-      setFormData({
-        phone: contact.phone || '',
-        profile_name: contact.profile_name || '',
-        label: contact.label || '',
-        notes: contact.notes || ''
-      });
-    } else {
-      setFormData({
-        phone: '',
-        profile_name: '',
-        label: '',
-        notes: ''
-      });
-    }
+  const resetKey = `${open}:${contact?.id ?? contact?.phone ?? 'new'}`;
+  const [previousResetKey, setPreviousResetKey] = useState(resetKey);
+  if (resetKey !== previousResetKey) {
+    setPreviousResetKey(resetKey);
+    setFormData({
+      phone: contact?.phone || '',
+      profile_name: contact?.profile_name || '',
+      label: contact?.label || '',
+      notes: contact?.notes || ''
+    });
     setError('');
-  }, [contact, open]);
+  }
   const handleChange = field => e => {
     setFormData(prev => ({
       ...prev,
@@ -70,7 +64,7 @@ const ContactDialog = ({
       onClose();
     }
   };
-  return <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+  return <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': contact ? tx("auto.k_55f2ecfdc6cc") : tx("auto.k_3fafc0e9d048") } }}>
             <DialogTitle sx={{
       display: 'flex',
       justifyContent: 'space-between',
@@ -86,7 +80,7 @@ const ContactDialog = ({
                         {contact ? tx("auto.k_55f2ecfdc6cc") : tx("auto.k_3fafc0e9d048")}
                     </Typography>
                 </Box>
-                <IconButton onClick={handleClose} disabled={loading}>
+                <IconButton aria-label={tx("auto.k_e776b0209b50")} onClick={handleClose} disabled={loading}>
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>

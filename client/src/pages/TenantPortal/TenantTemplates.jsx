@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Card, Typography, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert, Tooltip, Tab, Tabs, Paper } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Refresh as RefreshIcon, ContentCopy as CopyIcon, Sync as SyncIcon, Check as CheckIcon, Close as CloseIcon, Schedule as ScheduleIcon, CloudUpload as CloudUploadIcon } from '@mui/icons-material';
+import { Box, Card, Typography, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, MenuItem, CircularProgress, Alert, Tooltip, Tab, Tabs, Paper } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Refresh as RefreshIcon, ContentCopy as CopyIcon, Sync as SyncIcon, Close as CloseIcon, CloudUpload as CloudUploadIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { buildMetaTemplateComponents, createTemplateDraft, getTemplateCategoryLabel } from '../Templates/templateConfig';
+import { TemplateQualityChip, TemplateStatusChip } from '../Templates/TemplatePresentation';
 import { getCurrentLocale } from "../../utils/locale";
 const TenantTemplates = () => {
   const [templates, setTemplates] = useState([]);
@@ -17,15 +20,7 @@ const TenantTemplates = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [tabValue, setTabValue] = useState(0);
-  const [formData, setFormData] = useState({
-    name: '',
-    language: 'ar',
-    category: 'UTILITY',
-    header_type: 'none',
-    header_content: '',
-    body: '',
-    footer: ''
-  });
+  const [formData, setFormData] = useState(createTemplateDraft());
   useEffect(() => {
     fetchTemplates();
   }, []);
@@ -74,29 +69,8 @@ const TenantTemplates = () => {
     }
   };
   const handleOpenDialog = (template = null) => {
-    if (template) {
-      setSelectedTemplate(template);
-      setFormData({
-        name: template.name,
-        language: template.language || 'ar',
-        category: template.category || 'UTILITY',
-        header_type: template.header_type || 'none',
-        header_content: template.header_content || '',
-        body: template.body,
-        footer: template.footer || ''
-      });
-    } else {
-      setSelectedTemplate(null);
-      setFormData({
-        name: '',
-        language: 'ar',
-        category: 'UTILITY',
-        header_type: 'none',
-        header_content: '',
-        body: '',
-        footer: ''
-      });
-    }
+    setSelectedTemplate(template);
+    setFormData(createTemplateDraft(template));
     setDialogOpen(true);
   };
   const handleCloseDialog = () => {
@@ -147,48 +121,6 @@ const TenantTemplates = () => {
     setDeleteDialogOpen(true);
   };
 
-  // Build Meta components array from form data
-  const buildMetaComponents = data => {
-    const components = [];
-    if (data.header_type && data.header_type !== 'none') {
-      const header = {
-        type: 'HEADER'
-      };
-      if (data.header_type === 'text') {
-        header.format = 'TEXT';
-        header.text = data.header_content || '';
-        const headerVars = (data.header_content || '').match(/\{\{[^}]+\}\}/g);
-        if (headerVars) {
-          header.example = {
-            header_text: headerVars.map(() => tx("auto.k_b40d4b44b21d"))
-          };
-        }
-      } else if (data.header_type === 'location') {
-        header.format = 'LOCATION';
-      } else {
-        header.format = data.header_type.toUpperCase();
-      }
-      components.push(header);
-    }
-    const bodyComp = {
-      type: 'BODY',
-      text: data.body
-    };
-    const bodyVars = (data.body || '').match(/\{\{[^}]+\}\}/g);
-    if (bodyVars) {
-      bodyComp.example = {
-        body_text: [bodyVars.map(() => tx("auto.k_b40d4b44b21d"))]
-      };
-    }
-    components.push(bodyComp);
-    if (data.footer) {
-      components.push({
-        type: 'FOOTER',
-        text: data.footer
-      });
-    }
-    return components;
-  };
   const handleSubmitToMeta = async (data = null) => {
     const templateData = data || formData;
     if (!templateData.name || !templateData.body) {
@@ -198,7 +130,7 @@ const TenantTemplates = () => {
     try {
       setSubmittingToMeta(true);
       setError(null);
-      const components = buildMetaComponents(templateData);
+      const components = buildMetaTemplateComponents(templateData);
       await api.createPortalTemplateMeta({
         name: templateData.name,
         language: templateData.language || 'ar',
@@ -238,107 +170,6 @@ const TenantTemplates = () => {
   const copyToClipboard = text => {
     navigator.clipboard.writeText(text);
   };
-  const getStatusChip = status => {
-    const statusConfig = {
-      draft: {
-        label: tx("auto.k_b41c2947f345"),
-        color: 'default',
-        icon: <EditIcon fontSize="small" />
-      },
-      pending: {
-        label: tx("auto.k_16c3c3d39b36"),
-        color: 'warning',
-        icon: <ScheduleIcon fontSize="small" />
-      },
-      approved: {
-        label: tx("auto.k_b9e290a250b9"),
-        color: 'success',
-        icon: <CheckIcon fontSize="small" />
-      },
-      rejected: {
-        label: tx("auto.k_7eb70f32aae1"),
-        color: 'error',
-        icon: <CloseIcon fontSize="small" />
-      },
-      paused: {
-        label: tx("auto.k_bafc44588818"),
-        color: 'warning',
-        icon: <ScheduleIcon fontSize="small" />
-      },
-      disabled: {
-        label: tx("auto.k_01813f1fbf17"),
-        color: 'default',
-        icon: <CloseIcon fontSize="small" />
-      },
-      in_appeal: {
-        label: tx("auto.k_59b533cf030f"),
-        color: 'warning',
-        icon: <ScheduleIcon fontSize="small" />
-      },
-      pending_deletion: {
-        label: tx("auto.k_096531e90ff3"),
-        color: 'error',
-        icon: <CloseIcon fontSize="small" />
-      },
-      deleted: {
-        label: tx("auto.k_376db6c9a6c0"),
-        color: 'error',
-        icon: <CloseIcon fontSize="small" />
-      },
-      limit_exceeded: {
-        label: tx("auto.k_da3274c137fd"),
-        color: 'error',
-        icon: <CloseIcon fontSize="small" />
-      },
-      APPROVED: {
-        label: tx("auto.k_b9e290a250b9"),
-        color: 'success',
-        icon: <CheckIcon fontSize="small" />
-      },
-      PENDING: {
-        label: tx("auto.k_16c3c3d39b36"),
-        color: 'warning',
-        icon: <ScheduleIcon fontSize="small" />
-      },
-      REJECTED: {
-        label: tx("auto.k_7eb70f32aae1"),
-        color: 'error',
-        icon: <CloseIcon fontSize="small" />
-      }
-    };
-    const config = statusConfig[status] || statusConfig.draft;
-    return <Chip label={config.label} color={config.color} size="small" icon={config.icon} />;
-  };
-  const getQualityChip = qualityScore => {
-    if (!qualityScore || qualityScore === 'UNKNOWN') return null;
-    const config = {
-      HIGH: {
-        label: tx("auto.k_a97cf40cd303"),
-        color: 'success'
-      },
-      MEDIUM: {
-        label: tx("auto.k_d74cc1532b1c"),
-        color: 'warning'
-      },
-      LOW: {
-        label: tx("auto.k_d3357c20b7d8"),
-        color: 'error'
-      }
-    };
-    const q = config[qualityScore] || config[qualityScore.toUpperCase()];
-    if (!q) return null;
-    return <Chip label={q.label} color={q.color} size="small" variant="outlined" sx={{
-      ml: 0.5
-    }} />;
-  };
-  const getCategoryLabel = category => {
-    const categories = {
-      'UTILITY': tx("auto.k_24db4b5a9540"),
-      'MARKETING': tx("auto.k_c0ce6624f02c"),
-      'AUTHENTICATION': tx("auto.k_fe79250b3ff2")
-    };
-    return categories[category] || category;
-  };
   return <Box sx={{
     p: {
       xs: 1.5,
@@ -364,7 +195,7 @@ const TenantTemplates = () => {
       }
     }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>{tx("auto.k_a5a43ba173ae")}
+                    <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>{tx("auto.k_a5a43ba173ae")}
 
           </Typography>
                     <Typography variant="body2" color="text.secondary">{tx("auto.k_eaa4f192acdb")}
@@ -445,7 +276,7 @@ const TenantTemplates = () => {
         textAlign: 'center',
         color: 'text.secondary'
       }}>
-                            <Typography variant="h6" gutterBottom>{tx("auto.k_8cdc5c893daa")}</Typography>
+                            <Typography variant="h6" component="p" gutterBottom>{tx("auto.k_8cdc5c893daa")}</Typography>
                             <Typography variant="body2">{tx("auto.k_14c062b8dbf2")}
 
           </Typography>
@@ -493,10 +324,10 @@ const TenantTemplates = () => {
                                                     {template.body}
                                                 </Typography>
                                             </TableCell>
-                                            <TableCell>{getCategoryLabel(template.category)}</TableCell>
+                                            <TableCell>{getTemplateCategoryLabel(template.category)}</TableCell>
                                             <TableCell><Chip label={template.language?.toUpperCase()} size="small" variant="outlined" /></TableCell>
-                                            <TableCell>{getStatusChip(template.status)}</TableCell>
-                                            <TableCell>{getQualityChip(template.quality_score)}</TableCell>
+                                            <TableCell><TemplateStatusChip status={template.status} /></TableCell>
+                                            <TableCell><TemplateQualityChip qualityScore={template.quality_score} /></TableCell>
                                             <TableCell>
                                                 {new Date(template.created_at).toLocaleDateString(getCurrentLocale())}
                                             </TableCell>
@@ -507,31 +338,31 @@ const TenantTemplates = () => {
                   gap: 0.5
                 }}>
                                                     {!template.meta_template_id && template.status === 'draft' && <Tooltip title={tx("auto.k_e93eeb4f4787")}>
-                                                            <IconButton size="small" color="primary" onClick={() => handleSubmitToMeta(template)} disabled={submittingToMeta}>
+                                                            <IconButton size="small" color="primary" aria-label={tx("auto.k_e93eeb4f4787")} onClick={() => handleSubmitToMeta(template)} disabled={submittingToMeta}>
 
                                                                 <CloudUploadIcon fontSize="small" />
                                                             </IconButton>
                                                         </Tooltip>}
                                                     <Tooltip title={tx("auto.k_9f92ccd452d5")}>
-                                                        <IconButton size="small" onClick={() => copyToClipboard(template.body)}>
+                                                        <IconButton size="small" aria-label={tx("auto.k_9f92ccd452d5")} onClick={() => copyToClipboard(template.body)}>
 
                                                             <CopyIcon fontSize="small" />
                                                         </IconButton>
                                                     </Tooltip>
                                                     <Tooltip title={tx("auto.k_b4f76c3aa21e")}>
-                                                        <IconButton size="small" onClick={() => handleOpenDialog(template)}>
+                                                        <IconButton size="small" aria-label={tx("auto.k_b4f76c3aa21e")} onClick={() => handleOpenDialog(template)}>
 
                                                             <EditIcon fontSize="small" />
                                                         </IconButton>
                                                     </Tooltip>
                                                     <Tooltip title={tx("auto.k_2d2bbdc2d694")}>
-                                                        <IconButton size="small" color="error" onClick={() => openDeleteDialog(template)}>
+                                                        <IconButton size="small" color="error" aria-label={tx("auto.k_2d2bbdc2d694")} onClick={() => openDeleteDialog(template)}>
 
                                                             <DeleteIcon fontSize="small" />
                                                         </IconButton>
                                                     </Tooltip>
                                                     {template.meta_template_id && <Tooltip title={tx("auto.k_15072a490a9c")}>
-                                                            <IconButton size="small" color="error" onClick={() => handleDeleteFromMeta(template)}>
+                                                            <IconButton size="small" color="error" aria-label={tx("auto.k_15072a490a9c")} onClick={() => handleDeleteFromMeta(template)}>
 
                                                                 <CloseIcon fontSize="small" />
                                                             </IconButton>
@@ -551,7 +382,7 @@ const TenantTemplates = () => {
         textAlign: 'center',
         color: 'text.secondary'
       }}>
-                            <Typography variant="h6" gutterBottom>{tx("auto.k_3260f9e2e9f5")}</Typography>
+                            <Typography variant="h6" component="p" gutterBottom>{tx("auto.k_3260f9e2e9f5")}</Typography>
                             <Typography variant="body2">{tx("auto.k_dc235c5fb23c")}
 
           </Typography>
@@ -579,9 +410,9 @@ const TenantTemplates = () => {
                                             <TableCell>
                                                 <Typography fontWeight={500}>{template.name}</Typography>
                                             </TableCell>
-                                            <TableCell>{getCategoryLabel(template.category)}</TableCell>
+                                            <TableCell>{getTemplateCategoryLabel(template.category)}</TableCell>
                                             <TableCell>{template.language?.toUpperCase()}</TableCell>
-                                            <TableCell>{getStatusChip(template.status)}</TableCell>
+                                            <TableCell><TemplateStatusChip status={template.status} /></TableCell>
                                             <TableCell align="center">
                                                 <Button size="small" variant="outlined" onClick={() => importTemplate(template)}>{tx("auto.k_5e029fef2ea5")}
 
@@ -595,7 +426,7 @@ const TenantTemplates = () => {
                 </Card>}
 
             {/* Create/Edit Dialog */}
-            <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+            <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': selectedTemplate ? tx("auto.k_d175d9e8ca42") : tx("auto.k_551325b3d0d0") } }}>
                 <DialogTitle>
                     {selectedTemplate ? tx("auto.k_d175d9e8ca42") : tx("auto.k_551325b3d0d0")}
                 </DialogTitle>
@@ -698,7 +529,7 @@ const TenantTemplates = () => {
             </Dialog>
 
             {/* Delete Confirmation Dialog */}
-            <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+            <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} slotProps={{ paper: { 'aria-label': tx("auto.k_107bd07072b8") } }}>
                 <DialogTitle>{tx("auto.k_107bd07072b8")}</DialogTitle>
                 <DialogContent>
                     <Typography>{tx("auto.k_28f5fea376e6")}

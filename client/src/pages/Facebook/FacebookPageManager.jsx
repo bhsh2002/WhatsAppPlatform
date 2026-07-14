@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    Box, Paper, Typography, Button, TextField, Select, MenuItem, FormControl,
-    InputLabel, CircularProgress, Alert, Snackbar, Chip, Avatar, IconButton,
+    Box, Paper, Typography, Button, TextField, MenuItem, FormControl,
+    InputLabel, CircularProgress, Alert, Chip, Avatar, IconButton,
     Card, CardContent, CardMedia, CardActions, Collapse, Dialog, DialogTitle,
-    DialogContent, DialogActions, Divider, Grid, Tab, Tabs, Tooltip,
+    DialogContent, DialogActions, Divider, Grid, Tooltip,
     RadioGroup, Radio, FormControlLabel, Switch
 } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
 import {
     Facebook as FacebookIcon, Send as SendIcon, Delete as DeleteIcon,
     Edit as EditIcon, Visibility as ViewIcon, VisibilityOff as HideIcon,
-    Link as LinkIcon, Image as ImageIcon, Schedule as ScheduleIcon,
-    TextSnippet as TextIcon, Refresh as RefreshIcon, ExpandMore as ExpandMoreIcon,
+    Refresh as RefreshIcon, ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon, ChatBubble as CommentIcon,
     OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon,
     SmartToy as AutomationIcon, Bolt as BoltIcon, SettingsEthernet as WebhookIcon,
@@ -18,15 +18,13 @@ import {
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
-
-const POST_TABS = [
-    { value: 'text', icon: <TextIcon /> },
-    { value: 'photo', icon: <ImageIcon /> },
-    { value: 'link', icon: <LinkIcon /> },
-    { value: 'schedule', icon: <ScheduleIcon /> },
-];
-
-const POST_TRUNCATE_LENGTH = 200;
+import { formatFacebookContentTime } from './facebookContentConfig';
+import {
+    FacebookContentSnackbar,
+    FacebookDeleteDialog,
+    FacebookPostComposerTabs,
+    FacebookPostMessage
+} from './FacebookContentPresentation';
 
 const FacebookPageManager = () => {
     const { locale, t } = useLanguage();
@@ -548,12 +546,8 @@ const FacebookPageManager = () => {
         }
     };
 
-    const formatTime = (ts) => {
-        if (!ts) return '';
-        try { return new Date(ts).toLocaleString(locale); } catch { return ts; }
-    };
+    const formatTime = (timestamp) => formatFacebookContentTime(timestamp, locale);
 
-    // Automation quick-setup functions
     const openAutoDialog = async (post) => {
         setAutoTargetPost(post);
         setAutoForm({
@@ -656,7 +650,7 @@ const FacebookPageManager = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
                     <Box>
-                        <Typography variant="h4" fontWeight={700}>{t('facebookContent.adminTitle')}</Typography>
+                        <Typography variant="h4" component="h1" fontWeight={700}>{t('facebookContent.adminTitle')}</Typography>
                         <Typography variant="body2" color="text.secondary">{t('facebookContent.adminSubtitle')}</Typography>
                     </Box>
                 </Box>
@@ -672,7 +666,7 @@ const FacebookPageManager = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <WebhookIcon color="primary" />
                         <Box>
-                            <Typography variant="subtitle1" fontWeight={700}>{t('facebookContent.webhookDiagnostics')}</Typography>
+                            <Typography variant="subtitle1" component="h2" fontWeight={700}>{t('facebookContent.webhookDiagnostics')}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
                                 {webhookDiagnostics?.expected_callback_url || t('facebookContent.webhookNotLoaded')}
                             </Typography>
@@ -803,11 +797,7 @@ const FacebookPageManager = () => {
                         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
                             {t('facebookContent.newPost', { page: selectedPage?.page_name || selectedPage?.page_id })}
                         </Typography>
-                        <Tabs value={composerTab} onChange={(e, v) => setComposerTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>
-                            {POST_TABS.map(tab => (
-                                <Tab key={tab.value} value={tab.value} label={t(`facebookContent.tabs.${tab.value}`)} icon={tab.icon} iconPosition="start" sx={{ minHeight: 48 }} />
-                            ))}
-                        </Tabs>
+                        <FacebookPostComposerTabs value={composerTab} onChange={setComposerTab} t={t} />
 
                         {(composerTab === 'text' || composerTab === 'link' || composerTab === 'schedule') && (
                             <TextField
@@ -825,7 +815,7 @@ const FacebookPageManager = () => {
                         {composerTab === 'photo' && (
                             <>
                                 <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                                    <Button variant={composerPhotoFile ? 'contained' : 'outlined'} component="label" startIcon={<UploadIcon />}>
+                                    <Button variant={composerPhotoFile ? 'contained' : 'outlined'} component="label" role={undefined} startIcon={<UploadIcon />}>
                                         {composerPhotoFile ? composerPhotoFile.name : t('facebookContent.uploadFile')}
                                         <input type="file" hidden accept="image/*" onChange={(e) => { setComposerPhotoFile(e.target.files[0] || null); setComposerPhotoUrl(''); }} />
                                     </Button>
@@ -890,7 +880,7 @@ const FacebookPageManager = () => {
                     </Paper>
 
                     {/* Posts Feed */}
-                    <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>{t('facebookContent.posts')}</Typography>
+                    <Typography variant="h6" component="h2" fontWeight={600} sx={{ mb: 2 }}>{t('facebookContent.posts')}</Typography>
 
                     {postsLoading ? (
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>
@@ -922,26 +912,13 @@ const FacebookPageManager = () => {
                                                 </Box>
                                             </Box>
                                         ) : (
-                                            (() => {
-                                                const msg = post.message || t('facebookContent.untitledPost');
-                                                const isLong = msg.length > POST_TRUNCATE_LENGTH;
-                                                const isExpanded = expandedPosts[post.id];
-                                                return (
-                                                    <Box>
-                                                        <Typography sx={{ whiteSpace: 'pre-wrap', mb: post.full_picture ? 1 : 0 }}>
-                                                            {isLong && !isExpanded
-                                                                ? msg.substring(0, POST_TRUNCATE_LENGTH) + '...'
-                                                                : msg
-                                                            }
-                                                        </Typography>
-                                                        {isLong && (
-                                                            <Button size="small" onClick={() => setExpandedPosts(prev => ({ ...prev, [post.id]: !prev[post.id] }))}>
-                                                                {isExpanded ? t('facebookContent.showLess') : t('facebookContent.showMore')}
-                                                            </Button>
-                                                        )}
-                                                    </Box>
-                                                );
-                                            })()
+                                            <FacebookPostMessage
+                                                expanded={!!expandedPosts[post.id]}
+                                                hasPicture={!!post.full_picture}
+                                                message={post.message}
+                                                onToggle={() => setExpandedPosts(prev => ({ ...prev, [post.id]: !prev[post.id] }))}
+                                                t={t}
+                                            />
                                         )}
 
                                         {post.full_picture && (
@@ -967,7 +944,7 @@ const FacebookPageManager = () => {
                                                 {formatTime(post.created_time)}
                                             </Typography>
                                             {post.permalink_url && (
-                                                <IconButton size="small" component="a" href={post.permalink_url} target="_blank" rel="noopener">
+                                                <IconButton size="small" aria-label="Open post on Facebook" component="a" href={post.permalink_url} target="_blank" rel="noopener">
                                                     <OpenInNewIcon fontSize="small" />
                                                 </IconButton>
                                             )}
@@ -986,13 +963,13 @@ const FacebookPageManager = () => {
                                         </Box>
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                                             <Tooltip title={t('facebookContent.automateComments')}>
-                                                <IconButton size="small" color="primary" onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
+                                                <IconButton size="small" color="primary" aria-label={t('facebookContent.automateComments')} onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
                                             </Tooltip>
                                             <Tooltip title={t('facebookContent.edit')}>
-                                                <IconButton size="small" onClick={() => handleStartEdit(post)}><EditIcon fontSize="small" /></IconButton>
+                                                <IconButton size="small" aria-label={t('facebookContent.edit')} onClick={() => handleStartEdit(post)}><EditIcon fontSize="small" /></IconButton>
                                             </Tooltip>
                                             <Tooltip title={t('facebookContent.delete')}>
-                                                <IconButton size="small" color="error" onClick={() => { setDeleteTarget(post.id); setDeleteType('post'); }}><DeleteIcon fontSize="small" /></IconButton>
+                                                <IconButton size="small" color="error" aria-label={t('facebookContent.delete')} onClick={() => { setDeleteTarget(post.id); setDeleteType('post'); }}><DeleteIcon fontSize="small" /></IconButton>
                                             </Tooltip>
                                         </Box>
                                     </CardActions>
@@ -1075,7 +1052,7 @@ const FacebookPageManager = () => {
                                                                         sx={{ flex: 1 }}
                                                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply(comment.id, post.id); } }}
                                                                     />
-                                                                    <IconButton size="small" color="primary" onClick={() => handleReply(comment.id, post.id)} disabled={replyLoading[comment.id]}>
+                                                                    <IconButton size="small" color="primary" aria-label={t('common.send')} onClick={() => handleReply(comment.id, post.id)} disabled={replyLoading[comment.id]}>
                                                                         {replyLoading[comment.id] ? <CircularProgress size={16} /> : <SendIcon />}
                                                                     </IconButton>
                                                                 </Box>
@@ -1103,7 +1080,7 @@ const FacebookPageManager = () => {
                                                             sx={{ flex: 1 }}
                                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentOnPost(post.id); } }}
                                                         />
-                                                        <IconButton size="small" color="primary" onClick={() => handleCommentOnPost(post.id)} disabled={commentSubmitting[post.id]}>
+                                                        <IconButton size="small" color="primary" aria-label={t('common.send')} onClick={() => handleCommentOnPost(post.id)} disabled={commentSubmitting[post.id]}>
                                                             {commentSubmitting[post.id] ? <CircularProgress size={16} /> : <SendIcon />}
                                                         </IconButton>
                                                     </Box>
@@ -1126,28 +1103,23 @@ const FacebookPageManager = () => {
                 </Box>
             )}
 
-            {/* Delete Confirmation Dialog */}
-            <Dialog open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteType(''); }}>
-                <DialogTitle>{deleteType === 'post' ? t('facebookContent.deletePost') : t('facebookContent.deleteComment')}</DialogTitle>
-                <DialogContent>
-                    <Typography>{t('facebookContent.deleteConfirm', { target: deleteType === 'post' ? t('facebookContent.thisPost') : t('facebookContent.thisComment') })}</Typography>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => { setDeleteTarget(null); setDeleteType(''); }}>{t('common.cancel')}</Button>
-                    <Button variant="contained" color="error" onClick={deleteType === 'post' ? handleDeletePost : handleDeleteComment} disabled={deleteLoading}>
-                        {deleteLoading ? <CircularProgress size={18} /> : t('facebookContent.delete')}
-                    </Button>
-                </DialogActions>
-            </Dialog>
+            <FacebookDeleteDialog
+                deleteType={deleteType}
+                deleting={deleteLoading}
+                onCancel={() => { setDeleteTarget(null); setDeleteType(''); }}
+                onDeleteComment={handleDeleteComment}
+                onDeletePost={handleDeletePost}
+                open={!!deleteTarget}
+                t={t}
+            />
 
-            <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
-                <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
-                    {snackbar.message}
-                </Alert>
-            </Snackbar>
+            <FacebookContentSnackbar
+                snackbar={snackbar}
+                onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+            />
 
             {/* Per-Post Automation Dialog */}
-            <Dialog open={autoDialogOpen} onClose={() => setAutoDialogOpen(false)} maxWidth="sm" fullWidth>
+            <Dialog open={autoDialogOpen} onClose={() => setAutoDialogOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': t('facebookContent.commentAutomation') } }}>
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BoltIcon color="primary" />
                     {t('facebookContent.commentAutomation')}

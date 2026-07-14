@@ -1,117 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Paper, Typography, Button, IconButton, Chip, Card, CardContent, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Switch, FormControlLabel, Checkbox, FormGroup, Alert, CircularProgress, Divider, Tooltip, Grid, Select, InputLabel, FormControl, RadioGroup, Radio, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, SmartToy as SmartToyIcon, VpnKey as KeywordIcon, WavingHand as WelcomeIcon, NightsStay as AwayIcon, WhatsApp as WhatsAppIcon, Facebook as FacebookIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, CheckCircle as CheckCircleIcon, Cancel as CancelIcon, Science as ScienceIcon, ChatBubble as CommentReplyIcon, Facebook as FBPageIcon } from '@mui/icons-material';
+import { Box, Paper, Typography, Button, IconButton, Chip, Card, CardContent, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Switch, FormControlLabel, Checkbox, FormGroup, Alert, CircularProgress, Divider, Tooltip, Grid, InputLabel, FormControl, RadioGroup, Radio, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, SmartToy as SmartToyIcon, VpnKey as KeywordIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, CheckCircle as CheckCircleIcon, Cancel as CancelIcon, Science as ScienceIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
-const getRULE_TYPES = () => [{
-  value: 'keyword',
-  label: tx("auto.k_4215bd1e60c8"),
-  icon: <KeywordIcon />
-}, {
-  value: 'welcome',
-  label: tx("auto.k_790223748ff8"),
-  icon: <WelcomeIcon />
-}, {
-  value: 'away',
-  label: tx("auto.k_dcf93a00e17c"),
-  icon: <AwayIcon />
-}, {
-  value: 'comment_reply',
-  label: tx("auto.k_11cca7ed085b"),
-  icon: <CommentReplyIcon />
-}];
-const getCHANNELS = () => [{
-  value: 'all',
-  label: tx("auto.k_67dc2a700f92")
-}, {
-  value: 'whatsapp',
-  label: tx("auto.k_7b5629bcb45d")
-}, {
-  value: 'messenger',
-  label: tx("auto.k_3cab5678293b")
-}, {
-  value: 'facebook',
-  label: tx("auto.k_ac86ec8e2a63")
-}];
-const getRESPONSE_ACTIONS = () => [{
-  value: 'comment',
-  label: tx("auto.k_ee6a9ce3ccdc")
-}, {
-  value: 'dm',
-  label: tx("auto.k_b7c0b6e4c278")
-}, {
-  value: 'both',
-  label: tx("auto.k_9dfe542dcb55")
-}];
-const getTRIGGER_ON_OPTIONS = () => [{
-  value: 'comment',
-  label: tx("auto.k_700405ffd3ef")
-}, {
-  value: 'reaction',
-  label: tx("auto.k_fc077bcf6e2e")
-}, {
-  value: 'both',
-  label: tx("auto.k_d9ec30e8e1ab")
-}];
-const getMATCH_TYPES = () => [{
-  value: 'exact',
-  label: tx("auto.k_84dd2663c455")
-}, {
-  value: 'contains',
-  label: tx("auto.k_e7ad54b85f8d")
-}, {
-  value: 'regex',
-  label: tx("auto.k_d287fe2bfb8c")
-}];
-const getDAY_OPTIONS = () => [{
-  value: 'sun',
-  label: tx("auto.k_29c2a914d745")
-}, {
-  value: 'mon',
-  label: tx("auto.k_a46d7f58ba2c")
-}, {
-  value: 'tue',
-  label: tx("auto.k_81a8732d2ed7")
-}, {
-  value: 'wed',
-  label: tx("auto.k_67e1e0bf90b1")
-}, {
-  value: 'thu',
-  label: tx("auto.k_af0a56c556f2")
-}, {
-  value: 'fri',
-  label: tx("auto.k_5a03133f974d")
-}, {
-  value: 'sat',
-  label: tx("auto.k_a478daf22935")
-}];
-const emptyRule = {
-  name: '',
-  rule_type: 'keyword',
-  channel: 'all',
-  tenant_id: '',
-  priority: 100,
-  is_active: true,
-  match_type: 'contains',
-  match_pattern: '',
-  match_case_sensitive: false,
-  schedule_days: ['sun', 'mon', 'tue', 'wed', 'thu'],
-  schedule_start_time: '20:00',
-  schedule_end_time: '08:00',
-  schedule_timezone: 'Africa/Tripoli',
-  response_type: 'text',
-  response_text: '',
-  response_template_name: '',
-  response_template_language: 'ar',
-  cooldown_seconds: 300,
-  target_post_id: '',
-  target_page_id: '',
-  response_action: 'comment',
-  dm_text: '',
-  trigger_on: 'comment',
-  auto_like: false,
-  auto_like_type: 'like'
-};
+import {
+  AutomationChannelChip,
+  AutomationRuleTypeIcon
+} from './AutomationPresentation';
+import {
+  createAutomationRuleDraft,
+  formatAutomationCooldown,
+  getCHANNELS,
+  getDAY_OPTIONS,
+  getMATCH_TYPES,
+  getRESPONSE_ACTIONS,
+  getRULE_TYPES,
+  getTRIGGER_ON_OPTIONS
+} from './automationConfig';
+const emptyRule = createAutomationRuleDraft({ includeAdminFields: true });
 const AutomationManager = () => {
   const [rules, setRules] = useState([]);
   const [tenants, setTenants] = useState([]);
@@ -171,12 +78,6 @@ const AutomationManager = () => {
       console.error('Failed to fetch tenants:', err);
     }
   }, []);
-  useEffect(() => {
-    fetchRules();
-    fetchSummary();
-    fetchTenants();
-    fetchFbPages();
-  }, [fetchRules, fetchSummary, fetchTenants]);
   const fetchFbPages = useCallback(async () => {
     try {
       const data = await api.getFbAllPages();
@@ -185,6 +86,12 @@ const AutomationManager = () => {
       setFbPages([]);
     }
   }, []);
+  useEffect(() => {
+    fetchRules();
+    fetchSummary();
+    fetchTenants();
+    fetchFbPages();
+  }, [fetchRules, fetchSummary, fetchTenants, fetchFbPages]);
   const fetchPostsForPage = useCallback(async linkedPageId => {
     if (!linkedPageId) {
       setFbPosts([]);
@@ -321,56 +228,6 @@ const AutomationManager = () => {
     }
   };
   const getRuleTypeLabel = type => getRULE_TYPES().find(t => t.value === type)?.label || type;
-  const getRuleTypeIcon = type => {
-    switch (type) {
-      case 'keyword':
-        return <KeywordIcon sx={{
-          fontSize: 18
-        }} />;
-      case 'welcome':
-        return <WelcomeIcon sx={{
-          fontSize: 18
-        }} />;
-      case 'away':
-        return <AwayIcon sx={{
-          fontSize: 18
-        }} />;
-      case 'comment_reply':
-        return <CommentReplyIcon sx={{
-          fontSize: 18
-        }} />;
-      default:
-        return <SmartToyIcon sx={{
-          fontSize: 18
-        }} />;
-    }
-  };
-  const getChannelChip = ch => {
-    if (ch === 'whatsapp') return <Chip icon={<WhatsAppIcon />} label={tx("auto.k_7b5629bcb45d")} size="small" sx={{
-      bgcolor: '#25D36622',
-      color: '#25D366'
-    }} />;
-    if (ch === 'messenger') return <Chip icon={<FacebookIcon />} label={tx("auto.k_3cab5678293b")} size="small" sx={{
-      bgcolor: '#0084ff22',
-      color: '#0084ff'
-    }} />;
-    if (ch === 'facebook') return <Chip icon={<FBPageIcon />} label={tx("auto.k_ac86ec8e2a63")} size="small" sx={{
-      bgcolor: '#1877f222',
-      color: '#1877f2'
-    }} />;
-    return <Chip label={tx("auto.k_11fdef2dc5f8")} size="small" variant="outlined" />;
-  };
-  const formatCooldown = seconds => {
-    if (seconds < 60) return tx("auto.k_1f60a68a8aa8", {
-      value1: seconds
-    });
-    if (seconds < 3600) return tx("auto.k_4d9316595110", {
-      value1: Math.floor(seconds / 60)
-    });
-    return tx("auto.k_3d8290991a34", {
-      value1: Math.floor(seconds / 3600)
-    });
-  };
   return <Box sx={{
     p: 3,
     maxWidth: 1200,
@@ -392,7 +249,7 @@ const AutomationManager = () => {
           fontSize: 32,
           color: 'primary.main'
         }} />
-                    <Typography variant="h5" fontWeight="bold">{tx("auto.k_2402e008b43d")}</Typography>
+                    <Typography variant="h5" component="h1" fontWeight="bold">{tx("auto.k_2402e008b43d")}</Typography>
                 </Box>
                 <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>{tx("auto.k_72f9f1931922")}
 
@@ -437,7 +294,7 @@ const AutomationManager = () => {
               color: stat.color,
               mb: 0.5
             }}>{stat.icon}</Box>
-                                    <Typography variant="h5" fontWeight="bold">{stat.value}</Typography>
+                                    <Typography variant="h5" component="p" fontWeight="bold">{stat.value}</Typography>
                                     <Typography variant="caption" color="text.secondary">{stat.label}</Typography>
                                 </CardContent>
                             </Card>
@@ -495,7 +352,7 @@ const AutomationManager = () => {
         color: 'grey.300',
         mb: 2
       }} />
-                    <Typography variant="h6" color="text.secondary">{tx("auto.k_350aac02a81e")}</Typography>
+                    <Typography variant="h6" component="p" color="text.secondary">{tx("auto.k_350aac02a81e")}</Typography>
                     <Typography variant="body2" color="text.secondary" sx={{
         mb: 2
       }}>{tx("auto.k_4a24210fb63e")}
@@ -552,10 +409,10 @@ const AutomationManager = () => {
                                         </Typography>
                                     </TableCell>
                                     <TableCell>
-                                        <Chip icon={getRuleTypeIcon(rule.rule_type)} label={getRuleTypeLabel(rule.rule_type)} size="small" variant="outlined" />
+                                        <Chip icon={<AutomationRuleTypeIcon type={rule.rule_type} />} label={getRuleTypeLabel(rule.rule_type)} size="small" variant="outlined" />
 
                                     </TableCell>
-                                    <TableCell>{getChannelChip(rule.channel)}</TableCell>
+                                    <TableCell><AutomationChannelChip channel={rule.channel} /></TableCell>
                                     <TableCell>
                                         <Typography variant="body2">
                                             {rule.tenant_name || tx("auto.k_178594875103")}
@@ -565,16 +422,16 @@ const AutomationManager = () => {
                                         <Typography variant="body2" fontWeight="bold">{rule.trigger_count || 0}</Typography>
                                     </TableCell>
                                     <TableCell>
-                                        <Typography variant="caption">{formatCooldown(rule.cooldown_seconds)}</Typography>
+                                        <Typography variant="caption">{formatAutomationCooldown(rule.cooldown_seconds)}</Typography>
                                     </TableCell>
                                     <TableCell>
                                         <Tooltip title={tx("auto.k_b4f76c3aa21e")}>
-                                            <IconButton size="small" onClick={() => handleOpenEdit(rule)}>
+                                            <IconButton size="small" aria-label={tx("auto.k_b4f76c3aa21e")} onClick={() => handleOpenEdit(rule)}>
                                                 <EditIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
                                         <Tooltip title={tx("auto.k_2d2bbdc2d694")}>
-                                            <IconButton size="small" color="error" onClick={() => setDeleteConfirm(rule)}>
+                                            <IconButton size="small" color="error" aria-label={tx("auto.k_2d2bbdc2d694")} onClick={() => setDeleteConfirm(rule)}>
                                                 <DeleteIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
@@ -596,7 +453,7 @@ const AutomationManager = () => {
         mb: 2
       }}>
                     <ScienceIcon color="primary" />
-                    <Typography variant="h6">{tx("auto.k_f7fe8df269fa")}</Typography>
+                    <Typography variant="h6" component="h2">{tx("auto.k_f7fe8df269fa")}</Typography>
                 </Box>
                 <Box sx={{
         display: 'flex',
@@ -655,7 +512,7 @@ const AutomationManager = () => {
             </Paper>
 
             {/* Create/Edit Dialog */}
-            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} maxWidth="sm" fullWidth>
+            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { 'aria-label': editingRule ? tx("auto.k_bac787825650", { value1: editingRule.name }) : tx("auto.k_89b0406e09e3") } }}>
                 <DialogTitle>
                     {editingRule ? tx("auto.k_bac787825650", {
           value1: editingRule.name
@@ -692,7 +549,7 @@ const AutomationManager = () => {
                     alignItems: 'center',
                     gap: 1
                   }}>
-                                                {t.icon} {t.label}
+                                                <AutomationRuleTypeIcon type={t.value} /> {t.label}
                                             </Box>
                                         </MenuItem>)}
                                 </Select>
@@ -942,7 +799,7 @@ const AutomationManager = () => {
             ...p,
             cooldown_seconds: parseInt(e.target.value) || 0
           }))} helperText={tx("auto.k_1a32a67f512b", {
-            value1: formatCooldown(formData.cooldown_seconds)
+            value1: formatAutomationCooldown(formData.cooldown_seconds)
           })} fullWidth />
 
                     </Box>
@@ -957,7 +814,7 @@ const AutomationManager = () => {
             </Dialog>
 
             {/* Delete Confirmation */}
-            <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs">
+            <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" slotProps={{ paper: { 'aria-label': tx("auto.k_2c518e8bc47f") } }}>
                 <DialogTitle>{tx("auto.k_2c518e8bc47f")}</DialogTitle>
                 <DialogContent>
                     <Typography>{tx("auto.k_d8cb1c8e76db")}{deleteConfirm?.name}{tx("auto.k_35d364226bb5")}</Typography>

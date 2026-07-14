@@ -1,58 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Paper, Typography, TextField, Button, FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stepper, Step, StepLabel, Card, CardContent, Divider, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip, Checkbox, InputAdornment, Tabs, Tab } from '@mui/material';
-import { Campaign as CampaignIcon, Send as SendIcon, People as PeopleIcon, CheckCircle as SuccessIcon, Error as ErrorIcon, TextFields as StaticIcon, Person as ContactIcon, Search as SearchIcon, SelectAll as SelectAllIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
+import { Box, Paper, Typography, TextField, Button, FormControl, InputLabel, MenuItem, CircularProgress, Alert, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stepper, Step, StepLabel, Card, CardContent, Divider, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material';
+import Select from '../../components/Form/AccessibleSelect';
+import { Campaign as CampaignIcon, Send as SendIcon, CheckCircle as SuccessIcon, Error as ErrorIcon, TextFields as StaticIcon, Person as ContactIcon, AttachFile as AttachFileIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
-const getCONTACT_FIELDS = () => [{
-  value: 'profile_name',
-  label: tx("auto.k_28fc609bc67b"),
-  icon: '👤'
-}, {
-  value: 'phone',
-  label: tx("auto.k_211cce4ca4ef"),
-  icon: '📱'
-}, {
-  value: 'label',
-  label: tx("auto.k_7c75fec5c0f8"),
-  icon: '🏷️'
-}, {
-  value: 'notes',
-  label: tx("auto.k_b172fc1d3b6d"),
-  icon: '📝'
-}];
-const MEDIA_HEADER_TYPES = ['image', 'video', 'document', 'audio'];
-const MEDIA_ACCEPT = {
-  image: 'image/jpeg,image/png,image/webp',
-  video: 'video/mp4,video/3gpp',
-  document: '.pdf,.doc,.docx,.xls,.xlsx,.txt',
-  audio: 'audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg'
-};
-const getMEDIA_LABEL = () => ({
-  image: tx("auto.k_b941956874fe"),
-  video: tx("auto.k_17daa024f2eb"),
-  document: tx("auto.k_d9381107732e"),
-  audio: tx("auto.k_06d9927a57ae")
-});
-function extractVariables(bodyText) {
-  if (!bodyText) return [];
-  const matches = bodyText.match(/\{\{(\d+)\}\}/g);
-  if (!matches) return [];
-  const nums = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''))))];
-  return nums.sort((a, b) => a - b);
-}
-function previewBody(bodyText, variableConfigs) {
-  if (!bodyText) return '';
-  return bodyText.replace(/\{\{(\d+)\}\}/g, (match, num) => {
-    const config = variableConfigs[parseInt(num)];
-    if (!config) return match;
-    if (config.source === 'static') return config.value || match;
-    if (config.source === 'contact') {
-      const field = getCONTACT_FIELDS().find(f => f.value === config.field);
-      return `[${field?.label || config.field}]`;
-    }
-    return match;
-  });
-}
+import { BroadcastRecipientsStep } from './BroadcastRecipientsStep';
+import {
+  MEDIA_ACCEPT,
+  MEDIA_HEADER_TYPES,
+  buildBroadcastRecipients,
+  extractNumberedVariables,
+  filterBroadcastContacts,
+  getBroadcastContactFields,
+  getBroadcastContactLabels,
+  getBroadcastMediaLabels,
+  previewBroadcastBody
+} from './broadcastConfig';
 const BroadcastManager = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [tenants, setTenants] = useState([]);
@@ -74,7 +37,7 @@ const BroadcastManager = () => {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [progressPct, setProgressPct] = useState(0);
-  const variables = useMemo(() => extractVariables(selectedTemplate?.body), [selectedTemplate]);
+  const variables = useMemo(() => extractNumberedVariables(selectedTemplate?.body), [selectedTemplate]);
   const headerMediaType = selectedTemplate?.header_type?.toLowerCase?.();
   const hasMediaHeader = MEDIA_HEADER_TYPES.includes(headerMediaType);
   const allVariablesFilled = useMemo(() => {
@@ -92,25 +55,16 @@ const BroadcastManager = () => {
   }, [hasMediaHeader, variables, variableConfigs]);
 
   // Unique labels from contacts for filtering
-  const uniqueLabels = useMemo(() => {
-    const labels = contacts.map(c => c.label).filter(Boolean);
-    return [...new Set(labels)].sort();
-  }, [contacts]);
-
-  // Filtered contacts based on search and label filter
-  const filteredContacts = useMemo(() => {
-    return contacts.filter(c => {
-      const matchesSearch = !contactSearch || (c.profile_name || '').toLowerCase().includes(contactSearch.toLowerCase()) || (c.phone || '').includes(contactSearch);
-      const matchesLabel = !labelFilter || c.label === labelFilter;
-      return matchesSearch && matchesLabel;
-    });
-  }, [contacts, contactSearch, labelFilter]);
-
-  // Merge selected contacts + manual numbers into unique recipients
-  const manualRecipients = recipientsText.split(/[\n,;]+/).map(r => r.replace(/[^0-9+]/g, '').trim()).filter(r => r.length >= 8);
-  const selectedContactPhones = contacts.filter(c => selectedContactIds.has(c.id)).map(c => c.phone);
-  const uniqueRecipients = [...new Set([...selectedContactPhones, ...manualRecipients])];
-  const selectedTenant = tenants.find(t => t.id === parseInt(selectedTenantId));
+  const uniqueLabels = useMemo(() => getBroadcastContactLabels(contacts), [contacts]);
+  const filteredContacts = useMemo(
+    () => filterBroadcastContacts(contacts, contactSearch, labelFilter),
+    [contacts, contactSearch, labelFilter]
+  );
+  const { manualRecipients, uniqueRecipients } = useMemo(
+    () => buildBroadcastRecipients(contacts, selectedContactIds, recipientsText),
+    [contacts, recipientsText, selectedContactIds]
+  );
+  const selectedTenant = tenants.find(t => t.id === parseInt(selectedTenantId, 10));
   const canProceedStep0 = selectedTenantId && selectedTemplate && allVariablesFilled;
   const canProceedStep1 = uniqueRecipients.length > 0 && uniqueRecipients.length <= 500;
 
@@ -325,7 +279,7 @@ const BroadcastManager = () => {
         mb: 1.5
       }}>
                     <Chip label={tx("auto.k_ce4f7438a89f", {
-          value1: getMEDIA_LABEL()[headerMediaType] || tx("auto.k_e68d8fac0b6f")
+          value1: getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_e68d8fac0b6f")
         })} size="small" color="secondary" />
                     <ToggleButtonGroup value={config.source} exclusive onChange={(_, val) => val && handleConfigChange('header_MEDIA_LINK', 'source', val)} size="small">
                         <ToggleButton value="upload">
@@ -352,7 +306,7 @@ const BroadcastManager = () => {
                     </ToggleButtonGroup>
                 </Box>
 
-                {config.source === 'upload' && <Button variant="outlined" component="label" startIcon={<AttachFileIcon />} fullWidth color={config.file ? 'success' : 'primary'} sx={{
+                {config.source === 'upload' && <Button variant="outlined" component="label" role={undefined} startIcon={<AttachFileIcon />} fullWidth color={config.file ? 'success' : 'primary'} sx={{
         justifyContent: 'flex-start',
         textTransform: 'none'
       }}>
@@ -363,7 +317,7 @@ const BroadcastManager = () => {
           whiteSpace: 'nowrap'
         }}>
                             {config.file?.name || tx("auto.k_0e55291e5349", {
-            value1: getMEDIA_LABEL()[headerMediaType] || tx("auto.k_ae56c3a546e8")
+            value1: getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_ae56c3a546e8")
           })}
                         </Box>
                         <input type="file" hidden accept={MEDIA_ACCEPT[headerMediaType] || '*/*'} onChange={e => handleConfigChange('header_MEDIA_LINK', 'file', e.target.files?.[0] || null)} />
@@ -371,7 +325,7 @@ const BroadcastManager = () => {
                     </Button>}
 
                 {config.source === 'static' && <TextField label={tx("auto.k_8bdf1b0ed3e1", {
-        value1: getMEDIA_LABEL()[headerMediaType] || tx("auto.k_b9755ec895c4")
+        value1: getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_b9755ec895c4")
       })} value={config.value} onChange={e => handleConfigChange('header_MEDIA_LINK', 'value', e.target.value)} fullWidth size="small" required error={Boolean(config.value) && !/^https?:\/\//i.test(config.value)} helperText={tx("auto.k_18c735391bf9")} />}
 
                 {config.source === 'contact' && <Box sx={{
@@ -383,7 +337,7 @@ const BroadcastManager = () => {
         }}>
                             <InputLabel>{tx("auto.k_a63d4f7fb41e")}</InputLabel>
                             <Select value={config.field} label={tx("auto.k_a63d4f7fb41e")} onChange={e => handleConfigChange('header_MEDIA_LINK', 'field', e.target.value)}>
-                                {getCONTACT_FIELDS().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
                             </Select>
                         </FormControl>
                         <TextField label={tx("auto.k_f473cee84052")} value={config.fallback} onChange={e => handleConfigChange('header_MEDIA_LINK', 'fallback', e.target.value)} size="small" sx={{
@@ -462,7 +416,7 @@ const BroadcastManager = () => {
             <Box sx={{
       mb: 4
     }}>
-                <Typography variant="h4" fontWeight={700} gutterBottom sx={{
+                <Typography variant="h4" component="h1" fontWeight={700} gutterBottom sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1
@@ -492,7 +446,7 @@ const BroadcastManager = () => {
             {activeStep === 0 && <Paper sx={{
       p: 3
     }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_6271957673f9")}</Typography>
+                    <Typography variant="h6" component="h2" fontWeight={600} gutterBottom>{tx("auto.k_6271957673f9")}</Typography>
                     <Box sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -538,7 +492,7 @@ const BroadcastManager = () => {
                                 <Alert severity="info" sx={{
             mb: 2
           }}>{tx("auto.k_e1e8f51ee087")}
-              {getMEDIA_LABEL()[headerMediaType] || tx("auto.k_e68d8fac0b6f")}{tx("auto.k_a623e90be45f")}
+              {getBroadcastMediaLabels()[headerMediaType] || tx("auto.k_e68d8fac0b6f")}{tx("auto.k_a623e90be45f")}
             </Alert>
                                 {renderMediaHeaderInput()}
                             </Box>}
@@ -599,7 +553,7 @@ const BroadcastManager = () => {
                 }}>
                                                         <InputLabel>{tx("auto.k_0f05187d2257")}</InputLabel>
                                                         <Select value={config.field} label={tx("auto.k_0f05187d2257")} onChange={e => handleConfigChange(varNum, 'field', e.target.value)}>
-                                                            {getCONTACT_FIELDS().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                                            {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
                                                         </Select>
                                                     </FormControl>
                                                     <TextField label={tx("auto.k_b895ad8558e1")} value={config.fallback} onChange={e => handleConfigChange(varNum, 'fallback', e.target.value)} size="small" sx={{
@@ -616,7 +570,7 @@ const BroadcastManager = () => {
                                         <Typography variant="body2" sx={{
                 whiteSpace: 'pre-wrap',
                 direction: 'auto'
-              }}>{previewBody(selectedTemplate?.body, variableConfigs)}</Typography>
+              }}>{previewBroadcastBody(selectedTemplate?.body, variableConfigs)}</Typography>
                                         {variables.some(v => variableConfigs[v]?.source === 'contact') && <Typography variant="caption" color="text.secondary" sx={{
                 mt: 1,
                 display: 'block'
@@ -644,177 +598,43 @@ const BroadcastManager = () => {
                 </Paper>}
 
             {/* ========== Step 1: Select recipients ========== */}
-            {activeStep === 1 && <Paper sx={{
-      p: 3
-    }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_5cadd95cd0c6")}</Typography>
-
-                    <Tabs value={recipientsTab} onChange={(_, v) => setRecipientsTab(v)} sx={{
-        mb: 2
-      }}>
-                        <Tab icon={<PeopleIcon />} iconPosition="start" label={tx("auto.k_e0f85c990efc", {
-          value1: contacts.length
-        })} />
-                        <Tab icon={<StaticIcon />} iconPosition="start" label={tx("auto.k_3fcbc349597c")} />
-                    </Tabs>
-
-                    {/* Tab 0: Select from contacts */}
-                    {recipientsTab === 0 && <Box>
-                            {contactsLoading ? <Box sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          p: 4
-        }}><CircularProgress /></Box> : contacts.length === 0 ? <Alert severity="info" sx={{
-          mb: 2
-        }}>{tx("auto.k_38409ada00d2")}</Alert> : <>
-                                    {/* Search & Filter Bar */}
-                                    <Box sx={{
-            display: 'flex',
-            gap: 2,
-            mb: 2,
-            flexWrap: 'wrap'
-          }}>
-                                        <TextField size="small" placeholder={tx("auto.k_6781448a8fb6")} value={contactSearch} onChange={e => setContactSearch(e.target.value)} sx={{
-              flex: 1,
-              minWidth: 200
-            }} InputProps={{
-              startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
-            }} />
-
-                                        <FormControl size="small" sx={{
-              minWidth: 150
-            }}>
-                                            <InputLabel>{tx("auto.k_d580c3a35b18")}</InputLabel>
-                                            <Select value={labelFilter} label={tx("auto.k_d580c3a35b18")} onChange={e => setLabelFilter(e.target.value)}>
-                                                <MenuItem value="">{tx("auto.k_11fdef2dc5f8")}</MenuItem>
-                                                {uniqueLabels.map(l => <MenuItem key={l} value={l}>{l}</MenuItem>)}
-                                            </Select>
-                                        </FormControl>
-                                    </Box>
-
-                                    {/* Action Buttons */}
-                                    <Box sx={{
-            display: 'flex',
-            gap: 1,
-            mb: 2,
-            flexWrap: 'wrap',
-            alignItems: 'center'
-          }}>
-                                        <Button size="small" variant="outlined" startIcon={<SelectAllIcon />} onClick={handleSelectAll}>{tx("auto.k_b04117b1dfee")}
-                {filteredContacts.length})
-                                        </Button>
-                                        <Button size="small" variant="outlined" color="inherit" onClick={handleDeselectAll}>{tx("auto.k_41640caf219b")}
-
-              </Button>
-                                        {uniqueLabels.length > 0 && <>
-                                                <Divider orientation="vertical" flexItem sx={{
-                mx: 1
-              }} />
-                                                <Typography variant="caption" color="text.secondary" sx={{
-                mr: 1
-              }}>{tx("auto.k_2f7d3481d42f")}</Typography>
-                                                {uniqueLabels.map(label => <Chip key={label} label={label} size="small" variant="outlined" onClick={() => handleSelectByLabel(label)} sx={{
-                cursor: 'pointer'
-              }} />)}
-                                            </>}
-                                    </Box>
-
-                                    {/* Contacts Table */}
-                                    <TableContainer sx={{
-            maxHeight: 400,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1
-          }}>
-                                        <Table stickyHeader size="small">
-                                            <TableHead>
-                                                <TableRow>
-                                                    <TableCell padding="checkbox">
-                                                        <Checkbox checked={allFilteredSelected} indeterminate={!allFilteredSelected && filteredContacts.some(c => selectedContactIds.has(c.id))} onChange={() => allFilteredSelected ? handleDeselectAll() : handleSelectAll()} />
-
-                                                    </TableCell>
-                                                    <TableCell>{tx("auto.k_0a92494ea1eb")}</TableCell>
-                                                    <TableCell>{tx("auto.k_3a4ffd0856f9")}</TableCell>
-                                                    <TableCell>{tx("auto.k_7c75fec5c0f8")}</TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {filteredContacts.map(contact => <TableRow key={contact.id} hover onClick={() => handleToggleContact(contact.id)} sx={{
-                  cursor: 'pointer'
-                }} selected={selectedContactIds.has(contact.id)}>
-
-                                                        <TableCell padding="checkbox">
-                                                            <Checkbox checked={selectedContactIds.has(contact.id)} />
-                                                        </TableCell>
-                                                        <TableCell>{contact.profile_name || '—'}</TableCell>
-                                                        <TableCell sx={{
-                    fontFamily: 'monospace',
-                    direction: 'ltr'
-                  }}>{contact.phone}</TableCell>
-                                                        <TableCell>
-                                                            {contact.label && <Chip label={contact.label} size="small" variant="outlined" />}
-                                                        </TableCell>
-                                                    </TableRow>)}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </>}
-                        </Box>}
-
-                    {/* Tab 1: Manual entry */}
-                    {recipientsTab === 1 && <Box>
-                            <Typography variant="body2" color="text.secondary" sx={{
-          mb: 2
-        }}>{tx("auto.k_931420b83c83")}
-
-          </Typography>
-                            <TextField fullWidth multiline rows={8} placeholder={"218911234567\n218921234567\n+218931234567"} value={recipientsText} onChange={e => setRecipientsText(e.target.value)} sx={{
-          fontFamily: 'monospace'
-        }} />
-
-                        </Box>}
-
-                    {/* Summary */}
-                    <Box sx={{
-        mt: 2,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        flexWrap: 'wrap'
-      }}>
-                        {selectedContactIds.size > 0 && <Chip icon={<PeopleIcon />} label={tx("auto.k_a56483eb6608", {
-          value1: selectedContactIds.size
-        })} color="primary" size="small" />}
-                        {manualRecipients.length > 0 && <Chip icon={<StaticIcon />} label={tx("auto.k_4a828e378d8b", {
-          value1: manualRecipients.length
-        })} color="default" size="small" />}
-                        <Chip icon={<SendIcon />} label={tx("auto.k_6ea51819a496", {
-          value1: uniqueRecipients.length
-        })} color={uniqueRecipients.length > 500 ? 'error' : uniqueRecipients.length > 0 ? 'success' : 'default'} />
-
-                        {uniqueRecipients.length > 500 && <Alert severity="error" sx={{
-          flex: 1
-        }}>{tx("auto.k_d1986b1d4e6a")}</Alert>}
-                        {selectedTenant && selectedTenant.credits !== null && selectedTenant.credits < uniqueRecipients.length && <Alert severity="warning" sx={{
-          flex: 1
-        }}>{tx("auto.k_84269774a62c")}{selectedTenant.credits}{tx("auto.k_f317159163b6")}</Alert>}
-                    </Box>
-
-                    <Box sx={{
-        mt: 3,
-        display: 'flex',
-        justifyContent: 'space-between'
-      }}>
-                        <Button onClick={() => setActiveStep(0)}>{tx("auto.k_f533ebab64f4")}</Button>
-                        <Button variant="contained" disabled={!canProceedStep1} onClick={() => setActiveStep(2)}>{tx("auto.k_2fa619787bcb")}</Button>
-                    </Box>
-                </Paper>}
+            {activeStep === 1 && <BroadcastRecipientsStep
+                accentColor="primary"
+                allFilteredSelected={allFilteredSelected}
+                availableCredits={selectedTenant?.credits ?? null}
+                canProceed={canProceedStep1}
+                contactSearch={contactSearch}
+                contacts={contacts}
+                contactsLoading={contactsLoading}
+                emptyMessageKey="auto.k_38409ada00d2"
+                filteredContacts={filteredContacts}
+                labelFilter={labelFilter}
+                manualHelpKey="auto.k_931420b83c83"
+                manualRecipients={manualRecipients}
+                maxRecipients={500}
+                onBack={() => setActiveStep(0)}
+                onContactSearchChange={setContactSearch}
+                onDeselectAll={handleDeselectAll}
+                onLabelFilterChange={setLabelFilter}
+                onNext={() => setActiveStep(2)}
+                onRecipientsTabChange={setRecipientsTab}
+                onRecipientsTextChange={setRecipientsText}
+                onSelectAll={handleSelectAll}
+                onSelectByLabel={handleSelectByLabel}
+                onToggleContact={handleToggleContact}
+                overLimitMessageKey="auto.k_d1986b1d4e6a"
+                recipientsTab={recipientsTab}
+                recipientsText={recipientsText}
+                selectedContactIds={selectedContactIds}
+                uniqueLabels={uniqueLabels}
+                uniqueRecipients={uniqueRecipients}
+            />}
 
             {/* ========== Step 2: Review & Send ========== */}
             {activeStep === 2 && <Paper sx={{
       p: 3
     }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_dc466ec07afb")}</Typography>
+                    <Typography variant="h6" component="h2" fontWeight={600} gutterBottom>{tx("auto.k_dc466ec07afb")}</Typography>
                     <Box sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -865,7 +685,7 @@ const BroadcastManager = () => {
               borderRadius: 1,
               direction: 'auto'
             }}>
-                                        {previewBody(selectedTemplate.body, variableConfigs)}
+                                        {previewBroadcastBody(selectedTemplate.body, variableConfigs)}
                                     </Typography>
                                 </CardContent>
                             </Card>}
@@ -879,14 +699,14 @@ const BroadcastManager = () => {
           }}>
                                     {hasMediaHeader && (() => {
               const config = variableConfigs.header_MEDIA_LINK;
-              const label = config?.source === 'upload' ? config?.file?.name || tx("auto.k_ae56c3a546e8") : config?.source === 'contact' ? getCONTACT_FIELDS().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
+              const label = config?.source === 'upload' ? config?.file?.name || tx("auto.k_ae56c3a546e8") : config?.source === 'contact' ? getBroadcastContactFields().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
               return <Chip label={tx("auto.k_af6f1f3211ec", {
                 value1: label
               })} size="small" color="secondary" variant="outlined" />;
             })()}
                                     {variables.map(v => {
               const config = variableConfigs[v];
-              const label = config?.source === 'contact' ? getCONTACT_FIELDS().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
+              const label = config?.source === 'contact' ? getBroadcastContactFields().find(f => f.value === config.field)?.label || config.field : config?.value || '—';
               return <Chip key={v} label={`{{${v}}} = ${label}`} size="small" color={config?.source === 'contact' ? 'secondary' : 'primary'} variant="outlined" icon={config?.source === 'contact' ? <ContactIcon /> : <StaticIcon />} />;
             })}
                                 </Box>
@@ -898,7 +718,7 @@ const BroadcastManager = () => {
                     {sending && <Box sx={{
         mt: 3
       }}>
-                            <LinearProgress variant="determinate" value={progressPct} sx={{
+                            <LinearProgress aria-label={tx("auto.k_65e6177e70ae")} variant="determinate" value={progressPct} sx={{
           height: 8,
           borderRadius: 4
         }} />
@@ -930,7 +750,7 @@ const BroadcastManager = () => {
             {activeStep === 3 && results && <Paper sx={{
       p: 3
     }}>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>{tx("auto.k_1e7bc3076360")}
+                    <Typography variant="h6" component="h2" fontWeight={600} gutterBottom>{tx("auto.k_1e7bc3076360")}
           {results.sent}{tx("auto.k_2eb748dcb5b1")}{results.failed > 0 ? tx("auto.k_5055aa295fb0", {
           value1: results.failed
         }) : ''}
