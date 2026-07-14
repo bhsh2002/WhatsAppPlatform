@@ -182,6 +182,7 @@ export function selectMessengerMessages(db, {
     tenantId = null,
     beforeId = null,
     limit = null,
+    offset = 0,
     unified = false,
     newestFirst = false,
 }) {
@@ -199,8 +200,9 @@ export function selectMessengerMessages(db, {
     }
 
     const orderDirection = newestFirst ? 'DESC' : 'ASC';
-    const limitSql = Number.isInteger(limit) && limit > 0 ? 'LIMIT ?' : '';
-    if (limitSql) params.push(limit);
+    const hasLimit = Number.isInteger(limit) && limit > 0;
+    const limitSql = hasLimit ? 'LIMIT ? OFFSET ?' : '';
+    if (hasLimit) params.push(limit, Number.isInteger(offset) && offset > 0 ? offset : 0);
 
     const selectColumns = unified
         ? `

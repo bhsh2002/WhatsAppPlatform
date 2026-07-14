@@ -2,6 +2,7 @@ import db from '../db/database.js';
 import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js';
 import { getAccessToken } from './credentials.js';
 import { decryptIfEncrypted } from './encryption.js';
+import { readMetaResponse, sanitizeStoredMetaResponse } from './metaHttp.js';
 
 export const FACEBOOK_OAUTH_SCOPES = [
     'public_profile',
@@ -412,14 +413,15 @@ export const debugFacebookUserToken = async (tenant) => {
         `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(appAccessToken)}`,
         { signal: AbortSignal.timeout(8000) }
     );
-    const data = await response.json();
-    if (!response.ok || data.error) {
+    const metaResult = await readMetaResponse(response);
+    const data = metaResult.data || {};
+    if (!metaResult.ok) {
         return {
             checked: true,
             status: 'invalid',
             scopes: parseStoredArray(tenant.facebook_user_token_scopes),
             app_id: null,
-            error: data.error?.message || 'debug_token_failed',
+            error: metaResult.error?.message || 'debug_token_failed',
         };
     }
 
@@ -617,7 +619,9 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         LIMIT 1
     `).get(tenantId);
 
-    const lastConversionMeta = parseStoredObject(lastConversion?.meta_response);
+    const lastConversionMeta = sanitizeStoredMetaResponse(lastConversion?.meta_response, {
+        successFields: lastConversion?.status === 'sent' ? ['events_received', 'fbtrace_id'] : [],
+    });
     const effectiveWhatsAppTokenPresent = !!getAccessToken(tenantId);
     const tenantWhatsAppTokenPresent = !!(tenant.access_token || tenant.access_token_encrypted);
     const webhookEvidence = getWebhookEvidence({ tenantId });
@@ -1011,7 +1015,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
                 status: lastConversion.status,
                 created_at: lastConversion.created_at,
                 events_received: lastConversionMeta?.events_received ?? null,
-                fbtrace_id: lastConversionMeta?.fbtrace_id || lastConversionMeta?.error?.fbtrace_id || null,
+                fbtrace_id: lastConversion?.status === 'sent' ? (lastConversionMeta?.fbtrace_id || null) : null,
                 error_message: lastConversionMeta?.error?.message || null,
             } : null,
             review_hint: eventsReady

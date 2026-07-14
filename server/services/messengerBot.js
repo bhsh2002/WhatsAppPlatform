@@ -9,6 +9,7 @@ import {
     reserve as reserveBilling,
 } from './billing.js';
 import { insertMessengerMessage, normalizeMessengerTimestamp } from './messengerMessages.js';
+import { readMetaResponse } from './metaHttp.js';
 
 const MAX_GENERIC_ELEMENTS = 10;
 const MAX_QUICK_REPLIES = 13;
@@ -731,10 +732,11 @@ async function sendBotMessage({ linkedPage, conversation, session, message, prev
                 message,
             }),
         });
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok || data.error) {
-            releaseBilling(billingReservation, data.error?.message || 'Meta Messenger bot reply failed');
+        if (!metaResult.ok) {
+            releaseBilling(billingReservation, metaResult.error?.message || 'Meta Messenger bot reply failed');
             recordBotEvent({
                 tenantId: conversation.tenant_id,
                 linkedPageId: linkedPage.id,
@@ -742,11 +744,11 @@ async function sendBotMessage({ linkedPage, conversation, session, message, prev
                 sessionId: session?.id || null,
                 eventType: 'send_failed',
                 direction: 'outgoing',
-                payload: { message, meta: data.error || data },
+                payload: { message, meta: metaResult.error },
                 status: 'error',
-                errorMessage: data.error?.message || 'Meta send failed',
+                errorMessage: metaResult.error?.message || 'Meta send failed',
             });
-            throw new Error(data.error?.message || 'فشل إرسال رد البوت');
+            throw new Error(metaResult.error?.message || 'فشل إرسال رد البوت');
         }
 
         const mid = data.message_id;

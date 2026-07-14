@@ -3,6 +3,10 @@ import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { checkSingleTenant } from '../services/tokenMonitor.js';
 import { getAccessToken } from '../services/credentials.js';
+import { encrypt } from '../services/encryption.js';
+import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { parseListPagination } from '../services/pagination.js';
+import { presentTenant, presentTenants } from '../presenters/tenant.js';
 import {
     applyMonthlyAllowance,
     createInvoice,
@@ -21,8 +25,14 @@ const router = express.Router();
 // Get all tenants
 router.get('/', (req, res) => {
     try {
-        const tenants = db.prepare('SELECT * FROM tenants ORDER BY created_at DESC').all();
-        res.json(tenants);
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 200,
+            maxLimit: 500,
+        });
+        const tenants = db.prepare(
+            'SELECT * FROM tenants ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        ).all(limit, offset);
+        res.json(presentTenants(tenants));
     } catch (error) {
         console.error('Error fetching tenants:', error);
         res.status(500).json({ error: 'Failed to fetch tenants' });
@@ -34,8 +44,14 @@ router.get('/', (req, res) => {
 // ============================================
 router.get('/status/pending', (req, res) => {
     try {
-        const tenants = db.prepare('SELECT * FROM tenants WHERE status = ? ORDER BY created_at DESC').all('Pending');
-        res.json(tenants);
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 500,
+        });
+        const tenants = db.prepare(
+            'SELECT * FROM tenants WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        ).all('Pending', limit, offset);
+        res.json(presentTenants(tenants));
     } catch (error) {
         console.error('Error fetching pending tenants:', error);
         res.status(500).json({ error: 'فشل جلب العملاء المعلقين' });
@@ -44,25 +60,32 @@ router.get('/status/pending', (req, res) => {
 
 router.get('/token-health', (req, res) => {
     try {
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 200,
+            maxLimit: 500,
+        });
         const tenants = db.prepare(
-            `SELECT id, name, status, token_status, token_expires_at, token_checked_at FROM tenants ORDER BY token_checked_at DESC NULLS LAST`
-        ).all();
+            `SELECT id, name, status, token_status, token_expires_at, token_checked_at
+             FROM tenants ORDER BY token_checked_at DESC NULLS LAST LIMIT ? OFFSET ?`
+        ).all(limit, offset);
 
         const pages = db.prepare(
             `SELECT tp.id, tp.tenant_id, tp.page_id, tp.page_name, tp.token_status, tp.token_expires_at, tp.token_checked_at,
                     t.name as tenant_name
              FROM tenant_pages tp
              LEFT JOIN tenants t ON tp.tenant_id = t.id
-             ORDER BY tp.token_checked_at DESC NULLS LAST`
-        ).all();
+             ORDER BY tp.token_checked_at DESC NULLS LAST LIMIT ? OFFSET ?`
+        ).all(limit, offset);
 
-        const summary = {
-            valid: tenants.filter(t => t.token_status === 'valid').length,
-            expiring: tenants.filter(t => t.token_status === 'expiring').length,
-            expired: tenants.filter(t => t.token_status === 'expired').length,
-            invalid: tenants.filter(t => t.token_status === 'invalid').length,
-            unchecked: tenants.filter(t => t.token_status === 'unchecked' || !t.token_status).length,
-        };
+        const summary = db.prepare(`
+            SELECT
+                COALESCE(SUM(CASE WHEN token_status = 'valid' THEN 1 ELSE 0 END), 0) AS valid,
+                COALESCE(SUM(CASE WHEN token_status = 'expiring' THEN 1 ELSE 0 END), 0) AS expiring,
+                COALESCE(SUM(CASE WHEN token_status = 'expired' THEN 1 ELSE 0 END), 0) AS expired,
+                COALESCE(SUM(CASE WHEN token_status = 'invalid' THEN 1 ELSE 0 END), 0) AS invalid,
+                COALESCE(SUM(CASE WHEN token_status = 'unchecked' OR token_status IS NULL THEN 1 ELSE 0 END), 0) AS unchecked
+            FROM tenants
+        `).get();
 
         res.json({ tenants, pages, summary });
     } catch (error) {
@@ -142,7 +165,7 @@ router.get('/:id', (req, res) => {
         if (!tenant) {
             return res.status(404).json({ error: 'Tenant not found' });
         }
-        res.json(tenant);
+        res.json(presentTenant(tenant));
     } catch (error) {
         console.error('Error fetching tenant:', error);
         res.status(500).json({ error: 'Failed to fetch tenant' });
@@ -158,8 +181,9 @@ router.post('/', (req, res) => {
             return res.status(400).json({ error: 'Name is required' });
         }
 
+        const encryptedAccessToken = access_token ? encrypt(String(access_token)) : null;
         const stmt = db.prepare(`
-      INSERT INTO tenants (name, phone, status, tier, credits, quality, phone_number_id, access_token, waba_id, business_id, dataset_id)
+      INSERT INTO tenants (name, phone, status, tier, credits, quality, phone_number_id, access_token_encrypted, waba_id, business_id, dataset_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
@@ -171,7 +195,7 @@ router.post('/', (req, res) => {
             credits || 0,
             quality || 'High',
             phone_number_id || null,
-            access_token || null,
+            encryptedAccessToken,
             waba_id || null,
             business_id || null,
             dataset_id || null
@@ -186,7 +210,7 @@ router.post('/', (req, res) => {
       VALUES (?, ?, 'tenant_created', 'إضافة عميل جديد', 'success')
     `).run(newTenant.id, newTenant.name);
 
-        res.status(201).json(newTenant);
+        res.status(201).json(presentTenant(newTenant));
     } catch (error) {
         console.error('Error creating tenant:', error);
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -210,7 +234,7 @@ router.put('/:id', (req, res) => {
         // This allows clearing fields by sending null explicitly,
         // while absent fields remain unchanged.
         const clearableFields = ['name', 'phone', 'status', 'tier', 'quality',
-            'phone_number_id', 'access_token', 'waba_id', 'business_id', 'dataset_id'];
+            'phone_number_id', 'waba_id', 'business_id', 'dataset_id'];
         
         const setClauses = [];
         const values = [];
@@ -220,6 +244,14 @@ router.put('/:id', (req, res) => {
                 setClauses.push(`${field} = ?`);
                 values.push(req.body[field]);
             }
+        }
+
+        if ('access_token' in req.body) {
+            const encryptedAccessToken = req.body.access_token
+                ? encrypt(String(req.body.access_token))
+                : null;
+            setClauses.push('access_token_encrypted = ?', 'access_token = NULL');
+            values.push(encryptedAccessToken);
         }
         
         if (setClauses.length === 0) {
@@ -245,7 +277,7 @@ router.put('/:id', (req, res) => {
       VALUES (?, ?, 'tenant_updated', 'تحديث بيانات العميل', 'success')
     `).run(updatedTenant.id, updatedTenant.name);
 
-        res.json(updatedTenant);
+        res.json(presentTenant(updatedTenant));
     } catch (error) {
         console.error('Error updating tenant:', error);
         res.status(500).json({ error: 'Failed to update tenant' });
@@ -595,9 +627,14 @@ router.put('/:id/account/toggle', (req, res) => {
 router.get('/:id/templates', (req, res) => {
     try {
         const tenantId = req.params.id;
+        const { limit, offset } = parseListPagination(req.query, {
+            defaultLimit: 100,
+            maxLimit: 200,
+        });
         const templates = db.prepare(`
             SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC
-        `).all(tenantId);
+            LIMIT ? OFFSET ?
+        `).all(tenantId, limit, offset);
         res.json(templates);
     } catch (error) {
         console.error('Error fetching templates:', error);
@@ -690,6 +727,9 @@ router.put('/:id/templates/:templateId', (req, res) => {
     }
 });
 
+// Literal route must be registered before /:id/templates/:templateId.
+router.delete('/:id/templates/delete-meta', deleteAdminMetaTemplate);
+
 // Delete template
 router.delete('/:id/templates/:templateId', (req, res) => {
     try {
@@ -738,14 +778,15 @@ router.post('/:id/templates/sync', async (req, res) => {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     }
                 );
-                const wabaData = await wabaResponse.json();
+                const wabaResult = await readMetaResponse(wabaResponse);
+                const wabaData = wabaResult.data || {};
 
-                if (!wabaData.error && wabaData.id) {
+                if (wabaResult.ok && wabaData.id) {
                     wabaId = wabaData.id;
                     // Save WABA ID for future use
                     db.prepare('UPDATE tenants SET waba_id = ? WHERE id = ?').run(wabaId, tenantId);
-                } else if (wabaData.error) {
-                    console.error('WABA lookup error:', wabaData.error);
+                } else if (!wabaResult.ok) {
+                    console.error('[Tenants] WABA lookup failed:', wabaResult.status, wabaResult.error?.code);
 
                     // Method 2: Try debug_token to get app info
                     const debugResponse = await fetch(
@@ -754,9 +795,10 @@ router.post('/:id/templates/sync', async (req, res) => {
                             headers: { 'Authorization': `Bearer ${accessToken}` }
                         }
                     );
-                    const debugData = await debugResponse.json();
+                    const debugResult = await readMetaResponse(debugResponse);
+                    const debugData = debugResult.data || {};
 
-                    if (debugData.data?.granular_scopes) {
+                    if (debugResult.ok && debugData.data?.granular_scopes) {
                         // Try to find WABA ID from scopes
                         const wabaScope = debugData.data.granular_scopes.find(s =>
                             s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging'
@@ -788,14 +830,12 @@ router.post('/:id/templates/sync', async (req, res) => {
             const resp = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
-            const data = await resp.json();
+            const metaResult = await readMetaResponse(resp);
+            const data = metaResult.data || {};
 
-            if (data.error) {
-                console.error('Templates API error:', data.error);
-                return res.status(400).json({
-                    error: 'فشل جلب القوالب من WhatsApp',
-                    details: data.error.message
-                });
+            if (!metaResult.ok) {
+                console.error('[Tenants] Templates request failed:', metaResult.status, metaResult.error?.code);
+                return sendMetaFailure(res, metaResult, 'فشل جلب القوالب من WhatsApp');
             }
 
             allMetaTemplates.push(...(data.data || []));
@@ -856,7 +896,9 @@ router.post('/:id/templates/sync', async (req, res) => {
             created,
             updated,
             unchanged,
-            templates: db.prepare('SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId),
+            templates: db.prepare(
+                'SELECT * FROM templates WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 500'
+            ).all(tenantId),
         });
     } catch (error) {
         console.error('Error syncing templates:', error);
@@ -970,13 +1012,11 @@ router.post('/:id/templates/create-meta', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل إنشاء القالب في Meta',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل إنشاء القالب في Meta');
         }
 
         // Log activity
@@ -995,7 +1035,7 @@ router.post('/:id/templates/create-meta', async (req, res) => {
 // ============================================
 // Delete template from Meta API
 // ============================================
-router.delete('/:id/templates/delete-meta', async (req, res) => {
+async function deleteAdminMetaTemplate(req, res) {
     try {
         const tenantId = req.params.id;
         const { name } = req.query;
@@ -1017,13 +1057,10 @@ router.delete('/:id/templates/delete-meta', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل حذف القالب من Meta',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل حذف القالب من Meta');
         }
 
         // Also delete from local DB
@@ -1039,7 +1076,7 @@ router.delete('/:id/templates/delete-meta', async (req, res) => {
         console.error('Error deleting Meta template:', error);
         res.status(500).json({ error: 'فشل حذف القالب من Meta' });
     }
-});
+}
 
 // ============================================
 // Subscribe app to WABA webhooks
@@ -1065,13 +1102,11 @@ router.post('/:id/subscribe-webhook', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل اشتراك Webhook',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل اشتراك Webhook');
         }
 
         db.prepare(`
@@ -1166,13 +1201,11 @@ router.get('/:id/webhook-subscriptions', async (req, res) => {
             }
         );
 
-        const data = await response.json();
+        const metaResult = await readMetaResponse(response);
+        const data = metaResult.data || {};
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data.error?.message || 'فشل جلب اشتراكات Webhook',
-                details: data.error
-            });
+        if (!metaResult.ok) {
+            return sendMetaFailure(res, metaResult, 'فشل جلب اشتراكات Webhook');
         }
 
         const subscriptions = data.data || [];
