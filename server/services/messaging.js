@@ -124,22 +124,27 @@ function getFallbackTemplate(message, contentField) {
     return match[1].trim();
 }
 
-function getTemplateByName(templateName, tenantId, cache) {
+function getTemplateByName(database, templateName, tenantId, cache) {
     const key = `${tenantId || 'global'}:${templateName}`;
     if (cache?.has(key)) return cache.get(key);
 
     const template = tenantId
-        ? db.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, templateName)
-        : db.prepare('SELECT * FROM templates WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1').get(templateName);
+        ? database.prepare('SELECT * FROM templates WHERE tenant_id = ? AND name = ?').get(tenantId, templateName)
+        : database.prepare('SELECT * FROM templates WHERE name = ? ORDER BY updated_at DESC, id DESC LIMIT 1').get(templateName);
     cache?.set(key, template || null);
     return template;
 }
 
-export function enrichTemplateFallbackMessage(message, contentField = 'content', cache = new Map()) {
+export function enrichTemplateFallbackMessage(
+    message,
+    contentField = 'content',
+    cache = new Map(),
+    database = db,
+) {
     const templateName = getFallbackTemplate(message, contentField);
     if (!templateName) return message;
 
-    const template = getTemplateByName(templateName, message.tenant_id, cache);
+    const template = getTemplateByName(database, templateName, message.tenant_id, cache);
     const richContent = buildRichTemplateContent(template, []);
     if (!richContent) return message;
 
@@ -149,10 +154,15 @@ export function enrichTemplateFallbackMessage(message, contentField = 'content',
     };
 }
 
-export function enrichTemplateFallbackMessages(messages, contentField = 'content') {
+export function enrichTemplateFallbackMessages(messages, contentField = 'content', database = db) {
     const cache = new Map();
     return Array.isArray(messages)
-        ? messages.map(message => enrichTemplateFallbackMessage(message, contentField, cache))
+        ? messages.map(message => enrichTemplateFallbackMessage(
+            message,
+            contentField,
+            cache,
+            database,
+        ))
         : messages;
 }
 

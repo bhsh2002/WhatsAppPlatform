@@ -79,20 +79,3 @@ export function buildWhatsAppBusinessEvent({ eventName, wabaId, ctwaClid, custom
 
     return event;
 }
-
-export function normalizeMetaError(metaResponse) {
-    if (!metaResponse) return null;
-    const error = metaResponse.error || metaResponse;
-    if (!error || typeof error !== 'object') return null;
-
-    return {
-        message: error.message || null,
-        type: error.type || null,
-        code: error.code ?? null,
-        subcode: error.error_subcode ?? null,
-        user_title: error.error_user_title || null,
-        user_message: error.error_user_msg || null,
-        fbtrace_id: error.fbtrace_id || metaResponse.fbtrace_id || null,
-        error_data: error.error_data || null,
-    };
-}
