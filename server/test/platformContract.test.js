@@ -556,6 +556,22 @@ test('public pages expose semantic landmarks and a logical heading hierarchy', (
     assert.match(privacy, /component="h3"/);
 });
 
+test('landing page bundles Arabic typography and keeps its mobile footer readable', () => {
+    const landing = read('client/src/pages/Landing/LandingPage.jsx');
+    const main = read('client/src/main.jsx');
+    const theme = read('client/src/theme.js');
+    const translations = read('client/src/i18n/translations.js');
+
+    assert.match(main, /@fontsource-variable\/alexandria/);
+    assert.match(theme, /Alexandria Variable/);
+    assert.doesNotMatch(landing, /fonts\.googleapis\.com|Cairo, sans-serif/);
+    assert.match(landing, /gridTemplateColumns:[\s\S]*xs: 'minmax\(0, 1fr\)'/);
+    assert.doesNotMatch(landing, /size=\{\{[\s\S]*?xs: 2/);
+    assert.match(landing, /whiteSpace: 'nowrap'[\s\S]*wordBreak: 'normal'/);
+    assert.match(landing, /landing\.pricing\.creditNote/);
+    assert.match(translations, /creditNote: 'الكريديت رصيد استخدام/);
+});
+
 test('authenticated pages preserve keyboard focus, page headings, and control names', () => {
     const globalStyles = read('client/src/index.css');
     const mainLayout = read('client/src/components/Layout/MainLayout.jsx');

@@ -1,6 +1,6 @@
 :root {
   --radius: 0.75rem;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Alexandria Variable', 'Segoe UI', Tahoma, Arial, sans-serif;
 }
 
 /* Reset & Base */
@@ -29,7 +29,7 @@ body {
 .MuiCardContent-root,
 .MuiListItemText-root {
   overflow-wrap: anywhere;
-  word-break: break-word;
+  word-break: normal;
 }
 
 /* Keep keyboard focus visible across native controls and MUI components. */

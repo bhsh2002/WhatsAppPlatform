@@ -46,11 +46,9 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
     },
     typography: {
         fontFamily: [
-            '-apple-system',
-            'BlinkMacSystemFont',
+            '"Alexandria Variable"',
             '"Segoe UI"',
-            'Roboto',
-            '"Helvetica Neue"',
+            'Tahoma',
             'Arial',
             'sans-serif',
         ].join(','),
@@ -73,6 +71,7 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
                     maxWidth: '100%',
                     whiteSpace: 'normal',
                     overflowWrap: 'anywhere',
+                    wordBreak: 'normal',
                 },
             },
         },

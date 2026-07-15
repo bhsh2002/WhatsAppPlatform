@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource-variable/alexandria'
 import { LanguageProvider } from './context/LanguageContext.jsx'
 import AppProviders from './AppProviders.jsx'
 import './index.css'
