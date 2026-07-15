@@ -7,6 +7,7 @@ import api from '../../api';
 import { tx } from "../../i18n/tx";
 import { getContactLabelOptions } from '../Contacts/contactConfig';
 import { ContactDeleteDialog, ContactIdentitySummary, ContactTable } from '../Contacts/ContactPresentation';
+import ContactTransferActions from '../Contacts/ContactTransferActions';
 const TenantContacts = () => {
   const navigate = useNavigate();
   const [contacts, setContacts] = useState([]);
@@ -173,6 +174,15 @@ const TenantContacts = () => {
           md: 'nowrap'
         }
       }}>
+                    <ContactTransferActions
+                      accentColor="secondary"
+                      onImport={file => api.importPortalContactsCsv(file)}
+                      onImported={fetchContacts}
+                      onExport={() => api.exportPortalContactsCsv({
+                        ...(search ? { search } : {}),
+                        ...(labelFilter ? { label: labelFilter } : {}),
+                      })}
+                    />
                     <Button
                       variant="contained"
                       color="secondary"

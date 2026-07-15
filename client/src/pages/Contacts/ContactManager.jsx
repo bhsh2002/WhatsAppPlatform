@@ -7,6 +7,7 @@ import api from '../../api';
 import { tx } from "../../i18n/tx";
 import { getContactLabelOptions } from './contactConfig';
 import { ContactDeleteDialog, ContactIdentitySummary, ContactTable } from './ContactPresentation';
+import ContactTransferActions from './ContactTransferActions';
 const ContactManager = () => {
   const navigate = useNavigate();
   const [contacts, setContacts] = useState([]);
@@ -204,6 +205,17 @@ const ContactManager = () => {
           md: 'nowrap'
         }
       }}>
+                    <ContactTransferActions
+                      importDisabled={!tenantFilter}
+                      importDisabledReason={tx('contacts.selectTenantToImport')}
+                      onImport={file => api.importContactsCsv(file, tenantFilter)}
+                      onImported={fetchContacts}
+                      onExport={() => api.exportContactsCsv({
+                        ...(search ? { search } : {}),
+                        ...(labelFilter ? { label: labelFilter } : {}),
+                        ...(tenantFilter ? { tenant_id: tenantFilter } : {}),
+                      })}
+                    />
                     <Button
                       variant="contained"
                       startIcon={<AddIcon />}

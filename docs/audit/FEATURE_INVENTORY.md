@@ -12,7 +12,7 @@
 
 | # | الوحدة | الوظيفة | الشاشة أو API | Backend | Database | Permissions | Tests | الحالة | النواقص والملاحظات |
 |---:|---|---|---|---|---|---|---|---|---|
-| 1 | Public | صفحة الهبوط | `/` | لا | لا | عام | Browser 1440/390 + semantic/keyboard contract + axe | C | متجاوبة؛ landmarks وتسلسل h1/h2/h3 وأسماء التحكم والتركيز سليمة؛ axe بلا violations، ويبقى قارئ شاشة يدوي ومراجعة incomplete اللونية |
+| 1 | Public | صفحة الهبوط | `/` | لا | لا | عام | Browser 1440/390 + semantic/keyboard contract + axe | C | تعرض النطاق الفعلي للمنصة وباقتي 10,000/50,000 كريديت؛ متجاوبة بلا overflow أفقي عند 390px، مع landmarks وتسلسل h1/h2/h3 |
 | 2 | Public | سياسة الخصوصية React | `/privacy-policy` | لا | لا | عام | Browser 1280/390 + semantic contract | C | landmarks وتسلسل h1/h2/h3 سليمة؛ لا route إنجليزية مستقلة ولا consent workflow |
 | 3 | Public | شروط الخدمة | Express `/terms` | نعم | لا | عام | Source only | P | Backend HTML فقط؛ النص في footer ليس رابطًا ولا route React |
 | 4 | Auth | تسجيل الدخول | `/login`, `POST /auth/login` | نعم | `users`, `tenants` | عام + rate limit | Guard checks فقط | B | يقرأ username/password ويعيد JWT/user؛ `/api` يمنع الواجهة من الوصول افتراضيًا |
@@ -26,7 +26,7 @@
 | 12 | Admin/Ops | فحص صحة رموز Meta | TenantList, `/tenants/token-health` | نعم + scheduler | `tenants`, `tenant_pages` | admin | لا | T | يعتمد على Meta app credentials؛ fetch بلا timeout في scheduler |
 | 13 | Admin/WA | WhatsApp Console إرسال بسيط | `/whatsapp`, `/messages/send` | نعم | `messages`, billing | admin | لا | T | recipient/message/tenant؛ يحتاج Meta credentials ورقمًا حقيقيًا |
 | 14 | Admin/WA | شاشة محادثة WhatsApp قديمة | `/chat` | نعم | `messages`, `contacts` | admin | لا | U | route موجود بلا عنصر Sidebar؛ يبدو مستبدلًا بـUnified Inbox |
-| 15 | Admin/WA | جهات الاتصال | `/contacts`, `/messages/contacts*` | نعم | `contacts` | admin | validation/CRUD/Meta verification/read-receipt integration | C | router مستقل؛ pagination وحدود الحقول وclear/duplicate وtenant credentials والفوترة وMeta success/failure مختبرة |
+| 15 | Admin/WA | جهات الاتصال | `/contacts`, `/messages/contacts*` | نعم | `contacts` | admin | validation/CRUD/CSV import-export/Meta verification/read-receipt integration | C | استيراد CSV يتطلب اختيار tenant ويعمل upsert داخل نطاقه؛ التصدير يحترم الفلاتر ويحمي خلايا الجداول من الصيغ |
 | 16 | Admin/WA | البث الجماعي | `/broadcast`, `/messages/broadcast` | نعم | templates/jobs/messages/billing | admin | لا | T | recipients/template/media؛ background داخل نفس العملية بلا queue دائم |
 | 17 | Admin/WA | القوالب المحلية وMeta | `/templates`, `/tenants/:id/templates*` | نعم | `templates`, activity | admin | لا | P | CRUD/sync/create موجود؛ حذف Meta محجوب بترتيب route |
 | 18 | Admin/Ops | سجلات الرسائل والwebhooks | `/logs`, `/messages/logs*` | نعم | `messages`, `webhook_logs` | admin | لا | P | filtering جزئي؛ payloads حساسة ولا توجد redaction/export policy |
@@ -55,7 +55,7 @@
 | 41 | Tenant/WA | التحليلات المحلية | `/portal/analytics` | نعم | `messages` | tenant JWT | لا | P | summary/daily/type؛ لا pagination/timezone contract |
 | 42 | Tenant/WA | QR Codes | `/portal/qr-codes` | نعم | activity + Meta | tenant JWT | لا | T | list/create/delete؛ يحتاج WABA حقيقيًا |
 | 43 | Tenant/Meta | Conversions API | `/portal/conversions` | نعم | `conversion_events`, contacts | tenant JWT | لا | T | dataset/events/history/CTWA؛ يحتاج dataset وMeta token |
-| 44 | Tenant | جهات الاتصال | `/portal/contacts` | نعم | `contacts` | tenant JWT | validation + CRUD/tenant A-B | C | router مستقل؛ E.164/field bounds وpagination/search وduplicate race وresponse allowlist وعزل الرسائل محمية |
+| 44 | Tenant | جهات الاتصال | `/portal/contacts` | نعم | `contacts` | tenant JWT | validation + CRUD/CSV import-export/tenant A-B | C | الاستيراد والتصدير معزولان دائمًا بـ`req.user.tenant_id`؛ يدعم CSV عربيًا وإنجليزيًا مع upsert وتقارير الصفوف المرفوضة |
 | 45 | Tenant/WA | البث | `/portal/broadcast` | نعم | templates/jobs/messages/billing | tenant JWT | لا | P | scoped and billed؛ process-local job وعدم استئناف بعد crash |
 | 46 | Tenant/WA | Embedded Signup | `/portal/whatsapp-connect` | نعم | `tenants`, activity | tenant JWT | لا | T | exchange code/store encrypted token/subscribe؛ يحتاج Meta config |
 | 47 | Tenant/FB | Facebook OAuth وربط الصفحات | callback + `/portal/fb-pages` | نعم | `tenants`, `tenant_pages` | tenant JWT | لا | T | state in-memory؛ يفقد عند restart/multi-instance؛ يحتاج Meta login |

@@ -50,6 +50,56 @@ export const translations = {
       hourShort: 'س',
       daysShort: 'أيام'
     },
+    contacts: {
+      importCsv: 'استيراد CSV',
+      exportCsv: 'تصدير CSV',
+      csvFormat: 'الأعمدة المدعومة: phone, profile_name, label, notes. الحد الأقصى 10,000 جهة اتصال.',
+      selectTenantToImport: 'اختر عميلاً من عامل التصفية قبل الاستيراد لضمان عزل البيانات.',
+      importResult: 'اكتمل الاستيراد: {created} جديدة، {updated} محدّثة، {failed} غير صالحة.',
+      exportReady: 'تم تجهيز ملف جهات الاتصال للتنزيل.',
+      transferFailed: 'فشلت عملية نقل جهات الاتصال.'
+    },
+    landing: {
+      navPricing: 'الباقات',
+      featuresTitle: 'كل ما تحتاجه لإدارة محادثاتك ونمو أعمالك',
+      featuresSubtitle: 'منصة واحدة تجمع WhatsApp وMessenger والأتمتة والحملات والتحليلات والفوترة مع عزل كامل لبيانات كل نشاط.',
+      features: {
+        inbox: { title: 'صندوق وارد موحّد', desc: 'إدارة محادثات WhatsApp وMessenger من واجهة واحدة مع سجل كامل وحالة القراءة.' },
+        campaigns: { title: 'حملات وقوالب معتمدة', desc: 'إنشاء القوالب ومزامنتها وإرسال حملات جماعية مع متابعة كل مستلم.' },
+        contacts: { title: 'إدارة جهات الاتصال', desc: 'بحث وتصنيف وملاحظات واستيراد وتصدير CSV مع عزل جهات اتصال كل عميل.' },
+        automation: { title: 'أتمتة ذكية', desc: 'ردود تلقائية للكلمات والترحيب والتعليقات والتفاعلات مع قواعد وجدولة وفترات تهدئة.' },
+        facebook: { title: 'Facebook وMessenger', desc: 'ربط الصفحات وإدارة المحتوى والتعليقات والرسائل الخاصة واشتراكات Webhook.' },
+        bot: { title: 'بوت وكتالوج منتجات', desc: 'بناء تدفقات Messenger وعرض المنتجات والصور وخيارات الرد السريع والتحويل للموظف.' },
+        analytics: { title: 'تحليلات وأحداث تحويل', desc: 'لوحات أداء ورسائل وتفاعل وربط Datasets لمتابعة التحويلات ومؤشرات Meta.' },
+        api: { title: 'API وWebhooks', desc: 'واجهات برمجية آمنة ومفاتيح مستقلة وإشعارات فورية لربط أنظمتك الداخلية.' },
+        qr: { title: 'رموز QR وملف النشاط', desc: 'إنشاء رموز WhatsApp وإدارة ملف النشاط التجاري وأرقام الهاتف من المنصة.' },
+        tenants: { title: 'إدارة متعددة العملاء', desc: 'حسابات مستقلة وصلاحيات وحصص وبيانات اعتماد مشفرة لكل نشاط تجاري.' },
+        billing: { title: 'فوترة وأرصدة واضحة', desc: 'باقات وأرصدة وسجل استخدام وفواتير مع مطابقة تكلفة Meta وتتبع كل خصم.' },
+        security: { title: 'أمان ومراقبة تشغيلية', desc: 'جلسات آمنة وتشفير للأسرار وتحقق من الملفات والتوقيعات وصحة الهجرات والخدمة.' }
+      },
+      pricing: {
+        eyebrow: 'باقات الاشتراك',
+        title: 'اختر السعة المناسبة لنشاطك',
+        subtitle: 'باقتان واضحتان تشملان كامل أدوات المنصة، ويختلف حجم الرصيد والدعم حسب احتياجك.',
+        currency: 'د.ل',
+        period: 'للباقة',
+        credits: '{count} كريديت',
+        messages: 'حوالي {count} رسالة',
+        popular: 'الأكثر طلباً',
+        choose: 'ابدأ بهذه الباقة',
+        disclaimer: 'عدد الرسائل تقديري على أساس متوسط 5 كريديت للرسالة، وقد يختلف حسب نوع الرسالة وفئة Meta والدولة والتسعير الفعلي.',
+        business: {
+          name: 'باقة الأعمال',
+          description: 'للأنشطة الصغيرة والمتوسطة التي تبدأ بإدارة المحادثات والحملات من مكان واحد.',
+          features: ['10,000 كريديت', 'نحو 2,000 رسالة', 'WhatsApp وMessenger وصندوق وارد موحّد', 'القوالب والحملات والأتمتة', 'جهات الاتصال مع الاستيراد والتصدير', 'التحليلات وAPI وWebhooks']
+        },
+        growth: {
+          name: 'باقة النمو',
+          description: 'للأنشطة ذات الحجم الأعلى التي تحتاج سعة أكبر وتشغيلًا يوميًا مكثفًا.',
+          features: ['50,000 كريديت', 'نحو 10,000 رسالة', 'جميع ميزات باقة الأعمال', 'حملات وأتمتة وتشغيل بوت بسعة أعلى', 'تحليلات وتحويلات وفوترة متقدمة', 'أولوية أعلى في الدعم والمتابعة']
+        }
+      }
+    },
     language: {
       switchToEnglish: 'English',
       switchToArabic: 'العربية',
@@ -2162,6 +2212,56 @@ export const translations = {
       minuteShort: 'm',
       hourShort: 'h',
       daysShort: 'd'
+    },
+    contacts: {
+      importCsv: 'Import CSV',
+      exportCsv: 'Export CSV',
+      csvFormat: 'Supported columns: phone, profile_name, label, notes. Maximum 10,000 contacts.',
+      selectTenantToImport: 'Select a tenant filter before importing to preserve data isolation.',
+      importResult: 'Import complete: {created} created, {updated} updated, {failed} invalid.',
+      exportReady: 'The contacts file is ready to download.',
+      transferFailed: 'The contact transfer failed.'
+    },
+    landing: {
+      navPricing: 'Pricing',
+      featuresTitle: 'Everything you need to manage conversations and grow',
+      featuresSubtitle: 'One platform for WhatsApp, Messenger, automation, campaigns, analytics and billing with strict tenant data isolation.',
+      features: {
+        inbox: { title: 'Unified inbox', desc: 'Manage WhatsApp and Messenger conversations in one place with complete history and read state.' },
+        campaigns: { title: 'Campaigns and templates', desc: 'Create and sync approved templates, launch broadcasts and track every recipient.' },
+        contacts: { title: 'Contact management', desc: 'Search, label, annotate, import and export CSV contacts within each tenant boundary.' },
+        automation: { title: 'Smart automation', desc: 'Automate keywords, welcomes, comments and reactions with schedules and cooldown controls.' },
+        facebook: { title: 'Facebook and Messenger', desc: 'Connect Pages and manage content, comments, private messages and webhook subscriptions.' },
+        bot: { title: 'Bot and product catalog', desc: 'Build Messenger flows with products, images, quick replies and human handoff.' },
+        analytics: { title: 'Analytics and conversions', desc: 'Track messaging, engagement and conversion datasets with operational Meta indicators.' },
+        api: { title: 'API and webhooks', desc: 'Secure APIs, independent credentials and real-time callbacks for your internal systems.' },
+        qr: { title: 'QR and business profile', desc: 'Create WhatsApp QR codes and manage business profile and phone number settings.' },
+        tenants: { title: 'Multi-tenant operations', desc: 'Independent accounts, roles, quotas and encrypted credentials for every business.' },
+        billing: { title: 'Clear billing and credits', desc: 'Plans, balances, usage history and invoices with Meta cost reconciliation.' },
+        security: { title: 'Security and observability', desc: 'Secure sessions, encrypted secrets, file and signature checks, migration and service health.' }
+      },
+      pricing: {
+        eyebrow: 'Subscription plans',
+        title: 'Choose the right capacity for your business',
+        subtitle: 'Both plans include the complete platform toolkit, with capacity and support matched to your needs.',
+        currency: 'LYD',
+        period: 'per package',
+        credits: '{count} credits',
+        messages: 'About {count} messages',
+        popular: 'Most popular',
+        choose: 'Start with this plan',
+        disclaimer: 'Message counts estimate an average of 5 credits per message and can vary by message type, Meta category, country and actual pricing.',
+        business: {
+          name: 'Business',
+          description: 'For small and medium businesses starting to centralize conversations and campaigns.',
+          features: ['10,000 credits', 'About 2,000 messages', 'WhatsApp, Messenger and unified inbox', 'Templates, campaigns and automation', 'Contact CSV import and export', 'Analytics, API and webhooks']
+        },
+        growth: {
+          name: 'Growth',
+          description: 'For higher-volume teams that need more capacity for intensive daily operations.',
+          features: ['50,000 credits', 'About 10,000 messages', 'Everything in Business', 'Higher-capacity campaigns, automation and bot', 'Advanced analytics, conversions and billing', 'Higher-priority support and follow-up']
+        }
+      }
     },
     language: {
       switchToEnglish: 'English',

@@ -1,67 +1,89 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Container, Typography, Button, Grid, Card, CardContent, Chip, Divider, IconButton, Tooltip } from '@mui/material';
-import { WhatsApp as WhatsAppIcon, Send as SendIcon, Dashboard as DashboardIcon, People as PeopleIcon, Assessment as AssessmentIcon, Description as TemplateIcon, Security as SecurityIcon, Speed as SpeedIcon, Api as ApiIcon, CheckCircle as CheckCircleIcon, ArrowBack as ArrowBackIcon, KeyboardArrowDown as ArrowDownIcon, Bolt as BoltIcon, PrivacyTip as PrivacyTipIcon } from '@mui/icons-material';
+import { WhatsApp as WhatsAppIcon, Send as SendIcon, People as PeopleIcon, Assessment as AssessmentIcon, Security as SecurityIcon, Api as ApiIcon, CheckCircle as CheckCircleIcon, ArrowBack as ArrowBackIcon, KeyboardArrowDown as ArrowDownIcon, Bolt as BoltIcon, PrivacyTip as PrivacyTipIcon, AllInbox as InboxIcon, Campaign as CampaignIcon, AutoAwesome as AutomationIcon, Facebook as FacebookIcon, SmartToy as BotIcon, Webhook as WebhookIcon, QrCode2 as QrCodeIcon, AccountTree as TenantIcon, Payments as BillingIcon, ImportExport as ImportExportIcon } from '@mui/icons-material';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 import { tx } from "../../i18n/tx";
 const getFeatures = () => [{
-  icon: <DashboardIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_f123de18fecc"),
-  desc: tx("auto.k_ee8466a84ba5"),
+  icon: <InboxIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.inbox.title'),
+  desc: tx('landing.features.inbox.desc'),
   color: '#008069'
 }, {
-  icon: <SendIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_7fb4fd402513"),
-  desc: tx("auto.k_2f8c0667562f"),
+  icon: <CampaignIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.campaigns.title'),
+  desc: tx('landing.features.campaigns.desc'),
   color: '#1976d2'
 }, {
-  icon: <PeopleIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_544726be9628"),
-  desc: tx("auto.k_b155d14b973d"),
+  icon: <ImportExportIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.contacts.title'),
+  desc: tx('landing.features.contacts.desc'),
   color: '#9c27b0'
 }, {
-  icon: <TemplateIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_bc2d90ef2a64"),
-  desc: tx("auto.k_f9d71b9092b2"),
+  icon: <AutomationIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.automation.title'),
+  desc: tx('landing.features.automation.desc'),
   color: '#ed6c02'
 }, {
-  icon: <AssessmentIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_cc181df0d43c"),
-  desc: tx("auto.k_c6cdc9d52e8c"),
+  icon: <FacebookIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.facebook.title'),
+  desc: tx('landing.features.facebook.desc'),
   color: '#2e7d32'
 }, {
-  icon: <ApiIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_3538e06d709e"),
-  desc: tx("auto.k_076ccfebc53e"),
+  icon: <BotIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.bot.title'),
+  desc: tx('landing.features.bot.desc'),
   color: '#c62828'
 }, {
-  icon: <SecurityIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_d3826e2f2f21"),
-  desc: tx("auto.k_3c2b73caeea1"),
+  icon: <AssessmentIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.analytics.title'),
+  desc: tx('landing.features.analytics.desc'),
   color: '#0288d1'
 }, {
-  icon: <SpeedIcon sx={{
-    fontSize: 32
-  }} />,
-  title: tx("auto.k_06517cff3393"),
-  desc: tx("auto.k_5680eba95d13"),
+  icon: <WebhookIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.api.title'),
+  desc: tx('landing.features.api.desc'),
   color: '#558b2f'
+}, {
+  icon: <QrCodeIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.qr.title'),
+  desc: tx('landing.features.qr.desc'),
+  color: '#00695c'
+}, {
+  icon: <TenantIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.tenants.title'),
+  desc: tx('landing.features.tenants.desc'),
+  color: '#5e35b1'
+}, {
+  icon: <BillingIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.billing.title'),
+  desc: tx('landing.features.billing.desc'),
+  color: '#ad5f00'
+}, {
+  icon: <SecurityIcon sx={{ fontSize: 32 }} />,
+  title: tx('landing.features.security.title'),
+  desc: tx('landing.features.security.desc'),
+  color: '#37474f'
 }];
+const getPlans = () => [{
+  key: 'business',
+  price: 120,
+  credits: '10,000',
+  messages: '2,000',
+  featured: false
+}, {
+  key: 'growth',
+  price: 550,
+  credits: '50,000',
+  messages: '10,000',
+  featured: true
+}].map(plan => ({
+  ...plan,
+  name: tx(`landing.pricing.${plan.key}.name`),
+  description: tx(`landing.pricing.${plan.key}.description`),
+  features: tx(`landing.pricing.${plan.key}.features`)
+}));
 const getCapabilities = () => [{
   icon: '☁️',
   title: tx("auto.k_779647f280e1"),
@@ -274,6 +296,9 @@ const LandingPage = () => {
             }, {
               label: tx("auto.k_58c52dca4d40"),
               id: 'use-cases'
+            }, {
+              label: tx('landing.navPricing'),
+              id: 'pricing'
             }].map(item => <Button key={item.id} onClick={() => scrollTo(item.id)} sx={{
               color: scrolled ? '#333' : 'rgba(255,255,255,0.9)',
               fontFamily: 'Cairo, sans-serif',
@@ -798,7 +823,7 @@ const LandingPage = () => {
                         <Typography component="h2" variant="h3" fontWeight={800} sx={{
             fontFamily: 'Cairo, sans-serif',
             mb: 2
-          }}>{tx("auto.k_a7fda2dba8a5")}
+          }}>{tx('landing.featuresTitle')}
 
             </Typography>
                         <Typography component="p" variant="h6" color="text.secondary" sx={{
@@ -807,7 +832,7 @@ const LandingPage = () => {
             maxWidth: 600,
             mx: 'auto',
             lineHeight: 1.8
-          }}>{tx("auto.k_660d656b5bcd")}
+          }}>{tx('landing.featuresSubtitle')}
 
             </Typography>
                     </Box>
@@ -821,6 +846,117 @@ const LandingPage = () => {
                                 <FeatureCard {...f} delay={i * 60} />
                             </Grid>)}
                     </Grid>
+                </Container>
+            </Box>
+
+            {/* ── Pricing Section ─────────────────────────────── */}
+            <Box id="pricing" sx={{
+      py: {
+        xs: 8,
+        md: 12
+      },
+      bgcolor: '#fff'
+    }}>
+                <Container maxWidth="md">
+                    <Box sx={{ textAlign: 'center', mb: 7 }}>
+                        <Chip label={tx('landing.pricing.eyebrow')} sx={{
+            bgcolor: '#00806915',
+            color: '#008069',
+            fontFamily: 'Cairo, sans-serif',
+            fontWeight: 700,
+            mb: 2
+          }} />
+                        <Typography component="h2" variant="h3" fontWeight={800} sx={{
+            fontFamily: 'Cairo, sans-serif',
+            mb: 2
+          }}>
+                            {tx('landing.pricing.title')}
+                        </Typography>
+                        <Typography component="p" variant="h6" color="text.secondary" sx={{
+            fontFamily: 'Cairo, sans-serif',
+            fontWeight: 400,
+            lineHeight: 1.8,
+            maxWidth: 680,
+            mx: 'auto'
+          }}>
+                            {tx('landing.pricing.subtitle')}
+                        </Typography>
+                    </Box>
+
+                    <Grid container spacing={3} alignItems="stretch">
+                        {getPlans().map(plan => <Grid size={{ xs: 12, md: 6 }} key={plan.key}>
+                            <Card elevation={0} sx={{
+                height: '100%',
+                position: 'relative',
+                border: '2px solid',
+                borderColor: plan.featured ? '#008069' : 'rgba(0,0,0,0.08)',
+                borderRadius: 4,
+                overflow: 'visible',
+                boxShadow: plan.featured ? '0 18px 48px rgba(0,128,105,0.16)' : '0 10px 30px rgba(15,23,42,0.06)'
+              }}>
+                                {plan.featured && <Chip label={tx('landing.pricing.popular')} color="primary" sx={{
+                  position: 'absolute',
+                  top: -16,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  fontFamily: 'Cairo, sans-serif',
+                  fontWeight: 800,
+                  px: 1
+                }} />}
+                                <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+                                    <Typography component="h3" variant="h5" fontWeight={800} sx={{ fontFamily: 'Cairo, sans-serif', mb: 1 }}>
+                                        {plan.name}
+                                    </Typography>
+                                    <Typography color="text.secondary" sx={{ fontFamily: 'Cairo, sans-serif', minHeight: { md: 56 }, lineHeight: 1.8, mb: 3 }}>
+                                        {plan.description}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 1 }}>
+                                        <Typography component="span" variant="h2" fontWeight={900} color="primary.main">
+                                            {plan.price}
+                                        </Typography>
+                                        <Typography component="span" variant="h6" color="text.secondary" fontWeight={700}>
+                                            {tx('landing.pricing.currency')}
+                                        </Typography>
+                                    </Box>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                                        {tx('landing.pricing.period')}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 3 }}>
+                                        <Chip label={tx('landing.pricing.credits', { count: plan.credits })} color="primary" variant="outlined" />
+                                        <Chip label={tx('landing.pricing.messages', { count: plan.messages })} color="secondary" variant="outlined" />
+                                    </Box>
+                                    <Divider sx={{ mb: 3 }} />
+                                    <Box component="ul" sx={{ listStyle: 'none', display: 'grid', gap: 1.5, mb: 4 }}>
+                                        {plan.features.map(feature => <Box component="li" key={feature} sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                                            <CheckCircleIcon color="primary" sx={{ fontSize: 20, mt: 0.25, flexShrink: 0 }} />
+                                            <Typography variant="body2" sx={{ fontFamily: 'Cairo, sans-serif', lineHeight: 1.8 }}>
+                                                {feature}
+                                            </Typography>
+                                        </Box>)}
+                                    </Box>
+                                    <Button
+                                      component={RouterLink}
+                                      to="/login"
+                                      fullWidth
+                                      size="large"
+                                      variant={plan.featured ? 'contained' : 'outlined'}
+                                      endIcon={<ArrowBackIcon />}
+                                      sx={{ borderRadius: 2.5, py: 1.5, fontFamily: 'Cairo, sans-serif', fontWeight: 800 }}
+                                    >
+                                        {tx('landing.pricing.choose')}
+                                    </Button>
+                                </CardContent>
+                            </Card>
+                        </Grid>)}
+                    </Grid>
+                    <Typography variant="body2" color="text.secondary" sx={{
+          textAlign: 'center',
+          mt: 4,
+          lineHeight: 1.8,
+          fontFamily: 'Cairo, sans-serif'
+        }}>
+                        {tx('landing.pricing.disclaimer')}
+                    </Typography>
                 </Container>
             </Box>
 

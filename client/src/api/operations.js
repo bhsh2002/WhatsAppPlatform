@@ -1,3 +1,28 @@
+const parseApiResponse = async response => {
+    const text = await response.text();
+    let data = {};
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch {
+            data = { error: text };
+        }
+    }
+    if (!response.ok) {
+        const error = new Error(data.error || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.data = data;
+        throw error;
+    }
+    return data;
+};
+
+const extractDownloadFilename = (response, fallback) => {
+    const disposition = response.headers.get('content-disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return match?.[1] || fallback;
+};
+
 export const operationsMethods = {
     // ============================================
     // Contact Management (Admin)
@@ -31,6 +56,30 @@ export const operationsMethods = {
         });
     },
 
+    async importContactsCsv(file, tenantId) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('tenant_id', tenantId);
+        const response = await fetch(`${this.baseUrl}/api/messages/contacts/import`, {
+            method: 'POST',
+            credentials: 'include',
+            body: formData,
+        });
+        return parseApiResponse(response);
+    },
+
+    async exportContactsCsv(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const response = await fetch(`${this.baseUrl}/api/messages/contacts/export${query ? `?${query}` : ''}`, {
+            credentials: 'include',
+        });
+        if (!response.ok) await parseApiResponse(response);
+        return {
+            blob: await response.blob(),
+            filename: extractDownloadFilename(response, 'contacts.csv'),
+        };
+    },
+
     // ============================================
     // Contact Management (Tenant)
     // ============================================
@@ -57,6 +106,29 @@ export const operationsMethods = {
         return this.request(`/api/portal/contacts/${id}`, {
             method: 'DELETE',
         });
+    },
+
+    async importPortalContactsCsv(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await fetch(`${this.baseUrl}/api/portal/contacts/import`, {
+            method: 'POST',
+            credentials: 'include',
+            body: formData,
+        });
+        return parseApiResponse(response);
+    },
+
+    async exportPortalContactsCsv(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const response = await fetch(`${this.baseUrl}/api/portal/contacts/export${query ? `?${query}` : ''}`, {
+            credentials: 'include',
+        });
+        if (!response.ok) await parseApiResponse(response);
+        return {
+            blob: await response.blob(),
+            filename: extractDownloadFilename(response, 'contacts.csv'),
+        };
     },
 
     // ============================================
