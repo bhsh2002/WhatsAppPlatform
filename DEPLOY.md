@@ -126,7 +126,9 @@ when the checked-out code has unapplied migrations.
    foreign keys, compresses the snapshot, restores it into a temporary
    directory, validates it again, and prints its SHA-256 digest.
 3. Start the new release. Migrations run synchronously before the HTTP listener.
-4. Verify `/api/health`, login, signed webhook delivery, and a tenant portal page.
+4. Verify `/api/health`, the anonymous `/api/auth/session` response, login,
+   signed webhook delivery, the authenticated landing page, and a tenant portal
+   page.
 
 SQL migrations are forward-only. To roll back a release that applied a schema
 migration, stop the server, restore the verified pre-deployment database backup,
