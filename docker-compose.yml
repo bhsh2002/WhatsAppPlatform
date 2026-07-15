@@ -6,6 +6,7 @@ services:
       TZ: Africa/Tripoli
       NODE_ENV: production
       DATABASE_PATH: /app/data/platform.db
+      BACKUP_DIR: /app/data/backups
     ports:
       - "3031:3031"
     volumes:

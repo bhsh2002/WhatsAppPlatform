@@ -44,6 +44,23 @@ npm run backup
 # Only the last 10 backups are kept automatically
 ```
 
+With the production Compose profile, run the same verified workflow inside the
+server image. `BACKUP_DIR` is already set to the writable `/app/data/backups`
+volume, so no one-off environment override is required:
+
+```bash
+docker compose run --rm --no-deps server npm run backup
+```
+
+The host archive is created under `server/db/backups/`. The container runs as
+UID/GID `1000:1000`; production must grant that identity read/write/traverse
+access to `server/db` and `server/uploads`, and read access to `server/.env`.
+Confirm the printed digest from the host before continuing an update:
+
+```bash
+sha256sum server/db/backups/platform_TIMESTAMP.db.gz
+```
+
 The command uses SQLite's online backup API, runs `quick_check` and
 `foreign_key_check`, compresses the snapshot, restores it to a private temporary
 directory, checks it again, and prints a SHA-256 digest. Override locations and
