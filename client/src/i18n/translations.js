@@ -163,7 +163,7 @@ export const translations = {
         messages: 'حوالي {count} رسالة',
         popular: 'الأكثر طلباً',
         choose: 'ابدأ بهذه الباقة',
-        creditNote: 'الكريديت رصيد استخدام يُخصم عند الإرسال؛ يختلف الخصم حسب نوع الرسالة وتسعير Meta.',
+        creditNote: 'الكريديت رصيد استخدام يُخصم عند الإرسال؛ يختلف الخصم حسب نوع الرسالة والخدمة المستخدمة.',
         disclaimer: 'عدد الرسائل تقديري على أساس متوسط 5 كريديت للرسالة، وقد يختلف حسب نوع الرسالة وفئة Meta والدولة والتسعير الفعلي.',
         business: {
           name: 'باقة الأعمال',
@@ -2419,7 +2419,7 @@ export const translations = {
         messages: 'About {count} messages',
         popular: 'Most popular',
         choose: 'Start with this plan',
-        creditNote: 'Credits are usage balance deducted when sending; the deduction varies by message type and Meta pricing.',
+        creditNote: 'Credits are usage balance deducted when sending; the deduction varies by message type and service used.',
         disclaimer: 'Message counts estimate an average of 5 credits per message and can vary by message type, Meta category, country and actual pricing.',
         business: {
           name: 'Business',
