@@ -6,6 +6,7 @@ import { decryptIfEncrypted } from './encryption.js';
 import eventBus from './eventBus.js';
 import { insertMessengerMessage, normalizeMessengerTimestamp } from './messengerMessages.js';
 import { readMetaResponse } from './metaHttp.js';
+import { sendFacebookPrivateReply } from './facebookPrivateReplies.js';
 
 // ============================================
 // Auto-Responder Service
@@ -627,6 +628,7 @@ async function sendCommentAutoReply(rule, {
     const responseAction = rule.response_action || 'comment';
     let publicSent = false;
     let dmSent = false;
+    let likeSent = false;
 
     // 1. Public comment reply
     if ((responseAction === 'comment' || responseAction === 'both') && rule.response_text) {
@@ -654,22 +656,16 @@ async function sendCommentAutoReply(rule, {
         }
     }
 
-    // 2. Private DM via private_replies API
+    // 2. Private DM via the Page Send API, addressed by comment_id.
     if ((responseAction === 'dm' || responseAction === 'both') && (rule.dm_text || rule.response_text)) {
         const dmMessage = rule.dm_text || rule.response_text;
         try {
-            const response = await fetch(`${META_API_BASE}/${comment_id}/private_replies`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: dmMessage,
-                }),
+            const metaResult = await sendFacebookPrivateReply({
+                pageId: page.page_id || page_id,
+                commentId: comment_id,
+                message: dmMessage,
+                accessToken,
             });
-
-            const metaResult = await readMetaResponse(response);
             const data = metaResult.data || {};
             if (metaResult.ok) {
                 dmSent = true;
@@ -722,6 +718,7 @@ async function sendCommentAutoReply(rule, {
 
             const likeResult = await readMetaResponse(likeResponse);
             if (likeResult.ok) {
+                likeSent = true;
                 console.log(`[AutoResponder] Liked comment ${comment_id}`);
             } else {
                 console.error('[AutoResponder] Like failed:', likeResult.status, likeResult.error?.code);
@@ -731,7 +728,10 @@ async function sendCommentAutoReply(rule, {
         }
     }
 
-    return publicSent || dmSent || !!rule.auto_like;
+    if (likeSent && !publicSent && !dmSent) {
+        console.warn(`[AutoResponder] Comment ${comment_id} was liked, but the configured reply was not sent`);
+    }
+    return publicSent || dmSent;
 }
 
 // ============================================

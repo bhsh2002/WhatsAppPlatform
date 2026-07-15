@@ -209,6 +209,17 @@ test('admin and tenant automation share the same safe match options and presenta
     assert.match(presentation, /export const AutomationRuleTypeIcon/);
 });
 
+test('Facebook comment DMs use the Page Send API and likes cannot mask reply failures', () => {
+    const autoResponder = read('server/services/autoResponder.js');
+    const privateReplies = read('server/services/facebookPrivateReplies.js');
+
+    assert.match(privateReplies, /recipient:\s*\{ comment_id: normalizedCommentId \}/);
+    assert.match(privateReplies, /encodeURIComponent\(normalizedPageId\)\}\/messages/);
+    assert.doesNotMatch(privateReplies, /\/private_replies/);
+    assert.match(autoResponder, /return publicSent \|\| dmSent;/);
+    assert.doesNotMatch(autoResponder, /return publicSent \|\| dmSent \|\| !!rule\.auto_like/);
+});
+
 test('admin and tenant template pages share Meta payload and status behavior', () => {
     const adminPage = read('client/src/pages/Templates/AdminTemplates.jsx');
     const tenantPage = read('client/src/pages/TenantPortal/TenantTemplates.jsx');
