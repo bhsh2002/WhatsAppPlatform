@@ -70,6 +70,73 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
             styleOverrides: {
                 root: {
                     textTransform: 'none',
+                    maxWidth: '100%',
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                },
+            },
+        },
+        MuiTableContainer: {
+            styleOverrides: {
+                root: {
+                    width: '100%',
+                    maxWidth: '100%',
+                    overflowX: 'auto',
+                    WebkitOverflowScrolling: 'touch',
+                },
+            },
+        },
+        MuiTable: {
+            styleOverrides: {
+                root: {
+                    width: '100%',
+                    tableLayout: 'fixed',
+                    '@media (max-width: 600px)': {
+                        minWidth: 720,
+                    },
+                },
+            },
+        },
+        MuiTableCell: {
+            styleOverrides: {
+                root: {
+                    verticalAlign: 'top',
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                },
+            },
+        },
+        MuiChip: {
+            styleOverrides: {
+                root: {
+                    maxWidth: '100%',
+                    height: 'auto',
+                    minHeight: 28,
+                },
+                label: {
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    paddingTop: 4,
+                    paddingBottom: 4,
+                },
+            },
+        },
+        MuiAlert: {
+            styleOverrides: {
+                message: {
+                    minWidth: 0,
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                },
+            },
+        },
+        MuiDialog: {
+            styleOverrides: {
+                paper: {
+                    maxWidth: 'calc(100% - 32px)',
+                    overflowWrap: 'anywhere',
                 },
             },
         },

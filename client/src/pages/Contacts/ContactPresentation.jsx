@@ -99,7 +99,7 @@ export const ContactTable = ({
   const columnCount = showTenant ? 8 : 7;
   return (
     <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
-      <Table>
+      <Table sx={{ minWidth: showTenant ? 1040 : 880, tableLayout: 'fixed' }}>
         <TableHead>
           <TableRow>
             <TableCell>{tx('auto.k_211cce4ca4ef')}</TableCell>

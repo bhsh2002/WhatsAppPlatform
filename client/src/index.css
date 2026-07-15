@@ -14,6 +14,22 @@ body {
   font-family: var(--font-sans);
   line-height: 1.6;
   direction: inherit;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#root {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.MuiTypography-root,
+.MuiAlert-message,
+.MuiDialogContent-root,
+.MuiCardContent-root,
+.MuiListItemText-root {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Keep keyboard focus visible across native controls and MUI components. */
