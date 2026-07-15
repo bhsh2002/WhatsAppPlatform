@@ -369,7 +369,8 @@ test('browser auth uses HttpOnly cookies while logout and password rotation rema
     assert.match(apiClient, /['"]\/api\/auth\/logout['"]/);
     assert.match(apiClient, /credentials:\s*['"]include['"]/);
     assert.match(apiClient, /takeLegacyAuthToken\(\)/);
-    assert.match(apiClient, /['"]\/api\/auth\/me['"][\s\S]*suppressErrorStatuses:\s*\[401, 403\]/);
+    assert.match(apiClient, /getCurrentUser\(\)[\s\S]*['"]\/api\/auth\/session['"]/);
+    assert.match(authContext, /if \(!data\.authenticated \|\| !data\.user\)/);
     assert.match(authContext, /api\.logout\(\)/);
     assert.match(authContext, /api\.adoptLegacySession\(legacyToken\)/);
     const unauthenticatedBranch = authContext.indexOf('if (err.status === 401 || err.status === 403)');
