@@ -4,7 +4,13 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/index.js';
-import { adminMiddleware, authMiddleware, generateMediaToken, getRequestAuthToken } from '../middleware/auth.js';
+import {
+    adminMiddleware,
+    authMiddleware,
+    generateMediaToken,
+    getRequestAuthToken,
+    optionalAuth,
+} from '../middleware/auth.js';
 import { clearSessionCookie, setSessionCookie } from '../security/sessionCookie.js';
 
 const router = express.Router();
@@ -30,6 +36,20 @@ function revokeAllUserTokens(userId) {
     // All tokens issued before this time will be considered invalid
     db.prepare("UPDATE users SET tokens_revoked_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime') WHERE id = ?")
         .run(userId);
+}
+
+function getSessionProfile(userId) {
+    const user = db.prepare('SELECT id, username, email, name, role, tenant_id, created_at, last_login FROM users WHERE id = ?')
+        .get(userId);
+
+    if (!user) return null;
+
+    const tenant = user.tenant_id
+        ? db.prepare('SELECT id, name, phone, status, tier, credits, quality, phone_number_id, waba_id, business_id, dataset_id FROM tenants WHERE id = ?')
+            .get(user.tenant_id)
+        : null;
+
+    return { user, tenant };
 }
 
 // Register new user (admin only — requires valid admin token)
@@ -150,23 +170,34 @@ router.post('/login', async (req, res) => {
 // Get current user
 router.get('/me', authMiddleware, (req, res) => {
     try {
-        const user = db.prepare('SELECT id, username, email, name, role, tenant_id, created_at, last_login FROM users WHERE id = ?')
-            .get(req.user.id);
-
-        if (!user) {
+        const profile = getSessionProfile(req.user.id);
+        if (!profile) {
             return res.status(401).json({ error: 'المستخدم غير موجود' });
         }
-
-        // If user has tenant_id, include tenant info
-        let tenant = null;
-        if (user.tenant_id) {
-            tenant = db.prepare('SELECT id, name, phone, status, tier, credits, quality, phone_number_id, waba_id, business_id, dataset_id FROM tenants WHERE id = ?')
-                .get(user.tenant_id);
-        }
-
-        res.json({ user, tenant });
+        res.json(profile);
     } catch (error) {
         console.error('[Auth] Me error:', error);
+        return res.status(500).json({ error: 'فشل جلب بيانات الجلسة' });
+    }
+});
+
+// Public session probe for browser bootstrapping. Missing, expired or revoked
+// cookies are a normal anonymous state and deliberately return 200 instead of
+// generating a noisy 401 on public pages.
+router.get('/session', optionalAuth, (req, res) => {
+    try {
+        if (!req.user) {
+            return res.json({ authenticated: false, user: null, tenant: null });
+        }
+
+        const profile = getSessionProfile(req.user.id);
+        if (!profile) {
+            return res.json({ authenticated: false, user: null, tenant: null });
+        }
+
+        return res.json({ authenticated: true, ...profile });
+    } catch (error) {
+        console.error('[Auth] Session probe error:', error);
         return res.status(500).json({ error: 'فشل جلب بيانات الجلسة' });
     }
 });

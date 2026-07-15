@@ -36,6 +36,7 @@ test('auth lifecycle and role policies use isolated persistent state', () => {
             oneTimeSseToken: true,
             currentRoleEnforcement: true,
             tenantStatusPolicy: true,
+            publicSessionProbe: true,
         });
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });

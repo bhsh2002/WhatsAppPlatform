@@ -48,9 +48,18 @@ export const AuthProvider = ({
     try {
       setLoading(true);
       const data = await api.getCurrentUser();
+      if (!data.authenticated || !data.user) {
+        clearStoredSession();
+        api.resetSessionCaches();
+        setUser(null);
+        setTenant(null);
+        setError(null);
+        return;
+      }
       setUser(data.user);
       setTenant(data.tenant || null);
       writeCachedSession(data.user, data.tenant || null);
+      setError(null);
     } catch (err) {
       if (err.status === 401 || err.status === 403) {
         clearStoredSession();

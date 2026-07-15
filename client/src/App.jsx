@@ -102,11 +102,7 @@ function AppRoutes() {
       {/* Public routes */}
       <Route
         path="/"
-        element={
-          isAuthenticated
-            ? <Navigate to={isTenant ? '/portal' : '/dashboard'} replace />
-            : <LandingPage />
-        }
+        element={<LandingPage />}
       />
       <Route
         path="/login"

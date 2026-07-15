@@ -117,7 +117,7 @@ class ApiService {
     }
 
     async getCurrentUser() {
-        return this.request('/api/auth/me', { suppressErrorStatuses: [401, 403] });
+        return this.request('/api/auth/session');
     }
 
     async adoptLegacySession(token) {

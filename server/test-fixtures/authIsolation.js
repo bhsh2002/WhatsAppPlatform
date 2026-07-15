@@ -110,6 +110,19 @@ assert.equal(adminLogin.res.cookies[0].options.path, '/api');
 assert.equal((await invokeRoute('get', '/me', {
     headers: sessionCookie(adminLogin.res),
 })).res.statusCode, 200);
+const anonymousSession = await invokeRoute('get', '/session');
+assert.equal(anonymousSession.res.statusCode, 200);
+assert.deepEqual(anonymousSession.res.body, {
+    authenticated: false,
+    user: null,
+    tenant: null,
+});
+const authenticatedSession = await invokeRoute('get', '/session', {
+    headers: sessionCookie(adminLogin.res),
+});
+assert.equal(authenticatedSession.res.statusCode, 200);
+assert.equal(authenticatedSession.res.body.authenticated, true);
+assert.equal(authenticatedSession.res.body.user.id, adminId);
 
 const tenantLogin = await login('fixture-tenant');
 assert.equal(tenantLogin.res.statusCode, 200);
@@ -126,6 +139,11 @@ const revokedMe = await invokeRoute('get', '/me', {
     headers: bearer(tenantLogin.res.body.token),
 });
 assert.equal(revokedMe.res.statusCode, 401);
+const revokedSession = await invokeRoute('get', '/session', {
+    headers: bearer(tenantLogin.res.body.token),
+});
+assert.equal(revokedSession.res.statusCode, 200);
+assert.equal(revokedSession.res.body.authenticated, false);
 
 // Password change revokes the old token, returns a usable replacement, and changes login credentials.
 const passwordLogin = await login('fixture-tenant');
@@ -227,5 +245,6 @@ console.log(JSON.stringify({
     oneTimeSseToken: true,
     currentRoleEnforcement: true,
     tenantStatusPolicy: true,
+    publicSessionProbe: true,
 }));
 process.exit(0);
