@@ -32,6 +32,7 @@ import {
     WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 
 const palette = {
     ink: '#16352f',
@@ -107,6 +108,9 @@ const SectionHeading = ({ eyebrow, title, description, align = 'start', light = 
 
 const LandingPage = () => {
     const { language, setLanguage, t } = useLanguage();
+    const { isAuthenticated, isTenant } = useAuth();
+    const workspacePath = isTenant ? '/portal' : '/dashboard';
+    const entryPath = isAuthenticated ? workspacePath : '/login';
     const outcomes = ['inbox', 'campaigns', 'automation', 'insights'];
     const supportingFeatures = ['otp', 'contacts', 'facebook', 'bot', 'qr', 'api', 'billing', 'security', 'tenants'];
     const journeySteps = ['connect', 'organize', 'automate', 'grow'];
@@ -191,7 +195,7 @@ const LandingPage = () => {
                             </IconButton>
                             <Button
                                 component={RouterLink}
-                                to="/login"
+                                to={entryPath}
                                 variant="contained"
                                 sx={{
                                     bgcolor: palette.ink,
@@ -207,7 +211,7 @@ const LandingPage = () => {
                                     '&:hover': { bgcolor: palette.green, boxShadow: 'none' },
                                 }}
                             >
-                                {t('landing.navLogin')}
+                                {t(isAuthenticated ? 'landing.navWorkspace' : 'landing.navLogin')}
                             </Button>
                         </Stack>
                     </Box>
@@ -259,7 +263,7 @@ const LandingPage = () => {
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 4, alignItems: { sm: 'center' } }}>
                                     <Button
                                         component={RouterLink}
-                                        to="/login"
+                                        to={entryPath}
                                         variant="contained"
                                         size="large"
                                         endIcon={<ArrowBackIcon />}
@@ -556,7 +560,7 @@ const LandingPage = () => {
                                             </Box>
                                         ))}
                                     </Stack>
-                                    <Button component={RouterLink} to="/login" fullWidth variant="contained" sx={{ mt: 4, py: 1.4, bgcolor: plan.featured ? palette.coral : palette.green, borderRadius: '9px 9px 2px 9px', boxShadow: 'none', fontWeight: 800, '&:hover': { bgcolor: palette.ink, boxShadow: 'none' } }}>
+                                    <Button component={RouterLink} to={entryPath} fullWidth variant="contained" sx={{ mt: 4, py: 1.4, bgcolor: plan.featured ? palette.coral : palette.green, borderRadius: '9px 9px 2px 9px', boxShadow: 'none', fontWeight: 800, '&:hover': { bgcolor: palette.ink, boxShadow: 'none' } }}>
                                         {t('landing.pricing.choose')}
                                     </Button>
                                 </Box>
@@ -575,7 +579,7 @@ const LandingPage = () => {
                                 <Typography component="h2" sx={{ color: '#fffdf8', fontWeight: 800, fontSize: { xs: '2rem', md: '3rem' }, lineHeight: 1.25 }}>{t('landing.cta.title')}</Typography>
                                 <Typography sx={{ mt: 1.5, color: 'rgba(255,255,255,0.82)', fontSize: '1.05rem' }}>{t('landing.cta.description')}</Typography>
                             </Box>
-                            <Button component={RouterLink} to="/login" size="large" sx={{ bgcolor: '#fffdf8', color: palette.ink, px: 4, py: 1.5, borderRadius: '10px 10px 2px 10px', fontWeight: 800, '&:hover': { bgcolor: palette.ink, color: 'white' } }}>
+                            <Button component={RouterLink} to={entryPath} size="large" sx={{ bgcolor: '#fffdf8', color: palette.ink, px: 4, py: 1.5, borderRadius: '10px 10px 2px 10px', fontWeight: 800, '&:hover': { bgcolor: palette.ink, color: 'white' } }}>
                                 {t('landing.cta.button')}
                             </Button>
                         </Box>
@@ -630,7 +634,7 @@ const LandingPage = () => {
                         <Box sx={{ minWidth: 0, bgcolor: 'rgba(255,255,255,0.06)', p: 2.5, borderRadius: '18px 5px 18px 18px', alignSelf: 'start' }}>
                             <Typography component="h2" sx={{ fontWeight: 800, fontSize: '1rem' }}>{t('landing.footer.readyTitle')}</Typography>
                             <Typography sx={{ color: 'rgba(255,255,255,0.58)', mt: 1, mb: 2, lineHeight: 1.7, fontSize: '0.86rem', wordBreak: 'normal' }}>{t('landing.footer.readyDescription')}</Typography>
-                            <Button component={RouterLink} to="/login" fullWidth variant="contained" sx={{ bgcolor: palette.green, boxShadow: 'none', fontWeight: 750, '&:hover': { bgcolor: '#0b9a6e', boxShadow: 'none' } }}>{t('landing.footer.button')}</Button>
+                            <Button component={RouterLink} to={entryPath} fullWidth variant="contained" sx={{ bgcolor: palette.green, boxShadow: 'none', fontWeight: 750, '&:hover': { bgcolor: '#0b9a6e', boxShadow: 'none' } }}>{t(isAuthenticated ? 'landing.navWorkspace' : 'landing.footer.button')}</Button>
                         </Box>
                     </Box>
 

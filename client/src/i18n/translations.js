@@ -65,13 +65,14 @@ export const translations = {
       navUseCases: 'لمن صُممت؟',
       navPricing: 'الباقات',
       navLogin: 'دخول المنصة',
+      navWorkspace: 'لوحة التحكم',
       primaryNavigation: 'التنقل في الصفحة الرئيسية',
       languageSwitch: 'عرض الصفحة باللغة الإنجليزية',
       hero: {
-        eyebrow: 'منصة التواصل التي تعمل مع فريقك',
-        title: 'كل محادثة فرصة بيع.',
-        accent: 'خلّ فريقك يلتقطها.',
-        description: 'اجمع محادثات WhatsApp وMessenger، نظّم العملاء، أطلق الحملات، وأرسل رموز التحقق والإشعارات التشغيلية—كل ذلك من مساحة واحدة ترتبط بأنظمتك وتعمل مع فريقك.',
+        eyebrow: 'منصة تواصل تناسب طريقة عملك',
+        title: 'كل تواصل له غاية.',
+        accent: 'اجعل الخطوة التالية أوضح.',
+        description: 'اجمع محادثات WhatsApp وMessenger، نظّم جهات الاتصال، أطلق الحملات، وأرسل رموز التحقق والإشعارات التشغيلية—كل ذلك من مساحة واحدة ترتبط بأنظمتك وتعمل مع فريقك.',
         primaryCta: 'ابدأ إدارة محادثاتك',
         secondaryCta: 'استكشف ما ستحصل عليه',
         note: 'إعداد واضح • بيانات كل نشاط مستقلة • تجربة عربية كاملة'
@@ -82,11 +83,11 @@ export const translations = {
         subtitle: 'كل ما يحتاج متابعة في مكان واحد',
         status: 'الفريق متصل',
         inbox: 'صندوق الفريق',
-        contact: 'سارة · متجر النخيل',
+        contact: 'مستخدم الخدمة · طلب جديد',
         channel: 'محادثة WhatsApp',
-        message: 'هل اللون الأزرق متاح؟',
-        reply: 'نعم، وسأرسل لك رابط الطلب الآن.',
-        campaign: 'حملة العملاء المهتمين',
+        message: 'هل يمكنني متابعة حالة الطلب؟',
+        reply: 'بالتأكيد، أرسلنا لك آخر تحديث الآن.',
+        campaign: 'إشعارات المتابعة',
         campaignState: 'جاهزة للمراجعة',
         automation: 'ردود التعليقات',
         automationState: 'تعمل وفق قواعدك'
@@ -102,13 +103,13 @@ export const translations = {
         subtitle: 'لا تحتاج إلى القفز بين أدوات منفصلة. تعمل المحادثات وجهات الاتصال والحملات والردود والتحليلات معاً كي يعرف فريقك ما الخطوة التالية.',
         outcomes: {
           inbox: {
-            title: 'لا تترك عميلاً ينتظر',
+            title: 'لا تترك تواصلاً بلا متابعة',
             description: 'يرى فريقك محادثات WhatsApp وMessenger في صندوق وارد موحّد، بسجل واضح وحالة قراءة ومتابعة أسهل بين أعضاء الفريق.',
             items: ['صندوق وارد موحّد', 'سجل المحادثة', 'حالة القراءة والمتابعة']
           },
           campaigns: {
             title: 'أطلق حملتك من دون فوضى',
-            description: 'أنشئ القوالب المعتمدة، نظّم قوائم العملاء، واستورد أو صدّر جهات الاتصال عبر CSV ثم تابع نتيجة الإرسال لكل مستلم.',
+            description: 'أنشئ القوالب المعتمدة، نظّم قوائم الجمهور، واستورد أو صدّر جهات الاتصال عبر CSV ثم تابع نتيجة الإرسال لكل مستلم.',
             items: ['قوالب Meta', 'حملات جماعية', 'استيراد وتصدير CSV']
           },
           automation: {
@@ -118,7 +119,7 @@ export const translations = {
           },
           insights: {
             title: 'اعرف ما الذي يصنع النتيجة',
-            description: 'تابع أداء الرسائل والحملات والتفاعل، واربط أحداث التحويل كي ترى بوضوح أين تبدأ الفرصة وأين تحتاج المحادثة إلى تحسين.',
+            description: 'تابع أداء الرسائل والحملات والتفاعل، واربط أحداث التحويل كي ترى بوضوح أين تبدأ النتيجة وأين يحتاج مسار التواصل إلى تحسين.',
             items: ['لوحات أداء', 'أحداث تحويل', 'متابعة الاستخدام']
           }
         },
@@ -128,15 +129,15 @@ export const translations = {
           contacts: { title: 'جهات اتصال مرتبة', description: 'بحث وتصنيف وملاحظات واستيراد وتصدير ضمن حسابك.' },
           facebook: { title: 'Facebook وMessenger', description: 'الصفحات والمحتوى والتعليقات والرسائل الخاصة من المنصة.' },
           bot: { title: 'بوت وكتالوج منتجات', description: 'تدفقات وصور وردود سريعة وتحويل سلس إلى موظف.' },
-          qr: { title: 'رموز QR وملف النشاط', description: 'أنشئ نقاط دخول سريعة للمحادثة وحدّث بيانات نشاطك.' },
+          qr: { title: 'رموز QR والملف التعريفي', description: 'أنشئ نقاط دخول سريعة للمحادثة وحدّث بيانات جهتك.' },
           api: { title: 'ربط أنظمتك', description: 'API وWebhooks لتمرير الرسائل والأحداث بأمان.' },
           billing: { title: 'رصيد وفوترة واضحة', description: 'تابع الكريديت والاستخدام والفواتير وتفاصيل الخصم.' },
           security: { title: 'خصوصية من البداية', description: 'جلسات آمنة وبيانات اعتماد مشفرة وفصل لبيانات الحسابات.' },
-          tenants: { title: 'مساحة مستقلة لنشاطك', description: 'صلاحيات وحصص وإعدادات منفصلة لكل نشاط تجاري.' }
+          tenants: { title: 'مساحة مستقلة لكل جهة', description: 'صلاحيات وحصص وإعدادات منفصلة لكل حساب.' }
         }
       },
       journey: {
-        eyebrow: 'رحلة أبسط للفريق والعميل',
+        eyebrow: 'رحلة أبسط للفريق والجمهور',
         title: 'من أول تواصل إلى نتيجة ملموسة',
         subtitle: 'سواء كانت النتيجة طلباً أو حجزاً أو رمز تحقق أو متابعة خدمة، تربط المنصة خطوات التواصل في مسار واحد قابل للقياس.',
         steps: {
@@ -167,10 +168,10 @@ export const translations = {
         choose: 'ابدأ بهذه الباقة',
         includedTitle: 'ما تتضمنه الباقة',
         creditNote: 'الكريديت رصيد استخدام يُخصم عند الإرسال؛ يختلف الخصم حسب نوع الرسالة والخدمة المستخدمة.',
-        disclaimer: 'عدد الرسائل تقديري على أساس متوسط 5 كريديت للرسالة، وقد يختلف حسب نوع الرسالة وفئة Meta والدولة والتسعير الفعلي.',
+        disclaimer: 'عدد الرسائل تقديري على أساس متوسط 5 كريديت للرسالة، وقد يختلف حسب نوع الرسالة والخدمة المستخدمة وطريقة الاستخدام الفعلية.',
         business: {
           name: 'باقة الأعمال',
-          description: 'للفرق التي تريد تنظيم المحادثات والعملاء والحملات اليومية بأدوات واضحة ومركزة.',
+          description: 'للجهات والفرق التي تريد تنظيم المحادثات وجهات الاتصال والحملات اليومية بأدوات واضحة ومركزة.',
           features: ['صندوق وارد موحّد لـ WhatsApp وMessenger', 'جهات الاتصال مع استيراد وتصدير CSV', 'القوالب المعتمدة والحملات الجماعية', 'قواعد الكلمات والترحيب وخارج الدوام', 'تقارير الأداء والاستخدام الأساسية', 'API وWebhooks لربط الأنظمة']
         },
         growth: {
@@ -180,18 +181,18 @@ export const translations = {
         }
       },
       cta: {
-        title: 'اجعل المحادثات تعمل لصالح نشاطك',
-        description: 'ابدأ بمساحة عمل تجمع فريقك وعملاءك وعمليات التواصل اليومية.',
+        title: 'اجعل كل تواصل يقود إلى خطوة واضحة',
+        description: 'ابدأ بمساحة عمل تجمع فريقك وجمهورك وعمليات التواصل اليومية.',
         button: 'دخول المنصة'
       },
       footer: {
-        description: 'منصة متكاملة لإدارة تواصل نشاطك عبر WhatsApp وMessenger—من المحادثة والحملة إلى الأتمتة والقياس.',
+        description: 'منصة متكاملة لإدارة التواصل عبر WhatsApp وMessenger—من المحادثة والحملة إلى الأتمتة والقياس.',
         platform: 'المنصة',
         legal: 'قانوني',
         privacy: 'سياسة الخصوصية',
         terms: 'شروط الخدمة',
         readyTitle: 'جاهز لترتيب محادثاتك؟',
-        readyDescription: 'ادخل إلى حسابك وابدأ من القنوات والعملاء الموجودين لديك.',
+        readyDescription: 'ادخل إلى حسابك وابدأ من القنوات وجهات الاتصال الموجودة لديك.',
         button: 'دخول المنصة',
         copyright: 'Wa Savana. جميع الحقوق محفوظة.'
       }
@@ -2324,13 +2325,14 @@ export const translations = {
       navUseCases: 'Who it is for',
       navPricing: 'Plans',
       navLogin: 'Open platform',
+      navWorkspace: 'Open workspace',
       primaryNavigation: 'Landing page navigation',
       languageSwitch: 'View this page in Arabic',
       hero: {
-        eyebrow: 'The communications platform that works with your team',
-        title: 'Every conversation is a sales opportunity.',
-        accent: 'Help your team catch it.',
-        description: 'Bring WhatsApp and Messenger conversations together, organize customers, launch campaigns, and send verification codes and operational notifications—all from one workspace connected to your systems and team.',
+        eyebrow: 'A communications platform shaped around your work',
+        title: 'Every interaction has a purpose.',
+        accent: 'Make the next step clearer.',
+        description: 'Bring WhatsApp and Messenger conversations together, organize contacts, launch campaigns, and send verification codes and operational notifications—all from one workspace connected to your systems and team.',
         primaryCta: 'Start managing conversations',
         secondaryCta: 'See what is included',
         note: 'Clear setup • Isolated business data • A complete bilingual experience'
@@ -2341,11 +2343,11 @@ export const translations = {
         subtitle: 'Everything needing attention in one place',
         status: 'Team online',
         inbox: 'Team inbox',
-        contact: 'Sara · Al Nakheel Store',
+        contact: 'Service user · New request',
         channel: 'WhatsApp conversation',
-        message: 'Is the blue color available?',
-        reply: 'Yes—I’ll send you the order link now.',
-        campaign: 'Interested customers campaign',
+        message: 'Can I follow the status of my request?',
+        reply: 'Certainly—we have just sent you the latest update.',
+        campaign: 'Follow-up notifications',
         campaignState: 'Ready for review',
         automation: 'Comment replies',
         automationState: 'Running by your rules'
@@ -2361,13 +2363,13 @@ export const translations = {
         subtitle: 'Stop jumping between separate tools. Conversations, contacts, campaigns, replies and analytics work together so your team always knows the next step.',
         outcomes: {
           inbox: {
-            title: 'Never leave a customer waiting',
+            title: 'Never leave an interaction without follow-up',
             description: 'Your team sees WhatsApp and Messenger conversations in one inbox, with clear history, read state and easier handoffs between teammates.',
             items: ['Unified inbox', 'Conversation history', 'Read and follow-up state']
           },
           campaigns: {
             title: 'Launch campaigns without the chaos',
-            description: 'Create approved templates, organize customer lists, import or export contacts through CSV and track delivery for each recipient.',
+            description: 'Create approved templates, organize audience lists, import or export contacts through CSV and track delivery for each recipient.',
             items: ['Meta templates', 'Broadcast campaigns', 'CSV import and export']
           },
           automation: {
@@ -2377,7 +2379,7 @@ export const translations = {
           },
           insights: {
             title: 'Know what creates the outcome',
-            description: 'Track messaging, campaign and engagement performance, then connect conversion events to see where opportunities begin and where conversations can improve.',
+            description: 'Track messaging, campaign and engagement performance, then connect conversion events to see where outcomes begin and where the communication journey can improve.',
             items: ['Performance dashboards', 'Conversion events', 'Usage tracking']
           }
         },
@@ -2387,15 +2389,15 @@ export const translations = {
           contacts: { title: 'Organized contacts', description: 'Search, labels, notes, import and export inside your account.' },
           facebook: { title: 'Facebook and Messenger', description: 'Pages, content, comments and private replies from the platform.' },
           bot: { title: 'Bot and product catalog', description: 'Flows, images, quick replies and a smooth handoff to staff.' },
-          qr: { title: 'QR and business profile', description: 'Create fast conversation entry points and update business details.' },
+          qr: { title: 'QR and organization profile', description: 'Create fast conversation entry points and update your organization details.' },
           api: { title: 'Connect your systems', description: 'Secure APIs and webhooks for messages and events.' },
           billing: { title: 'Clear credits and billing', description: 'See credits, usage, invoices and every deduction.' },
           security: { title: 'Privacy from the start', description: 'Secure sessions, encrypted credentials and isolated account data.' },
-          tenants: { title: 'A workspace for each business', description: 'Independent permissions, quotas and settings for every business.' }
+          tenants: { title: 'A workspace for every organization', description: 'Independent permissions, quotas and settings for every account.' }
         }
       },
       journey: {
-        eyebrow: 'A simpler journey for team and customer',
+        eyebrow: 'A simpler journey for team and audience',
         title: 'From first contact to a measurable outcome',
         subtitle: 'Whether the outcome is an order, appointment, verification code or service follow-up, the platform connects communication in one measurable flow.',
         steps: {
@@ -2426,10 +2428,10 @@ export const translations = {
         choose: 'Start with this plan',
         includedTitle: 'What the plan includes',
         creditNote: 'Credits are usage balance deducted when sending; the deduction varies by message type and service used.',
-        disclaimer: 'Message counts estimate an average of 5 credits per message and can vary by message type, Meta category, country and actual pricing.',
+        disclaimer: 'Message counts estimate an average of 5 credits per message and can vary by message type, service used and actual usage pattern.',
         business: {
           name: 'Business',
-          description: 'For teams that need to organize daily conversations, customers and campaigns with focused tools.',
+          description: 'For organizations and teams that need to organize daily conversations, contacts and campaigns with focused tools.',
           features: ['Unified WhatsApp and Messenger inbox', 'Contacts with CSV import and export', 'Approved templates and broadcast campaigns', 'Keyword, welcome and away rules', 'Essential performance and usage reports', 'API and webhooks for system integration']
         },
         growth: {
@@ -2439,18 +2441,18 @@ export const translations = {
         }
       },
       cta: {
-        title: 'Make conversations work for your business',
-        description: 'Start with a workspace that brings your team, customers and daily communications together.',
+        title: 'Make every interaction lead to a clear next step',
+        description: 'Start with a workspace that brings your team, audience and daily communications together.',
         button: 'Open the platform'
       },
       footer: {
-        description: 'One platform for customer communication across WhatsApp and Messenger—from conversations and campaigns to automation and measurement.',
+        description: 'One platform for communication across WhatsApp and Messenger—from conversations and campaigns to automation and measurement.',
         platform: 'Platform',
         legal: 'Legal',
         privacy: 'Privacy policy',
         terms: 'Terms of service',
         readyTitle: 'Ready to organize your conversations?',
-        readyDescription: 'Open your account and start with the channels and customers you already have.',
+        readyDescription: 'Open your account and start with the channels and contacts you already have.',
         button: 'Open the platform',
         copyright: 'Wa Savana. All rights reserved.'
       }
