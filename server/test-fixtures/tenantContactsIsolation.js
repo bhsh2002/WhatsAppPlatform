@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import db from '../db/database.js';
-import tenantContactsRouter from '../routes/tenantContacts.js';
+import { createTenantContactsRouter } from '../routes/tenantContacts.js';
+
+const cleanedImports = [];
+const tenantContactsRouter = createTenantContactsRouter({
+    database: db,
+    csvUploadMiddleware: (req, res, next) => next(),
+    cleanupUploadedFile: value => cleanedImports.push(value),
+});
 
 const findRouteHandlers = (method, routePath) => {
     const layer = tenantContactsRouter.stack.find(item => (
@@ -21,11 +31,21 @@ const invokeRoute = (method, routePath, request = {}) => new Promise((resolve, r
     const res = {
         statusCode: 200,
         body: undefined,
+        headers: {},
         status(value) {
             this.statusCode = value;
             return this;
         },
         json(value) {
+            this.body = value;
+            resolve({ req, res: this });
+            return this;
+        },
+        set(values) {
+            Object.assign(this.headers, values);
+            return this;
+        },
+        send(value) {
             this.body = value;
             resolve({ req, res: this });
             return this;
@@ -163,6 +183,35 @@ assert.equal(tenantBList.res.body.total, 1);
 assert.equal(tenantBList.res.body.contacts[0].id, contactB);
 assert.equal(tenantBList.res.body.contacts[0].message_count, 1);
 
+const importDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tenant-contact-import-'));
+const importPath = path.join(importDirectory, 'contacts.csv');
+fs.writeFileSync(importPath, [
+    'phone,profile_name,label,notes',
+    '218922223333,Updated second,Customer,Imported update',
+    '218944445555,Imported fourth,Lead,Imported create',
+].join('\n'));
+const imported = await invokeRoute('post', '/import', requestFor(tenantA, {
+    file: { path: importPath },
+}));
+assert.equal(imported.res.statusCode, 200);
+assert.deepEqual(imported.res.body, {
+    imported: 2,
+    created: 1,
+    updated: 1,
+    failed: 0,
+    errors: [],
+});
+assert.deepEqual(cleanedImports, [importPath]);
+assert.equal(db.prepare("SELECT profile_name FROM contacts WHERE tenant_id = ? AND phone = '218922223333'").get(tenantA).profile_name, 'Updated second');
+assert.equal(db.prepare("SELECT COUNT(*) AS count FROM contacts WHERE tenant_id = ? AND phone = '218944445555'").get(tenantB).count, 0);
+
+const exported = await invokeRoute('get', '/export', requestFor(tenantA));
+assert.equal(exported.res.statusCode, 200);
+assert.match(exported.res.headers['Content-Type'], /text\/csv/);
+assert.match(exported.res.body, /Imported fourth/);
+assert.doesNotMatch(exported.res.body, /Shared customer B/);
+fs.rmSync(importDirectory, { recursive: true, force: true });
+
 const deletedA = await invokeRoute('delete', '/:id', requestFor(tenantA, {
     params: { id: String(contactA) },
 }));
@@ -178,4 +227,5 @@ console.log(JSON.stringify({
     scopedMessageCounts: true,
     paginationAndSearch: true,
     responseAllowlist: true,
+    csvImportExportIsolation: true,
 }));

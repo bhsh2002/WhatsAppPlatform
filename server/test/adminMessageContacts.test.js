@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 
@@ -74,8 +77,11 @@ const invoke = (router, method, routePath, request = {}) => new Promise((resolve
     const res = {
         statusCode: 200,
         body: undefined,
+        headers: {},
         status(value) { this.statusCode = value; return this; },
         json(value) { this.body = value; resolve(this); return this; },
+        set(values) { Object.assign(this.headers, values); return this; },
+        send(value) { this.body = value; resolve(this); return this; },
     };
     const handlers = findHandlers(router, method, routePath);
     let index = 0;
@@ -89,6 +95,56 @@ const invoke = (router, method, routePath, request = {}) => new Promise((resolve
         }
     };
     next();
+});
+
+test('admin contact CSV import requires a tenant and export keeps tenant context', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'admin-contact-import-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const filePath = path.join(directory, 'contacts.csv');
+    fs.writeFileSync(filePath, [
+        'phone,profile_name,label,notes',
+        '218910000001,Updated A,VIP,Updated notes',
+        '218910000099,Imported A,Lead,New contact',
+        '123,Invalid,Lead,Bad phone',
+    ].join('\n'));
+    const cleaned = [];
+    const router = createMessageContactsRouter({
+        database,
+        csvUploadMiddleware: (req, res, next) => next(),
+        cleanupUploadedFile: value => cleaned.push(value),
+    });
+
+    const missingTenant = await invoke(router, 'post', '/contacts/import', {
+        body: {},
+        file: { path: filePath },
+    });
+    assert.equal(missingTenant.statusCode, 400);
+
+    const imported = await invoke(router, 'post', '/contacts/import', {
+        body: { tenant_id: '1' },
+        file: { path: filePath },
+    });
+    assert.equal(imported.statusCode, 200);
+    assert.deepEqual(imported.body, {
+        imported: 2,
+        created: 1,
+        updated: 1,
+        failed: 1,
+        errors: [{ row: 4, error: 'رقم الهاتف يجب أن يحتوي بين 7 و15 رقمًا' }],
+    });
+    assert.equal(database.prepare("SELECT profile_name FROM contacts WHERE tenant_id = 1 AND phone = '218910000001'").get().profile_name, 'Updated A');
+    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts WHERE tenant_id = 2").get().count, 1);
+    assert.deepEqual(cleaned, [filePath, filePath]);
+
+    const exported = await invoke(router, 'get', '/contacts/export', {
+        query: { tenant_id: '1' },
+    });
+    assert.equal(exported.statusCode, 200);
+    assert.match(exported.headers['Content-Type'], /text\/csv/);
+    assert.match(exported.body, /Imported A/);
+    assert.doesNotMatch(exported.body, /Contact B/);
 });
 
 test('admin contact listing validates filters, paginates and scopes message counts by tenant', async (t) => {

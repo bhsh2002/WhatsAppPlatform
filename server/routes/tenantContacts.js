@@ -1,5 +1,7 @@
 import express from 'express';
+import fs from 'node:fs';
 import db from '../db/database.js';
+import { cleanupFile, csvUpload } from '../config/upload.js';
 import {
     InvalidContactError,
     normalizeContactCreate,
@@ -8,8 +10,12 @@ import {
     parseContactId,
 } from '../services/contactValidation.js';
 import { parsePagePagination } from '../services/pagination.js';
-
-const router = express.Router();
+import {
+    ContactTransferError,
+    parseContactsCsv,
+    serializeContactsCsv,
+    upsertImportedContacts,
+} from '../services/contactTransfer.js';
 
 const CONTACT_COLUMNS = `
     id, tenant_id, phone, profile_name, profile_picture_url,
@@ -18,12 +24,78 @@ const CONTACT_COLUMNS = `
 `;
 
 const sendContactError = (res, error, fallbackMessage) => {
-    if (error instanceof InvalidContactError) {
+    if (error instanceof InvalidContactError || error instanceof ContactTransferError) {
         return res.status(400).json({ error: error.message, code: error.code });
     }
     console.error(`[TenantContacts] ${fallbackMessage}:`, error);
     return res.status(500).json({ error: fallbackMessage });
 };
+
+export function createTenantContactsRouter({
+    database = db,
+    csvUploadMiddleware = csvUpload.single('file'),
+    cleanupUploadedFile = cleanupFile,
+} = {}) {
+const router = express.Router();
+
+router.get('/export', (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id;
+        const { search, label } = normalizeContactFilters(req.query);
+        const where = ['tenant_id = ?'];
+        const params = [tenantId];
+        if (search) {
+            where.push('(phone LIKE ? OR profile_name LIKE ?)');
+            params.push(`%${search}%`, `%${search}%`);
+        }
+        if (label) {
+            where.push('label = ?');
+            params.push(label);
+        }
+        const contacts = database.prepare(`
+            SELECT phone, profile_name, label, notes, updated_at
+            FROM contacts
+            WHERE ${where.join(' AND ')}
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 10000
+        `).all(...params);
+        const csv = serializeContactsCsv(contacts);
+        res.set({
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': `attachment; filename="contacts-${new Date().toISOString().slice(0, 10)}.csv"`,
+            'Cache-Control': 'no-store',
+        });
+        return res.send(csv);
+    } catch (error) {
+        return sendContactError(res, error, 'فشل تصدير جهات الاتصال');
+    }
+});
+
+router.post('/import', csvUploadMiddleware, (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'ملف CSV مطلوب' });
+        const tenantId = req.user.tenant_id;
+        const parsed = parseContactsCsv(fs.readFileSync(req.file.path, 'utf8'));
+        if (parsed.contacts.length === 0) {
+            return res.status(400).json({
+                error: 'لم يتم العثور على جهات اتصال صالحة',
+                failed: parsed.errors.length,
+                errors: parsed.errors.slice(0, 50),
+            });
+        }
+        const result = upsertImportedContacts(database, { tenantId, contacts: parsed.contacts });
+        return res.json({
+            imported: result.created + result.updated,
+            ...result,
+            failed: parsed.errors.length,
+            errors: parsed.errors.slice(0, 50),
+        });
+    } catch (error) {
+        return sendContactError(res, error, 'فشل استيراد جهات الاتصال');
+    } finally {
+        cleanupUploadedFile(req.file?.path);
+    }
+});
 
 router.get('/', (req, res) => {
     try {
@@ -47,7 +119,7 @@ router.get('/', (req, res) => {
         }
 
         const whereClause = `WHERE ${where.join(' AND ')}`;
-        const contacts = db.prepare(`
+        const contacts = database.prepare(`
             SELECT ${CONTACT_COLUMNS.split(',').map(column => `c.${column.trim()}`).join(', ')},
                 (SELECT COUNT(*) FROM messages m WHERE
                     m.tenant_id = c.tenant_id AND (m.sender = c.phone OR m.recipient = c.phone)
@@ -58,7 +130,7 @@ router.get('/', (req, res) => {
             LIMIT ? OFFSET ?
         `).all(...params, limit, offset);
 
-        const total = db.prepare(
+        const total = database.prepare(
             `SELECT COUNT(*) AS count FROM contacts c ${whereClause}`
         ).get(...params).count;
 
@@ -87,7 +159,7 @@ router.put('/:id', (req, res) => {
         setClauses.push("updated_at = datetime('now', 'localtime')");
         params.push(contactId, tenantId);
 
-        const result = db.prepare(`
+        const result = database.prepare(`
             UPDATE contacts SET ${setClauses.join(', ')}
             WHERE id = ? AND tenant_id = ?
         `).run(...params);
@@ -95,7 +167,7 @@ router.put('/:id', (req, res) => {
             return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
         }
 
-        const updated = db.prepare(`
+        const updated = database.prepare(`
             SELECT ${CONTACT_COLUMNS} FROM contacts WHERE id = ? AND tenant_id = ?
         `).get(contactId, tenantId);
         res.json(updated);
@@ -108,7 +180,7 @@ router.post('/', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const contact = normalizeContactCreate(req.body);
-        const result = db.prepare(`
+        const result = database.prepare(`
             INSERT INTO contacts (tenant_id, phone, profile_name, label, notes, updated_at)
             VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
             ON CONFLICT(tenant_id, phone) DO NOTHING
@@ -124,7 +196,7 @@ router.post('/', (req, res) => {
             return res.status(409).json({ error: 'جهة الاتصال موجودة بالفعل' });
         }
 
-        const newContact = db.prepare(`
+        const newContact = database.prepare(`
             SELECT ${CONTACT_COLUMNS} FROM contacts WHERE id = ? AND tenant_id = ?
         `).get(result.lastInsertRowid, tenantId);
         res.status(201).json(newContact);
@@ -137,7 +209,7 @@ router.delete('/:id', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
         const contactId = parseContactId(req.params.id);
-        const result = db.prepare(
+        const result = database.prepare(
             'DELETE FROM contacts WHERE id = ? AND tenant_id = ?'
         ).run(contactId, tenantId);
 
@@ -150,4 +222,7 @@ router.delete('/:id', (req, res) => {
     }
 });
 
-export default router;
+return router;
+}
+
+export default createTenantContactsRouter();

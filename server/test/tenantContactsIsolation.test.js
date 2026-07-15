@@ -36,6 +36,7 @@ test('tenant contact CRUD remains bounded and scoped on an isolated database', (
             scopedMessageCounts: true,
             paginationAndSearch: true,
             responseAllowlist: true,
+            csvImportExportIsolation: true,
         });
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });

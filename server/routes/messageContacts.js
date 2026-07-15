@@ -1,5 +1,7 @@
 import express from 'express';
+import fs from 'node:fs';
 import db from '../db/database.js';
+import { cleanupFile, csvUpload } from '../config/upload.js';
 import { META_API_BASE } from '../config/index.js';
 import eventBus from '../services/eventBus.js';
 import { resolveCredentials } from '../services/credentials.js';
@@ -19,6 +21,12 @@ import {
     release as releaseBilling,
     reserve as reserveBilling,
 } from '../services/billing.js';
+import {
+    ContactTransferError,
+    parseContactsCsv,
+    serializeContactsCsv,
+    upsertImportedContacts,
+} from '../services/contactTransfer.js';
 
 const defaultBilling = {
     operations: BILLING_OPERATIONS,
@@ -29,7 +37,7 @@ const defaultBilling = {
 };
 
 const sendContactError = (res, error, fallbackMessage) => {
-    if (error instanceof InvalidContactError) {
+    if (error instanceof InvalidContactError || error instanceof ContactTransferError) {
         return res.status(400).json({ error: error.message, code: error.code });
     }
     console.error(`[Messages] ${fallbackMessage}:`, error);
@@ -49,8 +57,85 @@ export function createMessageContactsRouter({
     billing = defaultBilling,
     events = eventBus,
     apiBase = META_API_BASE,
+    csvUploadMiddleware = csvUpload.single('file'),
+    cleanupUploadedFile = cleanupFile,
 } = {}) {
     const router = express.Router();
+
+    router.get('/contacts/export', (req, res) => {
+        try {
+            const { search, label } = normalizeContactFilters(req.query);
+            const tenantId = req.query.tenant_id === undefined || req.query.tenant_id === ''
+                ? null
+                : parseContactId(req.query.tenant_id);
+            const where = [];
+            const params = [];
+            if (tenantId) {
+                where.push('c.tenant_id = ?');
+                params.push(tenantId);
+            }
+            if (search) {
+                where.push('(c.phone LIKE ? OR c.profile_name LIKE ?)');
+                params.push(`%${search}%`, `%${search}%`);
+            }
+            if (label) {
+                where.push('c.label = ?');
+                params.push(label);
+            }
+            const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+            const contacts = database.prepare(`
+                SELECT c.tenant_id, t.name AS tenant_name, c.phone,
+                    c.profile_name, c.label, c.notes, c.updated_at
+                FROM contacts c
+                LEFT JOIN tenants t ON t.id = c.tenant_id
+                ${whereClause}
+                ORDER BY c.updated_at DESC, c.id DESC
+                LIMIT 10000
+            `).all(...params);
+
+            const csv = serializeContactsCsv(contacts, { includeTenant: true });
+            res.set({
+                'Content-Type': 'text/csv; charset=utf-8',
+                'Content-Disposition': `attachment; filename="contacts-${new Date().toISOString().slice(0, 10)}.csv"`,
+                'Cache-Control': 'no-store',
+            });
+            return res.send(csv);
+        } catch (error) {
+            return sendContactError(res, error, 'Failed to export contacts');
+        }
+    });
+
+    router.post('/contacts/import', csvUploadMiddleware, (req, res) => {
+        try {
+            if (!req.file) return res.status(400).json({ error: 'ملف CSV مطلوب' });
+            const tenantId = parseContactId(req.body.tenant_id);
+            const tenant = database.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
+            if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+            const parsed = parseContactsCsv(fs.readFileSync(req.file.path, 'utf8'));
+            if (parsed.contacts.length === 0) {
+                return res.status(400).json({
+                    error: 'لم يتم العثور على جهات اتصال صالحة',
+                    failed: parsed.errors.length,
+                    errors: parsed.errors.slice(0, 50),
+                });
+            }
+            const result = upsertImportedContacts(database, {
+                tenantId,
+                contacts: parsed.contacts,
+            });
+            return res.json({
+                imported: result.created + result.updated,
+                ...result,
+                failed: parsed.errors.length,
+                errors: parsed.errors.slice(0, 50),
+            });
+        } catch (error) {
+            return sendContactError(res, error, 'Failed to import contacts');
+        } finally {
+            cleanupUploadedFile(req.file?.path);
+        }
+    });
 
     router.get('/contacts', (req, res) => {
         try {

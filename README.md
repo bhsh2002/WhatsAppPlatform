@@ -89,6 +89,9 @@ public bot image assets receive random names with extensions derived from the
 verified content. The application does not perform antivirus scanning; add an
 external scanner if the deployment threat model requires one.
 
+The contacts CSV schema, limits, tenant isolation, and import/update behavior are
+documented in [docs/CONTACTS_CSV.md](docs/CONTACTS_CSV.md).
+
 ## Operational metrics
 
 Authenticated administrators can inspect JSON at `/api/settings/metrics` and
