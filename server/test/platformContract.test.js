@@ -370,6 +370,7 @@ test('browser auth uses HttpOnly cookies while logout and password rotation rema
     assert.match(apiClient, /credentials:\s*['"]include['"]/);
     assert.match(apiClient, /takeLegacyAuthToken\(\)/);
     assert.match(apiClient, /getCurrentUser\(\)[\s\S]*['"]\/api\/auth\/session['"]/);
+    assert.match(authRoute, /router\.get\('\/session'/);
     assert.match(authContext, /if \(!data\.authenticated \|\| !data\.user\)/);
     assert.match(authContext, /api\.logout\(\)/);
     assert.match(authContext, /api\.adoptLegacySession\(legacyToken\)/);
@@ -574,6 +575,22 @@ test('landing page bundles Arabic typography and keeps its mobile footer readabl
     assert.match(translations, /creditNote: 'الكريديت رصيد استخدام/);
     assert.match(translations, /otp: \{ title: 'رموز تحقق OTP'/);
     assert.match(translations, /OTP وقوالب المصادقة عبر API/);
+});
+
+test('Messenger Bot tables scroll inside their panels on narrow screens', () => {
+    const messengerBot = read('client/src/pages/MessengerBot/MessengerBotManager.jsx');
+    const tables = collectOpeningTags(messengerBot, 'Table');
+    const tableContainers = collectOpeningTags(messengerBot, 'TableContainer');
+
+    assert.equal(tables.length, 5, 'expected every Messenger Bot data table to remain covered');
+    assert.equal(tableContainers.length, tables.length, 'every Messenger Bot table needs a scroll container');
+    assert.match(messengerBot, /overflowX:\s*['"]auto['"]/);
+    assert.match(messengerBot, /WebkitOverflowScrolling:\s*['"]touch['"]/);
+    assert.equal(
+        tables.filter((tag) => /minWidth:\s*\d+/.test(tag)).length,
+        tables.length,
+        'every table needs a stable content width so its container can scroll',
+    );
 });
 
 test('authenticated pages preserve keyboard focus, page headings, and control names', () => {

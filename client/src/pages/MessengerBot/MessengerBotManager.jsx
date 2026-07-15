@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid, IconButton, MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid, IconButton, MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Inventory2 as ProductIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, SmartToy as BotIcon, UploadFile as UploadIcon } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -19,6 +19,13 @@ const emptyProduct = {
   is_active: true
 };
 const textFor = (t, key, fallback, values) => typeof t === 'function' ? t(key, values) : fallback;
+const scrollableTableSx = {
+  width: '100%',
+  maxWidth: '100%',
+  overflowX: 'auto',
+  WebkitOverflowScrolling: 'touch',
+  overscrollBehaviorInline: 'contain'
+};
 const emptyNode = (index = 0, t) => ({
   node_key: index === 0 ? 'start' : `step_${index + 1}`,
   node_type: 'text',
@@ -1099,7 +1106,8 @@ const MessengerBotManager = ({
                                         <input hidden type="file" accept=".csv,text/csv" onChange={e => importProducts(e.target.files?.[0])} />
                                     </Button>
                                 </Stack>
-                                <Table size="small">
+                                <TableContainer sx={scrollableTableSx}>
+                                    <Table size="small" sx={{ minWidth: 760 }}>
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>{t('messengerBot.product')}</TableCell>
@@ -1133,7 +1141,8 @@ const MessengerBotManager = ({
                                             </TableRow>)}
                                         {products.length === 0 && <TableRow><TableCell colSpan={5} align="center">{t('messengerBot.noProducts')}</TableCell></TableRow>}
                                     </TableBody>
-                                </Table>
+                                    </Table>
+                                </TableContainer>
                             </Box>}
 
                         {tab === 1 && <Box sx={{
@@ -1162,7 +1171,8 @@ const MessengerBotManager = ({
               })}
                                         </Button>)}
                                 </Stack>
-                                <Table size="small">
+                                <TableContainer sx={scrollableTableSx}>
+                                    <Table size="small" sx={{ minWidth: 1080 }}>
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>{t('messengerBot.flow')}</TableCell>
@@ -1207,13 +1217,15 @@ const MessengerBotManager = ({
                                             </TableRow>)}
                                         {flows.length === 0 && <TableRow><TableCell colSpan={7} align="center">{t('messengerBot.noFlows')}</TableCell></TableRow>}
                                     </TableBody>
-                                </Table>
+                                    </Table>
+                                </TableContainer>
                             </Box>}
 
                         {tab === 2 && <Box sx={{
           p: 2
         }}>
-                                <Table size="small">
+                                <TableContainer sx={scrollableTableSx}>
+                                    <Table size="small" sx={{ minWidth: 940 }}>
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>{t('messengerBot.user')}</TableCell>
@@ -1242,7 +1254,8 @@ const MessengerBotManager = ({
                                             </TableRow>)}
                                         {sessions.length === 0 && <TableRow><TableCell colSpan={7} align="center">{t('messengerBot.noSessions')}</TableCell></TableRow>}
                                     </TableBody>
-                                </Table>
+                                    </Table>
+                                </TableContainer>
                             </Box>}
 
                         {tab === 3 && <Box sx={{
@@ -1280,7 +1293,8 @@ const MessengerBotManager = ({
                                             <Typography variant="subtitle1" fontWeight={800} sx={{
                   mb: 1
                 }}>{t('messengerBot.topFlows')}</Typography>
-                                            <Table size="small">
+                                            <TableContainer sx={scrollableTableSx}>
+                                                <Table size="small" sx={{ minWidth: 360 }}>
                                                 <TableBody>
                                                     {(performance.top_flows || []).map(row => <TableRow key={`${row.flow_id}-${row.flow_name}`}>
                                                             <TableCell>{row.flow_name}</TableCell>
@@ -1288,7 +1302,8 @@ const MessengerBotManager = ({
                                                         </TableRow>)}
                                                     {!(performance.top_flows || []).length && <TableRow><TableCell align="center">{t('common.noData')}</TableCell></TableRow>}
                                                 </TableBody>
-                                            </Table>
+                                                </Table>
+                                            </TableContainer>
                                         </Paper>
                                     </Grid>
                                     <Grid size={{
@@ -1305,7 +1320,8 @@ const MessengerBotManager = ({
                                                 {t('messengerBot.flowLog')} {selectedEventsFlow ? `- ${selectedEventsFlow.name}` : ''}
                                             </Typography>
                                             {!selectedEventsFlow && <Alert severity="info">{t('messengerBot.chooseFlowLog')}</Alert>}
-                                            {selectedEventsFlow && <Table size="small">
+                                            {selectedEventsFlow && <TableContainer sx={scrollableTableSx}>
+                                                <Table size="small" sx={{ minWidth: 720 }}>
                                                     <TableHead>
                                                         <TableRow>
                                                             <TableCell>{t('common.time')}</TableCell>
@@ -1323,7 +1339,8 @@ const MessengerBotManager = ({
                                                             </TableRow>)}
                                                         {flowEvents.length === 0 && <TableRow><TableCell colSpan={4} align="center">{t('messengerBot.noFlowEvents')}</TableCell></TableRow>}
                                                     </TableBody>
-                                                </Table>}
+                                                </Table>
+                                            </TableContainer>}
                                         </Paper>
                                     </Grid>
                                 </Grid>
