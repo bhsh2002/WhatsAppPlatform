@@ -25,6 +25,7 @@ import {
     Language as LanguageIcon,
     Payments as PaymentsIcon,
     PeopleAltOutlined as PeopleIcon,
+    PasswordOutlined as OtpIcon,
     QrCode2 as QrCodeIcon,
     SecurityOutlined as SecurityIcon,
     SmartToyOutlined as BotIcon,
@@ -49,6 +50,7 @@ const palette = {
 const outcomeIcons = [InboxIcon, CampaignIcon, AutomationIcon, InsightsIcon];
 const outcomeAccents = [palette.green, '#296c78', palette.coral, '#8b6325'];
 const supportingFeatureIcons = [
+    OtpIcon,
     ImportExportIcon,
     FacebookIcon,
     BotIcon,
@@ -106,9 +108,9 @@ const SectionHeading = ({ eyebrow, title, description, align = 'start', light = 
 const LandingPage = () => {
     const { language, setLanguage, t } = useLanguage();
     const outcomes = ['inbox', 'campaigns', 'automation', 'insights'];
-    const supportingFeatures = ['contacts', 'facebook', 'bot', 'qr', 'api', 'billing', 'security', 'tenants'];
+    const supportingFeatures = ['otp', 'contacts', 'facebook', 'bot', 'qr', 'api', 'billing', 'security', 'tenants'];
     const journeySteps = ['connect', 'organize', 'automate', 'grow'];
-    const useCases = ['retail', 'services', 'teams'];
+    const useCases = ['retail', 'services', 'operations', 'digital'];
     const plans = [
         { key: 'business', price: 120, credits: '10,000', messages: '2,000', featured: false },
         { key: 'growth', price: 550, credits: '50,000', messages: '10,000', featured: true },
@@ -447,7 +449,7 @@ const LandingPage = () => {
                             <Typography component="h2" sx={{ fontSize: { xs: '1.7rem', md: '2.2rem' }, fontWeight: 780, color: palette.ink, mb: 4 }}>
                                 {t('landing.features.moreTitle')}
                             </Typography>
-                            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 }}>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>
                                 {supportingFeatures.map((key, index) => {
                                     const Icon = supportingFeatureIcons[index];
                                     return (
@@ -490,12 +492,12 @@ const LandingPage = () => {
                             description={t('landing.useCases.subtitle')}
                             align="center"
                         />
-                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 2.5, mt: { xs: 5, md: 7 } }}>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2.5, mt: { xs: 5, md: 7 } }}>
                             {useCases.map((key, index) => (
-                                <Box key={key} sx={{ minWidth: 0, p: { xs: 3, md: 4 }, bgcolor: index === 1 ? palette.ink : '#fffdf8', color: index === 1 ? 'white' : palette.ink, border: `1px solid ${index === 1 ? palette.ink : palette.line}`, borderRadius: index === 1 ? '28px 8px 28px 28px' : '8px 28px 28px 28px', transform: { md: index === 1 ? 'translateY(-18px)' : 'none' } }}>
-                                    <Typography sx={{ color: index === 1 ? '#9bd8bd' : palette.coral, fontWeight: 850, fontSize: '0.82rem', mb: 2 }}>{t(`landing.useCases.${key}.label`)}</Typography>
+                                <Box key={key} sx={{ minWidth: 0, p: { xs: 3, md: 3.5 }, bgcolor: index === 3 ? palette.ink : '#fffdf8', color: index === 3 ? 'white' : palette.ink, border: `1px solid ${index === 3 ? palette.ink : palette.line}`, borderRadius: index % 2 ? '28px 8px 28px 28px' : '8px 28px 28px 28px' }}>
+                                    <Typography sx={{ color: index === 3 ? '#9bd8bd' : palette.coral, fontWeight: 850, fontSize: '0.82rem', mb: 2 }}>{t(`landing.useCases.${key}.label`)}</Typography>
                                     <Typography component="h3" sx={{ fontWeight: 790, fontSize: '1.45rem', lineHeight: 1.4, mb: 2 }}>{t(`landing.useCases.${key}.title`)}</Typography>
-                                    <Typography sx={{ color: index === 1 ? 'rgba(255,255,255,0.7)' : palette.muted, lineHeight: 1.85 }}>{t(`landing.useCases.${key}.description`)}</Typography>
+                                    <Typography sx={{ color: index === 3 ? 'rgba(255,255,255,0.7)' : palette.muted, lineHeight: 1.85 }}>{t(`landing.useCases.${key}.description`)}</Typography>
                                 </Box>
                             ))}
                         </Box>
@@ -545,6 +547,7 @@ const LandingPage = () => {
                                         <Typography sx={{ color: palette.muted, fontSize: '0.8rem', lineHeight: 1.75 }}>{t('landing.pricing.creditNote')}</Typography>
                                     </Box>
                                     <Divider sx={{ my: 3, borderColor: palette.line }} />
+                                    <Typography sx={{ color: palette.coral, fontWeight: 800, fontSize: '0.82rem', mb: 1.5 }}>{t('landing.pricing.includedTitle')}</Typography>
                                     <Stack component="ul" spacing={1.4} sx={{ listStyle: 'none', p: 0, m: 0 }}>
                                         {t(`landing.pricing.${plan.key}.features`).map((feature) => (
                                             <Box component="li" key={feature} sx={{ display: 'flex', gap: 1.2, alignItems: 'flex-start' }}>

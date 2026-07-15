@@ -571,6 +571,8 @@ test('landing page bundles Arabic typography and keeps its mobile footer readabl
     assert.match(landing, /whiteSpace: 'nowrap'[\s\S]*wordBreak: 'normal'/);
     assert.match(landing, /landing\.pricing\.creditNote/);
     assert.match(translations, /creditNote: 'الكريديت رصيد استخدام/);
+    assert.match(translations, /otp: \{ title: 'رموز تحقق OTP'/);
+    assert.match(translations, /OTP وقوالب المصادقة عبر API/);
 });
 
 test('authenticated pages preserve keyboard focus, page headings, and control names', () => {
