@@ -565,6 +565,7 @@ test('landing page bundles Arabic typography and keeps its mobile footer readabl
     assert.match(main, /@fontsource-variable\/alexandria/);
     assert.match(theme, /Alexandria Variable/);
     assert.doesNotMatch(landing, /fonts\.googleapis\.com|Cairo, sans-serif/);
+    assert.doesNotMatch(landing, /letterSpacing: '-0\.055em'/);
     assert.match(landing, /gridTemplateColumns:[\s\S]*xs: 'minmax\(0, 1fr\)'/);
     assert.doesNotMatch(landing, /size=\{\{[\s\S]*?xs: 2/);
     assert.match(landing, /whiteSpace: 'nowrap'[\s\S]*wordBreak: 'normal'/);

@@ -122,7 +122,16 @@ const LandingPage = () => {
     ];
 
     return (
-        <Box sx={{ bgcolor: palette.paper, color: palette.ink, minHeight: '100vh', overflowX: 'clip' }}>
+        <Box
+            sx={{
+                bgcolor: palette.paper,
+                color: palette.ink,
+                minHeight: '100vh',
+                overflowX: 'clip',
+                '& .MuiTypography-root': { wordBreak: 'normal', overflowWrap: 'break-word' },
+                '& .MuiChip-label': { wordBreak: 'normal', overflowWrap: 'normal' },
+            }}
+        >
             <Box
                 component="header"
                 sx={{
@@ -214,7 +223,7 @@ const LandingPage = () => {
                                 gap: { xs: 7, lg: 9 },
                             }}
                         >
-                            <Box sx={{ maxWidth: 720 }}>
+                            <Box sx={{ maxWidth: { xs: '100%', lg: 720 } }}>
                                 <Chip
                                     label={t('landing.hero.eyebrow')}
                                     sx={{
@@ -228,15 +237,17 @@ const LandingPage = () => {
                                 <Typography
                                     component="h1"
                                     sx={{
-                                        fontSize: { xs: '2.65rem', sm: '3.65rem', md: '5rem' },
+                                        fontSize: { xs: '2.25rem', sm: '3.15rem', md: '3.55rem', xl: '4.1rem' },
                                         fontWeight: 790,
-                                        lineHeight: 1.08,
-                                        letterSpacing: '-0.055em',
+                                        lineHeight: language === 'ar' ? 1.28 : 1.12,
+                                        letterSpacing: language === 'ar' ? 0 : '-0.035em',
                                         color: palette.ink,
                                     }}
                                 >
-                                    {t('landing.hero.title')}
-                                    <Box component="span" sx={{ color: palette.coral, display: 'block', mt: 0.5 }}>
+                                    <Box component="span" sx={{ display: 'block' }}>
+                                        {t('landing.hero.title')}
+                                    </Box>
+                                    <Box component="span" sx={{ color: palette.coral, display: 'block', mt: { xs: 2, md: 2.5 } }}>
                                         {t('landing.hero.accent')}
                                     </Box>
                                 </Typography>
@@ -379,8 +390,8 @@ const LandingPage = () => {
                                         alignItems: 'center',
                                     }}
                                 >
-                                    <Typography sx={{ color: index === 1 ? '#f2b8a9' : '#9bd8bd', fontWeight: 850, fontSize: '1.25rem' }}>0{index + 1}</Typography>
-                                    <Typography sx={{ fontWeight: 650, color: 'rgba(255,255,255,0.82)' }}>{t(`landing.promises.${item}`)}</Typography>
+                                    <Typography sx={{ color: index === 1 ? '#f2b8a9' : '#9bd8bd', fontWeight: 850, fontSize: '1.05rem', direction: 'ltr', minWidth: 24, flexShrink: 0, whiteSpace: 'nowrap', wordBreak: 'normal', overflowWrap: 'normal' }}>0{index + 1}</Typography>
+                                    <Typography sx={{ fontWeight: 650, color: 'rgba(255,255,255,0.82)', whiteSpace: 'nowrap', wordBreak: 'normal', overflowWrap: 'normal', fontSize: { xs: '0.88rem', sm: '0.95rem' } }}>{t(`landing.promises.${item}`)}</Typography>
                                 </Box>
                             ))}
                         </Box>
