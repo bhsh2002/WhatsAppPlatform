@@ -69,8 +69,8 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
                 root: {
                     textTransform: 'none',
                     maxWidth: '100%',
-                    whiteSpace: 'normal',
-                    overflowWrap: 'anywhere',
+                    whiteSpace: 'nowrap',
+                    overflowWrap: 'normal',
                     wordBreak: 'normal',
                 },
             },
@@ -89,7 +89,7 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
             styleOverrides: {
                 root: {
                     width: '100%',
-                    tableLayout: 'fixed',
+                    tableLayout: 'auto',
                     '@media (max-width: 600px)': {
                         minWidth: 720,
                     },
@@ -101,8 +101,8 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
                 root: {
                     verticalAlign: 'top',
                     whiteSpace: 'normal',
-                    overflowWrap: 'anywhere',
-                    wordBreak: 'break-word',
+                    overflowWrap: 'break-word',
+                    wordBreak: 'normal',
                 },
             },
         },
@@ -114,9 +114,11 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
                     minHeight: 28,
                 },
                 label: {
-                    whiteSpace: 'normal',
-                    overflowWrap: 'anywhere',
-                    wordBreak: 'break-word',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    overflowWrap: 'normal',
+                    wordBreak: 'normal',
                     paddingTop: 4,
                     paddingBottom: 4,
                 },

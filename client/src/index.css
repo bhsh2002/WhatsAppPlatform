@@ -28,7 +28,7 @@ body {
 .MuiDialogContent-root,
 .MuiCardContent-root,
 .MuiListItemText-root {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
 }
 

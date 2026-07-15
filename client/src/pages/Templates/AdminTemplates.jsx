@@ -295,7 +295,7 @@ const AdminTemplates = () => {
                         </Box> : <TableContainer sx={{
         overflowX: 'auto'
       }}>
-                            <Table>
+                            <Table sx={{ minWidth: 1040 }}>
                                 <TableHead>
                                     <TableRow>
                                         <TableCell>{tx("auto.k_0a92494ea1eb")}</TableCell>
@@ -310,8 +310,8 @@ const AdminTemplates = () => {
                                 </TableHead>
                                 <TableBody>
                                     {templates.map(template => <TableRow key={template.id} hover>
-                                            <TableCell>
-                                                <Typography fontWeight={500}>{template.name}</Typography>
+                                            <TableCell sx={{ minWidth: 190 }}>
+                                                <Typography fontWeight={500} sx={{ overflowWrap: 'anywhere' }}>{template.name}</Typography>
                                                 <Typography variant="caption" color="text.secondary" sx={{
                   display: 'block',
                   maxWidth: 300,
@@ -379,7 +379,7 @@ const AdminTemplates = () => {
                         </Box> : <TableContainer sx={{
         overflowX: 'auto'
       }}>
-                            <Table>
+                            <Table sx={{ minWidth: 760 }}>
                                 <TableHead>
                                     <TableRow>
                                         <TableCell>{tx("auto.k_0a92494ea1eb")}</TableCell>
@@ -391,8 +391,8 @@ const AdminTemplates = () => {
                                 </TableHead>
                                 <TableBody>
                                     {metaTemplates.map((template, idx) => <TableRow key={template.id || idx} hover>
-                                            <TableCell>
-                                                <Typography fontWeight={500}>{template.name}</Typography>
+                                            <TableCell sx={{ minWidth: 190 }}>
+                                                <Typography fontWeight={500} sx={{ overflowWrap: 'anywhere' }}>{template.name}</Typography>
                                             </TableCell>
                                             <TableCell>{getTemplateCategoryLabel(template.category)}</TableCell>
                                             <TableCell>{template.language?.toUpperCase()}</TableCell>

@@ -99,7 +99,7 @@ export const ContactTable = ({
   const columnCount = showTenant ? 8 : 7;
   return (
     <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
-      <Table sx={{ minWidth: showTenant ? 1040 : 880, tableLayout: 'fixed' }}>
+      <Table sx={{ minWidth: showTenant ? 1120 : 940, tableLayout: 'auto' }}>
         <TableHead>
           <TableRow>
             <TableCell>{tx('auto.k_211cce4ca4ef')}</TableCell>
@@ -120,9 +120,9 @@ export const ContactTable = ({
               <Typography color="text.secondary">{tx(emptyMessageKey)}</Typography>
             </TableCell>
           </TableRow> : contacts.map((contact) => <TableRow key={contact.id || contact.phone} hover>
-            <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{contact.phone}</TableCell>
-            <TableCell>{contact.profile_name || '—'}</TableCell>
-            {showTenant && <TableCell>
+            <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap', minWidth: 150 }}>{contact.phone}</TableCell>
+            <TableCell sx={{ minWidth: 150 }}>{contact.profile_name || '—'}</TableCell>
+            {showTenant && <TableCell sx={{ minWidth: 150 }}>
               {contact.tenant_name ? <Chip label={contact.tenant_name} size="small" variant="outlined" /> : '—'}
             </TableCell>}
             <TableCell><ContactLabelChip label={contact.label} /></TableCell>

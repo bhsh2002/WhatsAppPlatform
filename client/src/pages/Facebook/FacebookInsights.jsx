@@ -268,7 +268,7 @@ const FacebookInsights = () => {
 
                     {/* Daily Metrics */}
                     <Paper sx={{
-        p: 3,
+        p: { xs: 2, md: 3 },
         mb: 4
       }}>
                         <Box sx={{
@@ -281,7 +281,9 @@ const FacebookInsights = () => {
         }}>
                             <Typography variant="h6" fontWeight={600}>{tx("auto.k_afb391de4935")}</Typography>
                             <Box sx={{
-            display: 'flex',
+            width: { xs: '100%', sm: 'auto' },
+            display: 'grid',
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(150px, 1fr)) auto' },
             gap: 1,
             alignItems: 'center'
           }}>

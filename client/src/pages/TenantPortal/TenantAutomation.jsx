@@ -337,19 +337,19 @@ const TenantAutomation = () => {
 
         </Button>
                 </Paper> : <TableContainer component={Paper}>
-                    <Table>
+                    <Table sx={{ minWidth: 1040 }}>
                         <TableHead>
                             <TableRow sx={{
             bgcolor: 'grey.50'
           }}>
-                                <TableCell width={50}>{tx("auto.k_303856bc39ec")}</TableCell>
+                                <TableCell sx={{ minWidth: 80 }}>{tx("auto.k_303856bc39ec")}</TableCell>
                                 <TableCell>{tx("auto.k_d6370401145d")}</TableCell>
-                                <TableCell>{tx("auto.k_0a92494ea1eb")}</TableCell>
-                                <TableCell>{tx("auto.k_033626158b17")}</TableCell>
-                                <TableCell>{tx("auto.k_0b4273bee983")}</TableCell>
+                                <TableCell sx={{ minWidth: 220 }}>{tx("auto.k_0a92494ea1eb")}</TableCell>
+                                <TableCell sx={{ minWidth: 150 }}>{tx("auto.k_033626158b17")}</TableCell>
+                                <TableCell sx={{ minWidth: 130 }}>{tx("auto.k_0b4273bee983")}</TableCell>
                                 <TableCell>{tx("auto.k_03771ee0b820")}</TableCell>
                                 <TableCell>{tx("auto.k_156a8aea6b1d")}</TableCell>
-                                <TableCell width={120}>{tx("auto.k_8edfb81a349f")}</TableCell>
+                                <TableCell sx={{ minWidth: 110 }}>{tx("auto.k_8edfb81a349f")}</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>

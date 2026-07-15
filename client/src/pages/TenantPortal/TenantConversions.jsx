@@ -377,7 +377,7 @@ const TenantConversions = () => {
                 <TableContainer sx={{
         overflowX: 'auto'
       }}>
-                    <Table>
+                    <Table sx={{ minWidth: 1120 }}>
                         <TableHead>
                             <TableRow>
                                 <TableCell>{tx("auto.k_b6a6c9a527bb")}</TableCell>
@@ -399,9 +399,11 @@ const TenantConversions = () => {
                                         {event.ctwa_clid ? <Chip label={tx("auto.k_5ad7cf172cdb")} size="small" color="success" variant="outlined" /> : '-'}
                                     </TableCell>
                                     <TableCell sx={{
-                maxWidth: 200,
+                minWidth: 190,
+                maxWidth: 240,
                 overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                textOverflow: 'ellipsis',
+                overflowWrap: 'anywhere'
               }}>
                                         {event.custom_data || '-'}
                                     </TableCell>
@@ -409,7 +411,8 @@ const TenantConversions = () => {
                                         <Chip label={event.status} size="small" color={event.status === 'sent' ? 'success' : event.status === 'failed' ? 'error' : 'default'} />
                                     </TableCell>
                                     <TableCell sx={{
-                maxWidth: 260
+                minWidth: 300,
+                maxWidth: 360
               }}>
                                         <Typography variant="caption" color="text.secondary" sx={{
                   wordBreak: 'break-word'
@@ -417,7 +420,7 @@ const TenantConversions = () => {
                                             {formatMetaResponse(event.meta_response, event.status)}
                                         </Typography>
                                     </TableCell>
-                                    <TableCell>{new Date(event.created_at).toLocaleString(getCurrentLocale())}</TableCell>
+                                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{new Date(event.created_at).toLocaleString(getCurrentLocale())}</TableCell>
                                 </TableRow>)}
                             {events.length === 0 && <TableRow>
                                     <TableCell colSpan={7} align="center" sx={{
