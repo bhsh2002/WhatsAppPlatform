@@ -249,7 +249,7 @@ export const translations = {
       metaReview: 'جاهزية Meta'
     },
     auth: {
-      subtitle: 'لوحة الإدارة المركزية',
+      subtitle: 'مساحة عمل آمنة للتواصل اليومي',
       loginTab: 'تسجيل الدخول',
       registerTab: 'تسجيل نشاط تجاري',
       username: 'اسم المستخدم',
@@ -2509,7 +2509,7 @@ export const translations = {
       metaReview: 'Meta Review'
     },
     auth: {
-      subtitle: 'Admin Console',
+      subtitle: 'A secure workspace for daily communication',
       loginTab: 'Log in',
       registerTab: 'Register business',
       username: 'Username',

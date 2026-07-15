@@ -5,9 +5,9 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
     palette: {
         mode: 'light',
         primary: {
-            main: '#00725e', // Accessible WhatsApp Teal Green
+            main: '#087f5b',
             light: '#25D366',
-            dark: '#015c4b',
+            dark: '#0f4f40',
             contrastText: '#ffffff',
         },
         secondary: {
@@ -32,12 +32,12 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
             contrastText: '#ffffff',
         },
         background: {
-            default: '#efeae2', // Chat background color typically
-            paper: '#ffffff',
+            default: '#f7f2e8',
+            paper: '#fffdf8',
         },
         text: {
-            primary: '#111b21',
-            secondary: '#526069',
+            primary: '#16352f',
+            secondary: '#5d6d68',
         },
         action: {
             hover: 'rgba(0, 0, 0, 0.04)',
@@ -54,13 +54,30 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
         ].join(','),
     },
     shape: {
-        borderRadius: 8,
+        borderRadius: 12,
     },
     components: {
         MuiCssBaseline: {
             styleOverrides: {
                 body: {
-                    backgroundColor: '#d1d7db', // App background behind the app container
+                    backgroundColor: '#f7f2e8',
+                },
+            },
+        },
+        MuiCard: {
+            styleOverrides: {
+                root: {
+                    backgroundImage: 'none',
+                    border: '1px solid #d7ccba',
+                    borderRadius: '18px 5px 18px 18px',
+                    boxShadow: '0 10px 30px rgba(22, 53, 47, 0.06)',
+                },
+            },
+        },
+        MuiPaper: {
+            styleOverrides: {
+                root: {
+                    backgroundImage: 'none',
                 },
             },
         },

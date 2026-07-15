@@ -84,7 +84,7 @@ const TenantDashboard = () => {
     };
 
     const StatCard = ({ title, value, icon, color, description }) => (
-        <Card elevation={2} sx={{ height: '100%' }}>
+        <Card elevation={0} sx={{ height: '100%', borderTop: '3px solid', borderTopColor: `${color}.main` }}>
             <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Typography variant="subtitle2" component="p" color="text.secondary">
@@ -92,7 +92,7 @@ const TenantDashboard = () => {
                     </Typography>
                     <Box sx={{
                         p: 1,
-                        borderRadius: '50%',
+                        borderRadius: '12px 12px 3px 12px',
                         bgcolor: `${color}.light`,
                         color: `${color}.main`,
                         display: 'flex',
@@ -150,7 +150,7 @@ const TenantDashboard = () => {
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
             {/* Header */}
-            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, gap: { xs: 1, md: 0 } }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 4, pb: 3, gap: { xs: 1.5, md: 0 }, borderBottom: '1px solid #d7ccba' }}>
                 <Box>
                     <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>
                         {t('dashboard.tenantGreeting', { name: tenant?.name || t('dashboard.tenantFallbackName') })}
@@ -314,7 +314,7 @@ const TenantDashboard = () => {
             )}
 
             {/* Recent Activity */}
-            <Card elevation={2}>
+            <Card elevation={0}>
                 <Box sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
                     <Typography variant="h6" component="h2" fontWeight={600}>
                         {t('dashboard.recentActivity')}

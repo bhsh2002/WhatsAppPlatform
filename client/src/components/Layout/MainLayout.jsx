@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, AppBar, Toolbar, IconButton, Typography, Drawer, useMediaQuery, useTheme } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import Sidebar from './Sidebar';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -28,9 +29,11 @@ const MainLayout = ({ children }) => {
             }}
         >
             {isMobile && (
-                <AppBar position="fixed" elevation={1} sx={{
-                    bgcolor: 'background.paper',
+                <AppBar position="fixed" elevation={0} sx={{
+                    bgcolor: 'rgba(247,242,232,0.96)',
                     color: 'text.primary',
+                    borderBottom: '1px solid #d7ccba',
+                    backdropFilter: 'blur(12px)',
                     zIndex: 1200
                 }}>
                     <Toolbar sx={{ height: 48, minHeight: 48, py: 0 }}>
@@ -42,7 +45,10 @@ const MainLayout = ({ children }) => {
                         >
                             <MenuIcon />
                         </IconButton>
-                        <Typography variant="subtitle1" component="div" fontWeight={600} sx={{ ml: 1 }}>
+                        <Box sx={{ width: 28, height: 28, bgcolor: 'primary.main', color: 'white', borderRadius: '10px 10px 3px 10px', display: 'grid', placeItems: 'center', ml: 1 }}>
+                            <WhatsAppIcon sx={{ fontSize: 17 }} />
+                        </Box>
+                        <Typography variant="subtitle1" component="div" fontWeight={800} sx={{ ml: 1 }}>
                             Wa Savana
                         </Typography>
                     </Toolbar>
@@ -87,7 +93,8 @@ const MainLayout = ({ children }) => {
                     minHeight: '100vh',
                     position: 'relative',
                     overflowX: 'hidden',
-                    pt: { xs: '48px', md: 0 }
+                    pt: { xs: '48px', md: 0 },
+                    background: 'linear-gradient(180deg, #f7f2e8 0%, #f3ecdf 100%)',
                 }}
             >
                 {children}

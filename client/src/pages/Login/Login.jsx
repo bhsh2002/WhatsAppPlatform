@@ -26,7 +26,8 @@ import {
     Login as LoginIcon,
     Business as BusinessIcon,
     Phone as PhoneIcon,
-    Language as LanguageIcon
+    Language as LanguageIcon,
+    WhatsApp as WhatsAppIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -103,9 +104,11 @@ const Login = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            bgcolor: 'background.default',
-            p: 2,
-            background: 'linear-gradient(135deg, #008069 0%, #005c4b 100%)' // WhatsApp-like gradient
+            bgcolor: '#f7f2e8',
+            p: { xs: 2, sm: 4 },
+            position: 'relative',
+            overflowX: 'hidden',
+            background: 'radial-gradient(circle at 12% 15%, rgba(229,107,79,0.17) 0 130px, transparent 132px), radial-gradient(circle at 88% 84%, rgba(8,127,91,0.15) 0 180px, transparent 182px), #f7f2e8'
         }}>
             <Button
                 variant="outlined"
@@ -115,43 +118,42 @@ const Login = () => {
                     position: 'fixed',
                     top: 16,
                     insetInlineEnd: 16,
-                    color: 'white',
-                    borderColor: 'rgba(255,255,255,0.7)',
+                    color: '#16352f',
+                    borderColor: '#b8aa94',
+                    bgcolor: 'rgba(255,253,248,0.8)',
                     '&:hover': {
-                        borderColor: 'white',
-                        bgcolor: 'rgba(255,255,255,0.08)',
+                        borderColor: '#087f5b',
+                        bgcolor: '#fffdf8',
                     },
                 }}
                 aria-label={t('language.toggleLabel')}
             >
                 {language === 'ar' ? t('language.switchToEnglish') : t('language.switchToArabic')}
             </Button>
-            <Box sx={{ width: '100%', maxWidth: 420 }}>
+            <Box sx={{ width: '100%', maxWidth: 460, position: 'relative', zIndex: 1 }}>
                 {/* Logo */}
-                <Box sx={{ textAlign: 'center', mb: 4, color: 'white' }}>
+                <Box component={RouterLink} to="/" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, mb: 3, color: '#16352f', textDecoration: 'none' }}>
                     <Box sx={{
-                        width: 64,
-                        height: 64,
-                        bgcolor: 'white',
-                        borderRadius: 3,
-                        display: 'inline-flex',
+                        width: 48,
+                        height: 48,
+                        bgcolor: '#087f5b',
+                        color: 'white',
+                        borderRadius: '16px 16px 5px 16px',
+                        display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        mb: 2,
-                        boxShadow: 3
+                        transform: 'rotate(-3deg)'
                     }}>
-                        <Typography component="span" aria-hidden="true" variant="h3">⚡</Typography>
+                        <WhatsAppIcon sx={{ fontSize: 28, transform: 'rotate(3deg)' }} />
                     </Box>
-                    <Typography component="h1" variant="h5" fontWeight={700}>
-                        Wa Savana
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                        {t('auth.subtitle')}
-                    </Typography>
+                    <Box>
+                        <Typography component="h1" variant="h5" fontWeight={850}>Wa Savana</Typography>
+                        <Typography variant="body2" color="text.secondary">{t('auth.subtitle')}</Typography>
+                    </Box>
                 </Box>
 
-                <Card elevation={8} sx={{ borderRadius: 3 }}>
-                    <CardContent sx={{ p: 4 }}>
+                <Card elevation={0} sx={{ border: '1px solid #16352f', borderRadius: '26px 8px 26px 26px', boxShadow: '12px 14px 0 #e56b4f', bgcolor: '#fffdf8' }}>
+                    <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
                         <Tabs
                             aria-label={t('auth.loginTab')}
                             value={tabValue}

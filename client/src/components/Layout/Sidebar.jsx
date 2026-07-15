@@ -152,12 +152,12 @@ const Sidebar = () => {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            bgcolor: 'background.paper',
-            borderInlineEnd: '1px solid rgba(0,0,0,0.12)'
+            bgcolor: '#fffdf8',
+            borderInlineEnd: '1px solid #d7ccba'
         }}>
             {/* Logo Area */}
             <Box sx={{
-                p: 3,
+                p: 2.5,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2
@@ -165,16 +165,16 @@ const Sidebar = () => {
                 <Box sx={{
                     width: 40,
                     height: 40,
-                    bgcolor: isTenant ? 'secondary.main' : 'primary.main',
-                    borderRadius: 2,
+                    bgcolor: 'primary.main',
+                    borderRadius: '14px 14px 4px 14px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: 'white',
                     fontSize: '1.5rem',
-                    boxShadow: 2
+                    transform: 'rotate(-3deg)'
                 }}>
-                    {isTenant ? '🏢' : '⚡'}
+                    <WhatsAppIcon sx={{ transform: 'rotate(3deg)' }} />
                 </Box>
                 <Box>
                     <Typography variant="h6" component="div" fontWeight={700} lineHeight={1.2}>
@@ -186,7 +186,7 @@ const Sidebar = () => {
                 </Box>
             </Box>
 
-            <Divider />
+            <Divider sx={{ borderColor: '#d7ccba' }} />
 
             {/* Navigation */}
             <Box component="nav" aria-label={t('layout.mainNavigation')} sx={{ flex: 1, px: 1.5, py: 1.5, overflowY: 'auto' }}>
@@ -222,12 +222,12 @@ const Sidebar = () => {
                                             to={item.path}
                                             selected={isActive}
                                             sx={{
-                                                borderRadius: 1.5,
+                                                borderRadius: '11px 11px 3px 11px',
                                                 minHeight: 40,
                                                 '&.Mui-selected': {
-                                                    bgcolor: isTenant ? '#d7f7e3' : '#d9f5ef',
-                                                    color: isTenant ? '#065f3c' : 'primary.dark',
-                                                    '&:hover': { bgcolor: isTenant ? '#bceccb' : '#bce8df' },
+                                                    bgcolor: '#d9eadf',
+                                                    color: '#0f4f40',
+                                                    '&:hover': { bgcolor: '#c7dfd0' },
                                                     '& .MuiListItemIcon-root': { color: 'inherit' }
                                                 }
                                             }}
@@ -264,8 +264,9 @@ const Sidebar = () => {
                         gap: 1.5,
                         mb: 2,
                         p: 1.5,
-                        bgcolor: 'action.hover',
-                        borderRadius: 2
+                        bgcolor: '#f7f2e8',
+                        border: '1px solid #d7ccba',
+                        borderRadius: '14px 4px 14px 14px'
                     }}>
                         <Avatar sx={{ bgcolor: isTenant ? 'secondary.main' : 'primary.main', width: 36, height: 36 }}>
                             <PersonIcon />
