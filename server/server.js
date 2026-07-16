@@ -30,6 +30,7 @@ import automationRouter from './routes/automation.js';
 import settingsRouter from './routes/settings.js';
 import billingRouter from './routes/billing.js';
 import messengerBotRouter from './routes/messengerBot.js';
+import facebookContentStudioRouter from './routes/facebookContentStudio.js';
 import dataDeletionRouter from './routes/dataDeletion.js';
 import metricsRouter from './routes/metrics.js';
 
@@ -429,9 +430,11 @@ app.use('/automation', authMiddleware, adminMiddleware, automationRouter);
 app.use('/settings', authMiddleware, adminMiddleware, settingsRouter);
 app.use('/billing', authMiddleware, adminMiddleware, billingRouter);
 app.use('/messenger-bot', authMiddleware, adminMiddleware, messengerBotRouter);
+app.use('/content-studio', authMiddleware, adminMiddleware, facebookContentStudioRouter);
 
 // Protected API Routes - Tenant Portal
 app.use('/portal/messenger-bot', authMiddleware, tenantMiddleware, messengerBotRouter);
+app.use('/portal/content-studio', authMiddleware, tenantMiddleware, facebookContentStudioRouter);
 app.use('/portal/fb-content', authMiddleware, tenantMiddleware, fbContentRouter);
 app.use('/portal/fb-insights', authMiddleware, tenantMiddleware, fbInsightsRouter);
 app.use('/portal', authMiddleware, tenantMiddleware, tenantPortalRouter);
