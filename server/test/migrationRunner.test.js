@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '040_facebook_content_studio.sql';
+    const latestMigration = '041_facebook_post_workflows.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -175,6 +175,18 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'facebook_content_campaigns'), true);
     assert.equal(tableExists(db, 'facebook_content_publications'), true);
     assert.equal(tableExists(db, 'facebook_content_ai_generations'), true);
+    assert.equal(tableExists(db, 'facebook_comment_reply_templates'), true);
+    assert.equal(tableExists(db, 'facebook_comment_followups'), true);
+    assert.equal(
+        db.pragma('table_info(bot_products)')
+            .some(column => column.name === 'approval_status'),
+        true
+    );
+    assert.equal(
+        db.pragma('table_info(facebook_content_items)')
+            .some(column => column.name === 'source_post_id'),
+        true
+    );
     assert.deepEqual(
         db.prepare(`
             SELECT channel, operation_type, unit_price_credits

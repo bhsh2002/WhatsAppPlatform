@@ -47,6 +47,15 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
                 clauses.push('publication.linked_page_id = ?');
                 params.push(page.id);
             }
+            if (req.query.source_post_id) {
+                const sourcePostId = boundedText(req.query.source_post_id, {
+                    field: 'معرف المنشور المصدر',
+                    max: 512,
+                    required: true,
+                });
+                clauses.push('(i.source_post_id = ? OR p.source_post_id = ?)');
+                params.push(sourcePostId, sourcePostId);
+            }
             const start = parseDate(req.query.start, { field: 'بداية الفترة' });
             const end = parseDate(req.query.end, { field: 'نهاية الفترة' });
             if (start) {
@@ -60,7 +69,9 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
             const where = clauses.join(' AND ');
             const publications = database.prepare(`
                 SELECT publication.*, tp.page_name, c.name AS campaign_name,
-                       i.title AS content_title, p.name AS product_name, p.sku AS product_sku
+                       i.title AS content_title, p.name AS product_name, p.sku AS product_sku,
+                       COALESCE(i.source_post_id, p.source_post_id) AS source_post_id,
+                       COALESCE(i.source_post_url, p.source_post_url) AS source_post_url
                 FROM facebook_content_publications publication
                 JOIN tenant_pages tp
                   ON tp.id = publication.linked_page_id
@@ -75,6 +86,8 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
             const total = database.prepare(`
                 SELECT COUNT(*) AS count
                 FROM facebook_content_publications publication
+                LEFT JOIN facebook_content_items i ON i.id = publication.content_item_id
+                LEFT JOIN bot_products p ON p.id = publication.product_id
                 WHERE ${where}
             `).get(...params).count;
             const summary = database.prepare(`

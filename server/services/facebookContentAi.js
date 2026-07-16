@@ -10,9 +10,19 @@ import {
     OPENAI_MODEL,
 } from '../config/index.js';
 
-export const FACEBOOK_CONTENT_PROMPT_VERSION = 'facebook-content-v1';
+export const FACEBOOK_CONTENT_PROMPT_VERSION = 'facebook-content-v2';
 
 const SUPPORTED_PROVIDERS = new Set(['openai', 'gemini']);
+export const FACEBOOK_CONTENT_AI_ACTIONS = new Set([
+    'generate',
+    'rewrite',
+    'variants',
+    'improve_cta',
+    'hashtags',
+    'shorten',
+    'tone',
+    'comment_reply',
+]);
 const REFUSAL_FINISH_REASONS = new Set([
     'SAFETY',
     'RECITATION',
@@ -81,24 +91,80 @@ const productFacts = product => {
     });
 };
 
+const pageFacts = (page, settings) => {
+    if (!page) return 'لم يتم اختيار صفحة محددة.';
+    return JSON.stringify({
+        name: page.page_name || null,
+        category: page.page_category || null,
+        brand_voice: settings.brand_voice || null,
+        audience: settings.audience || null,
+    });
+};
+
+const actionDefinition = action => ({
+    generate: {
+        label: 'توليد محتوى جديد',
+        rule: 'حوّل الفكرة أو حقائق المنتج إلى منشور جديد. لا تعامل الفكرة كنص يجب نسخه حرفياً.',
+    },
+    rewrite: {
+        label: 'إعادة صياغة',
+        rule: 'أعد كتابة النص مع الحفاظ على معناه وحقائقه وروابطه. غيّر الصياغة والبنية ولا تضف ادعاءات جديدة.',
+    },
+    variants: {
+        label: 'إنشاء بدائل',
+        rule: 'أنشئ بدائل مختلفة فعلاً في الاستهلال والبنية والدعوة للإجراء مع ثبات الحقائق.',
+    },
+    improve_cta: {
+        label: 'تحسين الدعوة للإجراء',
+        rule: 'حافظ على متن المنشور وحقائقه، وحسّن الدعوة للإجراء لتكون واضحة وطبيعية وغير مضللة.',
+    },
+    hashtags: {
+        label: 'اقتراح الوسوم',
+        rule: 'حافظ على النص الأصلي، واقترح وسوماً قليلة محددة ومرتبطة مباشرة بموضوع المنشور والصفحة.',
+    },
+    shorten: {
+        label: 'اختصار المنشور',
+        rule: 'اختصر النص بوضوح مع الاحتفاظ بالرسالة والحقائق الأساسية والدعوة المهمة.',
+    },
+    tone: {
+        label: 'تغيير النبرة',
+        rule: 'أعد صياغة النص بالنبرة المطلوبة في تعليمات المهمة مع الحفاظ على المعنى والحقائق.',
+    },
+    comment_reply: {
+        label: 'اقتراح رد على تعليق',
+        rule: 'اكتب رداً قصيراً ومباشراً ومناسباً للتعليق. لا تنشئ منشوراً ولا وسوماً، ولا تطلب بيانات حساسة علناً.',
+    },
+}[action] || {
+    label: 'توليد محتوى',
+    rule: 'نفّذ المهمة المطلوبة من دون اختراع حقائق.',
+});
+
 export const buildFacebookContentPrompt = ({
     action,
     inputText,
+    page,
     product,
     settings,
+    taskInstruction = '',
     variants = 1,
 } = {}) => {
+    const task = actionDefinition(action);
     const instructions = [
         'أنت مساعد تحرير متخصص في كتابة منشورات أصلية لصفحات Facebook التجارية.',
         'اكتب بلغة العميل المحددة، وبأسلوب بشري طبيعي بعيد عن العبارات العامة والنمط الآلي.',
+        'اربط النتيجة بهوية الصفحة المحددة والفكرة أو النص المصدر، وتجنب المقدمات الجاهزة التي تصلح لأي صفحة.',
         'لا تخترع أسعاراً أو روابط أو مواصفات أو عروضاً. حقائق المنتج المعطاة ثابتة ولا يجوز تغييرها.',
         'لا تستخدم أياً من الكلمات الممنوعة. ضمّن الكلمات المطلوبة عندما تكون ملائمة.',
         'أعد نصاً صالحاً للنشر مباشرة، مع فقرات قصيرة ودعوة واضحة مناسبة.',
+        'لا تعدّل المنشور الأصلي؛ أعد نتيجة جديدة قابلة للمراجعة.',
+        task.rule,
         'لا تذكر أنك نموذج ذكاء اصطناعي ولا تشرح خطواتك.',
     ].join(' ');
     const input = [
-        `نوع المهمة: ${action === 'rewrite' ? 'إعادة صياغة' : action === 'variants' ? 'إنشاء بدائل' : 'توليد محتوى'}.`,
+        `نوع المهمة: ${task.label}.`,
+        `تعليمات المهمة الإضافية: ${contentText(taskInstruction) || 'لا توجد'}.`,
         `عدد البدائل المطلوب: ${Math.min(Math.max(Number(variants) || 1, 1), 5)}.`,
+        `هوية الصفحة المستهدفة: ${pageFacts(page, settings)}.`,
         `اللغة: ${settings.language || 'ar'}.`,
         `النبرة: ${settings.tone || 'professional'}.`,
         `هوية الكتابة: ${settings.brand_voice || 'واضحة، موثوقة، ومباشرة'}.`,
@@ -254,14 +320,14 @@ const enforceContentPolicy = (variants, settings) => {
 };
 
 const validateRequest = ({ action, inputText }) => {
-    if (!['generate', 'rewrite', 'variants'].includes(action)) {
+    if (!FACEBOOK_CONTENT_AI_ACTIONS.has(action)) {
         throw aiError('نوع طلب التوليد غير صالح', {
             status: 400,
             code: 'INVALID_AI_ACTION',
         });
     }
-    if (action === 'rewrite' && !contentText(inputText)) {
-        throw aiError('النص مطلوب لإعادة الصياغة', {
+    if (!['generate', 'variants'].includes(action) && !contentText(inputText)) {
+        throw aiError('النص مطلوب لتنفيذ هذه المهمة', {
             status: 400,
             code: 'AI_INPUT_REQUIRED',
         });
@@ -316,8 +382,10 @@ const normalizeProviderOutputError = (error, provider) => {
 export async function requestOpenAiFacebookContent({
     action = 'generate',
     inputText = '',
+    page = null,
     product = null,
     settings = {},
+    taskInstruction = '',
     variants = 1,
     fetchImpl = globalThis.fetch,
     apiKey = OPENAI_API_KEY,
@@ -330,8 +398,10 @@ export async function requestOpenAiFacebookContent({
     const prompt = buildFacebookContentPrompt({
         action,
         inputText,
+        page,
         product,
         settings,
+        taskInstruction,
         variants,
     });
     const response = await fetchProvider(
@@ -383,8 +453,10 @@ export async function requestOpenAiFacebookContent({
 export async function requestGeminiFacebookContent({
     action = 'generate',
     inputText = '',
+    page = null,
     product = null,
     settings = {},
+    taskInstruction = '',
     variants = 1,
     fetchImpl = globalThis.fetch,
     apiKey = GEMINI_API_KEY,
@@ -397,8 +469,10 @@ export async function requestGeminiFacebookContent({
     const prompt = buildFacebookContentPrompt({
         action,
         inputText,
+        page,
         product,
         settings,
+        taskInstruction,
         variants,
     });
     const response = await fetchProvider(
@@ -514,8 +588,10 @@ const logProviderEvent = (logger, level, {
 export async function requestFacebookContent({
     action = 'generate',
     inputText = '',
+    page = null,
     product = null,
     settings = {},
+    taskInstruction = '',
     variants = 1,
     fetchImpl = globalThis.fetch,
     primaryProvider = AI_PRIMARY_PROVIDER,
@@ -541,8 +617,10 @@ export async function requestFacebookContent({
             const result = await providerRequests[provider]({
                 action,
                 inputText,
+                page,
                 product,
                 settings,
+                taskInstruction,
                 variants,
                 fetchImpl,
                 timeoutMs,

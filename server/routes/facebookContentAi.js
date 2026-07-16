@@ -9,6 +9,7 @@ import {
     reserve as reserveBilling,
 } from '../services/billing.js';
 import {
+    FACEBOOK_CONTENT_AI_ACTIONS,
     FACEBOOK_CONTENT_PROMPT_VERSION,
     requestFacebookContent,
 } from '../services/facebookContentAi.js';
@@ -17,6 +18,7 @@ import {
     boundedText,
     contentError,
     getEffectiveContentSettings,
+    normalizeOptionalUrl,
     normalizeStringList,
     requireContentPage,
     requireContentTenant,
@@ -80,15 +82,24 @@ export function createFacebookContentAiRouter({
                 max: 100,
                 fallback: 25,
             });
+            const sourcePostId = req.query.source_post_id
+                ? boundedText(req.query.source_post_id, {
+                    field: 'معرف المنشور المصدر',
+                    max: 512,
+                    required: true,
+                })
+                : null;
             const rows = database.prepare(`
-                SELECT id, linked_page_id, product_id, action,
+                SELECT id, linked_page_id, product_id, source_post_id,
+                       source_post_url, action,
                        input_tokens, output_tokens, status, error_code, error_message,
                        created_at
                 FROM facebook_content_ai_generations
                 WHERE tenant_id = ?
+                  ${sourcePostId ? 'AND source_post_id = ?' : ''}
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
-            `).all(tenant.id, limit);
+            `).all(...(sourcePostId ? [tenant.id, sourcePostId, limit] : [tenant.id, limit]));
             res.json(rows);
         } catch (error) {
             sendContentError(res, error, 'فشل جلب سجل التوليد');
@@ -101,15 +112,16 @@ export function createFacebookContentAiRouter({
         try {
             const tenant = requireContentTenant(database, req, res);
             if (!tenant) return;
-            const linkedPageId = req.body.linked_page_id
-                ? requireContentPage(database, tenant.id, req.body.linked_page_id).id
+            const page = req.body.linked_page_id
+                ? requireContentPage(database, tenant.id, req.body.linked_page_id)
                 : null;
+            const linkedPageId = page?.id || null;
             const product = req.body.product_id
                 ? requireSharedProduct(database, tenant.id, req.body.product_id, { activeOnly: true })
                 : null;
             const settings = getEffectiveContentSettings(database, tenant.id, linkedPageId);
             if (!settings.ai_enabled) throw contentError('مساعد المحتوى معطل لهذه الصفحة', 403, 'AI_DISABLED');
-            const action = ['generate', 'rewrite', 'variants'].includes(req.body.action)
+            const action = FACEBOOK_CONTENT_AI_ACTIONS.has(req.body.action)
                 ? req.body.action
                 : 'generate';
             const inputText = boundedText(req.body.input_text, {
@@ -120,6 +132,30 @@ export function createFacebookContentAiRouter({
             if (!inputText && !product) {
                 throw contentError('أدخل فكرة أو اختر منتجاً للتوليد', 400, 'AI_INPUT_REQUIRED');
             }
+            if (!['generate', 'variants'].includes(action) && !inputText) {
+                throw contentError('النص مطلوب لتنفيذ هذه المهمة', 400, 'AI_INPUT_REQUIRED');
+            }
+            const taskInstruction = boundedText(req.body.task_instruction, {
+                field: 'تعليمات المهمة',
+                max: 1000,
+                fallback: '',
+            });
+            const sourcePostId = boundedText(req.body.source_post_id, {
+                field: 'معرف المنشور المصدر',
+                max: 512,
+                fallback: null,
+            });
+            const sourcePostUrl = normalizeOptionalUrl(
+                req.body.source_post_url,
+                'رابط المنشور المصدر',
+            );
+            if (sourcePostId && !page) {
+                throw contentError(
+                    'اختر صفحة المنشور المصدر',
+                    400,
+                    'SOURCE_PAGE_REQUIRED',
+                );
+            }
             const variants = boundedInteger(req.body.variants, {
                 field: 'عدد البدائل',
                 min: 1,
@@ -128,13 +164,16 @@ export function createFacebookContentAiRouter({
             });
             const pending = database.prepare(`
                 INSERT INTO facebook_content_ai_generations (
-                    tenant_id, linked_page_id, product_id, action, model,
-                    prompt_version, input_text, status, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                    tenant_id, linked_page_id, product_id, source_post_id,
+                    source_post_url, action, model, prompt_version, input_text,
+                    status, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
             `).run(
                 tenant.id,
                 linkedPageId,
                 product?.id || null,
+                sourcePostId,
+                sourcePostUrl,
                 action,
                 'pending',
                 FACEBOOK_CONTENT_PROMPT_VERSION,
@@ -153,25 +192,31 @@ export function createFacebookContentAiRouter({
                     action,
                     linked_page_id: linkedPageId,
                     product_id: product?.id || null,
+                    source_post_id: sourcePostId,
                     requested_variants: variants,
                 },
             });
             const generated = await generate({
                 action,
                 inputText,
+                page,
                 product,
                 settings,
+                taskInstruction,
                 variants,
             });
-            const itemStatus = settings.approval_mode === 'automatic' ? 'approved' : 'review';
+            const itemStatus = sourcePostId
+                ? 'draft'
+                : (settings.approval_mode === 'automatic' ? 'approved' : 'review');
             const createdItems = [];
-            if (req.body.create_items === true) {
+            if (req.body.create_items === true && action !== 'comment_reply') {
                 const insertItem = database.prepare(`
                     INSERT INTO facebook_content_items (
                         tenant_id, linked_page_id, product_id, kind, title, body,
                         link_url, media_url, tags_json, status, source_text,
-                        prompt_version, approved_by, approved_at, created_by
-                    ) VALUES (?, ?, ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        prompt_version, source_post_id, source_post_url,
+                        approved_by, approved_at, created_by
+                    ) VALUES (?, ?, ?, 'ai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
                 const createItems = database.transaction(() => {
                     for (const variant of generated.variants) {
@@ -187,6 +232,8 @@ export function createFacebookContentAiRouter({
                             itemStatus,
                             inputText || null,
                             generated.prompt_version,
+                            sourcePostId,
+                            sourcePostUrl,
                             itemStatus === 'approved' ? (req.user?.id || null) : null,
                             itemStatus === 'approved' ? new Date().toISOString() : null,
                             req.user?.id || null,

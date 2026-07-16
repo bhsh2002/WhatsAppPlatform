@@ -7,6 +7,7 @@ import {
     requireTenant,
     resolvePublicApiBase,
     toInt,
+    validateLinkedPage,
 } from './messengerBotShared.js';
 
 export function normalizeProductImages(images = [], fallbackImageUrl = null) {
@@ -37,6 +38,7 @@ export function normalizeProductImages(images = [], fallbackImageUrl = null) {
 
 export function normalizeProductPayload(body = {}) {
     const imageUrl = String(body.image_url || '').trim() || null;
+    const approvalStatus = body.approval_status === 'draft' ? 'draft' : 'approved';
     return {
         sku: String(body.sku || '').trim() || null,
         name: String(body.name || '').trim(),
@@ -47,7 +49,13 @@ export function normalizeProductPayload(body = {}) {
         product_url: String(body.product_url || '').trim() || null,
         category: String(body.category || '').trim() || null,
         availability: ['available', 'out_of_stock', 'hidden'].includes(body.availability) ? body.availability : 'available',
-        is_active: body.is_active === false || body.is_active === 0 || body.is_active === '0' ? 0 : 1,
+        is_active: approvalStatus === 'draft'
+            ? 0
+            : (body.is_active === false || body.is_active === 0 || body.is_active === '0' ? 0 : 1),
+        approval_status: approvalStatus,
+        source_linked_page_id: toInt(body.source_linked_page_id, null),
+        source_post_id: String(body.source_post_id || '').trim().slice(0, 512) || null,
+        source_post_url: String(body.source_post_url || '').trim().slice(0, 2048) || null,
         images: normalizeProductImages(body.images, imageUrl),
     };
 }
@@ -152,6 +160,32 @@ export function createMessengerBotProductsRouter({
         });
     };
 
+    const validateProductSource = (tenantId, product) => {
+        if (!product.source_post_id && !product.source_linked_page_id) return null;
+        if (!product.source_post_id || !product.source_linked_page_id) {
+            return { status: 400, error: 'مصدر منشور Facebook غير مكتمل' };
+        }
+        if (!validateLinkedPage(database, tenantId, product.source_linked_page_id)) {
+            return { status: 404, error: 'صفحة مصدر المنتج غير موجودة أو غير مفعلة' };
+        }
+        return null;
+    };
+
+    const validateProductApproval = product => {
+        if (product.approval_status !== 'approved' || !product.source_post_id) return null;
+        const missing = [];
+        if (!product.sku) missing.push('SKU');
+        if (!product.category) missing.push('التصنيف');
+        if (!(Number(product.price) > 0)) missing.push('السعر');
+        return missing.length
+            ? {
+                status: 400,
+                error: `أكمل ${missing.join(' و')} قبل اعتماد المنتج المحوّل من منشور`,
+                code: 'PRODUCT_APPROVAL_FIELDS_REQUIRED',
+            }
+            : null;
+    };
+
     router.get('/products', (req, res) => {
         try {
             const tenant = requireTenant(database, req, res);
@@ -197,13 +231,35 @@ export function createMessengerBotProductsRouter({
             if (!tenant) return;
             const product = normalizeProductPayload(req.body);
             if (!product.name) return res.status(400).json({ error: 'اسم المنتج مطلوب' });
+            const sourceError = validateProductSource(tenant.id, product);
+            if (sourceError) return res.status(sourceError.status).json(sourceError);
+            const approvalError = validateProductApproval(product);
+            if (approvalError) return res.status(approvalError.status).json(approvalError);
+            if (product.source_post_id) {
+                const existingSource = database.prepare(`
+                    SELECT id
+                    FROM bot_products
+                    WHERE tenant_id = ? AND source_linked_page_id = ?
+                      AND source_post_id = ?
+                    LIMIT 1
+                `).get(tenant.id, product.source_linked_page_id, product.source_post_id);
+                if (existingSource) {
+                    return res.status(409).json({
+                        error: 'تم تحويل هذا المنشور إلى منتج مسبقاً',
+                        code: 'POST_PRODUCT_EXISTS',
+                        product_id: existingSource.id,
+                    });
+                }
+            }
 
             const tx = database.transaction(() => {
                 const result = database.prepare(`
                     INSERT INTO bot_products (
                         tenant_id, sku, name, description, price, currency,
-                        image_url, product_url, category, availability, is_active
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        image_url, product_url, category, availability, is_active,
+                        approval_status, source_linked_page_id, source_post_id,
+                        source_post_url
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     tenant.id,
                     product.sku,
@@ -216,6 +272,10 @@ export function createMessengerBotProductsRouter({
                     product.category,
                     product.availability,
                     product.is_active,
+                    product.approval_status,
+                    product.source_linked_page_id,
+                    product.source_post_id,
+                    product.source_post_url,
                 );
                 replaceProductImages(result.lastInsertRowid, tenant.id, product.images);
                 return attachProductImages(database.prepare('SELECT * FROM bot_products WHERE id = ?').get(result.lastInsertRowid));
@@ -240,15 +300,29 @@ export function createMessengerBotProductsRouter({
             if (!Object.prototype.hasOwnProperty.call(req.body, 'images')) {
                 body.images = getProductImages(existing.id);
             }
-            const product = normalizeProductPayload(body);
+            const product = normalizeProductPayload({
+                ...body,
+                approval_status: (
+                    existing.approval_status === 'draft'
+                    && (req.body.is_active === true || req.body.is_active === 1 || req.body.is_active === '1')
+                )
+                    ? 'approved'
+                    : body.approval_status,
+            });
             if (!product.name) return res.status(400).json({ error: 'اسم المنتج مطلوب' });
+            const sourceError = validateProductSource(tenant.id, product);
+            if (sourceError) return res.status(sourceError.status).json(sourceError);
+            const approvalError = validateProductApproval(product);
+            if (approvalError) return res.status(approvalError.status).json(approvalError);
 
             const tx = database.transaction(() => {
                 database.prepare(`
                     UPDATE bot_products
                     SET sku = ?, name = ?, description = ?, price = ?, currency = ?,
                         image_url = ?, product_url = ?, category = ?, availability = ?,
-                        is_active = ?, updated_at = datetime('now', 'localtime')
+                        is_active = ?, approval_status = ?, source_linked_page_id = ?,
+                        source_post_id = ?, source_post_url = ?,
+                        updated_at = datetime('now', 'localtime')
                     WHERE id = ? AND tenant_id = ?
                 `).run(
                     product.sku,
@@ -261,6 +335,10 @@ export function createMessengerBotProductsRouter({
                     product.category,
                     product.availability,
                     product.is_active,
+                    product.approval_status,
+                    product.source_linked_page_id,
+                    product.source_post_id,
+                    product.source_post_url,
                     req.params.id,
                     tenant.id,
                 );

@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { runMigrationsSync } from '../db/migrator.js';
 import { createFacebookContentAiRouter } from '../routes/facebookContentAi.js';
 import { createFacebookContentCampaignsRouter } from '../routes/facebookContentCampaigns.js';
+import { createFacebookContentEngagementRouter } from '../routes/facebookContentEngagement.js';
 import { createFacebookContentLibraryRouter } from '../routes/facebookContentLibrary.js';
 import { createFacebookContentPublicationsRouter } from '../routes/facebookContentPublications.js';
 import { createFacebookContentSettingsRouter } from '../routes/facebookContentSettings.js';
@@ -110,28 +111,35 @@ test('Content Studio facade composes settings, shared products, library and AI r
     });
     assert.deepEqual(collectEndpoints(router), [
         'DELETE /campaigns/:id',
+        'DELETE /comment-templates/:id',
         'DELETE /items/:id',
         'DELETE /publications/:id',
         'DELETE /settings/pages/:linkedPageId',
         'GET /ai/history',
         'GET /campaigns',
+        'GET /comment-followups',
+        'GET /comment-templates',
         'GET /items',
         'GET /products',
         'GET /publications',
         'GET /readiness',
         'GET /settings',
         'PATCH /campaigns/:id',
+        'PATCH /comment-templates/:id',
         'PATCH /items/:id',
         'POST /ai/generate',
         'POST /campaigns',
         'POST /campaigns/:id/run-now',
         'POST /campaigns/:id/toggle',
+        'POST /comment-templates',
         'POST /items',
         'POST /items/:id/approve',
+        'POST /items/from-post',
         'POST /items/from-product/:productId',
         'POST /publications',
         'POST /publications/:id/publish-now',
         'POST /publications/:id/retry',
+        'PUT /comment-followups/:commentId',
         'PUT /settings',
     ]);
     database.close();
@@ -190,6 +198,73 @@ test('content settings support tenant defaults and page-specific overrides', asy
     assert.deepEqual(readiness.body.ai, { configured: true });
 });
 
+test('comment templates and follow-up markers remain page and tenant scoped', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const router = createFacebookContentEngagementRouter({ database });
+
+    const tenantTemplate = await invoke(router, 'post', '/comment-templates', {
+        body: { name: 'عام', body: 'شكراً لتواصلك معنا' },
+    });
+    assert.equal(tenantTemplate.statusCode, 201);
+    assert.equal(tenantTemplate.body.linked_page_id, null);
+
+    const pageTemplate = await invoke(router, 'post', '/comment-templates', {
+        body: {
+            linked_page_id: 11,
+            name: 'السعر',
+            body: 'سنرسل لك السعر والتفاصيل',
+        },
+    });
+    assert.equal(pageTemplate.statusCode, 201);
+
+    const templates = await invoke(router, 'get', '/comment-templates', {
+        query: { linked_page_id: '11' },
+    });
+    assert.deepEqual(templates.body.map(template => template.name), ['السعر', 'عام']);
+
+    const duplicate = await invoke(router, 'post', '/comment-templates', {
+        body: {
+            linked_page_id: 11,
+            name: 'السعر',
+            body: 'مكرر',
+        },
+    });
+    assert.equal(duplicate.statusCode, 409);
+
+    const followup = await invoke(router, 'put', '/comment-followups/:commentId', {
+        params: { commentId: 'comment-1' },
+        body: {
+            linked_page_id: 11,
+            post_id: 'post-1',
+            note: 'يحتاج عرض سعر',
+        },
+    });
+    assert.equal(followup.statusCode, 200);
+    assert.equal(followup.body.status, 'open');
+
+    const listed = await invoke(router, 'get', '/comment-followups', {
+        query: { linked_page_id: '11', post_id: 'post-1' },
+    });
+    assert.deepEqual(listed.body.followups.map(row => row.comment_id), ['comment-1']);
+
+    const resolved = await invoke(router, 'put', '/comment-followups/:commentId', {
+        params: { commentId: 'comment-1' },
+        body: {
+            linked_page_id: 11,
+            post_id: 'post-1',
+            status: 'resolved',
+        },
+    });
+    assert.equal(resolved.body.status, 'resolved');
+    assert.ok(resolved.body.resolved_at);
+
+    const crossTenant = await invoke(router, 'get', '/comment-templates', {
+        query: { linked_page_id: '22' },
+    });
+    assert.equal(crossTenant.statusCode, 404);
+});
+
 test('shared products create reusable Facebook content without crossing tenants', async (t) => {
     const database = createDatabase();
     t.after(() => database.close());
@@ -240,6 +315,71 @@ test('shared products create reusable Facebook content without crossing tenants'
         params: { id: String(created.body.id) },
     });
     assert.equal(archived.body.success, true);
+});
+
+test('existing Facebook posts import into the content library without changing the remote post', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const router = createFacebookContentLibraryRouter({ database });
+    const source = {
+        linked_page_id: 11,
+        source_post_id: 'page-a_post-77',
+        source_post_url: 'https://facebook.test/page-a/posts/77',
+        title: 'منشور موجود',
+        body: 'النص الأصلي للمنشور',
+        media_url: 'https://images.test/post-77.jpg',
+        link_url: 'https://shop.test/from-post',
+        tags: ['مستورد'],
+    };
+
+    const imported = await invoke(router, 'post', '/items/from-post', { body: source });
+    assert.equal(imported.statusCode, 201);
+    assert.equal(imported.body.status, 'draft');
+    assert.equal(imported.body.source_post_id, source.source_post_id);
+    assert.equal(imported.body.source_post_url, source.source_post_url);
+    assert.equal(imported.body.reused, false);
+
+    const reused = await invoke(router, 'post', '/items/from-post', { body: source });
+    assert.equal(reused.statusCode, 200);
+    assert.equal(reused.body.id, imported.body.id);
+    assert.equal(reused.body.reused, true);
+
+    const duplicated = await invoke(router, 'post', '/items/from-post', {
+        body: { ...source, duplicate: true, title: 'نسخة جديدة' },
+    });
+    assert.equal(duplicated.statusCode, 201);
+    assert.notEqual(duplicated.body.id, imported.body.id);
+
+    const filtered = await invoke(router, 'get', '/items', {
+        query: { source_post_id: source.source_post_id },
+    });
+    assert.equal(filtered.body.total, 2);
+
+    await invoke(router, 'post', '/items/:id/approve', {
+        params: { id: String(imported.body.id) },
+    });
+    const publications = createFacebookContentPublicationsRouter({ database });
+    const scheduled = await invoke(publications, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            content_item_id: imported.body.id,
+            scheduled_for: '2027-01-01T09:00:00.000Z',
+        },
+    });
+    assert.equal(scheduled.statusCode, 201);
+    const history = await invoke(publications, 'get', '/publications', {
+        query: {
+            linked_page_id: '11',
+            source_post_id: source.source_post_id,
+        },
+    });
+    assert.equal(history.body.total, 1);
+    assert.equal(history.body.publications[0].source_post_id, source.source_post_id);
+
+    const crossTenant = await invoke(router, 'post', '/items/from-post', {
+        body: { ...source, linked_page_id: 22 },
+    });
+    assert.equal(crossTenant.statusCode, 404);
 });
 
 test('OpenAI adapter sends a Responses API structured-output request and enforces banned terms', async () => {
@@ -439,12 +579,17 @@ test('AI prompt keeps product facts explicit and response parsing handles refusa
     const prompt = buildFacebookContentPrompt({
         action: 'rewrite',
         inputText: 'نص قديم',
+        page: { page_name: 'صفحة سافانا', page_category: 'تقنية' },
         product: { name: 'منتج', price: 12, currency: 'LYD' },
         settings: { language: 'ar', tone: 'ودود' },
+        taskInstruction: 'حافظ على الاختصار',
         variants: 2,
     });
     assert.match(prompt.instructions, /لا تخترع أسعاراً/);
+    assert.match(prompt.instructions, /لا تعدّل المنشور الأصلي/);
     assert.match(prompt.input, /"price":12/);
+    assert.match(prompt.input, /صفحة سافانا/);
+    assert.match(prompt.input, /حافظ على الاختصار/);
     assert.throws(
         () => extractStructuredFacebookContent({
             output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'غير مسموح' }] }],
@@ -510,6 +655,81 @@ test('AI route records generation, billing and optionally creates review items',
 
     const history = await invoke(router, 'get', '/ai/history');
     assert.equal('model' in history.body[0], false);
+});
+
+test('direct AI post tools preserve source linkage and create new drafts only', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    let received;
+    const router = createFacebookContentAiRouter({
+        database,
+        generate: async options => {
+            received = options;
+            return {
+                variants: [{
+                    title: 'نسخة بنبرة ودية',
+                    body: 'النص الجديد دون تعديل الأصل',
+                    hashtags: ['سافانا'],
+                    cta: 'تواصل معنا',
+                }],
+                model: 'test-model',
+                usage: { input_tokens: 12, output_tokens: 8 },
+                prompt_version: 'facebook-content-v2',
+            };
+        },
+        billing: {
+            reserve: () => ({ id: 91 }),
+            commit: () => {},
+            release: () => {},
+        },
+    });
+
+    const response = await invoke(router, 'post', '/ai/generate', {
+        body: {
+            linked_page_id: 11,
+            source_post_id: 'page-a_post-91',
+            source_post_url: 'https://facebook.test/page-a/posts/91',
+            input_text: 'النص الأصلي',
+            action: 'tone',
+            task_instruction: 'اجعل النبرة ودية ومختصرة',
+            create_items: true,
+        },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(received.action, 'tone');
+    assert.equal(received.page.page_name, 'Page A');
+    assert.equal(received.taskInstruction, 'اجعل النبرة ودية ومختصرة');
+
+    const generation = database.prepare(`
+        SELECT action, source_post_id, source_post_url, status
+        FROM facebook_content_ai_generations
+        WHERE id = ?
+    `).get(response.body.generation_id);
+    assert.deepEqual(generation, {
+        action: 'tone',
+        source_post_id: 'page-a_post-91',
+        source_post_url: 'https://facebook.test/page-a/posts/91',
+        status: 'completed',
+    });
+    const item = database.prepare(`
+        SELECT status, source_post_id, source_post_url, source_text
+        FROM facebook_content_items
+        WHERE id = ?
+    `).get(response.body.created_item_ids[0]);
+    assert.deepEqual(item, {
+        status: 'draft',
+        source_post_id: 'page-a_post-91',
+        source_post_url: 'https://facebook.test/page-a/posts/91',
+        source_text: 'النص الأصلي',
+    });
+    assert.equal(
+        database.prepare(`
+            SELECT COUNT(*) AS count
+            FROM facebook_content_items
+            WHERE source_post_id = 'page-a_post-91'
+        `).get().count,
+        1,
+    );
 });
 
 test('AI route replaces upstream provider errors with a neutral client message', async (t) => {

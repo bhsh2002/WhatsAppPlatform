@@ -33,6 +33,8 @@ function createDatabase() {
             sku TEXT, name TEXT NOT NULL, description TEXT, price REAL DEFAULT 0,
             currency TEXT DEFAULT 'LYD', image_url TEXT, product_url TEXT,
             category TEXT, availability TEXT DEFAULT 'available', is_active INTEGER DEFAULT 1,
+            approval_status TEXT DEFAULT 'approved',
+            source_linked_page_id INTEGER, source_post_id TEXT, source_post_url TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
         );
@@ -238,6 +240,39 @@ test('product CRUD preserves galleries and enforces tenant ownership for tenants
     assert.equal(created.body.currency, 'USD');
     assert.equal(created.body.images.length, 2);
     assert.equal(created.body.images[0].is_primary, 1);
+
+    const draftFromPost = await invoke(router, 'post', '/products', {
+        body: {
+            name: 'Draft from post',
+            approval_status: 'draft',
+            source_linked_page_id: 1,
+            source_post_id: 'page-a_post-1',
+            source_post_url: 'https://facebook.test/post-1',
+        },
+    });
+    assert.equal(draftFromPost.statusCode, 201);
+    assert.equal(draftFromPost.body.approval_status, 'draft');
+    assert.equal(draftFromPost.body.is_active, 0);
+
+    const incompleteApproval = await invoke(router, 'patch', '/products/:id', {
+        params: { id: String(draftFromPost.body.id) },
+        body: { is_active: true },
+    });
+    assert.equal(incompleteApproval.statusCode, 400);
+    assert.equal(incompleteApproval.body.code, 'PRODUCT_APPROVAL_FIELDS_REQUIRED');
+
+    const approvedFromPost = await invoke(router, 'patch', '/products/:id', {
+        params: { id: String(draftFromPost.body.id) },
+        body: {
+            sku: 'POST-1',
+            price: 35,
+            category: 'phones',
+            is_active: true,
+        },
+    });
+    assert.equal(approvedFromPost.statusCode, 200);
+    assert.equal(approvedFromPost.body.approval_status, 'approved');
+    assert.equal(approvedFromPost.body.is_active, 1);
 
     const updated = await invoke(router, 'patch', '/products/:id', {
         params: { id: String(created.body.id) },
