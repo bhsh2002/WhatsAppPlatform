@@ -428,3 +428,226 @@ test('campaign and publication APIs preserve approval, page and tenant boundarie
     });
     assert.equal(crossTenant.statusCode, 404);
 });
+
+test('settings, library and AI routes cover overrides, filters and recoverable failures', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const settings = createFacebookContentSettingsRouter({ database });
+    const library = createFacebookContentLibraryRouter({ database });
+    const billingEvents = [];
+    const ai = createFacebookContentAiRouter({
+        database,
+        generate: async () => { throw Object.assign(new Error('provider unavailable'), { code: 'AI_UPSTREAM' }); },
+        billing: {
+            reserve: () => ({ id: 9 }),
+            commit: () => assert.fail('failed generations cannot commit'),
+            release: (reservation, message) => billingEvents.push([reservation.id, message]),
+        },
+    });
+
+    await invoke(settings, 'put', '/settings', {
+        body: {
+            linked_page_id: 11,
+            tone: 'أول',
+            allowed_days: [1, 2],
+        },
+    });
+    const updated = await invoke(settings, 'put', '/settings', {
+        body: {
+            linked_page_id: 11,
+            tone: 'محدث',
+            ai_enabled: false,
+            allowed_days: [2, 3],
+        },
+    });
+    assert.equal(updated.body.settings.tone, 'محدث');
+    assert.equal(updated.body.settings.ai_enabled, false);
+
+    const disabled = await invoke(ai, 'post', '/ai/generate', {
+        body: { linked_page_id: 11, input_text: 'فكرة' },
+    });
+    assert.equal(disabled.statusCode, 403);
+    assert.equal(disabled.body.code, 'AI_DISABLED');
+
+    const reset = await invoke(settings, 'delete', '/settings/pages/:linkedPageId', {
+        params: { linkedPageId: '11' },
+    });
+    assert.equal(reset.body.success, true);
+    assert.equal(reset.body.settings.linked_page_id, 11);
+
+    const missingInput = await invoke(ai, 'post', '/ai/generate', { body: {} });
+    assert.equal(missingInput.statusCode, 400);
+    assert.equal(missingInput.body.code, 'AI_INPUT_REQUIRED');
+
+    const failed = await invoke(ai, 'post', '/ai/generate', {
+        body: { input_text: 'اكتب نصاً', variants: 2 },
+    });
+    assert.equal(failed.statusCode, 500);
+    assert.deepEqual(billingEvents, [[9, 'provider unavailable']]);
+    const history = await invoke(ai, 'get', '/ai/history', { query: { limit: '5' } });
+    assert.equal(history.body.length, 1);
+    assert.equal(history.body[0].status, 'failed');
+    assert.equal(history.body[0].error_code, 'AI_UPSTREAM');
+
+    const created = await invoke(library, 'post', '/items', {
+        body: {
+            title: 'محتوى يدوي',
+            body: 'نص طويل قابل للمراجعة',
+            kind: 'manual',
+            status: 'review',
+            tags: ['تجربة'],
+        },
+    });
+    assert.equal(created.statusCode, 201);
+    const filteredItems = await invoke(library, 'get', '/items', {
+        query: {
+            status: 'review',
+            kind: 'manual',
+            linked_page_id: '11',
+            search: 'طويل',
+        },
+    });
+    assert.equal(filteredItems.body.total, 1);
+    const filteredProducts = await invoke(library, 'get', '/products', {
+        query: {
+            search: 'ألف',
+            category: 'تجريبي',
+            available: 'false',
+        },
+    });
+    assert.equal(filteredProducts.body.total, 1);
+
+    const invalidStatus = await invoke(library, 'get', '/items', {
+        query: { status: 'invalid' },
+    });
+    assert.equal(invalidStatus.statusCode, 400);
+    const missingItem = await invoke(library, 'post', '/items/:id/approve', {
+        params: { id: '9999' },
+    });
+    assert.equal(missingItem.statusCode, 404);
+});
+
+test('campaign and publication lifecycle supports filters, edits and recovery actions', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    database.exec(`
+        INSERT INTO facebook_content_items (
+            id, tenant_id, linked_page_id, kind, title, body, status, created_by
+        ) VALUES (401, 1, 11, 'manual', 'جاهز', 'منشور دورة الحياة', 'approved', 1);
+    `);
+    const campaigns = createFacebookContentCampaignsRouter({ database });
+    const publications = createFacebookContentPublicationsRouter({ database });
+
+    const created = await invoke(campaigns, 'post', '/campaigns', {
+        body: {
+            linked_page_id: 11,
+            name: 'دورة حياة',
+            source_mode: 'library',
+            rotation_mode: 'random',
+            content_item_ids: [401],
+            allowed_days: [0, 1, 2, 3, 4, 5, 6],
+            schedule_times: ['08:30'],
+            status: 'draft',
+        },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const listing = await invoke(campaigns, 'get', '/campaigns', {
+        query: { status: 'draft', linked_page_id: '11' },
+    });
+    assert.equal(listing.body.total, 1);
+    const invalidListing = await invoke(campaigns, 'get', '/campaigns', {
+        query: { status: 'invalid' },
+    });
+    assert.equal(invalidListing.statusCode, 400);
+
+    const edited = await invoke(campaigns, 'patch', '/campaigns/:id', {
+        params: { id: String(created.body.id) },
+        body: {
+            name: 'دورة حياة محدثة',
+            status: 'paused',
+            rotation_mode: 'sequential',
+            content_item_ids: [401],
+        },
+    });
+    assert.equal(edited.body.name, 'دورة حياة محدثة');
+    assert.equal(edited.body.status, 'paused');
+    const activated = await invoke(campaigns, 'post', '/campaigns/:id/toggle', {
+        params: { id: String(created.body.id) },
+    });
+    assert.equal(activated.body.status, 'active');
+    const paused = await invoke(campaigns, 'post', '/campaigns/:id/toggle', {
+        params: { id: String(created.body.id) },
+    });
+    assert.equal(paused.body.status, 'paused');
+
+    const invalidTimezone = await invoke(campaigns, 'patch', '/campaigns/:id', {
+        params: { id: String(created.body.id) },
+        body: { timezone: 'Invalid/Zone' },
+    });
+    assert.equal(invalidTimezone.statusCode, 400);
+
+    const productPublication = await invoke(publications, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            product_id: 101,
+            message_override: 'نص منتج مخصص',
+        },
+    });
+    assert.equal(productPublication.statusCode, 201);
+    const publishNow = await invoke(publications, 'post', '/publications/:id/publish-now', {
+        params: { id: String(productPublication.body.id) },
+    });
+    assert.equal(publishNow.body.status, 'pending');
+    const cancelled = await invoke(publications, 'delete', '/publications/:id', {
+        params: { id: String(productPublication.body.id) },
+    });
+    assert.equal(cancelled.body.success, true);
+    const cancelAgain = await invoke(publications, 'delete', '/publications/:id', {
+        params: { id: String(productPublication.body.id) },
+    });
+    assert.equal(cancelAgain.statusCode, 409);
+
+    const failedPublication = database.prepare(`
+        INSERT INTO facebook_content_publications (
+            tenant_id, linked_page_id, content_item_id, status, scheduled_for,
+            next_attempt_at, idempotency_key, rendered_message, error_message
+        ) VALUES (1, 11, 401, 'failed', datetime('now'), datetime('now'),
+                  'failed-lifecycle', 'فشل سابق', 'مؤقت')
+    `).run();
+    const retried = await invoke(publications, 'post', '/publications/:id/retry', {
+        params: { id: String(failedPublication.lastInsertRowid) },
+    });
+    assert.equal(retried.body.status, 'pending');
+    const retryAgain = await invoke(publications, 'post', '/publications/:id/retry', {
+        params: { id: String(failedPublication.lastInsertRowid) },
+    });
+    assert.equal(retryAgain.statusCode, 409);
+
+    const filtered = await invoke(publications, 'get', '/publications', {
+        query: {
+            status: 'pending',
+            linked_page_id: '11',
+            start: '2026-01-01T00:00:00.000Z',
+            end: '2030-01-01T00:00:00.000Z',
+        },
+    });
+    assert.equal(filtered.body.total, 1);
+    const invalidDate = await invoke(publications, 'get', '/publications', {
+        query: { start: 'not-a-date' },
+    });
+    assert.equal(invalidDate.statusCode, 400);
+    const missingSource = await invoke(publications, 'post', '/publications', {
+        body: { linked_page_id: 11 },
+    });
+    assert.equal(missingSource.statusCode, 400);
+
+    const completed = await invoke(campaigns, 'delete', '/campaigns/:id', {
+        params: { id: String(created.body.id) },
+    });
+    assert.equal(completed.body.success, true);
+    const missingCampaign = await invoke(campaigns, 'delete', '/campaigns/:id', {
+        params: { id: '9999' },
+    });
+    assert.equal(missingCampaign.statusCode, 404);
+});

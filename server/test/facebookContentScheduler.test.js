@@ -9,7 +9,11 @@ import {
     processDuePublications,
     selectCampaignSource,
 } from '../services/facebookContentScheduler.js';
-import { publishFacebookContent } from '../services/facebookContentPublisher.js';
+import {
+    publishFacebookContent,
+    resolveFacebookPageCredentials,
+} from '../services/facebookContentPublisher.js';
+import { initEncryption } from '../services/encryption.js';
 
 const createDatabase = () => {
     const database = new Database(':memory:');
@@ -129,6 +133,76 @@ test('publisher releases billing and marks transient Meta failures retryable', a
         error => error.retryable === true && error.code === 'META_PUBLISH_FAILED',
     );
     assert.deepEqual(events, ['release']);
+});
+
+test('publisher validates page credentials and never retries a billing-only failure', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const previousKey = process.env.CRYPTO_KEY;
+    process.env.CRYPTO_KEY = 'a'.repeat(64);
+    initEncryption();
+    t.after(() => {
+        if (previousKey === undefined) delete process.env.CRYPTO_KEY;
+        else process.env.CRYPTO_KEY = previousKey;
+    });
+    assert.throws(
+        () => resolveFacebookPageCredentials(database, 1, 999),
+        error => error.code === 'PAGE_NOT_FOUND' && error.status === 404,
+    );
+    assert.throws(
+        () => resolveFacebookPageCredentials(database, 1, 11),
+        error => error.code === 'PAGE_TOKEN_INVALID' && error.status === 400,
+    );
+
+    const released = [];
+    await assert.rejects(
+        () => publishFacebookContent({
+            database,
+            publication: {
+                id: 10,
+                tenant_id: 1,
+                linked_page_id: 11,
+                rendered_message: 'Network failure',
+            },
+            credentialResolver: () => ({
+                page: { page_id: 'page-11', page_name: 'Page' },
+                accessToken: 'token',
+            }),
+            billing: {
+                reserve: () => ({ id: 10 }),
+                commit: () => {},
+                release: (reservation, message) => released.push([reservation.id, message]),
+            },
+            fetchImpl: async () => { throw new Error('offline'); },
+        }),
+        error => error.code === 'META_TRANSPORT_ERROR' && error.retryable === true,
+    );
+    assert.deepEqual(released, [[10, 'offline']]);
+
+    const published = await publishFacebookContent({
+        database,
+        publication: {
+            id: 11,
+            tenant_id: 1,
+            linked_page_id: 11,
+            rendered_message: 'Published remotely',
+        },
+        credentialResolver: () => ({
+            page: { page_id: 'page-11', page_name: 'Page' },
+            accessToken: 'token',
+        }),
+        billing: {
+            reserve: () => ({ id: 11 }),
+            commit: () => { throw new Error('ledger unavailable'); },
+            release: () => assert.fail('successful remote posts must not release billing'),
+        },
+        fetchImpl: async () => new Response(JSON.stringify({ id: 'remote-post-11' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+    assert.equal(published.post_id, 'remote-post-11');
+    assert.equal(published.billing_warning, 'ledger unavailable');
 });
 
 test('scheduler materializes a due campaign once and publishes its approved content', async (t) => {
