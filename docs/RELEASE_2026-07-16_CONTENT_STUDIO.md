@@ -13,6 +13,9 @@ workspace while preserving the existing live post/comment tools.
   after repeated failures.
 - Optional writing assistant with generation, rewrite, variants, brand rules,
   page overrides, review-state creation, and credit billing.
+- Server-side provider failover with Gemini and OpenAI adapters.
+- Neutral tenant-facing assistant status and errors that never disclose
+  provider names, model identifiers, quota messages, or upstream links.
 - Responsive card layouts for long text and mobile screens.
 - Existing Facebook post, comment, reply, reaction, and automation management
   remains available in the studio.
@@ -21,9 +24,12 @@ workspace while preserving the existing live post/comment tools.
 
 - Database migration count increases from 39 to 40.
 - Rebuild both server and client images.
-- `OPENAI_API_KEY` is optional. Without it, only the writing-assistant tab is
-  unavailable.
-- `OPENAI_MODEL`, `OPENAI_BASE_URL`, `CONTENT_SCHEDULER_INTERVAL_MS`, and
+- `GEMINI_API_KEY` and `OPENAI_API_KEY` are optional individually. At least one
+  key in the configured provider order is required for the writing assistant.
+- The default provider order is Gemini first and OpenAI second. A missing key
+  is skipped without affecting the rest of Content Studio.
+- `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER`, provider models/base URLs,
+  `AI_PROVIDER_TIMEOUT_MS`, `CONTENT_SCHEDULER_INTERVAL_MS`, and
   `CONTENT_SCHEDULER_BATCH_SIZE` have safe defaults and can be overridden.
 - Automatic publication is a background job and must not be disabled in
   production.

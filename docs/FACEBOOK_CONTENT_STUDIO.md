@@ -47,12 +47,21 @@ truth for products and images.
 The non-AI studio features require no new secret. Automatic scheduling uses
 the same active Facebook Page access tokens already stored by the platform.
 
-Optional writing-assistant variables:
+Writing-assistant provider order:
 
 ```dotenv
+AI_PRIMARY_PROVIDER=gemini
+AI_FALLBACK_PROVIDER=openai
+
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_BASE_URL=https://api.openai.com/v1
+
+AI_PROVIDER_TIMEOUT_MS=30000
 ```
 
 Scheduler controls:
@@ -62,14 +71,27 @@ CONTENT_SCHEDULER_INTERVAL_MS=60000
 CONTENT_SCHEDULER_BATCH_SIZE=10
 ```
 
-`OPENAI_API_KEY` stays on the server and is never exposed to the browser. If it
-is missing, readiness reports the assistant as unavailable while the library,
-campaigns, calendar, product rotation, and manual content remain operational.
+All provider keys stay on the server and are never exposed to the browser. The
+primary provider is tried first when its key is configured. A missing primary
+key is skipped. Provider transport, capacity, authentication, timeout, or
+invalid-output failures can move the same request to the configured fallback.
+Safety refusals and platform writing-policy violations do not trigger fallback.
+
+Readiness exposes only whether the writing assistant is configured. Tenant
+responses and generation history omit provider and model identities. Upstream
+error messages, documentation links, quota text, and provider names are
+replaced with neutral writing-assistant errors before reaching a tenant.
+
+If neither configured provider has a key, readiness reports the assistant as
+unavailable while the library, campaigns, calendar, product rotation, and
+manual content remain operational.
 
 When the assistant is used, the selected product facts, the user’s brief or
 source text, and the effective brand-writing settings are sent to the configured
-OpenAI endpoint. Do not place secrets or unrelated personal data in those
-fields.
+provider. Do not place secrets or unrelated personal data in those fields.
+Gemini free-tier requests may be used by Google to improve its products; use a
+paid provider tier or a provider approved by the company’s privacy policy for
+customer-sensitive content.
 
 ## Settings inheritance
 
@@ -180,8 +202,10 @@ tenant portal:
 - Wrong future time: cancel the pending publication and create a new one.
 - Repeated campaign failures: correct the root cause, then reactivate the
   automatically paused campaign.
-- AI unavailable: confirm the key, base URL, selected model, account access,
-  and server outbound connectivity. Non-AI workflows require no rollback.
+- Writing assistant unavailable: inspect the internal provider-failure log,
+  then confirm the selected provider order, keys, base URLs, model access,
+  quotas, and server outbound connectivity. Tenant-facing errors intentionally
+  do not identify which provider failed. Non-AI workflows require no rollback.
 - Migration/startup failure: keep the server stopped, restore the verified
   pre-deployment backup, and deploy the previous application revision.
 

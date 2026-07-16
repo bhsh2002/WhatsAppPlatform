@@ -70,8 +70,9 @@ credentials and are not simulated by this profile.
 
 Facebook Content Studio can be opened locally to inspect its library,
 campaigns, calendar, and settings. Automatic publication remains paused by the
-local profile. The writing assistant remains disabled until `OPENAI_API_KEY` is
-configured; no key is required for the rest of the studio.
+local profile. The writing assistant remains disabled until at least one key in
+the configured `AI_PRIMARY_PROVIDER` / `AI_FALLBACK_PROVIDER` order is present;
+no provider key is required for the rest of the studio.
 
 ## Verified state — 2026-07-15
 
