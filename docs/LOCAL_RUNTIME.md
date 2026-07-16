@@ -61,12 +61,17 @@ The local override sets:
 - `CORS_ORIGINS` to `localhost:3133` and `127.0.0.1:3133`, so login and other
   browser mutations pass the origin guard.
 - `DISABLE_BACKGROUND_JOBS=true`, so missing Meta credentials do not start
-  external synchronization work.
+  external synchronization work or the Facebook Content Studio scheduler.
 
 The UI, API, database, migrations, and local authentication remain available.
 WhatsApp/Facebook messaging, onboarding, webhook verification, template sync,
 and other Meta-backed actions require valid Meta sandbox or production
 credentials and are not simulated by this profile.
+
+Facebook Content Studio can be opened locally to inspect its library,
+campaigns, calendar, and settings. Automatic publication remains paused by the
+local profile. The writing assistant remains disabled until `OPENAI_API_KEY` is
+configured; no key is required for the rest of the studio.
 
 ## Verified state — 2026-07-15
 
@@ -74,7 +79,7 @@ credentials and are not simulated by this profile.
 - `whatsapp-platform-server` is healthy on port 3031.
 - `whatsapp-platform-client` serves the SPA on port 3133.
 - Direct and proxied health checks return HTTP 200.
-- SQLite reports 39 applied migrations and zero pending migrations.
+- SQLite reports 40 applied migrations and zero pending migrations.
 - The landing and login screens render in a real browser.
 - A login submission reaches the authentication handler and returns the
   expected invalid-credentials response for a deliberately invalid test user.

@@ -92,6 +92,12 @@ external scanner if the deployment threat model requires one.
 The contacts CSV schema, limits, tenant isolation, and import/update behavior are
 documented in [docs/CONTACTS_CSV.md](docs/CONTACTS_CSV.md).
 
+Facebook Content Studio combines the shared Messenger product catalog, a
+reviewable content library, durable campaigns, scheduled publications, and an
+optional server-side writing assistant. Its operating model, credit behavior,
+configuration, and recovery procedures are documented in
+[docs/FACEBOOK_CONTENT_STUDIO.md](docs/FACEBOOK_CONTENT_STUDIO.md).
+
 ## Operational metrics
 
 Authenticated administrators can inspect JSON at `/api/settings/metrics` and
