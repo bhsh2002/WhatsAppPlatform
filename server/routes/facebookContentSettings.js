@@ -1,6 +1,6 @@
 import express from 'express';
 
-import { OPENAI_API_KEY, OPENAI_MODEL } from '../config/index.js';
+import { isFacebookContentAiConfigured } from '../services/facebookContentAi.js';
 import {
     getEffectiveContentSettings,
     normalizeContentSettingsInput,
@@ -12,8 +12,7 @@ import {
 
 export function createFacebookContentSettingsRouter({
     database,
-    aiConfigured = () => Boolean(OPENAI_API_KEY),
-    aiModel = OPENAI_MODEL,
+    aiConfigured = isFacebookContentAiConfigured,
 } = {}) {
     if (!database) throw new TypeError('database is required');
     const router = express.Router();
@@ -34,7 +33,6 @@ export function createFacebookContentSettingsRouter({
                 ...counts,
                 ai: {
                     configured: Boolean(aiConfigured()),
-                    model: aiModel,
                 },
             });
         } catch (error) {

@@ -1,10 +1,26 @@
 import {
+    AI_FALLBACK_PROVIDER,
+    AI_PRIMARY_PROVIDER,
+    AI_PROVIDER_TIMEOUT_MS,
+    GEMINI_API_KEY,
+    GEMINI_BASE_URL,
+    GEMINI_MODEL,
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_MODEL,
 } from '../config/index.js';
 
 export const FACEBOOK_CONTENT_PROMPT_VERSION = 'facebook-content-v1';
+
+const SUPPORTED_PROVIDERS = new Set(['openai', 'gemini']);
+const REFUSAL_FINISH_REASONS = new Set([
+    'SAFETY',
+    'RECITATION',
+    'LANGUAGE',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+]);
 
 const OUTPUT_SCHEMA = {
     type: 'object',
@@ -33,6 +49,18 @@ const OUTPUT_SCHEMA = {
     required: ['variants'],
     additionalProperties: false,
 };
+
+const withoutUnsupportedGeminiSchemaKeywords = value => {
+    if (Array.isArray(value)) return value.map(withoutUnsupportedGeminiSchemaKeywords);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(
+        Object.entries(value)
+            .filter(([key]) => key !== 'maxLength')
+            .map(([key, child]) => [key, withoutUnsupportedGeminiSchemaKeywords(child)]),
+    );
+};
+
+const GEMINI_OUTPUT_SCHEMA = withoutUnsupportedGeminiSchemaKeywords(OUTPUT_SCHEMA);
 
 const contentText = value => String(value || '').trim();
 const listText = value => (Array.isArray(value) ? value : [])
@@ -86,39 +114,73 @@ export const buildFacebookContentPrompt = ({
     return { instructions, input };
 };
 
-export const extractStructuredFacebookContent = response => {
-    if (response?.status === 'incomplete') {
-        const error = new Error('استجابة التوليد غير مكتملة');
-        error.code = response.incomplete_details?.reason || 'AI_INCOMPLETE';
-        throw error;
-    }
-    const message = Array.isArray(response?.output)
-        ? response.output.find(item => item?.type === 'message')
-        : null;
-    const content = Array.isArray(message?.content) ? message.content[0] : null;
-    if (content?.type === 'refusal') {
-        const error = new Error(content.refusal || 'رفض مزود الذكاء الاصطناعي الطلب');
-        error.code = 'AI_REFUSAL';
-        error.refused = true;
-        throw error;
-    }
-    if (content?.type !== 'output_text' || !content.text) {
-        const error = new Error('لم يرجع مزود الذكاء الاصطناعي محتوى صالحاً');
-        error.code = 'AI_EMPTY_RESPONSE';
-        throw error;
-    }
+const aiError = (message, {
+    status = 502,
+    code = 'AI_SERVICE_UNAVAILABLE',
+    provider = null,
+    providerFailure = false,
+    refused = false,
+    internalCode = null,
+    internalMessage = null,
+} = {}) => {
+    const error = new Error(message);
+    error.status = status;
+    error.code = code;
+    error.provider = provider;
+    error.providerFailure = providerFailure;
+    error.refused = refused;
+    error.internalCode = internalCode;
+    error.internalMessage = internalMessage;
+    return error;
+};
+
+const notConfiguredError = () => aiError('مساعد الكتابة غير مهيأ على الخادم', {
+    status: 503,
+    code: 'AI_NOT_CONFIGURED',
+});
+
+const providerUnavailableError = (provider, {
+    status = 502,
+    internalCode = null,
+    internalMessage = null,
+} = {}) => aiError(
+    status === 429
+        ? 'خدمة مساعد الكتابة مشغولة حالياً. حاول مرة أخرى بعد قليل.'
+        : 'خدمة مساعد الكتابة غير متاحة حالياً. حاول مرة أخرى لاحقاً.',
+    {
+        status: status === 429 ? 429 : 502,
+        code: status === 429 ? 'AI_CAPACITY_EXCEEDED' : 'AI_SERVICE_UNAVAILABLE',
+        provider,
+        providerFailure: true,
+        internalCode,
+        internalMessage,
+    },
+);
+
+const refusalError = (provider, detail = null) => aiError(
+    'تعذر إنشاء هذا المحتوى. عدّل النص وحاول مرة أخرى.',
+    {
+        status: 422,
+        code: 'AI_REQUEST_REFUSED',
+        provider,
+        refused: true,
+        internalMessage: detail,
+    },
+);
+
+const parseStructuredVariantText = text => {
     let parsed;
     try {
-        parsed = JSON.parse(content.text);
+        parsed = JSON.parse(text);
     } catch {
-        const error = new Error('تعذر قراءة المحتوى المولد');
-        error.code = 'AI_INVALID_JSON';
-        throw error;
+        throw aiError('تعذر قراءة نتيجة مساعد الكتابة. حاول مرة أخرى.', {
+            code: 'AI_INVALID_JSON',
+        });
     }
     if (!Array.isArray(parsed.variants) || parsed.variants.length === 0) {
-        const error = new Error('لم يتم توليد أي بديل');
-        error.code = 'AI_NO_VARIANTS';
-        throw error;
+        throw aiError('لم يتم إنشاء أي بديل صالح. حاول مرة أخرى.', {
+            code: 'AI_NO_VARIANTS',
+        });
     }
     return parsed.variants.map(variant => ({
         title: contentText(variant.title).slice(0, 160),
@@ -128,6 +190,54 @@ export const extractStructuredFacebookContent = response => {
     })).filter(variant => variant.title && variant.body);
 };
 
+export const extractStructuredFacebookContent = response => {
+    if (response?.status === 'incomplete') {
+        throw aiError('تعذر إكمال إنشاء المحتوى. حاول مرة أخرى.', {
+            code: 'AI_INCOMPLETE',
+            internalCode: response.incomplete_details?.reason || null,
+        });
+    }
+    const message = Array.isArray(response?.output)
+        ? response.output.find(item => item?.type === 'message')
+        : null;
+    const content = Array.isArray(message?.content) ? message.content[0] : null;
+    if (content?.type === 'refusal') {
+        throw refusalError('openai', content.refusal || null);
+    }
+    if (content?.type !== 'output_text' || !content.text) {
+        throw aiError('لم يرجع مساعد الكتابة محتوى صالحاً. حاول مرة أخرى.', {
+            code: 'AI_EMPTY_RESPONSE',
+        });
+    }
+    return parseStructuredVariantText(content.text);
+};
+
+export const extractStructuredGeminiContent = response => {
+    if (response?.promptFeedback?.blockReason) {
+        throw refusalError('gemini', response.promptFeedback.blockReason);
+    }
+    const candidate = Array.isArray(response?.candidates) ? response.candidates[0] : null;
+    if (REFUSAL_FINISH_REASONS.has(candidate?.finishReason)) {
+        throw refusalError('gemini', candidate.finishMessage || candidate.finishReason);
+    }
+    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+        throw aiError('تعذر إكمال إنشاء المحتوى. حاول مرة أخرى.', {
+            code: 'AI_INCOMPLETE',
+            internalCode: candidate.finishReason,
+            internalMessage: candidate.finishMessage || null,
+        });
+    }
+    const text = Array.isArray(candidate?.content?.parts)
+        ? candidate.content.parts.map(part => contentText(part?.text)).filter(Boolean).join('')
+        : '';
+    if (!text) {
+        throw aiError('لم يرجع مساعد الكتابة محتوى صالحاً. حاول مرة أخرى.', {
+            code: 'AI_EMPTY_RESPONSE',
+        });
+    }
+    return parseStructuredVariantText(text);
+};
+
 const enforceContentPolicy = (variants, settings) => {
     const banned = listText(settings.banned_terms).map(term => term.toLocaleLowerCase('ar'));
     const accepted = variants.filter(variant => {
@@ -135,14 +245,75 @@ const enforceContentPolicy = (variants, settings) => {
         return !banned.some(term => term && text.includes(term));
     });
     if (!accepted.length) {
-        const error = new Error('المحتوى المولد خالف قائمة الكلمات الممنوعة');
-        error.code = 'AI_POLICY_VIOLATION';
-        throw error;
+        throw aiError('المحتوى الناتج لم يطابق قواعد الكتابة المحددة', {
+            status: 422,
+            code: 'AI_POLICY_VIOLATION',
+        });
     }
     return accepted;
 };
 
-export async function requestFacebookContent({
+const validateRequest = ({ action, inputText }) => {
+    if (!['generate', 'rewrite', 'variants'].includes(action)) {
+        throw aiError('نوع طلب التوليد غير صالح', {
+            status: 400,
+            code: 'INVALID_AI_ACTION',
+        });
+    }
+    if (action === 'rewrite' && !contentText(inputText)) {
+        throw aiError('النص مطلوب لإعادة الصياغة', {
+            status: 400,
+            code: 'AI_INPUT_REQUIRED',
+        });
+    }
+};
+
+const fetchProvider = async (url, init, {
+    provider,
+    fetchImpl,
+    timeoutMs,
+} = {}) => {
+    try {
+        return await fetchImpl(url, {
+            ...init,
+            signal: AbortSignal.timeout(timeoutMs),
+        });
+    } catch (error) {
+        throw providerUnavailableError(provider, {
+            internalCode: error?.name || 'NETWORK_ERROR',
+            internalMessage: error?.message || null,
+        });
+    }
+};
+
+const parseProviderJson = async (response, provider) => {
+    try {
+        return await response.json();
+    } catch {
+        throw providerUnavailableError(provider, {
+            status: response.status,
+            internalCode: 'INVALID_PROVIDER_RESPONSE',
+        });
+    }
+};
+
+const providerHttpError = (provider, response, data) => providerUnavailableError(provider, {
+    status: response.status,
+    internalCode: data?.error?.code || data?.error?.status || null,
+    internalMessage: data?.error?.message || null,
+});
+
+const normalizeProviderOutputError = (error, provider) => {
+    if (error?.refused || error?.code === 'AI_POLICY_VIOLATION') return error;
+    if (error?.providerFailure) return error;
+    return providerUnavailableError(provider, {
+        status: error?.status,
+        internalCode: error?.code || 'INVALID_PROVIDER_OUTPUT',
+        internalMessage: error?.internalMessage || error?.message || null,
+    });
+};
+
+export async function requestOpenAiFacebookContent({
     action = 'generate',
     inputText = '',
     product = null,
@@ -152,26 +323,10 @@ export async function requestFacebookContent({
     apiKey = OPENAI_API_KEY,
     model = OPENAI_MODEL,
     baseUrl = OPENAI_BASE_URL,
+    timeoutMs = AI_PROVIDER_TIMEOUT_MS,
 } = {}) {
-    if (!apiKey) {
-        const error = new Error('مفتاح مزود الذكاء الاصطناعي غير مضبوط على الخادم');
-        error.status = 503;
-        error.code = 'AI_NOT_CONFIGURED';
-        throw error;
-    }
-    if (!['generate', 'rewrite', 'variants'].includes(action)) {
-        const error = new Error('نوع طلب التوليد غير صالح');
-        error.status = 400;
-        error.code = 'INVALID_AI_ACTION';
-        throw error;
-    }
-    if (action === 'rewrite' && !contentText(inputText)) {
-        const error = new Error('النص مطلوب لإعادة الصياغة');
-        error.status = 400;
-        error.code = 'AI_INPUT_REQUIRED';
-        throw error;
-    }
-
+    validateRequest({ action, inputText });
+    if (!contentText(apiKey)) throw notConfiguredError();
     const prompt = buildFacebookContentPrompt({
         action,
         inputText,
@@ -179,44 +334,40 @@ export async function requestFacebookContent({
         settings,
         variants,
     });
-    const response = await fetchImpl(`${String(baseUrl).replace(/\/$/, '')}/responses`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            model,
-            reasoning: { effort: 'low' },
-            instructions: prompt.instructions,
-            input: prompt.input,
-            max_output_tokens: 1400,
-            text: {
-                format: {
-                    type: 'json_schema',
-                    name: 'facebook_content_variants',
-                    schema: OUTPUT_SCHEMA,
-                    strict: true,
-                },
+    const response = await fetchProvider(
+        `${String(baseUrl).replace(/\/$/, '')}/responses`,
+        {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
             },
-        }),
-    });
-    let data;
+            body: JSON.stringify({
+                model,
+                reasoning: { effort: 'low' },
+                instructions: prompt.instructions,
+                input: prompt.input,
+                max_output_tokens: 1400,
+                text: {
+                    format: {
+                        type: 'json_schema',
+                        name: 'facebook_content_variants',
+                        schema: OUTPUT_SCHEMA,
+                        strict: true,
+                    },
+                },
+            }),
+        },
+        { provider: 'openai', fetchImpl, timeoutMs },
+    );
+    const data = await parseProviderJson(response, 'openai');
+    if (!response.ok) throw providerHttpError('openai', response, data);
+    let output;
     try {
-        data = await response.json();
-    } catch {
-        const error = new Error('مزود الذكاء الاصطناعي أعاد استجابة غير صالحة');
-        error.status = 502;
-        error.code = 'AI_INVALID_RESPONSE';
-        throw error;
+        output = enforceContentPolicy(extractStructuredFacebookContent(data), settings);
+    } catch (error) {
+        throw normalizeProviderOutputError(error, 'openai');
     }
-    if (!response.ok) {
-        const error = new Error(data?.error?.message || `فشل طلب التوليد (${response.status})`);
-        error.status = response.status === 429 ? 429 : 502;
-        error.code = data?.error?.code || 'AI_PROVIDER_ERROR';
-        throw error;
-    }
-    const output = enforceContentPolicy(extractStructuredFacebookContent(data), settings);
     return {
         variants: output,
         model: data.model || model,
@@ -227,4 +378,193 @@ export async function requestFacebookContent({
         },
         prompt_version: FACEBOOK_CONTENT_PROMPT_VERSION,
     };
+}
+
+export async function requestGeminiFacebookContent({
+    action = 'generate',
+    inputText = '',
+    product = null,
+    settings = {},
+    variants = 1,
+    fetchImpl = globalThis.fetch,
+    apiKey = GEMINI_API_KEY,
+    model = GEMINI_MODEL,
+    baseUrl = GEMINI_BASE_URL,
+    timeoutMs = AI_PROVIDER_TIMEOUT_MS,
+} = {}) {
+    validateRequest({ action, inputText });
+    if (!contentText(apiKey)) throw notConfiguredError();
+    const prompt = buildFacebookContentPrompt({
+        action,
+        inputText,
+        product,
+        settings,
+        variants,
+    });
+    const response = await fetchProvider(
+        `${String(baseUrl).replace(/\/$/, '')}/models/${encodeURIComponent(model)}:generateContent`,
+        {
+            method: 'POST',
+            headers: {
+                'x-goog-api-key': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                systemInstruction: {
+                    parts: [{ text: prompt.instructions }],
+                },
+                contents: [{
+                    role: 'user',
+                    parts: [{ text: prompt.input }],
+                }],
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseJsonSchema: GEMINI_OUTPUT_SCHEMA,
+                    maxOutputTokens: 1400,
+                    thinkingConfig: {
+                        thinkingLevel: 'low',
+                    },
+                },
+            }),
+        },
+        { provider: 'gemini', fetchImpl, timeoutMs },
+    );
+    const data = await parseProviderJson(response, 'gemini');
+    if (!response.ok) throw providerHttpError('gemini', response, data);
+    let output;
+    try {
+        output = enforceContentPolicy(extractStructuredGeminiContent(data), settings);
+    } catch (error) {
+        throw normalizeProviderOutputError(error, 'gemini');
+    }
+    return {
+        variants: output,
+        model: data.modelVersion || model,
+        response_id: data.responseId || null,
+        usage: {
+            input_tokens: Number(data.usageMetadata?.promptTokenCount) || null,
+            output_tokens: (
+                Number(data.usageMetadata?.candidatesTokenCount)
+                + Number(data.usageMetadata?.thoughtsTokenCount)
+            ) || null,
+        },
+        prompt_version: FACEBOOK_CONTENT_PROMPT_VERSION,
+    };
+}
+
+const DEFAULT_PROVIDER_REQUESTS = {
+    openai: requestOpenAiFacebookContent,
+    gemini: requestGeminiFacebookContent,
+};
+
+const providerName = value => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return SUPPORTED_PROVIDERS.has(normalized) ? normalized : '';
+};
+
+export const resolveAiProviderOrder = ({
+    primaryProvider = AI_PRIMARY_PROVIDER,
+    fallbackProvider = AI_FALLBACK_PROVIDER,
+} = {}) => [...new Set([
+    providerName(primaryProvider),
+    providerName(fallbackProvider),
+].filter(Boolean))];
+
+const mergedProviderConfig = overrides => ({
+    openai: {
+        apiKey: OPENAI_API_KEY,
+        model: OPENAI_MODEL,
+        baseUrl: OPENAI_BASE_URL,
+        ...(overrides?.openai || {}),
+    },
+    gemini: {
+        apiKey: GEMINI_API_KEY,
+        model: GEMINI_MODEL,
+        baseUrl: GEMINI_BASE_URL,
+        ...(overrides?.gemini || {}),
+    },
+});
+
+export const isFacebookContentAiConfigured = ({
+    primaryProvider = AI_PRIMARY_PROVIDER,
+    fallbackProvider = AI_FALLBACK_PROVIDER,
+    providerConfig = null,
+} = {}) => {
+    const config = mergedProviderConfig(providerConfig);
+    return resolveAiProviderOrder({ primaryProvider, fallbackProvider })
+        .some(provider => Boolean(contentText(config[provider]?.apiKey)));
+};
+
+const logProviderEvent = (logger, level, {
+    provider,
+    nextProvider = null,
+    error,
+} = {}) => {
+    const writer = logger?.[level];
+    if (typeof writer !== 'function') return;
+    writer.call(logger, '[FacebookContentAI] Provider request failed', {
+        provider,
+        next_provider: nextProvider,
+        code: error?.code || null,
+        status: error?.status || null,
+        upstream_code: error?.internalCode || null,
+    });
+};
+
+export async function requestFacebookContent({
+    action = 'generate',
+    inputText = '',
+    product = null,
+    settings = {},
+    variants = 1,
+    fetchImpl = globalThis.fetch,
+    primaryProvider = AI_PRIMARY_PROVIDER,
+    fallbackProvider = AI_FALLBACK_PROVIDER,
+    providerConfig = null,
+    providerRequests = DEFAULT_PROVIDER_REQUESTS,
+    timeoutMs = AI_PROVIDER_TIMEOUT_MS,
+    logger = console,
+} = {}) {
+    validateRequest({ action, inputText });
+    const config = mergedProviderConfig(providerConfig);
+    const providers = resolveAiProviderOrder({ primaryProvider, fallbackProvider })
+        .filter(provider => (
+            contentText(config[provider]?.apiKey)
+            && typeof providerRequests[provider] === 'function'
+        ));
+    if (!providers.length) throw notConfiguredError();
+
+    let lastError = null;
+    for (let index = 0; index < providers.length; index += 1) {
+        const provider = providers[index];
+        try {
+            const result = await providerRequests[provider]({
+                action,
+                inputText,
+                product,
+                settings,
+                variants,
+                fetchImpl,
+                timeoutMs,
+                ...config[provider],
+            });
+            return {
+                ...result,
+                provider,
+                fallback_used: index > 0,
+            };
+        } catch (error) {
+            const normalized = normalizeProviderOutputError(error, provider);
+            if (!normalized.providerFailure || normalized.refused) throw normalized;
+            lastError = normalized;
+            const nextProvider = providers[index + 1] || null;
+            logProviderEvent(logger, nextProvider ? 'warn' : 'error', {
+                provider,
+                nextProvider,
+                error: normalized,
+            });
+            if (!nextProvider) break;
+        }
+    }
+    throw lastError || providerUnavailableError(providers[0]);
 }

@@ -2,6 +2,7 @@ import express from 'express';
 
 import {
     BILLING_OPERATIONS,
+    BillingError,
     commit as commitBilling,
     handleBillingError,
     release as releaseBilling,
@@ -31,6 +32,32 @@ const variantBody = variant => [
         .join(' '),
 ].filter(Boolean).join('\n\n').trim();
 
+const clientSafeAiError = error => {
+    if (error instanceof BillingError) return error;
+    if (['AI_DISABLED', 'AI_INPUT_REQUIRED', 'INVALID_AI_ACTION'].includes(error?.code)) {
+        return error;
+    }
+    const messages = {
+        AI_NOT_CONFIGURED: ['مساعد الكتابة غير مهيأ على الخادم', 503],
+        AI_CAPACITY_EXCEEDED: ['خدمة مساعد الكتابة مشغولة حالياً. حاول مرة أخرى بعد قليل.', 429],
+        AI_SERVICE_UNAVAILABLE: ['خدمة مساعد الكتابة غير متاحة حالياً. حاول مرة أخرى لاحقاً.', 502],
+        AI_REQUEST_REFUSED: ['تعذر إنشاء هذا المحتوى. عدّل النص وحاول مرة أخرى.', 422],
+        AI_POLICY_VIOLATION: ['المحتوى الناتج لم يطابق قواعد الكتابة المحددة', 422],
+    };
+    const matched = messages[error?.code];
+    if (matched) return contentError(matched[0], matched[1], error.code);
+    console.error('[FacebookContentAI] Unclassified generation error:', {
+        code: error?.code || null,
+        status: error?.status || null,
+        message: String(error?.message || '').slice(0, 500),
+    });
+    return contentError(
+        'تعذر إنشاء المحتوى حالياً. حاول مرة أخرى لاحقاً.',
+        502,
+        'AI_GENERATION_FAILED',
+    );
+};
+
 export function createFacebookContentAiRouter({
     database,
     generate = requestFacebookContent,
@@ -54,7 +81,7 @@ export function createFacebookContentAiRouter({
                 fallback: 25,
             });
             const rows = database.prepare(`
-                SELECT id, linked_page_id, product_id, action, model, prompt_version,
+                SELECT id, linked_page_id, product_id, action,
                        input_tokens, output_tokens, status, error_code, error_message,
                        created_at
                 FROM facebook_content_ai_generations
@@ -190,14 +217,13 @@ export function createFacebookContentAiRouter({
                 generation_id: generationId,
                 variants: generated.variants,
                 created_item_ids: createdItems,
-                model: generated.model,
                 usage: generated.usage,
-                prompt_version: generated.prompt_version,
             });
         } catch (error) {
+            const responseError = clientSafeAiError(error);
             if (reservation) {
                 try {
-                    billing.release(reservation, error.message);
+                    billing.release(reservation, responseError.message);
                 } catch (releaseError) {
                     console.error('[FacebookContentAI] Billing release error:', releaseError);
                 }
@@ -209,13 +235,13 @@ export function createFacebookContentAiRouter({
                     WHERE id = ?
                 `).run(
                     error.refused ? 'refused' : 'failed',
-                    error.code || 'AI_GENERATION_FAILED',
-                    String(error.message || '').slice(0, 1000),
+                    responseError.code,
+                    responseError.message,
                     generationId,
                 );
             }
             if (handleBillingError(res, error)) return;
-            sendContentError(res, error, 'فشل توليد المحتوى');
+            sendContentError(res, responseError, 'فشل توليد المحتوى');
         }
     });
 

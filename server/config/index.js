@@ -67,10 +67,33 @@ export const META_WEBHOOK_CALLBACK_URL = process.env.META_WEBHOOK_CALLBACK_URL |
 // Facebook OAuth (self-service page linking)
 export const FACEBOOK_REDIRECT_URI = process.env.FACEBOOK_REDIRECT_URI || '';
 
-// Facebook Content Studio AI provider (server-side only)
+// Facebook Content Studio AI providers (server-side only)
+const normalizeAiProvider = (value, fallback) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (['none', 'off', 'disabled'].includes(normalized)) return '';
+    if (['openai', 'gemini'].includes(normalized)) return normalized;
+    return fallback;
+};
+
+export const AI_PRIMARY_PROVIDER = normalizeAiProvider(
+    process.env.AI_PRIMARY_PROVIDER,
+    'gemini',
+);
+export const AI_FALLBACK_PROVIDER = normalizeAiProvider(
+    process.env.AI_FALLBACK_PROVIDER,
+    'openai',
+);
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 export const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
 export const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+export const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+export const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL
+    || 'https://generativelanguage.googleapis.com/v1beta';
+export const AI_PROVIDER_TIMEOUT_MS = Math.min(
+    Math.max(Number(process.env.AI_PROVIDER_TIMEOUT_MS) || 30_000, 5_000),
+    120_000,
+);
 export const CONTENT_SCHEDULER_INTERVAL_MS = Math.max(
     Number(process.env.CONTENT_SCHEDULER_INTERVAL_MS) || 60_000,
     10_000,

@@ -12,7 +12,10 @@ import { createFacebookContentStudioRouter } from '../routes/facebookContentStud
 import {
     buildFacebookContentPrompt,
     extractStructuredFacebookContent,
+    extractStructuredGeminiContent,
+    requestGeminiFacebookContent,
     requestFacebookContent,
+    requestOpenAiFacebookContent,
 } from '../services/facebookContentAi.js';
 
 const createDatabase = () => {
@@ -140,7 +143,6 @@ test('content settings support tenant defaults and page-specific overrides', asy
     const router = createFacebookContentSettingsRouter({
         database,
         aiConfigured: () => true,
-        aiModel: 'test-model',
     });
 
     const defaults = await invoke(router, 'get', '/settings');
@@ -185,7 +187,7 @@ test('content settings support tenant defaults and page-specific overrides', asy
     const readiness = await invoke(router, 'get', '/readiness');
     assert.equal(readiness.body.linked_pages, 1);
     assert.equal(readiness.body.products, 1);
-    assert.deepEqual(readiness.body.ai, { configured: true, model: 'test-model' });
+    assert.deepEqual(readiness.body.ai, { configured: true });
 });
 
 test('shared products create reusable Facebook content without crossing tenants', async (t) => {
@@ -240,7 +242,7 @@ test('shared products create reusable Facebook content without crossing tenants'
     assert.equal(archived.body.success, true);
 });
 
-test('AI service sends a Responses API structured-output request and enforces banned terms', async () => {
+test('OpenAI adapter sends a Responses API structured-output request and enforces banned terms', async () => {
     let captured;
     const fetchImpl = async (url, init) => {
         captured = { url, init, body: JSON.parse(init.body) };
@@ -264,7 +266,7 @@ test('AI service sends a Responses API structured-output request and enforces ba
             usage: { input_tokens: 120, output_tokens: 40 },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
-    const result = await requestFacebookContent({
+    const result = await requestOpenAiFacebookContent({
         action: 'generate',
         inputText: 'اكتب منشوراً',
         settings: { language: 'ar', banned_terms: [] },
@@ -281,7 +283,7 @@ test('AI service sends a Responses API structured-output request and enforces ba
     assert.deepEqual(result.usage, { input_tokens: 120, output_tokens: 40 });
 
     await assert.rejects(
-        () => requestFacebookContent({
+        () => requestOpenAiFacebookContent({
             action: 'generate',
             inputText: 'اكتب منشوراً',
             settings: { banned_terms: ['واضح'] },
@@ -290,6 +292,147 @@ test('AI service sends a Responses API structured-output request and enforces ba
         }),
         error => error.code === 'AI_POLICY_VIOLATION',
     );
+});
+
+test('Gemini adapter uses native structured output without exposing its key', async () => {
+    let captured;
+    const fetchImpl = async (url, init) => {
+        captured = { url, init, body: JSON.parse(init.body) };
+        return new Response(JSON.stringify({
+            candidates: [{
+                finishReason: 'STOP',
+                content: {
+                    parts: [{
+                        text: JSON.stringify({
+                            variants: [{
+                                title: 'عنوان عربي',
+                                body: 'محتوى طبيعي',
+                                hashtags: ['سافانا'],
+                                cta: 'تواصل معنا',
+                            }],
+                        }),
+                    }],
+                },
+            }],
+            usageMetadata: {
+                promptTokenCount: 90,
+                candidatesTokenCount: 30,
+                thoughtsTokenCount: 10,
+            },
+            modelVersion: 'gemini-test',
+            responseId: 'gemini-response',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const result = await requestGeminiFacebookContent({
+        action: 'generate',
+        inputText: 'اكتب منشوراً',
+        settings: { language: 'ar', banned_terms: [] },
+        fetchImpl,
+        apiKey: 'gemini-secret',
+        model: 'gemini-test',
+        baseUrl: 'https://gemini.test/v1beta/',
+    });
+    assert.equal(
+        captured.url,
+        'https://gemini.test/v1beta/models/gemini-test:generateContent',
+    );
+    assert.equal(captured.init.headers['x-goog-api-key'], 'gemini-secret');
+    assert.equal(captured.init.headers.Authorization, undefined);
+    assert.equal(captured.body.generationConfig.responseMimeType, 'application/json');
+    assert.deepEqual(
+        captured.body.generationConfig.responseJsonSchema.required,
+        ['variants'],
+    );
+    assert.equal(
+        captured.body.generationConfig.responseJsonSchema
+            .properties.variants.items.properties.title.maxLength,
+        undefined,
+    );
+    assert.equal(captured.body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+    assert.equal(result.variants[0].title, 'عنوان عربي');
+    assert.deepEqual(result.usage, { input_tokens: 90, output_tokens: 40 });
+    assert.equal(result.model, 'gemini-test');
+
+    assert.throws(
+        () => extractStructuredGeminiContent({
+            candidates: [{ finishReason: 'SAFETY', finishMessage: 'blocked' }],
+        }),
+        error => error.code === 'AI_REQUEST_REFUSED' && error.refused === true,
+    );
+});
+
+test('AI provider orchestration falls back on provider failure but not on refusal', async () => {
+    const calls = [];
+    const logEvents = [];
+    const providerConfig = {
+        gemini: { apiKey: 'gemini-key' },
+        openai: { apiKey: 'openai-key' },
+    };
+    const result = await requestFacebookContent({
+        action: 'generate',
+        inputText: 'فكرة',
+        settings: {},
+        primaryProvider: 'gemini',
+        fallbackProvider: 'openai',
+        providerConfig,
+        providerRequests: {
+            gemini: async () => {
+                calls.push('gemini');
+                const error = new Error('quota from upstream');
+                error.status = 429;
+                error.code = 'RESOURCE_EXHAUSTED';
+                throw error;
+            },
+            openai: async () => {
+                calls.push('openai');
+                return {
+                    variants: [{ title: 'بديل', body: 'محتوى', hashtags: [], cta: '' }],
+                    model: 'internal-model',
+                    usage: { input_tokens: 1, output_tokens: 1 },
+                    prompt_version: 'test',
+                };
+            },
+        },
+        logger: {
+            warn: (...args) => logEvents.push(args),
+            error: (...args) => logEvents.push(args),
+        },
+    });
+    assert.deepEqual(calls, ['gemini', 'openai']);
+    assert.equal(result.provider, 'openai');
+    assert.equal(result.fallback_used, true);
+    assert.equal(logEvents.length, 1);
+    assert.equal(logEvents[0][1].provider, 'gemini');
+    assert.equal(logEvents[0][1].next_provider, 'openai');
+
+    calls.length = 0;
+    await assert.rejects(
+        () => requestFacebookContent({
+            action: 'generate',
+            inputText: 'فكرة',
+            settings: {},
+            primaryProvider: 'gemini',
+            fallbackProvider: 'openai',
+            providerConfig,
+            providerRequests: {
+                gemini: async () => {
+                    calls.push('gemini');
+                    const error = new Error('رفض داخلي');
+                    error.code = 'AI_REQUEST_REFUSED';
+                    error.status = 422;
+                    error.refused = true;
+                    throw error;
+                },
+                openai: async () => {
+                    calls.push('openai');
+                    return {};
+                },
+            },
+            logger: { warn() {}, error() {} },
+        }),
+        error => error.code === 'AI_REQUEST_REFUSED',
+    );
+    assert.deepEqual(calls, ['gemini']);
 });
 
 test('AI prompt keeps product facts explicit and response parsing handles refusals', () => {
@@ -306,7 +449,7 @@ test('AI prompt keeps product facts explicit and response parsing handles refusa
         () => extractStructuredFacebookContent({
             output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'غير مسموح' }] }],
         }),
-        error => error.code === 'AI_REFUSAL' && error.refused === true,
+        error => error.code === 'AI_REQUEST_REFUSED' && error.refused === true,
     );
 });
 
@@ -349,6 +492,8 @@ test('AI route records generation, billing and optionally creates review items',
     assert.equal(generated.statusCode, 200);
     assert.equal(generated.body.variants[0].title, 'عنوان مولد');
     assert.equal(generated.body.created_item_ids.length, 1);
+    assert.equal('model' in generated.body, false);
+    assert.equal('provider' in generated.body, false);
     assert.equal(billingEvents[0][0], 'reserve');
     assert.equal(billingEvents[1][0], 'commit');
     assert.equal(database.prepare(`
@@ -362,6 +507,46 @@ test('AI route records generation, billing and optionally creates review items',
     assert.equal(item.kind, 'ai');
     assert.equal(item.status, 'review');
     assert.match(item.body, /#سافانا/);
+
+    const history = await invoke(router, 'get', '/ai/history');
+    assert.equal('model' in history.body[0], false);
+});
+
+test('AI route replaces upstream provider errors with a neutral client message', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const router = createFacebookContentAiRouter({
+        database,
+        generate: async () => {
+            const error = new Error('OpenAI quota: https://provider.example/billing');
+            error.status = 429;
+            error.code = 'AI_CAPACITY_EXCEEDED';
+            error.providerFailure = true;
+            throw error;
+        },
+        billing: {
+            reserve: () => ({ id: 88 }),
+            commit: () => {},
+            release: () => {},
+        },
+    });
+    const response = await invoke(router, 'post', '/ai/generate', {
+        body: {
+            linked_page_id: 11,
+            input_text: 'اكتب منشوراً',
+            action: 'generate',
+        },
+    });
+    assert.equal(response.statusCode, 429);
+    assert.equal(response.body.code, 'AI_CAPACITY_EXCEEDED');
+    assert.doesNotMatch(response.body.error, /openai|gemini|https?:/i);
+    const row = database.prepare(`
+        SELECT error_code, error_message
+        FROM facebook_content_ai_generations
+        ORDER BY id DESC LIMIT 1
+    `).get();
+    assert.equal(row.error_code, 'AI_CAPACITY_EXCEEDED');
+    assert.doesNotMatch(row.error_message, /openai|gemini|https?:/i);
 });
 
 test('campaign and publication APIs preserve approval, page and tenant boundaries', async (t) => {
@@ -437,7 +622,13 @@ test('settings, library and AI routes cover overrides, filters and recoverable f
     const billingEvents = [];
     const ai = createFacebookContentAiRouter({
         database,
-        generate: async () => { throw Object.assign(new Error('provider unavailable'), { code: 'AI_UPSTREAM' }); },
+        generate: async () => {
+            throw Object.assign(new Error('provider unavailable'), {
+                code: 'AI_SERVICE_UNAVAILABLE',
+                status: 502,
+                providerFailure: true,
+            });
+        },
         billing: {
             reserve: () => ({ id: 9 }),
             commit: () => assert.fail('failed generations cannot commit'),
@@ -482,12 +673,12 @@ test('settings, library and AI routes cover overrides, filters and recoverable f
     const failed = await invoke(ai, 'post', '/ai/generate', {
         body: { input_text: 'اكتب نصاً', variants: 2 },
     });
-    assert.equal(failed.statusCode, 500);
-    assert.deepEqual(billingEvents, [[9, 'provider unavailable']]);
+    assert.equal(failed.statusCode, 502);
+    assert.deepEqual(billingEvents, [[9, 'خدمة مساعد الكتابة غير متاحة حالياً. حاول مرة أخرى لاحقاً.']]);
     const history = await invoke(ai, 'get', '/ai/history', { query: { limit: '5' } });
     assert.equal(history.body.length, 1);
     assert.equal(history.body[0].status, 'failed');
-    assert.equal(history.body[0].error_code, 'AI_UPSTREAM');
+    assert.equal(history.body[0].error_code, 'AI_SERVICE_UNAVAILABLE');
 
     const created = await invoke(library, 'post', '/items', {
         body: {
