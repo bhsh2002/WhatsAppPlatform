@@ -371,8 +371,8 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                 </Stack>
             )}
 
-            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm" slotProps={{ paper: dialogPaperProps }}>
-                <DialogTitle>{t('contentStudio.schedulePost')}</DialogTitle>
+            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm" aria-labelledby="content-studio-schedule-title" slotProps={{ paper: dialogPaperProps }}>
+                <DialogTitle id="content-studio-schedule-title">{t('contentStudio.schedulePost')}</DialogTitle>
                 <DialogContent dividers>
                     {sourcesLoading ? <LoadingPanel /> : (
                         <Stack spacing={2} sx={{ pt: 0.5 }}>
@@ -675,8 +675,8 @@ function LibraryPanel({ pages, selectedPageId, locale, notify, t, refreshToken }
                 </Box>
             )}
 
-            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="md" slotProps={{ paper: dialogPaperProps }}>
-                <DialogTitle>{form.id ? t('contentStudio.editContent') : t('contentStudio.newContent')}</DialogTitle>
+            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="md" aria-labelledby="content-studio-item-title" slotProps={{ paper: dialogPaperProps }}>
+                <DialogTitle id="content-studio-item-title">{form.id ? t('contentStudio.editContent') : t('contentStudio.newContent')}</DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <PagePicker
@@ -903,8 +903,8 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
                 </Box>
             )}
 
-            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="md" slotProps={{ paper: dialogPaperProps }}>
-                <DialogTitle>{form.id ? t('contentStudio.editCampaign') : t('contentStudio.newCampaign')}</DialogTitle>
+            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="md" aria-labelledby="content-studio-campaign-title" slotProps={{ paper: dialogPaperProps }}>
+                <DialogTitle id="content-studio-campaign-title">{form.id ? t('contentStudio.editCampaign') : t('contentStudio.newCampaign')}</DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
