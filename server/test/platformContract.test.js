@@ -299,11 +299,14 @@ test('admin and tenant Facebook content pages share composer and post presentati
 
 test('production Nginx proxies /api to Express and supports SSE', () => {
     const nginx = read('client/nginx.conf');
+    const server = read('server/server.js');
 
     assert.match(nginx, /location \/api\//);
     assert.match(nginx, /proxy_pass http:\/\/server:3031\//);
     assert.match(nginx, /proxy_buffering off/);
     assert.match(nginx, /proxy_read_timeout 1h/);
+    assert.match(server, /app\.set\('trust proxy', \['loopback', 'linklocal', 'uniquelocal'\]\)/);
+    assert.doesNotMatch(server, /app\.set\('trust proxy', true\)/);
 });
 
 test('Docker runs the backend in production mode and waits for health', () => {

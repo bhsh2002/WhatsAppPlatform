@@ -125,6 +125,10 @@ try {
 installGlobalFetchTimeout();
 
 const app = express();
+// Requests normally arrive from Nginx over a private Docker network. Trust
+// only local/private proxy hops so req.ip and rate limiting use the first
+// untrusted client address without accepting spoofed public proxy headers.
+app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
 const PORT = process.env.PORT || 3031;
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
