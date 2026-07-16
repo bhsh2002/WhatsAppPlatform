@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Box, Paper, Typography, Button, TextField, MenuItem, FormControl,
     InputLabel, CircularProgress, Alert, Chip, Avatar, IconButton,
@@ -14,21 +14,31 @@ import {
     ChatBubble as CommentIcon, OpenInNew as OpenInNewIcon,
     CloudUpload as UploadIcon, SmartToy as AutomationIcon, Bolt as BoltIcon,
     ThumbUp as LikeIcon, Share as ShareIcon,
-    Inventory2Outlined as ProductIcon
+    AutoAwesome as AiIcon, FlagOutlined as FollowupIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 import {
-    buildFacebookPostProductDraft,
+    buildFacebookProductPostText,
     formatFacebookContentTime
 } from '../Facebook/facebookContentConfig';
 import {
     FacebookContentSnackbar,
     FacebookDeleteDialog,
     FacebookPostComposerTabs,
-    FacebookPostMessage,
-    FacebookPostProductDialog
+    FacebookPostMessage
 } from '../Facebook/FacebookContentPresentation';
+import {
+    FacebookCommentTemplateDialog,
+    FacebookCommentTemplateSelect,
+    FacebookPostPreview,
+    FacebookPostToolsButton,
+    FacebookPostWorkflowDialogs
+} from '../Facebook/FacebookWorkflowPresentation';
+import {
+    useFacebookCommentWorkflows,
+    useFacebookPostWorkflows
+} from '../Facebook/useFacebookContentWorkflows';
 
 const TenantContentManager = ({ embedded = false }) => {
     const { locale, t } = useLanguage();
@@ -51,6 +61,9 @@ const TenantContentManager = ({ embedded = false }) => {
     const [composerCaption, setComposerCaption] = useState('');
     const [composerScheduleTime, setComposerScheduleTime] = useState('');
     const [publishing, setPublishing] = useState(false);
+    const [composerProducts, setComposerProducts] = useState([]);
+    const [composerProductId, setComposerProductId] = useState('');
+    const [draftSaving, setDraftSaving] = useState(false);
 
     const [expandedComments, setExpandedComments] = useState({});
     const [expandedPosts, setExpandedPosts] = useState({});
@@ -72,10 +85,6 @@ const TenantContentManager = ({ embedded = false }) => {
     const [deleteType, setDeleteType] = useState('');
     const [deleteLoading, setDeleteLoading] = useState(false);
 
-    const [productDialogOpen, setProductDialogOpen] = useState(false);
-    const [productDraft, setProductDraft] = useState(null);
-    const [productSaving, setProductSaving] = useState(false);
-
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
     const [autoDialogOpen, setAutoDialogOpen] = useState(false);
@@ -90,6 +99,37 @@ const TenantContentManager = ({ embedded = false }) => {
     const [autoSaving, setAutoSaving] = useState(false);
 
     const selectedPage = pages.find(p => p.id === selectedPageId);
+    const workflowAdapter = useMemo(() => ({
+        createProduct: data => api.createPortalMessengerBotProduct(data),
+        importPost: data => api.createPortalContentStudioItemFromPost(data),
+        generateAi: data => api.generatePortalContentStudioAi(data),
+        createCampaign: data => api.createPortalContentStudioCampaign(data),
+        approveItem: itemId => api.approvePortalContentStudioItem(itemId),
+        schedulePublication: data => api.schedulePortalContentStudioPublication(data),
+        getPublications: params => api.getPortalContentStudioPublications(params),
+        getTemplates: linkedPageId => api.getPortalContentStudioCommentTemplates(linkedPageId),
+        createTemplate: data => api.createPortalContentStudioCommentTemplate(data),
+        updateTemplate: (templateId, data) => api.updatePortalContentStudioCommentTemplate(templateId, data),
+        deleteTemplate: templateId => api.deletePortalContentStudioCommentTemplate(templateId),
+        getFollowups: params => api.getPortalContentStudioCommentFollowups(params),
+        updateFollowup: (commentId, data) => api.updatePortalContentStudioCommentFollowup(commentId, data),
+    }), []);
+    const postWorkflows = useFacebookPostWorkflows({
+        adapter: workflowAdapter,
+        linkedPageId: selectedPageId,
+        setSnackbar,
+        t,
+    });
+    const commentTools = useFacebookCommentWorkflows({
+        adapter: workflowAdapter,
+        linkedPageId: selectedPageId,
+        setReplyTexts,
+        setSnackbar,
+        t,
+    });
+    const selectedComposerProduct = composerProducts.find(
+        product => String(product.id) === String(composerProductId)
+    );
 
     const loadPages = useCallback(async () => {
         try {
@@ -109,6 +149,12 @@ const TenantContentManager = ({ embedded = false }) => {
     }, [selectedPageId, t]);
 
     useEffect(() => { loadPages(); }, [loadPages]);
+
+    useEffect(() => {
+        api.getPortalContentStudioProducts({ limit: 100 })
+            .then(result => setComposerProducts(result.products || []))
+            .catch(() => setComposerProducts([]));
+    }, []);
 
     const loadPosts = useCallback(async (append = false, afterCursor = null) => {
         if (!selectedPageId) return;
@@ -148,32 +194,37 @@ const TenantContentManager = ({ embedded = false }) => {
 
     const handlePublish = async () => {
         if (!selectedPageId) return;
+        const effectiveMessage = composerMessage.trim()
+            || buildFacebookProductPostText(selectedComposerProduct, locale);
         try {
             setPublishing(true);
             if (composerTab === 'photo' && composerPhotoFile) {
                 const formData = new FormData();
                 formData.append('source', composerPhotoFile);
-                if (composerCaption) formData.append('caption', composerCaption);
+                if (composerCaption || effectiveMessage) {
+                    formData.append('caption', composerCaption || effectiveMessage);
+                }
                 await api.createPortalFbPhotoPostFile(selectedPageId, formData);
             } else if (composerTab === 'photo' && composerPhotoUrl) {
                 await api.createPortalFbPhotoPostUrl(selectedPageId, {
                     url: composerPhotoUrl,
-                    caption: composerCaption || undefined,
+                    caption: composerCaption || effectiveMessage || undefined,
                 });
             } else if (composerTab === 'link') {
                 await api.createPortalFbPost(selectedPageId, {
-                    message: composerMessage || undefined,
+                    message: effectiveMessage || undefined,
                     link: composerLink || undefined,
                 });
             } else if (composerTab === 'schedule') {
-                await api.createPortalFbPost(selectedPageId, {
-                    message: composerMessage,
-                    published: false,
-                    scheduled_publish_time: composerScheduleTime,
+                const item = await saveComposerItem('approved');
+                await api.schedulePortalContentStudioPublication({
+                    linked_page_id: selectedPageId,
+                    content_item_id: item.id,
+                    scheduled_for: new Date(composerScheduleTime).toISOString(),
                 });
             } else {
-                if (!composerMessage.trim()) return;
-                await api.createPortalFbPost(selectedPageId, { message: composerMessage });
+                if (!effectiveMessage) return;
+                await api.createPortalFbPost(selectedPageId, { message: effectiveMessage });
             }
             setComposerMessage('');
             setComposerLink('');
@@ -181,8 +232,15 @@ const TenantContentManager = ({ embedded = false }) => {
             setComposerCaption('');
             setComposerPhotoFile(null);
             setComposerScheduleTime('');
-            setSnackbar({ open: true, message: t('facebookContent.messages.postPublished'), severity: 'success' });
-            loadPosts();
+            setComposerProductId('');
+            setSnackbar({
+                open: true,
+                message: composerTab === 'schedule'
+                    ? t('facebookContent.messages.postScheduled')
+                    : t('facebookContent.messages.postPublished'),
+                severity: 'success',
+            });
+            if (composerTab !== 'schedule') loadPosts();
         } catch (err) {
             setSnackbar({ open: true, message: err.message || t('facebookContent.messages.postPublishFailed'), severity: 'error' });
         } finally {
@@ -193,8 +251,121 @@ const TenantContentManager = ({ embedded = false }) => {
     const canPublish = () => {
         if (composerTab === 'photo') return !!(composerPhotoFile || composerPhotoUrl.trim());
         if (composerTab === 'link') return !!composerLink.trim();
-        if (composerTab === 'schedule') return !!composerMessage.trim() && !!composerScheduleTime;
-        return !!composerMessage.trim();
+        if (composerTab === 'schedule') {
+            return Boolean(
+                composerScheduleTime
+                && (
+                    composerMessage.trim()
+                    || composerCaption.trim()
+                    || composerLink.trim()
+                    || composerPhotoFile
+                    || composerPhotoUrl.trim()
+                    || selectedComposerProduct
+                )
+            );
+        }
+        return !!(composerMessage.trim() || selectedComposerProduct);
+    };
+
+    const canSaveDraft = () => {
+        if (composerTab === 'photo') {
+            return Boolean(
+                composerPhotoFile
+                || composerPhotoUrl.trim()
+                || composerCaption.trim()
+                || composerMessage.trim()
+                || selectedComposerProduct
+            );
+        }
+        if (composerTab === 'link') {
+            return Boolean(composerLink.trim() || composerMessage.trim() || selectedComposerProduct);
+        }
+        if (composerTab === 'schedule') {
+            return Boolean(
+                composerMessage.trim()
+                || composerCaption.trim()
+                || composerLink.trim()
+                || composerPhotoFile
+                || composerPhotoUrl.trim()
+                || selectedComposerProduct
+            );
+        }
+        return Boolean(composerMessage.trim() || selectedComposerProduct);
+    };
+
+    const selectComposerProduct = productId => {
+        setComposerProductId(productId);
+        const product = composerProducts.find(item => String(item.id) === String(productId));
+        if (!product) return;
+        if (!composerMessage.trim()) setComposerMessage(buildFacebookProductPostText(product, locale));
+        if (!composerLink.trim() && product.product_url) setComposerLink(product.product_url);
+        if (!composerPhotoUrl.trim() && product.image_url) setComposerPhotoUrl(product.image_url);
+        if (composerTab === 'text') {
+            if (product.image_url) setComposerTab('photo');
+            else if (product.product_url) setComposerTab('link');
+        }
+    };
+
+    const saveComposerItem = async (status = 'draft') => {
+        if (!selectedPageId) return;
+        const body = (
+            composerTab === 'photo'
+                ? (composerCaption || composerMessage)
+                : composerMessage
+        ).trim()
+            || buildFacebookProductPostText(selectedComposerProduct, locale)
+            || composerLink.trim()
+            || t('facebookContent.defaultPostName');
+        let mediaUrl = (
+            composerTab === 'photo' || composerTab === 'schedule'
+                ? (composerPhotoUrl || selectedComposerProduct?.image_url)
+                : null
+        ) || null;
+        if (
+            (composerTab === 'photo' || composerTab === 'schedule')
+            && composerPhotoFile
+        ) {
+            const uploaded = await api.uploadPortalMessengerBotAsset(composerPhotoFile);
+            mediaUrl = uploaded.url;
+        }
+        return api.createPortalContentStudioItem({
+            linked_page_id: selectedPageId,
+            product_id: selectedComposerProduct?.id || null,
+            kind: selectedComposerProduct ? 'product' : 'manual',
+            title: (
+                selectedComposerProduct?.name
+                || body.split(/\r?\n/).map(line => line.trim()).find(Boolean)
+                || t('facebookContent.defaultPostName')
+            ).slice(0, 160),
+            body,
+            link_url: (
+                composerTab === 'link' || composerTab === 'schedule'
+                    ? (composerLink || selectedComposerProduct?.product_url)
+                    : null
+            ) || null,
+            media_url: mediaUrl,
+            status,
+        });
+    };
+
+    const handleSaveDraft = async () => {
+        try {
+            setDraftSaving(true);
+            await saveComposerItem('draft');
+            setSnackbar({
+                open: true,
+                message: t('facebookContent.messages.composerDraftSaved'),
+                severity: 'success',
+            });
+        } catch (error) {
+            setSnackbar({
+                open: true,
+                message: error.message || t('facebookContent.messages.composerDraftFailed'),
+                severity: 'error',
+            });
+        } finally {
+            setDraftSaving(false);
+        }
     };
 
     const loadComments = async (postId, append = false) => {
@@ -527,40 +698,6 @@ const TenantContentManager = ({ embedded = false }) => {
         }
     };
 
-    const openProductDialog = post => {
-        setProductDraft(buildFacebookPostProductDraft(
-            post,
-            t('facebookContent.productFromPostFallbackName'),
-        ));
-        setProductDialogOpen(true);
-    };
-
-    const handleCreateProductFromPost = async () => {
-        if (!productDraft?.name?.trim()) return;
-        try {
-            setProductSaving(true);
-            await api.createPortalMessengerBotProduct({
-                ...productDraft,
-                price: Number(productDraft.price) || 0,
-            });
-            setProductDialogOpen(false);
-            setProductDraft(null);
-            setSnackbar({
-                open: true,
-                message: t('facebookContent.messages.productCreatedFromPost'),
-                severity: 'success',
-            });
-        } catch (err) {
-            setSnackbar({
-                open: true,
-                message: err.message || t('facebookContent.messages.productCreateFromPostFailed'),
-                severity: 'error',
-            });
-        } finally {
-            setProductSaving(false);
-        }
-    };
-
     const formatTime = (timestamp) => formatFacebookContentTime(timestamp, locale);
 
     const openAutoDialog = async (post) => {
@@ -680,12 +817,26 @@ const TenantContentManager = ({ embedded = false }) => {
             </Paper>
 
             {selectedPageId && (
-                <Box sx={{ maxWidth: 680, mx: 'auto' }}>
+                <Box sx={{ maxWidth: 1040, mx: 'auto' }}>
                     <Paper sx={{ p: 2, mb: 3 }}>
                         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
                             {t('facebookContent.newPost', { page: selectedPage?.page_name || selectedPage?.page_id })}
                         </Typography>
                         <FacebookPostComposerTabs value={composerTab} onChange={setComposerTab} t={t} />
+
+                        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                            <InputLabel>{t('contentStudio.optionalProduct')}</InputLabel>
+                            <Select
+                                value={composerProductId}
+                                onChange={event => selectComposerProduct(event.target.value)}
+                                label={t('contentStudio.optionalProduct')}
+                            >
+                                <MenuItem value="">{t('contentStudio.noProduct')}</MenuItem>
+                                {composerProducts.map(product => (
+                                    <MenuItem key={product.id} value={product.id}>{product.name}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
 
                         {(composerTab === 'text' || composerTab === 'link' || composerTab === 'schedule') && (
                             <TextField
@@ -724,7 +875,33 @@ const TenantContentManager = ({ embedded = false }) => {
                             <TextField fullWidth type="datetime-local" label={t('facebookContent.scheduleTime')} value={composerScheduleTime} onChange={(e) => setComposerScheduleTime(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />
                         )}
 
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Box sx={{ mb: 2 }}>
+                            <FacebookPostPreview
+                                imageUrl={composerTab === 'photo' || composerTab === 'schedule'
+                                    ? composerPhotoUrl || selectedComposerProduct?.image_url
+                                    : null}
+                                link={composerTab === 'link' || composerTab === 'schedule'
+                                    ? composerLink || selectedComposerProduct?.product_url
+                                    : null}
+                                message={(
+                                    composerTab === 'photo'
+                                        ? (composerCaption || composerMessage)
+                                        : composerMessage
+                                ) || buildFacebookProductPostText(selectedComposerProduct, locale)}
+                                pageName={selectedPage?.page_name || selectedPage?.page_id}
+                                product={selectedComposerProduct}
+                                t={t}
+                            />
+                        </Box>
+
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                            <Button
+                                variant="outlined"
+                                onClick={handleSaveDraft}
+                                disabled={draftSaving || !canSaveDraft()}
+                            >
+                                {draftSaving ? <CircularProgress size={18} /> : t('facebookContent.saveDraft')}
+                            </Button>
                             <Button
                                 variant="contained" onClick={handlePublish}
                                 disabled={publishing || !canPublish()}
@@ -736,7 +913,12 @@ const TenantContentManager = ({ embedded = false }) => {
                         </Box>
                     </Paper>
 
-                    <Typography variant="h6" component="h2" fontWeight={600} sx={{ mb: 2 }}>{t('facebookContent.posts')}</Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                        <Typography variant="h6" component="h2" fontWeight={600}>{t('facebookContent.posts')}</Typography>
+                        <Button variant="outlined" size="small" onClick={() => commentTools.setTemplateDialog(true)}>
+                            {t('facebookContent.replyTemplates')}
+                        </Button>
+                    </Box>
 
                     {postsLoading ? (
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>
@@ -807,16 +989,7 @@ const TenantContentManager = ({ embedded = false }) => {
                                             </Button>
                                         </Box>
                                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', ml: 'auto' }}>
-                                            <Tooltip title={t('facebookContent.convertToProduct')}>
-                                                <IconButton
-                                                    size="small"
-                                                    color="success"
-                                                    aria-label={t('facebookContent.convertToProduct')}
-                                                    onClick={() => openProductDialog(post)}
-                                                >
-                                                    <ProductIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
+                                            <FacebookPostToolsButton post={post} t={t} workflows={postWorkflows} />
                                             <Tooltip title={t('facebookContent.automateComments')}>
                                                 <IconButton size="small" color="primary" aria-label={t('facebookContent.automateComments')} onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
                                             </Tooltip>
@@ -846,9 +1019,12 @@ const TenantContentManager = ({ embedded = false }) => {
                                                                 {comment.from?.name?.charAt(0)}
                                                             </Avatar>
                                                             <Box sx={{ flex: 1 }}>
-                                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                                                     <Typography variant="subtitle2">{comment.from?.name || t('facebookContent.user')}</Typography>
                                                                     {comment.is_hidden && <Chip label={t('facebookContent.hidden')} size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
+                                                                    {commentTools.followups[comment.id] && (
+                                                                        <Chip label={t('facebookContent.followup')} size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                                                                    )}
                                                                 </Box>
                                                                 <Typography variant="body2">{comment.message}</Typography>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
@@ -856,7 +1032,7 @@ const TenantContentManager = ({ embedded = false }) => {
                                                                     <Typography variant="caption" color="text.secondary">• 👍 {comment.like_count || 0}</Typography>
                                                                     {replyCount > 0 && <Typography variant="caption" color="text.secondary">• {t('facebookContent.replies', { count: replyCount })}</Typography>}
                                                                 </Box>
-                                                                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+                                                                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
                                                                     <Button size="small" variant="text" onClick={() => handleLikeComment(comment, post.id)}>
                                                                         {comment.user_likes ? t('facebookContent.unlike') : t('facebookContent.like')}
                                                                     </Button>
@@ -868,6 +1044,26 @@ const TenantContentManager = ({ embedded = false }) => {
                                                                     </Button>
                                                                     <Button size="small" variant="text" onClick={() => loadReplies(comment.id)} disabled={repliesLoading[comment.id]}>
                                                                         {repliesLoading[comment.id] ? t('facebookContent.loading') : replies.length > 0 ? t('facebookContent.refreshReplies') : t('facebookContent.showReplies')}
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="small"
+                                                                        variant="text"
+                                                                        startIcon={commentTools.suggesting[comment.id] ? <CircularProgress size={14} /> : <AiIcon />}
+                                                                        onClick={() => commentTools.suggestReply(comment, post)}
+                                                                        disabled={commentTools.suggesting[comment.id]}
+                                                                    >
+                                                                        {t('facebookContent.suggestReply')}
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="small"
+                                                                        variant="text"
+                                                                        color={commentTools.followups[comment.id] ? 'warning' : 'inherit'}
+                                                                        startIcon={<FollowupIcon />}
+                                                                        onClick={() => commentTools.toggleFollowup(comment, post)}
+                                                                    >
+                                                                        {commentTools.followups[comment.id]
+                                                                            ? t('facebookContent.resolveFollowup')
+                                                                            : t('facebookContent.markFollowup')}
                                                                     </Button>
                                                                 </Box>
                                                                 {replies.length > 0 && (
@@ -897,7 +1093,14 @@ const TenantContentManager = ({ embedded = false }) => {
                                                                         )}
                                                                     </Box>
                                                                 )}
-                                                                <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                                                                <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                                                                    {commentTools.templates.length > 0 && (
+                                                                        <FacebookCommentTemplateSelect
+                                                                            commentId={comment.id}
+                                                                            commentTools={commentTools}
+                                                                            t={t}
+                                                                        />
+                                                                    )}
                                                                     <TextField
                                                                         size="small" placeholder={t('facebookContent.replyPlaceholder')}
                                                                         value={replyTexts[comment.id] || ''}
@@ -956,18 +1159,8 @@ const TenantContentManager = ({ embedded = false }) => {
                 </Box>
             )}
 
-            <FacebookPostProductDialog
-                draft={productDraft}
-                onChange={setProductDraft}
-                onClose={() => {
-                    setProductDialogOpen(false);
-                    setProductDraft(null);
-                }}
-                onSubmit={handleCreateProductFromPost}
-                open={productDialogOpen}
-                saving={productSaving}
-                t={t}
-            />
+            <FacebookPostWorkflowDialogs t={t} workflows={postWorkflows} />
+            <FacebookCommentTemplateDialog commentTools={commentTools} t={t} />
 
             <FacebookDeleteDialog
                 deleteType={deleteType}

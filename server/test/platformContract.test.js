@@ -283,24 +283,59 @@ test('admin and tenant Facebook content pages share composer and post presentati
     const tenantPage = read('client/src/pages/TenantPortal/TenantContentManager.jsx');
     const config = read('client/src/pages/Facebook/facebookContentConfig.js');
     const presentation = read('client/src/pages/Facebook/FacebookContentPresentation.jsx');
+    const workflowPresentation = read(
+        'client/src/pages/Facebook/FacebookWorkflowPresentation.jsx',
+    );
+    const workflows = read('client/src/pages/Facebook/useFacebookContentWorkflows.js');
 
     assert.match(adminPage, /from ['"]\.\/FacebookContentPresentation['"]/);
     assert.match(tenantPage, /from ['"]\.\.\/Facebook\/FacebookContentPresentation['"]/);
+    assert.match(adminPage, /from ['"]\.\/FacebookWorkflowPresentation['"]/);
+    assert.match(tenantPage, /from ['"]\.\.\/Facebook\/FacebookWorkflowPresentation['"]/);
+    assert.match(adminPage, /from ['"]\.\/useFacebookContentWorkflows['"]/);
+    assert.match(tenantPage, /from ['"]\.\.\/Facebook\/useFacebookContentWorkflows['"]/);
     assert.doesNotMatch(adminPage, /const POST_TABS/);
     assert.doesNotMatch(tenantPage, /const POST_TABS/);
     assert.match(adminPage, /<FacebookPostComposerTabs/);
     assert.match(tenantPage, /<FacebookPostComposerTabs/);
     assert.match(adminPage, /<FacebookPostMessage/);
     assert.match(tenantPage, /<FacebookPostMessage/);
-    assert.match(adminPage, /api\.createMessengerBotProduct\(selectedPage\.tenant_id/);
+    assert.match(adminPage, /api\.createMessengerBotProduct\(selectedTenantId/);
     assert.match(tenantPage, /api\.createPortalMessengerBotProduct/);
-    assert.match(adminPage, /<FacebookPostProductDialog/);
-    assert.match(tenantPage, /<FacebookPostProductDialog/);
+    assert.match(adminPage, /<FacebookPostToolsButton/);
+    assert.match(tenantPage, /<FacebookPostToolsButton/);
+    assert.match(adminPage, /<FacebookPostWorkflowDialogs/);
+    assert.match(tenantPage, /<FacebookPostWorkflowDialogs/);
+    assert.match(adminPage, /<FacebookPostPreview/);
+    assert.match(tenantPage, /<FacebookPostPreview/);
+    assert.match(adminPage, /<FacebookCommentTemplateSelect/);
+    assert.match(tenantPage, /<FacebookCommentTemplateSelect/);
+    assert.match(adminPage, /scheduleContentStudioPublication/);
+    assert.match(tenantPage, /schedulePortalContentStudioPublication/);
+    assert.match(adminPage, /saveComposerItem\(['"]approved['"]\)/);
+    assert.match(tenantPage, /saveComposerItem\(['"]approved['"]\)/);
+    assert.doesNotMatch(adminPage, /scheduled_publish_time/);
+    assert.doesNotMatch(tenantPage, /scheduled_publish_time/);
     assert.match(config, /FACEBOOK_POST_TRUNCATE_LENGTH = 200/);
     assert.match(config, /export const buildFacebookPostProductDraft/);
+    assert.match(config, /export const buildFacebookPostLibraryDraft/);
+    assert.match(config, /export const buildFacebookProductPostText/);
     assert.match(presentation, /export const FacebookDeleteDialog/);
     assert.match(presentation, /export const FacebookPostProductDialog/);
     assert.match(presentation, /export const FacebookContentSnackbar/);
+    assert.match(workflowPresentation, /export const FacebookPostToolsButton/);
+    assert.match(workflowPresentation, /export const FacebookPostWorkflowDialogs/);
+    assert.match(workflowPresentation, /export const FacebookPostPreview/);
+    assert.match(workflowPresentation, /export const FacebookCommentTemplateDialog/);
+    assert.match(workflows, /export const useFacebookPostWorkflows/);
+    assert.match(workflows, /export const useFacebookCommentWorkflows/);
+    for (const action of ['rewrite', 'variants', 'improve_cta', 'hashtags', 'shorten', 'tone']) {
+        assert.match(workflowPresentation, new RegExp(`['"]${action}['"]`));
+    }
+    assert.match(workflows, /status:\s*['"]draft['"]/);
+    assert.match(workflows, /source_post_id:/);
+    assert.match(workflows, /create_items:\s*true/);
+    assert.match(workflows, /action:\s*['"]comment_reply['"]/);
 });
 
 test('production Nginx proxies /api to Express and supports SSE', () => {

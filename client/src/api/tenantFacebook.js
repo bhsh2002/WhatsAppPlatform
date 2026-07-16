@@ -161,6 +161,13 @@ export const tenantFacebookMethods = {
         });
     },
 
+    async createPortalContentStudioItemFromPost(data) {
+        return this.request('/api/portal/content-studio/items/from-post', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async createPortalContentStudioItemFromProduct(productId, data = {}) {
         return this.request(`/api/portal/content-studio/items/from-product/${productId}`, {
             method: 'POST',
@@ -262,6 +269,45 @@ export const tenantFacebookMethods = {
     async cancelPortalContentStudioPublication(publicationId) {
         return this.request(`/api/portal/content-studio/publications/${publicationId}`, {
             method: 'DELETE',
+        });
+    },
+
+    async getPortalContentStudioCommentTemplates(linkedPageId = null) {
+        const query = linkedPageId
+            ? `?linked_page_id=${encodeURIComponent(linkedPageId)}`
+            : '';
+        return this.request(`/api/portal/content-studio/comment-templates${query}`);
+    },
+
+    async createPortalContentStudioCommentTemplate(data) {
+        return this.request('/api/portal/content-studio/comment-templates', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updatePortalContentStudioCommentTemplate(templateId, data) {
+        return this.request(`/api/portal/content-studio/comment-templates/${templateId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async deletePortalContentStudioCommentTemplate(templateId) {
+        return this.request(`/api/portal/content-studio/comment-templates/${templateId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async getPortalContentStudioCommentFollowups(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/content-studio/comment-followups${query ? '?' + query : ''}`);
+    },
+
+    async updatePortalContentStudioCommentFollowup(commentId, data) {
+        return this.request(`/api/portal/content-studio/comment-followups/${encodeURIComponent(commentId)}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
         });
     },
 

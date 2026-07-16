@@ -16,7 +16,11 @@ const emptyProduct = {
   product_url: '',
   category: '',
   availability: 'available',
-  is_active: true
+  is_active: true,
+  approval_status: 'approved',
+  source_linked_page_id: null,
+  source_post_id: null,
+  source_post_url: null
 };
 const textFor = (t, key, fallback, values) => typeof t === 'function' ? t(key, values) : fallback;
 const scrollableTableSx = {
@@ -622,6 +626,13 @@ const MessengerBotManager = ({
   }), [t]);
   const productTemplateHelp = t('messengerBot.productTemplateHelp');
   const diagnostics = useMemo(() => getClientDiagnostics(flowForm, pages, flows, products, t), [flowForm, pages, flows, products, t]);
+  const convertedProductDraft = productForm.approval_status === 'draft' && Boolean(productForm.source_post_id);
+  const convertedProductReady = Boolean(
+    productForm.name?.trim()
+    && productForm.sku?.trim()
+    && productForm.category?.trim()
+    && Number(productForm.price) > 0
+  );
   useEffect(() => {
     if (tenantMode) return;
     api.getTenants().then(data => {
@@ -1131,7 +1142,15 @@ const MessengerBotManager = ({
                                                 <TableCell>{product.category || t('messengerBot.general')}</TableCell>
                                                 <TableCell>{Number(product.price || 0).toLocaleString(locale)} {product.currency}</TableCell>
                                                 <TableCell>
-                                                    <Chip size="small" label={product.is_active ? product.availability : 'inactive'} color={product.is_active && product.availability === 'available' ? 'success' : 'default'} />
+                                                    <Chip
+                                                        size="small"
+                                                        label={product.approval_status === 'draft'
+                                                          ? t('facebookContent.saveProductDraft')
+                                                          : product.is_active ? product.availability : 'inactive'}
+                                                        color={product.approval_status === 'draft'
+                                                          ? 'warning'
+                                                          : product.is_active && product.availability === 'available' ? 'success' : 'default'}
+                                                    />
 
                                                 </TableCell>
                                                 <TableCell align="right">
@@ -1351,6 +1370,13 @@ const MessengerBotManager = ({
             <Dialog open={productDialog} onClose={() => setProductDialog(false)} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct') } }}>
                 <DialogTitle>{productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct')}</DialogTitle>
                 <DialogContent>
+                    {convertedProductDraft && (
+                        <Alert severity={convertedProductReady ? 'success' : 'warning'} sx={{ mt: 1 }}>
+                            {convertedProductReady
+                              ? t('facebookContent.productReadyForApproval')
+                              : t('facebookContent.productApprovalHint')}
+                        </Alert>
+                    )}
                     <Grid container spacing={2} sx={{
           mt: 0.5
         }}>
@@ -1467,10 +1493,10 @@ const MessengerBotManager = ({
                         <Grid size={{
             xs: 12
           }}>
-                            <FormControlLabel control={<Switch checked={Boolean(productForm.is_active)} onChange={e => setProductForm(prev => ({
+                            <FormControlLabel control={<Switch checked={Boolean(productForm.is_active)} disabled={convertedProductDraft && !convertedProductReady} onChange={e => setProductForm(prev => ({
               ...prev,
               is_active: e.target.checked
-            }))} />} label={t('messengerBot.activeProduct')} />
+            }))} />} label={convertedProductDraft ? t('facebookContent.approveProduct') : t('messengerBot.activeProduct')} />
 
                         </Grid>
                     </Grid>

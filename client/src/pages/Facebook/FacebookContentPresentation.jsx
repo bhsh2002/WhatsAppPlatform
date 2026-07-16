@@ -7,10 +7,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   MenuItem,
   Snackbar,
-  Switch,
   Tab,
   Tabs,
   TextField,
@@ -101,12 +99,19 @@ export const FacebookPostProductDialog = ({
   draft,
   onChange,
   onClose,
-  onSubmit,
+  onApprove,
+  onSaveDraft,
   open,
   saving,
   t
 }) => {
   const update = (field, value) => onChange({ ...draft, [field]: value });
+  const approvalReady = Boolean(
+    draft?.name?.trim()
+    && draft?.sku?.trim()
+    && draft?.category?.trim()
+    && Number(draft?.price) > 0
+  );
 
   return (
     <Dialog
@@ -121,6 +126,11 @@ export const FacebookPostProductDialog = ({
         <Alert severity="info" sx={{ mb: 2 }}>
           {t('facebookContent.convertToProductHint')}
         </Alert>
+        {!approvalReady && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {t('facebookContent.productApprovalHint')}
+          </Alert>
+        )}
         <Box sx={{
           display: 'grid',
           gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' },
@@ -189,26 +199,23 @@ export const FacebookPostProductDialog = ({
             onChange={event => update('description', event.target.value)}
             sx={{ gridColumn: { sm: '1 / -1' } }}
           />
-          <FormControlLabel
-            control={(
-              <Switch
-                checked={draft?.is_active !== false}
-                onChange={event => update('is_active', event.target.checked)}
-              />
-            )}
-            label={t('facebookContent.productFields.active')}
-            sx={{ gridColumn: { sm: '1 / -1' }, m: 0 }}
-          />
         </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
         <Button
-          variant="contained"
-          onClick={onSubmit}
+          variant="outlined"
+          onClick={onSaveDraft}
           disabled={saving || !draft?.name?.trim()}
         >
-          {saving ? <CircularProgress size={18} /> : t('facebookContent.createProduct')}
+          {t('facebookContent.saveProductDraft')}
+        </Button>
+        <Button
+          variant="contained"
+          onClick={onApprove}
+          disabled={saving || !approvalReady}
+        >
+          {saving ? <CircularProgress size={18} /> : t('facebookContent.approveProduct')}
         </Button>
       </DialogActions>
     </Dialog>

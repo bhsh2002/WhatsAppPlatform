@@ -369,6 +369,94 @@ export const metaAdminMethods = {
     },
 
     // ============================================
+    // Facebook Content Studio (Admin)
+    // ============================================
+    async createContentStudioItemFromPost(tenantId, data) {
+        return this.request('/api/content-studio/items/from-post', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async createContentStudioItem(tenantId, data) {
+        return this.request('/api/content-studio/items', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async approveContentStudioItem(tenantId, itemId) {
+        return this.request(`/api/content-studio/items/${itemId}/approve`, {
+            method: 'POST',
+            body: JSON.stringify({ tenant_id: tenantId }),
+        });
+    },
+
+    async generateContentStudioAi(tenantId, data) {
+        return this.request('/api/content-studio/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async createContentStudioCampaign(tenantId, data) {
+        return this.request('/api/content-studio/campaigns', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async getContentStudioPublications(tenantId, params = {}) {
+        const query = new URLSearchParams({ ...params, tenant_id: tenantId }).toString();
+        return this.request(`/api/content-studio/publications?${query}`);
+    },
+
+    async scheduleContentStudioPublication(tenantId, data) {
+        return this.request('/api/content-studio/publications', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async getContentStudioCommentTemplates(tenantId, linkedPageId = null) {
+        const query = new URLSearchParams({ tenant_id: tenantId });
+        if (linkedPageId) query.set('linked_page_id', linkedPageId);
+        return this.request(`/api/content-studio/comment-templates?${query}`);
+    },
+
+    async createContentStudioCommentTemplate(tenantId, data) {
+        return this.request('/api/content-studio/comment-templates', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async updateContentStudioCommentTemplate(tenantId, templateId, data) {
+        return this.request(`/api/content-studio/comment-templates/${templateId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    async deleteContentStudioCommentTemplate(tenantId, templateId) {
+        return this.request(`/api/content-studio/comment-templates/${templateId}?tenant_id=${tenantId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async getContentStudioCommentFollowups(tenantId, params = {}) {
+        const query = new URLSearchParams({ ...params, tenant_id: tenantId }).toString();
+        return this.request(`/api/content-studio/comment-followups?${query}`);
+    },
+
+    async updateContentStudioCommentFollowup(tenantId, commentId, data) {
+        return this.request(`/api/content-studio/comment-followups/${encodeURIComponent(commentId)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
+    // ============================================
     // Messenger Bot (Admin)
     // ============================================
     async getMessengerBotSummary(tenantId) {
