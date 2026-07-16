@@ -292,8 +292,14 @@ test('admin and tenant Facebook content pages share composer and post presentati
     assert.match(tenantPage, /<FacebookPostComposerTabs/);
     assert.match(adminPage, /<FacebookPostMessage/);
     assert.match(tenantPage, /<FacebookPostMessage/);
+    assert.match(adminPage, /api\.createMessengerBotProduct\(selectedPage\.tenant_id/);
+    assert.match(tenantPage, /api\.createPortalMessengerBotProduct/);
+    assert.match(adminPage, /<FacebookPostProductDialog/);
+    assert.match(tenantPage, /<FacebookPostProductDialog/);
     assert.match(config, /FACEBOOK_POST_TRUNCATE_LENGTH = 200/);
+    assert.match(config, /export const buildFacebookPostProductDraft/);
     assert.match(presentation, /export const FacebookDeleteDialog/);
+    assert.match(presentation, /export const FacebookPostProductDialog/);
     assert.match(presentation, /export const FacebookContentSnackbar/);
 });
 

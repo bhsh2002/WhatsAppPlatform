@@ -14,16 +14,21 @@ import {
     ExpandLess as ExpandLessIcon, ChatBubble as CommentIcon,
     OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon,
     SmartToy as AutomationIcon, Bolt as BoltIcon, SettingsEthernet as WebhookIcon,
-    ThumbUp as LikeIcon, Share as ShareIcon
+    ThumbUp as LikeIcon, Share as ShareIcon,
+    Inventory2Outlined as ProductIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
-import { formatFacebookContentTime } from './facebookContentConfig';
+import {
+    buildFacebookPostProductDraft,
+    formatFacebookContentTime
+} from './facebookContentConfig';
 import {
     FacebookContentSnackbar,
     FacebookDeleteDialog,
     FacebookPostComposerTabs,
-    FacebookPostMessage
+    FacebookPostMessage,
+    FacebookPostProductDialog
 } from './FacebookContentPresentation';
 
 const FacebookPageManager = () => {
@@ -71,6 +76,10 @@ const FacebookPageManager = () => {
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [deleteType, setDeleteType] = useState('');
     const [deleteLoading, setDeleteLoading] = useState(false);
+
+    const [productDialogOpen, setProductDialogOpen] = useState(false);
+    const [productDraft, setProductDraft] = useState(null);
+    const [productSaving, setProductSaving] = useState(false);
 
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
@@ -546,6 +555,40 @@ const FacebookPageManager = () => {
         }
     };
 
+    const openProductDialog = post => {
+        setProductDraft(buildFacebookPostProductDraft(
+            post,
+            t('facebookContent.productFromPostFallbackName'),
+        ));
+        setProductDialogOpen(true);
+    };
+
+    const handleCreateProductFromPost = async () => {
+        if (!productDraft?.name?.trim() || !selectedPage?.tenant_id) return;
+        try {
+            setProductSaving(true);
+            await api.createMessengerBotProduct(selectedPage.tenant_id, {
+                ...productDraft,
+                price: Number(productDraft.price) || 0,
+            });
+            setProductDialogOpen(false);
+            setProductDraft(null);
+            setSnackbar({
+                open: true,
+                message: t('facebookContent.messages.productCreatedFromPost'),
+                severity: 'success',
+            });
+        } catch (err) {
+            setSnackbar({
+                open: true,
+                message: err.message || t('facebookContent.messages.productCreateFromPostFailed'),
+                severity: 'error',
+            });
+        } finally {
+            setProductSaving(false);
+        }
+    };
+
     const formatTime = (timestamp) => formatFacebookContentTime(timestamp, locale);
 
     const openAutoDialog = async (post) => {
@@ -951,8 +994,8 @@ const FacebookPageManager = () => {
                                         </Box>
                                     </CardContent>
 
-                                    <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1 }}>
-                                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                    <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1, gap: 1, flexWrap: 'wrap' }}>
+                                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                                             <Button size="small" startIcon={<LikeIcon />} onClick={() => handleLikePost(post)} color={likedPosts[post.id] ? 'primary' : 'inherit'}>
                                                 {likedPosts[post.id] ? t('facebookContent.unlike') : t('facebookContent.like')}
                                             </Button>
@@ -961,7 +1004,17 @@ const FacebookPageManager = () => {
                                                 {expandedComments[post.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                                             </Button>
                                         </Box>
-                                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', ml: 'auto' }}>
+                                            <Tooltip title={t('facebookContent.convertToProduct')}>
+                                                <IconButton
+                                                    size="small"
+                                                    color="success"
+                                                    aria-label={t('facebookContent.convertToProduct')}
+                                                    onClick={() => openProductDialog(post)}
+                                                >
+                                                    <ProductIcon fontSize="small" />
+                                                </IconButton>
+                                            </Tooltip>
                                             <Tooltip title={t('facebookContent.automateComments')}>
                                                 <IconButton size="small" color="primary" aria-label={t('facebookContent.automateComments')} onClick={() => openAutoDialog(post)}><BoltIcon fontSize="small" /></IconButton>
                                             </Tooltip>
@@ -1102,6 +1155,19 @@ const FacebookPageManager = () => {
                     )}
                 </Box>
             )}
+
+            <FacebookPostProductDialog
+                draft={productDraft}
+                onChange={setProductDraft}
+                onClose={() => {
+                    setProductDialogOpen(false);
+                    setProductDraft(null);
+                }}
+                onSubmit={handleCreateProductFromPost}
+                open={productDialogOpen}
+                saving={productSaving}
+                t={t}
+            />
 
             <FacebookDeleteDialog
                 deleteType={deleteType}

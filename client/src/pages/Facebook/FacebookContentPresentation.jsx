@@ -7,9 +7,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  MenuItem,
   Snackbar,
+  Switch,
   Tab,
   Tabs,
+  TextField,
   Typography
 } from '@mui/material';
 import {
@@ -92,6 +96,124 @@ export const FacebookDeleteDialog = ({
     </DialogActions>
   </Dialog>
 );
+
+export const FacebookPostProductDialog = ({
+  draft,
+  onChange,
+  onClose,
+  onSubmit,
+  open,
+  saving,
+  t
+}) => {
+  const update = (field, value) => onChange({ ...draft, [field]: value });
+
+  return (
+    <Dialog
+      open={open}
+      onClose={saving ? undefined : onClose}
+      maxWidth="md"
+      fullWidth
+      slotProps={{ paper: { 'aria-label': t('facebookContent.convertToProduct') } }}
+    >
+      <DialogTitle>{t('facebookContent.convertToProduct')}</DialogTitle>
+      <DialogContent dividers>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {t('facebookContent.convertToProductHint')}
+        </Alert>
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' },
+          gap: 2
+        }}>
+          <TextField
+            required
+            label={t('facebookContent.productFields.name')}
+            value={draft?.name || ''}
+            onChange={event => update('name', event.target.value)}
+            inputProps={{ maxLength: 160 }}
+          />
+          <TextField
+            label={t('facebookContent.productFields.sku')}
+            value={draft?.sku || ''}
+            onChange={event => update('sku', event.target.value)}
+          />
+          <TextField
+            type="number"
+            label={t('facebookContent.productFields.price')}
+            value={draft?.price ?? ''}
+            onChange={event => update('price', event.target.value)}
+            inputProps={{ min: 0, step: '0.01' }}
+          />
+          <TextField
+            label={t('facebookContent.productFields.currency')}
+            value={draft?.currency || 'LYD'}
+            onChange={event => update('currency', event.target.value.toUpperCase())}
+            inputProps={{ maxLength: 8 }}
+          />
+          <TextField
+            label={t('facebookContent.productFields.category')}
+            value={draft?.category || ''}
+            onChange={event => update('category', event.target.value)}
+          />
+          <TextField
+            select
+            label={t('facebookContent.productFields.availability')}
+            value={draft?.availability || 'available'}
+            onChange={event => update('availability', event.target.value)}
+          >
+            {['available', 'out_of_stock', 'hidden'].map(value => (
+              <MenuItem key={value} value={value}>
+                {t(`facebookContent.productAvailability.${value}`)}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label={t('facebookContent.productFields.productUrl')}
+            value={draft?.product_url || ''}
+            onChange={event => update('product_url', event.target.value)}
+            sx={{ gridColumn: { sm: '1 / -1' } }}
+          />
+          <TextField
+            label={t('facebookContent.productFields.imageUrl')}
+            value={draft?.image_url || ''}
+            onChange={event => update('image_url', event.target.value)}
+            helperText={t('facebookContent.productImageHint')}
+            sx={{ gridColumn: { sm: '1 / -1' } }}
+          />
+          <TextField
+            multiline
+            minRows={5}
+            label={t('facebookContent.productFields.description')}
+            value={draft?.description || ''}
+            onChange={event => update('description', event.target.value)}
+            sx={{ gridColumn: { sm: '1 / -1' } }}
+          />
+          <FormControlLabel
+            control={(
+              <Switch
+                checked={draft?.is_active !== false}
+                onChange={event => update('is_active', event.target.checked)}
+              />
+            )}
+            label={t('facebookContent.productFields.active')}
+            sx={{ gridColumn: { sm: '1 / -1' }, m: 0 }}
+          />
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+        <Button
+          variant="contained"
+          onClick={onSubmit}
+          disabled={saving || !draft?.name?.trim()}
+        >
+          {saving ? <CircularProgress size={18} /> : t('facebookContent.createProduct')}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
 
 export const FacebookContentSnackbar = ({ onClose, snackbar }) => (
   <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={onClose}>
