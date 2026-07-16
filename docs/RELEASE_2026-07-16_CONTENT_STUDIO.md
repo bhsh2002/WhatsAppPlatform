@@ -9,7 +9,17 @@ workspace while preserving the existing live post/comment tools.
 - Manual and product-derived content library with approval and archive states.
 - Shared use of Messenger Bot products without duplicated product records.
 - Reviewable conversion of an existing Facebook post into a shared product,
-  including extracted text, image, and link.
+  including extracted text, image, link, source linkage, and mandatory
+  price/category/SKU approval checks.
+- Import and copy actions for existing posts, plus independent draft campaigns,
+  rescheduling, and source-linked publication history.
+- Direct tools for rewrite, variants, call-to-action improvement, hashtags,
+  shortening, and tone changes. Results are always new drafts and never modify
+  the original post.
+- A complete live composer with page selection, text/link/image modes, shared
+  products, preview, local draft save, scheduling, and direct publishing.
+- Comment reply templates, suggested replies, and durable follow-up markers,
+  while preserving direct replies, hide/show, delete, and like actions.
 - Sequential or random rotation campaigns for content, products, or both.
 - Page-aware schedules, daily limits, no-repeat windows, and automatic pause
   after repeated failures.
@@ -24,7 +34,7 @@ workspace while preserving the existing live post/comment tools.
 
 ## Deployment impact
 
-- Database migration count increases from 39 to 40.
+- Database migration count increases from 40 to 41.
 - Rebuild both server and client images.
 - `GEMINI_API_KEY` and `OPENAI_API_KEY` are optional individually. At least one
   key in the configured provider order is required for the writing assistant.
@@ -35,7 +45,7 @@ workspace while preserving the existing live post/comment tools.
   `CONTENT_SCHEDULER_BATCH_SIZE` have safe defaults and can be overridden.
 - Automatic publication is a background job and must not be disabled in
   production.
-- A verified database backup is required before applying migration 040.
+- A verified database backup is required before applying migration 041.
 
 ## Verification gate
 
@@ -45,6 +55,9 @@ workspace while preserving the existing live post/comment tools.
 - Browser desktop/mobile checks for all studio tabs and dialogs.
 - Direct and proxied health checks.
 - One test-page scheduled publication with one matching billing ledger entry.
+- One existing-post import, copy, draft campaign, writing-tool draft, converted
+  product draft, and source-filtered publication-history check.
+- One comment-template and follow-up lifecycle check.
 
 The full operating and recovery contract is in
 [FACEBOOK_CONTENT_STUDIO.md](FACEBOOK_CONTENT_STUDIO.md).
