@@ -123,15 +123,28 @@ export function runMigrationsSync(db) {
             // process stops between those operations, the next startup could
             // replay a migration whose schema/data changes already committed.
             const transaction = db.transaction(() => {
+                // Another process may have completed the migration after this
+                // process built its initial `applied` snapshot. Re-check only
+                // after acquiring the immediate write lock.
+                const alreadyApplied = db.prepare(
+                    'SELECT 1 FROM _migrations WHERE name = ?'
+                ).get(file);
+                if (alreadyApplied) return false;
+
                 db.exec(sql);
                 db.prepare(`
                     INSERT INTO _migrations (name, checksum)
                     VALUES (?, ?)
                 `).run(file, checksums.get(file));
+                return true;
             });
-            transaction();
-            console.log(`[Migrator] Applied: ${file}`);
-            appliedCount++;
+            const appliedNow = transaction.immediate();
+            if (appliedNow) {
+                console.log(`[Migrator] Applied: ${file}`);
+                appliedCount++;
+            } else {
+                skippedCount++;
+            }
         } catch (error) {
             console.error(`[Migrator] FAILED: ${file} —`, error.message);
             throw error;

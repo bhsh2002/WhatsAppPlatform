@@ -20,6 +20,7 @@ export const BILLING_OPERATIONS = Object.freeze({
     FACEBOOK_POST_LIKE: 'facebook.post_like',
     FACEBOOK_POST_UNLIKE: 'facebook.post_unlike',
     FACEBOOK_POST_COMMENT: 'facebook.post_comment',
+    FACEBOOK_AI_GENERATION: 'facebook.ai_generation',
     WHATSAPP_EVENT_CONVERSION: 'whatsapp.event_conversion',
 });
 

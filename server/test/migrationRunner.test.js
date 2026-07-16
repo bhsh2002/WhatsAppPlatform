@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '039_automation_rule_constraints.sql';
+    const latestMigration = '040_facebook_content_studio.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -169,6 +169,19 @@ test('latest migration upgrades a tracked production-like snapshot without data 
             WHERE id = 93
         `).get(),
         { status: 'completed', records_deleted: 4 }
+    );
+    assert.equal(tableExists(db, 'facebook_content_settings'), true);
+    assert.equal(tableExists(db, 'facebook_content_items'), true);
+    assert.equal(tableExists(db, 'facebook_content_campaigns'), true);
+    assert.equal(tableExists(db, 'facebook_content_publications'), true);
+    assert.equal(tableExists(db, 'facebook_content_ai_generations'), true);
+    assert.deepEqual(
+        db.prepare(`
+            SELECT channel, operation_type, unit_price_credits
+            FROM billing_price_items
+            WHERE operation_key = 'facebook.ai_generation'
+        `).get(),
+        { channel: 'facebook', operation_type: 'ai_generation', unit_price_credits: 5 }
     );
     assert.equal(db.pragma('foreign_key_check').length, 0);
     assert.deepEqual(runMigrationsSync(db), {
