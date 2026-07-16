@@ -1113,13 +1113,6 @@ function AiPanel({ pages, selectedPageId, readiness, notify, t, refreshToken }) 
                                     </CardContent>
                                 </Card>
                             ))}
-                            <Typography variant="caption" color="text.secondary">
-                                {t('contentStudio.aiResultMeta', {
-                                    model: result.model,
-                                    input: result.usage?.input_tokens || 0,
-                                    output: result.usage?.output_tokens || 0,
-                                })}
-                            </Typography>
                         </Stack>
                     )}
                 </Box>

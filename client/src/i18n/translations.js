@@ -991,7 +991,7 @@ export const translations = {
       },
       aiTitle: 'مساعد الكتابة',
       aiSubtitle: 'ولّد أو أعد صياغة محتوى يحافظ على صوت العلامة وحقائق المنتج.',
-      aiNotConfigured: 'مفتاح OpenAI غير مضبوط على الخادم. بقية الاستوديو تعمل بشكل طبيعي.',
+      aiNotConfigured: 'مساعد الكتابة غير مهيأ حالياً. بقية الاستوديو تعمل بشكل طبيعي.',
       aiAction: 'المهمة',
       aiActions: {
         generate: 'توليد محتوى',
@@ -1011,7 +1011,6 @@ export const translations = {
       generating: 'جاري الإنشاء...',
       noAiResult: 'ستظهر البدائل هنا مع إمكانية حفظها مباشرة في المكتبة.',
       variant: 'البديل {number}',
-      aiResultMeta: '{model} · إدخال {input} توكن · إخراج {output} توكن',
       settingsTitle: 'قواعد الكتابة والنشر',
       settingsSubtitle: 'ضع إعدادات عامة، ثم خصص أي صفحة عند الحاجة دون تكرار الإعدادات.',
       settingsScope: 'نطاق الإعدادات',
@@ -3473,7 +3472,7 @@ export const translations = {
       },
       aiTitle: 'Writing assistant',
       aiSubtitle: 'Generate or rewrite content while preserving brand voice and product facts.',
-      aiNotConfigured: 'The OpenAI key is not configured on the server. The rest of Content Studio remains available.',
+      aiNotConfigured: 'The writing assistant is not configured yet. The rest of Content Studio remains available.',
       aiAction: 'Task',
       aiActions: {
         generate: 'Generate content',
@@ -3493,7 +3492,6 @@ export const translations = {
       generating: 'Creating...',
       noAiResult: 'Generated variants appear here and can be saved directly to the library.',
       variant: 'Variant {number}',
-      aiResultMeta: '{model} · {input} input tokens · {output} output tokens',
       settingsTitle: 'Writing and publishing rules',
       settingsSubtitle: 'Set tenant defaults, then customize individual pages only when needed.',
       settingsScope: 'Settings scope',

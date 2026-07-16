@@ -786,6 +786,17 @@ test('conversion history presents sanitized Meta failures only', () => {
     assert.doesNotMatch(conversionsPage, /lastFailure\?\.fbtrace_id/);
 });
 
+test('tenant writing-assistant surfaces never disclose provider identities', () => {
+    const translations = read('client/src/i18n/translations.js');
+    const workspace = read(
+        'client/src/pages/TenantPortal/FacebookContentStudioWorkspace.jsx',
+    );
+
+    assert.doesNotMatch(translations, /openai|gemini|gpt-/i);
+    assert.doesNotMatch(workspace, /openai|gemini|gpt-/i);
+    assert.doesNotMatch(workspace, /result\.model/);
+});
+
 test('all upload routes verify file bytes under a route-specific policy', () => {
     const uploadConfig = read('server/config/upload.js');
     const routes = [
