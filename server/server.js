@@ -55,6 +55,7 @@ import { requestObservability } from './services/observability.js';
 import { createOriginGuard } from './middleware/originGuard.js';
 import { createMetricsAuth } from './middleware/metricsAuth.js';
 import { ensureBootstrapAdmin } from './services/bootstrapAdmin.js';
+import { startFacebookContentScheduler } from './services/facebookContentScheduler.js';
 
 // ===========================================
 // Startup validation — fail fast on missing/insecure secrets
@@ -488,6 +489,7 @@ const server = app.listen(PORT, () => {
     // they never inspect shared uploads or call Meta while testing a temp DB.
     if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
         startMaintenanceScheduler(uploadDir);
+        startFacebookContentScheduler();
     }
 });
 

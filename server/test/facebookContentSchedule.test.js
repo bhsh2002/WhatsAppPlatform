@@ -9,6 +9,7 @@ import {
     normalizeScheduleTimes,
     normalizeTimeZone,
     parseStoredList,
+    zonedDayBounds,
     zonedMinuteParts,
 } from '../services/facebookContentSchedule.js';
 
@@ -65,4 +66,10 @@ test('posting windows support ordinary and overnight ranges', () => {
         startTime: '08:00',
         endTime: '22:00',
     }), false);
+});
+
+test('timezone day bounds remain UTC-safe', () => {
+    const bounds = zonedDayBounds(new Date('2026-07-16T12:00:00.000Z'), 'Africa/Tripoli');
+    assert.equal(bounds.start.toISOString(), '2026-07-15T22:00:00.000Z');
+    assert.equal(bounds.end.toISOString(), '2026-07-16T22:00:00.000Z');
 });

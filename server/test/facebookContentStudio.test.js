@@ -4,7 +4,9 @@ import Database from 'better-sqlite3';
 
 import { runMigrationsSync } from '../db/migrator.js';
 import { createFacebookContentAiRouter } from '../routes/facebookContentAi.js';
+import { createFacebookContentCampaignsRouter } from '../routes/facebookContentCampaigns.js';
 import { createFacebookContentLibraryRouter } from '../routes/facebookContentLibrary.js';
+import { createFacebookContentPublicationsRouter } from '../routes/facebookContentPublications.js';
 import { createFacebookContentSettingsRouter } from '../routes/facebookContentSettings.js';
 import { createFacebookContentStudioRouter } from '../routes/facebookContentStudio.js';
 import {
@@ -104,18 +106,29 @@ test('Content Studio facade composes settings, shared products, library and AI r
         },
     });
     assert.deepEqual(collectEndpoints(router), [
+        'DELETE /campaigns/:id',
         'DELETE /items/:id',
+        'DELETE /publications/:id',
         'DELETE /settings/pages/:linkedPageId',
         'GET /ai/history',
+        'GET /campaigns',
         'GET /items',
         'GET /products',
+        'GET /publications',
         'GET /readiness',
         'GET /settings',
+        'PATCH /campaigns/:id',
         'PATCH /items/:id',
         'POST /ai/generate',
+        'POST /campaigns',
+        'POST /campaigns/:id/run-now',
+        'POST /campaigns/:id/toggle',
         'POST /items',
         'POST /items/:id/approve',
         'POST /items/from-product/:productId',
+        'POST /publications',
+        'POST /publications/:id/publish-now',
+        'POST /publications/:id/retry',
         'PUT /settings',
     ]);
     database.close();
@@ -349,4 +362,69 @@ test('AI route records generation, billing and optionally creates review items',
     assert.equal(item.kind, 'ai');
     assert.equal(item.status, 'review');
     assert.match(item.body, /#سافانا/);
+});
+
+test('campaign and publication APIs preserve approval, page and tenant boundaries', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    database.prepare(`
+        INSERT INTO facebook_content_items (
+            id, tenant_id, linked_page_id, kind, title, body, status, created_by
+        ) VALUES (301, 1, 11, 'manual', 'محتوى معتمد', 'نص جاهز للنشر', 'approved', 1)
+    `).run();
+    const campaigns = createFacebookContentCampaignsRouter({ database });
+    const publications = createFacebookContentPublicationsRouter({ database });
+
+    const createdCampaign = await invoke(campaigns, 'post', '/campaigns', {
+        body: {
+            linked_page_id: 11,
+            name: 'حملة صباحية',
+            source_mode: 'mixed',
+            rotation_mode: 'sequential',
+            allowed_days: [0, 1, 2, 3, 4, 5, 6],
+            schedule_times: ['09:00', '18:00'],
+            content_item_ids: [301],
+            status: 'active',
+        },
+    });
+    assert.equal(createdCampaign.statusCode, 201);
+    assert.equal(createdCampaign.body.status, 'active');
+    assert.deepEqual(createdCampaign.body.content_item_ids, [301]);
+    assert.ok(createdCampaign.body.next_run_at);
+
+    const runNow = await invoke(campaigns, 'post', '/campaigns/:id/run-now', {
+        params: { id: String(createdCampaign.body.id) },
+    });
+    assert.equal(runNow.statusCode, 201);
+    assert.equal(runNow.body.content_item_id, 301);
+
+    const manual = await invoke(publications, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            content_item_id: 301,
+            scheduled_for: '2026-07-20T10:00:00.000Z',
+        },
+    });
+    assert.equal(manual.statusCode, 201);
+    assert.equal(manual.body.status, 'pending');
+
+    database.prepare(`
+        INSERT INTO facebook_content_items (
+            id, tenant_id, linked_page_id, kind, title, body, status, created_by
+        ) VALUES (302, 1, 11, 'manual', 'مسودة', 'غير معتمدة', 'draft', 1)
+    `).run();
+    const unapproved = await invoke(publications, 'post', '/publications', {
+        body: { linked_page_id: 11, content_item_id: 302 },
+    });
+    assert.equal(unapproved.statusCode, 409);
+    assert.equal(unapproved.body.code, 'CONTENT_APPROVAL_REQUIRED');
+
+    const list = await invoke(publications, 'get', '/publications');
+    assert.equal(list.body.total, 2);
+    assert.equal(list.body.summary.pending, 2);
+
+    const crossTenant = await invoke(campaigns, 'post', '/campaigns', {
+        body: { linked_page_id: 22, name: 'مرفوضة' },
+    });
+    assert.equal(crossTenant.statusCode, 404);
 });

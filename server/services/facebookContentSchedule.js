@@ -87,7 +87,7 @@ export const zonedMinuteParts = (date, timeZone = DEFAULT_TIMEZONE) => {
     return { day: parts.day, time: parts.time };
 };
 
-const localDateTimeToUtc = ({ year, month, date, hour, minute, timeZone }) => {
+export const localDateTimeToUtc = ({ year, month, date, hour, minute, timeZone }) => {
     const targetTimestamp = Date.UTC(year, month - 1, date, hour, minute);
     let candidateTimestamp = targetTimestamp;
 
@@ -117,6 +117,32 @@ const localDateTimeToUtc = ({ year, month, date, hour, minute, timeZone }) => {
         return null;
     }
     return candidate;
+};
+
+export const zonedDayBounds = (date = new Date(), timeZone = DEFAULT_TIMEZONE) => {
+    const origin = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(origin.getTime())) throw new TypeError('date must be valid');
+    const normalizedTimeZone = normalizeTimeZone(timeZone);
+    const local = zonedDateTimeParts(origin, normalizedTimeZone);
+    const start = localDateTimeToUtc({
+        year: local.year,
+        month: local.month,
+        date: local.date,
+        hour: 0,
+        minute: 0,
+        timeZone: normalizedTimeZone,
+    });
+    const nextLocalDate = new Date(Date.UTC(local.year, local.month - 1, local.date + 1));
+    const end = localDateTimeToUtc({
+        year: nextLocalDate.getUTCFullYear(),
+        month: nextLocalDate.getUTCMonth() + 1,
+        date: nextLocalDate.getUTCDate(),
+        hour: 0,
+        minute: 0,
+        timeZone: normalizedTimeZone,
+    });
+    if (!start || !end) throw new Error('Unable to calculate timezone day bounds');
+    return { start, end };
 };
 
 export const nextCampaignRun = ({
