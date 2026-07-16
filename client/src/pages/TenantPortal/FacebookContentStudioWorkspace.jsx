@@ -119,7 +119,7 @@ const formatDateTime = (value, locale) => {
     if (!value) return '—';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat(locale === 'ar' ? 'ar-LY' : 'en', {
+    return new Intl.DateTimeFormat(locale || 'ar-LY', {
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(date);
@@ -297,7 +297,7 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                 {['pending', 'processing', 'published', 'failed', 'cancelled'].map(status => (
                     <Paper key={status} variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
                         <Typography variant="caption" color="text.secondary">{statusLabel(t, status)}</Typography>
-                        <Typography variant="h5" fontWeight={800}>{data.summary?.[status] || 0}</Typography>
+                        <Typography variant="h5" component="p" fontWeight={800}>{data.summary?.[status] || 0}</Typography>
                     </Paper>
                 ))}
             </Box>
@@ -308,10 +308,10 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                 <Stack spacing={2}>
                     {grouped.map(([day, publications]) => (
                         <Box key={day}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                            <Typography variant="subtitle2" component="h3" color="text.secondary" sx={{ mb: 1 }}>
                                 {day === 'unknown'
                                     ? t('contentStudio.unknownDate')
-                                    : new Intl.DateTimeFormat(locale === 'ar' ? 'ar-LY' : 'en', { dateStyle: 'full' }).format(new Date(`${day}T12:00:00`))}
+                                    : new Intl.DateTimeFormat(locale || 'ar-LY', { dateStyle: 'full' }).format(new Date(`${day}T12:00:00`))}
                             </Typography>
                             <Box sx={gridSx}>
                                 {publications.map(publication => (
@@ -662,7 +662,7 @@ function LibraryPanel({ pages, selectedPageId, locale, notify, t, refreshToken }
                                 </Typography>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
                                     <Chip size="small" label={product.category || t('contentStudio.uncategorized')} />
-                                    <Typography fontWeight={800}>{Number(product.price || 0).toLocaleString(locale === 'ar' ? 'ar-LY' : 'en')} {product.currency || 'LYD'}</Typography>
+                                    <Typography fontWeight={800}>{Number(product.price || 0).toLocaleString(locale || 'ar-LY')} {product.currency || 'LYD'}</Typography>
                                 </Box>
                             </CardContent>
                             <CardActions sx={actionsSx}>
@@ -947,7 +947,7 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
                             </>
                         )}
                         <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{t('contentStudio.allowedDays')}</Typography>
+                            <Typography variant="subtitle2" component="p" sx={{ mb: 0.5 }}>{t('contentStudio.allowedDays')}</Typography>
                             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                                 {dayLabels.map((label, day) => (
                                     <FormControlLabel
@@ -1224,7 +1224,7 @@ function SettingsPanel({ pages, selectedPageId, notify, t, refreshToken }) {
                         </Alert>
                     )}
                     <Divider />
-                    <Typography variant="subtitle1" fontWeight={800}>{t('contentStudio.brandAndWriting')}</Typography>
+                    <Typography variant="subtitle1" component="h3" fontWeight={800}>{t('contentStudio.brandAndWriting')}</Typography>
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
                         <TextField label={t('contentStudio.language')} value={settings.language} onChange={event => update('language', event.target.value)} />
                         <TextField label={t('contentStudio.tone')} value={settings.tone} onChange={event => update('tone', event.target.value)} />
@@ -1252,9 +1252,9 @@ function SettingsPanel({ pages, selectedPageId, notify, t, refreshToken }) {
                         </FormControl>
                     </Box>
                     <Divider />
-                    <Typography variant="subtitle1" fontWeight={800}>{t('contentStudio.safetyAndSchedule')}</Typography>
+                    <Typography variant="subtitle1" component="h3" fontWeight={800}>{t('contentStudio.safetyAndSchedule')}</Typography>
                     <Box>
-                        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{t('contentStudio.allowedDays')}</Typography>
+                        <Typography variant="subtitle2" component="p" sx={{ mb: 0.5 }}>{t('contentStudio.allowedDays')}</Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                             {dayLabels.map((label, day) => (
                                 <FormControlLabel
@@ -1416,7 +1416,7 @@ export default function FacebookContentStudioWorkspace() {
                         <Paper key={label} variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: label === 'failuresMetric' && value ? 'error.main' : 'primary.main' }}>
                                 {icon}
-                                <Typography variant="h5" fontWeight={900}>{value || 0}</Typography>
+                                <Typography variant="h5" component="p" fontWeight={900}>{value || 0}</Typography>
                             </Box>
                             <Typography variant="caption" color="text.secondary" sx={wrapTextSx}>{t(`contentStudio.${label}`)}</Typography>
                         </Paper>
