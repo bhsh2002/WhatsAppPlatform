@@ -33,7 +33,7 @@ const TenantBroadcast = lazy(() => import('./pages/TenantPortal/TenantBroadcast'
 const TenantInbox = lazy(() => import('./pages/TenantPortal/TenantInbox'));
 const TenantFacebookPages = lazy(() => import('./pages/TenantPortal/TenantFacebookPages'));
 const TenantWhatsAppConnect = lazy(() => import('./pages/TenantPortal/TenantWhatsAppConnect'));
-const TenantContentManager = lazy(() => import('./pages/TenantPortal/TenantContentManager'));
+const TenantContentManager = lazy(() => import('./pages/TenantPortal/FacebookContentStudioWorkspace'));
 const TenantAutomation = lazy(() => import('./pages/TenantPortal/TenantAutomation'));
 const TenantFbInsights = lazy(() => import('./pages/TenantPortal/TenantFbInsights'));
 const TenantMetaReview = lazy(() => import('./pages/TenantPortal/TenantMetaReview'));

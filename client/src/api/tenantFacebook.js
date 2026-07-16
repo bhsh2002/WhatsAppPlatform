@@ -120,6 +120,152 @@ export const tenantFacebookMethods = {
     },
 
     // ============================================
+    // Portal: Facebook Content Studio
+    // ============================================
+    async getPortalContentStudioReadiness() {
+        return this.request('/api/portal/content-studio/readiness');
+    },
+
+    async getPortalContentStudioSettings(linkedPageId = null) {
+        const query = linkedPageId ? `?linked_page_id=${encodeURIComponent(linkedPageId)}` : '';
+        return this.request(`/api/portal/content-studio/settings${query}`);
+    },
+
+    async updatePortalContentStudioSettings(data) {
+        return this.request('/api/portal/content-studio/settings', {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async resetPortalContentStudioPageSettings(linkedPageId) {
+        return this.request(`/api/portal/content-studio/settings/pages/${linkedPageId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async getPortalContentStudioProducts(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/content-studio/products${query ? '?' + query : ''}`);
+    },
+
+    async getPortalContentStudioItems(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/content-studio/items${query ? '?' + query : ''}`);
+    },
+
+    async createPortalContentStudioItem(data) {
+        return this.request('/api/portal/content-studio/items', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async createPortalContentStudioItemFromProduct(productId, data = {}) {
+        return this.request(`/api/portal/content-studio/items/from-product/${productId}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updatePortalContentStudioItem(itemId, data) {
+        return this.request(`/api/portal/content-studio/items/${itemId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async approvePortalContentStudioItem(itemId) {
+        return this.request(`/api/portal/content-studio/items/${itemId}/approve`, {
+            method: 'POST',
+        });
+    },
+
+    async archivePortalContentStudioItem(itemId) {
+        return this.request(`/api/portal/content-studio/items/${itemId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async generatePortalContentStudioAi(data) {
+        return this.request('/api/portal/content-studio/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async getPortalContentStudioAiHistory(limit = 25) {
+        return this.request(`/api/portal/content-studio/ai/history?limit=${limit}`);
+    },
+
+    async getPortalContentStudioCampaigns(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/content-studio/campaigns${query ? '?' + query : ''}`);
+    },
+
+    async createPortalContentStudioCampaign(data) {
+        return this.request('/api/portal/content-studio/campaigns', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updatePortalContentStudioCampaign(campaignId, data) {
+        return this.request(`/api/portal/content-studio/campaigns/${campaignId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async togglePortalContentStudioCampaign(campaignId) {
+        return this.request(`/api/portal/content-studio/campaigns/${campaignId}/toggle`, {
+            method: 'POST',
+        });
+    },
+
+    async runPortalContentStudioCampaignNow(campaignId) {
+        return this.request(`/api/portal/content-studio/campaigns/${campaignId}/run-now`, {
+            method: 'POST',
+        });
+    },
+
+    async completePortalContentStudioCampaign(campaignId) {
+        return this.request(`/api/portal/content-studio/campaigns/${campaignId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async getPortalContentStudioPublications(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return this.request(`/api/portal/content-studio/publications${query ? '?' + query : ''}`);
+    },
+
+    async schedulePortalContentStudioPublication(data) {
+        return this.request('/api/portal/content-studio/publications', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async retryPortalContentStudioPublication(publicationId) {
+        return this.request(`/api/portal/content-studio/publications/${publicationId}/retry`, {
+            method: 'POST',
+        });
+    },
+
+    async publishPortalContentStudioPublicationNow(publicationId) {
+        return this.request(`/api/portal/content-studio/publications/${publicationId}/publish-now`, {
+            method: 'POST',
+        });
+    },
+
+    async cancelPortalContentStudioPublication(publicationId) {
+        return this.request(`/api/portal/content-studio/publications/${publicationId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    // ============================================
     // Portal: Tenant Automation Rules
     // ============================================
     async getPortalAutomationRules(params = {}) {

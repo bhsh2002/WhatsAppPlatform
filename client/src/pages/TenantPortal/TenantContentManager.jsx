@@ -25,7 +25,7 @@ import {
     FacebookPostMessage
 } from '../Facebook/FacebookContentPresentation';
 
-const TenantContentManager = () => {
+const TenantContentManager = ({ embedded = false }) => {
     const { locale, t } = useLanguage();
     const [pages, setPages] = useState([]);
     const [selectedPageId, setSelectedPageId] = useState('');
@@ -593,19 +593,21 @@ const TenantContentManager = () => {
     }
 
     return (
-        <Box sx={{ p: { xs: 1.5, md: 3 } }}>
-            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 3, gap: { xs: 1, md: 0 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
-                    <Box>
-                        <Typography variant="h4" component="h1" fontWeight={700}>{t('facebookContent.tenantTitle')}</Typography>
-                        <Typography variant="body2" color="text.secondary">{t('facebookContent.tenantSubtitle')}</Typography>
+        <Box sx={{ p: embedded ? 0 : { xs: 1.5, md: 3 } }}>
+            {!embedded && (
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, mb: 3, gap: { xs: 1, md: 0 } }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <FacebookIcon sx={{ fontSize: 32, color: '#1877f2' }} />
+                        <Box>
+                            <Typography variant="h4" component="h1" fontWeight={700}>{t('facebookContent.tenantTitle')}</Typography>
+                            <Typography variant="body2" color="text.secondary">{t('facebookContent.tenantSubtitle')}</Typography>
+                        </Box>
                     </Box>
+                    <Button startIcon={<RefreshIcon />} onClick={() => { loadPages(); if (selectedPageId) loadPosts(); }} variant="outlined">
+                        {t('common.refresh')}
+                    </Button>
                 </Box>
-                <Button startIcon={<RefreshIcon />} onClick={() => { loadPages(); if (selectedPageId) loadPosts(); }} variant="outlined">
-                    {t('common.refresh')}
-                </Button>
-            </Box>
+            )}
 
             {pagesError && <Alert severity="error" sx={{ mb: 2 }}>{pagesError}</Alert>}
 
