@@ -8,6 +8,8 @@ workspace while preserving the existing live post/comment tools.
 - Publishing calendar and retry/cancel actions.
 - Manual and product-derived content library with approval and archive states.
 - Shared use of Messenger Bot products without duplicated product records.
+- Reviewable conversion of an existing Facebook post into a shared product,
+  including extracted text, image, and link.
 - Sequential or random rotation campaigns for content, products, or both.
 - Page-aware schedules, daily limits, no-repeat windows, and automatic pause
   after repeated failures.

@@ -10,6 +10,8 @@ existing live post/comment manager without replacing it.
   items.
 - One shared product catalog: the existing Messenger Bot products are reused
   directly. A second Facebook-only product table is not created.
+- Existing Facebook posts can be reviewed and converted into products in that
+  shared catalog.
 - A publication calendar with pending, processing, published, failed,
   cancelled, and skipped states.
 - Direct scheduling from an approved library item or an available product.
@@ -41,6 +43,27 @@ hard-code a price.
 
 The existing `bot_products` and `bot_product_images` tables remain the source of
 truth for products and images.
+
+## Converting a post into a product
+
+The live “Posts & comments” tab exposes a product action on each post. Opening
+it prepares a review form from the post data:
+
+- attachment title or the first meaningful post line becomes the proposed
+  product name;
+- the post message becomes the description;
+- the post image becomes the proposed product image;
+- an attachment URL, or otherwise the Facebook permalink, becomes the proposed
+  product URL.
+
+The user reviews the name, description, price, currency, category, SKU,
+availability, URL, and image before creating anything. Saving uses the existing
+Messenger Bot product API, so the result immediately appears in both Messenger
+and Facebook Content Studio. No post is edited and no duplicate Facebook-only
+product record is created.
+
+Facebook CDN image URLs may be temporary. The review form therefore keeps the
+image editable so it can be replaced with a permanent asset URL before saving.
 
 ## Environment
 
@@ -194,6 +217,8 @@ tenant portal:
 5. Confirm the publication moves from scheduled to published and has a remote
    post ID.
 6. Confirm the billing ledger contains exactly one matching operation.
+7. From “Posts & comments”, convert a harmless test post into a product and
+   confirm it appears in both Messenger Bot and the studio product list.
 
 ## Recovery
 
