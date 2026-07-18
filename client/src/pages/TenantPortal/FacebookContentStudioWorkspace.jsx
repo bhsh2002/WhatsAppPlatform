@@ -54,6 +54,7 @@ import api from '../../api';
 import Select from '../../components/Form/AccessibleSelect';
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { useLanguage } from '../../context/LanguageContext';
+import { buildFacebookPostLibraryDraft } from '../Facebook/facebookContentConfig';
 import TenantContentManager from './TenantContentManager';
 
 const gridSx = {
@@ -707,12 +708,256 @@ function LibraryPanel({ pages, selectedPageId, locale, notify, t, refreshToken }
     );
 }
 
+const MAX_CAMPAIGN_POSTS = 500;
+const CAMPAIGN_POST_IMPORT_BATCH_SIZE = 50;
+
+const mergeFacebookPosts = (...groups) => {
+    const posts = new Map();
+    groups.flat().filter(Boolean).forEach(post => {
+        const id = String(post.id || post.source_post_id || '').trim();
+        if (id) posts.set(id, { ...posts.get(id), ...post, id });
+    });
+    return [...posts.values()];
+};
+
+const campaignPostSnapshot = item => ({
+    id: item.source_post_id,
+    message: item.body || item.title || '',
+    full_picture: item.media_url || '',
+    permalink_url: item.source_post_url || item.link_url || '',
+    imported_status: item.status,
+});
+
+const campaignDateBoundary = (value, endOfDay = false) => {
+    if (!value) return null;
+    const time = endOfDay ? '23:59:59.999' : '00:00:00.000';
+    const date = new Date(`${value}T${time}`);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+function CampaignPostSelector({
+    linkedPageId,
+    locale,
+    selectedPosts,
+    onSelectedPostsChange,
+    disabled,
+    t,
+}) {
+    const [posts, setPosts] = useState(() => Object.values(selectedPosts));
+    const [paging, setPaging] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [bulkMode, setBulkMode] = useState('');
+    const [error, setError] = useState('');
+    const [rangeStart, setRangeStart] = useState('');
+    const [rangeEnd, setRangeEnd] = useState('');
+    const [truncated, setTruncated] = useState(false);
+
+    const loadFirstPage = useCallback(async () => {
+        if (!linkedPageId) return;
+        try {
+            setLoading(true);
+            setError('');
+            setTruncated(false);
+            const response = await api.getPortalFbPosts(linkedPageId, { limit: 50 });
+            setPosts(current => mergeFacebookPosts(Object.values(selectedPosts), current, response.posts || []));
+            setPaging(response.paging || null);
+        } catch (requestError) {
+            setError(requestError.message || t('contentStudio.messages.campaignPostsLoadFailed'));
+        } finally {
+            setLoading(false);
+        }
+    }, [linkedPageId, selectedPosts, t]);
+
+    useEffect(() => {
+        setPosts(Object.values(selectedPosts));
+        setPaging(null);
+        setRangeStart('');
+        setRangeEnd('');
+        if (linkedPageId) loadFirstPage();
+        // selectedPosts are intentionally read only when the page changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [linkedPageId]);
+
+    const loadMore = async () => {
+        const after = paging?.cursors?.after;
+        if (!after || !linkedPageId) return;
+        try {
+            setLoadingMore(true);
+            setError('');
+            const response = await api.getPortalFbPosts(linkedPageId, { limit: 50, after });
+            setPosts(current => mergeFacebookPosts(current, response.posts || []));
+            setPaging(response.paging || null);
+        } catch (requestError) {
+            setError(requestError.message || t('contentStudio.messages.campaignPostsLoadFailed'));
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
+    const fetchAllPosts = async ({ since = null, until = null } = {}) => {
+        let after = null;
+        let result = [];
+        let nextPaging = null;
+        const seenCursors = new Set();
+        do {
+            const response = await api.getPortalFbPosts(linkedPageId, {
+                limit: 50,
+                ...(after ? { after } : {}),
+                ...(since ? { since } : {}),
+                ...(until ? { until } : {}),
+            });
+            result = mergeFacebookPosts(result, response.posts || []).slice(0, MAX_CAMPAIGN_POSTS);
+            nextPaging = response.paging || null;
+            const nextCursor = nextPaging?.cursors?.after || null;
+            if (!nextCursor || seenCursors.has(nextCursor) || result.length >= MAX_CAMPAIGN_POSTS) break;
+            seenCursors.add(nextCursor);
+            after = nextCursor;
+        } while (result.length < MAX_CAMPAIGN_POSTS);
+        return {
+            posts: result,
+            truncated: result.length >= MAX_CAMPAIGN_POSTS && Boolean(nextPaging?.cursors?.after),
+        };
+    };
+
+    const selectBulk = async mode => {
+        if (!linkedPageId) return;
+        const since = mode === 'range' ? campaignDateBoundary(rangeStart) : null;
+        const until = mode === 'range' ? campaignDateBoundary(rangeEnd, true) : null;
+        if (mode === 'range' && (!since || !until || new Date(since) > new Date(until))) {
+            setError(t('contentStudio.messages.invalidCampaignPostRange'));
+            return;
+        }
+        try {
+            setBulkMode(mode);
+            setError('');
+            const result = await fetchAllPosts({ since, until });
+            if (!result.posts.length) {
+                setError(t('contentStudio.messages.noCampaignPostsInSelection'));
+                return;
+            }
+            const combined = mergeFacebookPosts(Object.values(selectedPosts), result.posts);
+            setPosts(current => mergeFacebookPosts(current, result.posts));
+            onSelectedPostsChange(Object.fromEntries(
+                combined
+                    .slice(0, MAX_CAMPAIGN_POSTS)
+                    .map(post => [String(post.id), post]),
+            ));
+            setPaging(null);
+            setTruncated(result.truncated || combined.length > MAX_CAMPAIGN_POSTS);
+        } catch (requestError) {
+            setError(requestError.message || t('contentStudio.messages.campaignPostsLoadFailed'));
+        } finally {
+            setBulkMode('');
+        }
+    };
+
+    const togglePost = post => {
+        const id = String(post.id);
+        const next = { ...selectedPosts };
+        if (next[id]) delete next[id];
+        else if (Object.keys(next).length < MAX_CAMPAIGN_POSTS) next[id] = post;
+        else {
+            setTruncated(true);
+            return;
+        }
+        onSelectedPostsChange(next);
+    };
+
+    const selectLoaded = () => onSelectedPostsChange(Object.fromEntries(
+        mergeFacebookPosts(Object.values(selectedPosts), posts)
+            .slice(0, MAX_CAMPAIGN_POSTS)
+            .map(post => [String(post.id), post]),
+    ));
+
+    return (
+        <Paper variant="outlined" sx={{ p: { xs: 1.25, sm: 2 }, minWidth: 0 }}>
+            <Stack spacing={1.5}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="subtitle1" fontWeight={800}>{t('contentStudio.campaignPostsTitle')}</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={wrapTextSx}>{t('contentStudio.campaignPostsHint')}</Typography>
+                    </Box>
+                    <Chip color={Object.keys(selectedPosts).length ? 'primary' : 'default'} label={t('contentStudio.selectedPostsCount', { count: Object.keys(selectedPosts).length })} />
+                </Box>
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr auto' }, gap: 1 }}>
+                    <TextField
+                        size="small"
+                        type="date"
+                        label={t('contentStudio.postsFromDate')}
+                        value={rangeStart}
+                        onChange={event => setRangeStart(event.target.value)}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                    <TextField
+                        size="small"
+                        type="date"
+                        label={t('contentStudio.postsToDate')}
+                        value={rangeEnd}
+                        onChange={event => setRangeEnd(event.target.value)}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                    <Button variant="outlined" onClick={() => selectBulk('range')} disabled={disabled || Boolean(bulkMode)} sx={{ minWidth: 150 }}>
+                        {bulkMode === 'range' ? <CircularProgress size={20} /> : t('contentStudio.selectDateRangePosts')}
+                    </Button>
+                </Box>
+
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Button size="small" variant="contained" onClick={() => selectBulk('all')} disabled={disabled || Boolean(bulkMode)}>
+                        {bulkMode === 'all' ? <CircularProgress size={18} color="inherit" /> : t('contentStudio.selectAllPagePosts')}
+                    </Button>
+                    <Button size="small" onClick={selectLoaded} disabled={disabled || !posts.length}>{t('contentStudio.selectLoadedPosts')}</Button>
+                    <Button size="small" color="inherit" onClick={() => onSelectedPostsChange({})} disabled={disabled || !Object.keys(selectedPosts).length}>{t('contentStudio.clearPostSelection')}</Button>
+                </Box>
+
+                {error && <Alert severity="error">{error}</Alert>}
+                {truncated && <Alert severity="warning">{t('contentStudio.campaignPostLimit', { count: MAX_CAMPAIGN_POSTS })}</Alert>}
+                {loading ? <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress size={28} /></Box> : posts.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">{t('contentStudio.noCampaignPosts')}</Typography>
+                ) : (
+                    <Box sx={{ maxHeight: 360, overflowY: 'auto', display: 'grid', gap: 1, pr: 0.5 }}>
+                        {posts.map(post => {
+                            const id = String(post.id);
+                            const message = String(post.message || post.attachments?.data?.[0]?.description || t('facebookContent.noText'));
+                            return (
+                                <Paper key={id} variant="outlined" sx={{ p: 1, minWidth: 0 }}>
+                                    <Box sx={{ display: 'grid', gridTemplateColumns: post.full_picture ? 'auto minmax(0, 1fr) 64px' : 'auto minmax(0, 1fr)', gap: 1, alignItems: 'center' }}>
+                                        <Checkbox
+                                            checked={Boolean(selectedPosts[id])}
+                                            onChange={() => togglePost(post)}
+                                            disabled={disabled}
+                                            inputProps={{ 'aria-label': t('contentStudio.selectCampaignPost') }}
+                                        />
+                                        <Box sx={{ minWidth: 0 }}>
+                                            <Typography variant="body2" sx={{ ...wrapTextSx, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{message}</Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {post.created_time ? formatDateTime(post.created_time, locale) : t('contentStudio.importedCampaignPost')}
+                                            </Typography>
+                                        </Box>
+                                        {post.full_picture && <Box component="img" src={post.full_picture} alt="" sx={{ width: 64, height: 56, objectFit: 'cover', borderRadius: 1 }} />}
+                                    </Box>
+                                </Paper>
+                            );
+                        })}
+                    </Box>
+                )}
+                {paging?.cursors?.after && (
+                    <Button size="small" variant="outlined" onClick={loadMore} disabled={loadingMore || disabled}>
+                        {loadingMore ? <CircularProgress size={18} /> : t('facebookContent.loadMore')}
+                    </Button>
+                )}
+            </Stack>
+        </Paper>
+    );
+}
+
 const emptyCampaignForm = linkedPageId => ({
     id: null,
     linked_page_id: linkedPageId || '',
     name: '',
     description: '',
-    source_mode: 'mixed',
+    source_mode: 'library',
     rotation_mode: 'sequential',
     product_category: '',
     product_template: '{name}\n\n{description}\n\n{price} {currency}\n{url}',
@@ -732,6 +977,8 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
     const [dialogOpen, setDialogOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState(emptyCampaignForm(selectedPageId));
+    const [selectedPosts, setSelectedPosts] = useState({});
+    const [preservedContentItemIds, setPreservedContentItemIds] = useState([]);
 
     const load = useCallback(async () => {
         try {
@@ -753,10 +1000,14 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
 
     const openCreate = () => {
         setForm(emptyCampaignForm(selectedPageId || pages[0]?.id));
+        setSelectedPosts({});
+        setPreservedContentItemIds([]);
         setDialogOpen(true);
     };
 
     const openEdit = campaign => {
+        const selectedContentItems = campaign.selected_content_items || [];
+        const postItems = selectedContentItems.filter(item => item.source_post_id);
         setForm({
             id: campaign.id,
             linked_page_id: campaign.linked_page_id,
@@ -774,7 +1025,20 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
             approval_required: Boolean(campaign.approval_required),
             status: campaign.status,
         });
+        setSelectedPosts(Object.fromEntries(postItems.map(item => [
+            String(item.source_post_id),
+            campaignPostSnapshot(item),
+        ])));
+        setPreservedContentItemIds(selectedContentItems
+            .filter(item => !item.source_post_id)
+            .map(item => item.id));
         setDialogOpen(true);
+    };
+
+    const changeCampaignPage = value => {
+        setForm(current => ({ ...current, linked_page_id: value }));
+        setSelectedPosts({});
+        setPreservedContentItemIds([]);
     };
 
     const toggleDay = day => {
@@ -790,6 +1054,32 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
         if (!form.name.trim() || !form.linked_page_id || !form.allowed_days.length || !parseCsv(form.schedule_times).length) return;
         try {
             setSaving(true);
+            let contentItemIds = form.source_mode === 'products'
+                ? []
+                : [...preservedContentItemIds];
+            const selectedPostValues = Object.values(selectedPosts);
+            if (form.source_mode !== 'products' && selectedPostValues.length) {
+                const drafts = selectedPostValues.map(post => {
+                    const draft = buildFacebookPostLibraryDraft(post, form.linked_page_id, {
+                        fallbackTitle: t('facebookContent.defaultPostName'),
+                    });
+                    if (!draft.body) draft.body = draft.title;
+                    return draft;
+                });
+                const importedItems = [];
+                for (let index = 0; index < drafts.length; index += CAMPAIGN_POST_IMPORT_BATCH_SIZE) {
+                    const imported = await api.createPortalContentStudioItemsFromPosts({
+                        linked_page_id: form.linked_page_id,
+                        approve: form.approval_required,
+                        posts: drafts.slice(index, index + CAMPAIGN_POST_IMPORT_BATCH_SIZE),
+                    });
+                    importedItems.push(...(imported.items || []));
+                }
+                contentItemIds = [...new Set([
+                    ...contentItemIds,
+                    ...importedItems.map(item => item.id),
+                ])];
+            }
             const payload = {
                 ...form,
                 name: form.name.trim(),
@@ -799,6 +1089,7 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
                 schedule_times: parseCsv(form.schedule_times),
                 no_repeat_days: Number(form.no_repeat_days),
                 max_posts_per_day: Number(form.max_posts_per_day),
+                content_item_ids: contentItemIds,
             };
             delete payload.id;
             if (form.id) await api.updatePortalContentStudioCampaign(form.id, payload);
@@ -909,7 +1200,7 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
                             <TextField fullWidth label={t('contentStudio.campaignName')} value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} />
-                            <PagePicker pages={pages} value={form.linked_page_id} onChange={value => setForm(current => ({ ...current, linked_page_id: value }))} t={t} />
+                            <PagePicker pages={pages} value={form.linked_page_id} onChange={changeCampaignPage} t={t} />
                         </Box>
                         <TextField fullWidth multiline minRows={2} label={t('contentStudio.description')} value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} />
                         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2 }}>
@@ -932,6 +1223,17 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
                                 </Select>
                             </FormControl>
                         </Box>
+                        {(form.source_mode === 'library' || form.source_mode === 'mixed') && (
+                            <CampaignPostSelector
+                                key={`${form.id || 'new'}:${form.linked_page_id}`}
+                                linkedPageId={form.linked_page_id}
+                                locale={locale}
+                                selectedPosts={selectedPosts}
+                                onSelectedPostsChange={setSelectedPosts}
+                                disabled={saving}
+                                t={t}
+                            />
+                        )}
                         {(form.source_mode === 'products' || form.source_mode === 'mixed') && (
                             <>
                                 <TextField fullWidth label={t('contentStudio.productCategory')} value={form.product_category} onChange={event => setForm(current => ({ ...current, product_category: event.target.value }))} />
@@ -969,6 +1271,11 @@ function CampaignsPanel({ pages, selectedPageId, locale, notify, t, refreshToken
                             control={<Switch checked={form.approval_required} onChange={event => setForm(current => ({ ...current, approval_required: event.target.checked }))} />}
                             label={t('contentStudio.approvedOnly')}
                         />
+                        {(form.source_mode === 'library' || form.source_mode === 'mixed') && Object.keys(selectedPosts).length > 0 && (
+                            <Alert severity="info">{form.approval_required
+                                ? t('contentStudio.selectedPostsWillBeApproved')
+                                : t('contentStudio.selectedPostsWillRemainDrafts')}</Alert>
+                        )}
                     </Stack>
                 </DialogContent>
                 <DialogActions>

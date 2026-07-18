@@ -168,6 +168,13 @@ export const tenantFacebookMethods = {
         });
     },
 
+    async createPortalContentStudioItemsFromPosts(data) {
+        return this.request('/api/portal/content-studio/items/from-posts', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async createPortalContentStudioItemFromProduct(productId, data = {}) {
         return this.request(`/api/portal/content-studio/items/from-product/${productId}`, {
             method: 'POST',

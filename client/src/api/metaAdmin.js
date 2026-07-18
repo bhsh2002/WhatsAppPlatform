@@ -378,6 +378,13 @@ export const metaAdminMethods = {
         });
     },
 
+    async createContentStudioItemsFromPosts(tenantId, data) {
+        return this.request('/api/content-studio/items/from-posts', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, tenant_id: tenantId }),
+        });
+    },
+
     async createContentStudioItem(tenantId, data) {
         return this.request('/api/content-studio/items', {
             method: 'POST',

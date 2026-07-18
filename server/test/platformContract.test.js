@@ -338,6 +338,24 @@ test('admin and tenant Facebook content pages share composer and post presentati
     assert.match(workflows, /action:\s*['"]comment_reply['"]/);
 });
 
+test('Facebook campaigns can select many remote posts, all posts, or a date range', () => {
+    const fbContent = read('server/routes/fbContent.js');
+    const contentLibrary = read('server/routes/facebookContentLibrary.js');
+    const campaigns = read('server/routes/facebookContentCampaigns.js');
+    const tenantApi = read('client/src/api/tenantFacebook.js');
+    const workspace = read('client/src/pages/TenantPortal/FacebookContentStudioWorkspace.jsx');
+
+    assert.match(fbContent, /\bsince,\s*\n\s*until,/);
+    assert.match(contentLibrary, /router\.post\(['"]\/items\/from-posts['"]/);
+    assert.match(contentLibrary, /MAX_BULK_POST_IMPORTS = 50/);
+    assert.match(campaigns, /selected_content_items:\s*selectedContentItems/);
+    assert.match(tenantApi, /createPortalContentStudioItemsFromPosts/);
+    assert.match(workspace, /function CampaignPostSelector/);
+    assert.match(workspace, /selectBulk\(['"]all['"]\)/);
+    assert.match(workspace, /selectBulk\(['"]range['"]\)/);
+    assert.match(workspace, /content_item_ids:\s*contentItemIds/);
+});
+
 test('production Nginx proxies /api to Express and supports SSE', () => {
     const nginx = read('client/nginx.conf');
     const server = read('server/server.js');
