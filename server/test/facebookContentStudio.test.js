@@ -135,6 +135,7 @@ test('Content Studio facade composes settings, shared products, library and AI r
         'POST /items',
         'POST /items/:id/approve',
         'POST /items/from-post',
+        'POST /items/from-posts',
         'POST /items/from-product/:productId',
         'POST /publications',
         'POST /publications/:id/publish-now',
@@ -344,6 +345,31 @@ test('existing Facebook posts import into the content library without changing t
     assert.equal(reused.body.id, imported.body.id);
     assert.equal(reused.body.reused, true);
 
+    const bulk = await invoke(router, 'post', '/items/from-posts', {
+        body: {
+            linked_page_id: 11,
+            approve: true,
+            posts: [
+                source,
+                {
+                    linked_page_id: 11,
+                    source_post_id: 'page-a_photo-78',
+                    source_post_url: 'https://facebook.test/page-a/posts/78',
+                    title: 'منشور صورة',
+                    body: '',
+                    media_url: 'https://images.test/post-78.jpg',
+                },
+                source,
+            ],
+        },
+    });
+    assert.equal(bulk.statusCode, 201);
+    assert.equal(bulk.body.total, 2);
+    assert.equal(bulk.body.imported_count, 1);
+    assert.equal(bulk.body.reused_count, 1);
+    assert.deepEqual(bulk.body.items.map(item => item.status), ['approved', 'approved']);
+    assert.equal(bulk.body.items[1].body, 'منشور صورة');
+
     const duplicated = await invoke(router, 'post', '/items/from-post', {
         body: { ...source, duplicate: true, title: 'نسخة جديدة' },
     });
@@ -380,6 +406,23 @@ test('existing Facebook posts import into the content library without changing t
         body: { ...source, linked_page_id: 22 },
     });
     assert.equal(crossTenant.statusCode, 404);
+
+    const crossTenantBulk = await invoke(router, 'post', '/items/from-posts', {
+        body: { linked_page_id: 22, posts: [source] },
+    });
+    assert.equal(crossTenantBulk.statusCode, 404);
+
+    const tooMany = await invoke(router, 'post', '/items/from-posts', {
+        body: {
+            linked_page_id: 11,
+            posts: Array.from({ length: 51 }, (_, index) => ({
+                source_post_id: `page-a_post-${index}`,
+                body: `Post ${index}`,
+            })),
+        },
+    });
+    assert.equal(tooMany.statusCode, 400);
+    assert.equal(tooMany.body.code, 'TOO_MANY_POSTS');
 });
 
 test('OpenAI adapter sends a Responses API structured-output request and enforces banned terms', async () => {
@@ -795,7 +838,14 @@ test('campaign and publication APIs preserve approval, page and tenant boundarie
     assert.equal(createdCampaign.statusCode, 201);
     assert.equal(createdCampaign.body.status, 'active');
     assert.deepEqual(createdCampaign.body.content_item_ids, [301]);
+    assert.equal(createdCampaign.body.selected_content_items[0].title, 'محتوى معتمد');
     assert.ok(createdCampaign.body.next_run_at);
+
+    const listedCampaigns = await invoke(campaigns, 'get', '/campaigns', {
+        query: { linked_page_id: '11' },
+    });
+    assert.deepEqual(listedCampaigns.body.campaigns[0].content_item_ids, [301]);
+    assert.equal(listedCampaigns.body.campaigns[0].selected_content_items[0].body, 'نص جاهز للنشر');
 
     const runNow = await invoke(campaigns, 'post', '/campaigns/:id/run-now', {
         params: { id: String(createdCampaign.body.id) },

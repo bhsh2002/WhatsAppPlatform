@@ -4,6 +4,7 @@ import { parseListPagination } from '../services/pagination.js';
 import {
     CONTENT_ITEM_KINDS,
     CONTENT_ITEM_STATUSES,
+    booleanValue,
     boundedText,
     contentError,
     getEffectiveContentSettings,
@@ -29,6 +30,115 @@ const approvalFields = (status, userId) => (
 );
 
 const FACEBOOK_POST_IMPORT_VERSION = 'facebook-post-import-v1';
+const MAX_BULK_POST_IMPORTS = 50;
+
+const normalizeFacebookPostImport = payload => {
+    const sourcePostId = boundedText(payload.source_post_id, {
+        field: 'معرف المنشور المصدر',
+        max: 512,
+        required: true,
+    });
+    const requestedTitle = boundedText(payload.title, {
+        field: 'العنوان',
+        max: 160,
+        fallback: null,
+    });
+    const requestedBody = boundedText(payload.body, {
+        field: 'نص المنشور',
+        max: 5000,
+        fallback: null,
+    });
+    const fallbackBody = requestedBody || requestedTitle || `منشور Facebook ${sourcePostId}`;
+    const fallbackTitle = fallbackBody
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .find(Boolean)
+        ?.slice(0, 160) || 'منشور Facebook';
+    return {
+        sourcePostId,
+        sourcePostUrl: normalizeOptionalUrl(payload.source_post_url, 'رابط المنشور المصدر'),
+        title: requestedTitle || fallbackTitle,
+        body: fallbackBody,
+        linkUrl: normalizeOptionalUrl(payload.link_url, 'الرابط'),
+        mediaUrl: normalizeOptionalUrl(payload.media_url, 'رابط الوسائط'),
+        tags: normalizeStringList(payload.tags),
+        duplicate: payload.duplicate === true,
+    };
+};
+
+const findImportedPost = (database, tenantId, pageId, sourcePostId) => database.prepare(`
+    SELECT i.*, tp.page_name
+    FROM facebook_content_items i
+    LEFT JOIN tenant_pages tp
+      ON tp.id = i.linked_page_id
+     AND tp.tenant_id = i.tenant_id
+    WHERE i.tenant_id = ? AND i.linked_page_id = ?
+      AND i.source_post_id = ?
+      AND i.prompt_version = ?
+      AND i.status != 'archived'
+    ORDER BY i.id DESC
+    LIMIT 1
+`).get(tenantId, pageId, sourcePostId, FACEBOOK_POST_IMPORT_VERSION);
+
+const loadImportedPost = (database, tenantId, itemId) => database.prepare(`
+    SELECT i.*, tp.page_name
+    FROM facebook_content_items i
+    LEFT JOIN tenant_pages tp
+      ON tp.id = i.linked_page_id
+     AND tp.tenant_id = i.tenant_id
+    WHERE i.id = ? AND i.tenant_id = ?
+`).get(itemId, tenantId);
+
+const importFacebookPost = (database, {
+    tenantId,
+    pageId,
+    userId,
+    payload,
+    approve = false,
+} = {}) => {
+    const post = normalizeFacebookPostImport(payload);
+    if (!post.duplicate) {
+        const existing = findImportedPost(database, tenantId, pageId, post.sourcePostId);
+        if (existing) {
+            if (approve && existing.status !== 'approved') {
+                database.prepare(`
+                    UPDATE facebook_content_items
+                    SET status = 'approved', approved_by = ?, approved_at = ?,
+                        updated_at = datetime('now')
+                    WHERE id = ? AND tenant_id = ?
+                `).run(userId || null, new Date().toISOString(), existing.id, tenantId);
+                return { ...presentItem(loadImportedPost(database, tenantId, existing.id)), reused: true };
+            }
+            return { ...presentItem(existing), reused: true };
+        }
+    }
+    const status = approve ? 'approved' : 'draft';
+    const approvedAt = approve ? new Date().toISOString() : null;
+    const result = database.prepare(`
+        INSERT INTO facebook_content_items (
+            tenant_id, linked_page_id, kind, title, body, link_url,
+            media_url, tags_json, status, source_text, prompt_version,
+            source_post_id, source_post_url, approved_by, approved_at, created_by
+        ) VALUES (?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        tenantId,
+        pageId,
+        post.title,
+        post.body,
+        post.linkUrl,
+        post.mediaUrl,
+        JSON.stringify(post.tags),
+        status,
+        post.body,
+        FACEBOOK_POST_IMPORT_VERSION,
+        post.sourcePostId,
+        post.sourcePostUrl,
+        approve ? userId || null : null,
+        approvedAt,
+        userId || null,
+    );
+    return { ...presentItem(loadImportedPost(database, tenantId, result.lastInsertRowid)), reused: false };
+};
 
 export function createFacebookContentLibraryRouter({ database } = {}) {
     if (!database) throw new TypeError('database is required');
@@ -161,68 +271,59 @@ export function createFacebookContentLibraryRouter({ database } = {}) {
             const tenant = requireContentTenant(database, req, res);
             if (!tenant) return;
             const page = requireContentPage(database, tenant.id, req.body.linked_page_id);
-            const sourcePostId = boundedText(req.body.source_post_id, {
-                field: 'معرف المنشور المصدر',
-                max: 512,
-                required: true,
+            const item = importFacebookPost(database, {
+                tenantId: tenant.id,
+                pageId: page.id,
+                userId: req.user?.id,
+                payload: req.body,
             });
-            const body = boundedText(req.body.body, {
-                field: 'نص المنشور',
-                max: 5000,
-                required: true,
-            });
-            const sourcePostUrl = normalizeOptionalUrl(req.body.source_post_url, 'رابط المنشور المصدر');
-            const duplicate = req.body.duplicate === true;
-            if (!duplicate) {
-                const existing = database.prepare(`
-                    SELECT i.*, tp.page_name
-                    FROM facebook_content_items i
-                    LEFT JOIN tenant_pages tp ON tp.id = i.linked_page_id
-                    WHERE i.tenant_id = ? AND i.linked_page_id = ?
-                      AND i.source_post_id = ?
-                      AND i.prompt_version = ?
-                      AND i.status != 'archived'
-                    ORDER BY i.id DESC
-                    LIMIT 1
-                `).get(tenant.id, page.id, sourcePostId, FACEBOOK_POST_IMPORT_VERSION);
-                if (existing) {
-                    return res.json({ ...presentItem(existing), reused: true });
-                }
-            }
-            const fallbackTitle = body.split(/\r?\n/).map(line => line.trim()).find(Boolean) || 'منشور Facebook';
-            const result = database.prepare(`
-                INSERT INTO facebook_content_items (
-                    tenant_id, linked_page_id, kind, title, body, link_url,
-                    media_url, tags_json, status, source_text, prompt_version,
-                    source_post_id, source_post_url, created_by
-                ) VALUES (?, ?, 'manual', ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
-            `).run(
-                tenant.id,
-                page.id,
-                boundedText(req.body.title || fallbackTitle, {
-                    field: 'العنوان',
-                    max: 160,
-                    required: true,
-                }),
-                body,
-                normalizeOptionalUrl(req.body.link_url, 'الرابط'),
-                normalizeOptionalUrl(req.body.media_url, 'رابط الوسائط'),
-                JSON.stringify(normalizeStringList(req.body.tags)),
-                body,
-                FACEBOOK_POST_IMPORT_VERSION,
-                sourcePostId,
-                sourcePostUrl,
-                req.user?.id || null,
-            );
-            const item = database.prepare(`
-                SELECT i.*, tp.page_name
-                FROM facebook_content_items i
-                LEFT JOIN tenant_pages tp ON tp.id = i.linked_page_id
-                WHERE i.id = ? AND i.tenant_id = ?
-            `).get(result.lastInsertRowid, tenant.id);
-            res.status(201).json({ ...presentItem(item), reused: false });
+            res.status(item.reused ? 200 : 201).json(item);
         } catch (error) {
             sendContentError(res, error, 'فشل استيراد المنشور إلى المكتبة');
+        }
+    });
+
+    router.post('/items/from-posts', (req, res) => {
+        try {
+            const tenant = requireContentTenant(database, req, res);
+            if (!tenant) return;
+            const page = requireContentPage(database, tenant.id, req.body.linked_page_id);
+            if (!Array.isArray(req.body.posts) || req.body.posts.length === 0) {
+                throw contentError('حدد منشوراً واحداً على الأقل', 400, 'POSTS_REQUIRED');
+            }
+            if (req.body.posts.length > MAX_BULK_POST_IMPORTS) {
+                throw contentError(
+                    `يمكن إضافة ${MAX_BULK_POST_IMPORTS} منشور كحد أقصى في العملية الواحدة`,
+                    400,
+                    'TOO_MANY_POSTS',
+                );
+            }
+            const approve = booleanValue(req.body.approve, false);
+            const uniquePosts = [];
+            const sourcePostIds = new Set();
+            for (const payload of req.body.posts) {
+                const normalized = normalizeFacebookPostImport(payload || {});
+                if (sourcePostIds.has(normalized.sourcePostId)) continue;
+                sourcePostIds.add(normalized.sourcePostId);
+                uniquePosts.push(payload);
+            }
+            const savePosts = database.transaction(() => uniquePosts.map(payload => importFacebookPost(database, {
+                tenantId: tenant.id,
+                pageId: page.id,
+                userId: req.user?.id,
+                payload,
+                approve,
+            })));
+            const items = savePosts();
+            const importedCount = items.filter(item => !item.reused).length;
+            res.status(importedCount ? 201 : 200).json({
+                items,
+                imported_count: importedCount,
+                reused_count: items.length - importedCount,
+                total: items.length,
+            });
+        } catch (error) {
+            sendContentError(res, error, 'فشل استيراد منشورات الحملة إلى المكتبة');
         }
     });
 

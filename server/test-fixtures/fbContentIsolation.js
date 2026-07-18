@@ -21,8 +21,10 @@ const pageOne = Number(insertPage.run(tenantOne, 'page-one', 'Page One', encrypt
 const pageTwo = Number(insertPage.run(tenantTwo, 'page-two', 'Page Two', encrypt('token-two')).lastInsertRowid);
 
 let metaRequestCount = 0;
-globalThis.fetch = async () => {
+let lastMetaUrl = '';
+globalThis.fetch = async url => {
     metaRequestCount += 1;
+    lastMetaUrl = String(url);
     return new Response(JSON.stringify({
         error: {
             message: 'Invalid page token',
@@ -45,10 +47,10 @@ const overviewLayer = fbInsightsRouter.stack.find(layer => (
 assert.ok(overviewLayer, 'insights overview route must be registered');
 const overviewHandler = overviewLayer.route.stack.at(-1).handle;
 
-const invokeHandler = async (handler, linkedPageId, user) => {
+const invokeHandler = async (handler, linkedPageId, user, query = {}) => {
     let status = 200;
     let body;
-    const req = { params: { linkedPageId: String(linkedPageId) }, query: {}, user };
+    const req = { params: { linkedPageId: String(linkedPageId) }, query, user };
     const res = {
         status(value) {
             status = value;
@@ -76,13 +78,35 @@ try {
     assert.equal(JSON.stringify(owned.body).includes('private-trace'), false);
     assert.equal(JSON.stringify(owned.body).includes('private-token'), false);
 
+    const invalidRange = await invokeHandler(
+        listPostsHandler,
+        pageOne,
+        { role: 'tenant', tenant_id: tenantOne },
+        { since: '2026-07-20T00:00:00.000Z', until: '2026-07-01T23:59:59.999Z' },
+    );
+    assert.equal(invalidRange.status, 400);
+    assert.equal(invalidRange.body.code, 'INVALID_DATE_RANGE');
+    assert.equal(metaRequestCount, 1, 'invalid dates must fail before contacting Meta');
+
+    const filtered = await invokeHandler(
+        listPostsHandler,
+        pageOne,
+        { role: 'tenant', tenant_id: tenantOne },
+        { since: '2026-07-01T00:00:00.000Z', until: '2026-07-20T23:59:59.999Z', limit: '50' },
+    );
+    assert.equal(filtered.status, 401);
+    const filteredUrl = new URL(lastMetaUrl);
+    assert.equal(filteredUrl.searchParams.get('since'), '1782864000');
+    assert.equal(filteredUrl.searchParams.get('until'), '1784591999');
+    assert.equal(filteredUrl.searchParams.get('limit'), '50');
+
     const admin = await invokeHandler(listPostsHandler, pageTwo, { role: 'admin' });
     assert.equal(admin.status, 401);
-    assert.equal(metaRequestCount, 2);
+    assert.equal(metaRequestCount, 3);
 
     const deniedInsights = await invokeHandler(overviewHandler, pageTwo, { role: 'tenant', tenant_id: tenantOne });
     assert.equal(deniedInsights.status, 404);
-    assert.equal(metaRequestCount, 2, 'cross-tenant insights lookup must fail before contacting Meta');
+    assert.equal(metaRequestCount, 3, 'cross-tenant insights lookup must fail before contacting Meta');
 
     console.log(JSON.stringify({ tenantIsolation: true, normalizedErrors: true, adminAccess: true }));
 } finally {

@@ -92,6 +92,18 @@ const normalizeScheduledPublishTime = (value) => {
     return Math.floor(parsed.getTime() / 1000);
 };
 
+const normalizePostDateBoundary = (value, field) => {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        const error = new Error(`${field} غير صالح`);
+        error.status = 400;
+        error.code = 'INVALID_DATE_RANGE';
+        throw error;
+    }
+    return Math.floor(parsed.getTime() / 1000);
+};
+
 const POST_FIELDS = [
     'id',
     'message',
@@ -132,11 +144,21 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         if (error) return res.status(status).json({ error });
 
         const { after } = req.query;
+        const since = normalizePostDateBoundary(req.query.since, 'بداية الفترة');
+        const until = normalizePostDateBoundary(req.query.until, 'نهاية الفترة');
+        if (since !== null && until !== null && since > until) {
+            const rangeError = new Error('بداية الفترة يجب أن تسبق نهايتها');
+            rangeError.status = 400;
+            rangeError.code = 'INVALID_DATE_RANGE';
+            throw rangeError;
+        }
         const limit = normalizeLimit(req.query.limit, 25, 50);
         const url = graphUrl(`${page.page_id}/posts`, {
             fields: POST_FIELDS,
             limit,
             after,
+            since,
+            until,
         });
 
         const response = await fetch(url, {
@@ -151,6 +173,9 @@ router.get('/:linkedPageId/posts', async (req, res) => {
 
         res.json({ posts: data.data || [], paging: data.paging || null });
     } catch (error) {
+        if (error.status) {
+            return res.status(error.status).json({ error: error.message, code: error.code });
+        }
         console.error('[FBContent] List posts error:', error);
         res.status(500).json({ error: 'فشل جلب المنشورات' });
     }

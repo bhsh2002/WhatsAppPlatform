@@ -17,7 +17,6 @@ import {
     boundedInteger,
     boundedText,
     contentError,
-    normalizeStringList,
     requireContentPage,
     requireContentTenant,
     sendContentError,
@@ -27,24 +26,40 @@ const SOURCE_MODES = new Set(['library', 'products', 'mixed']);
 const ROTATION_MODES = new Set(['sequential', 'random']);
 const CAMPAIGN_STATUSES = new Set(['draft', 'active', 'paused', 'completed']);
 
-const presentCampaign = row => ({
-    ...row,
-    allowed_days: normalizeScheduleDays(parseStoredList(row.allowed_days_json, [])),
-    schedule_times: normalizeScheduleTimes(parseStoredList(row.schedule_times_json, [])),
-    approval_required: Boolean(row.approval_required),
-    content_item_ids: normalizeStringList(row.content_item_ids_json)
-        .map(value => Number(value))
-        .filter(Number.isInteger),
-    allowed_days_json: undefined,
-    schedule_times_json: undefined,
-    content_item_ids_json: undefined,
-});
+const selectedCampaignItems = (database, tenantId, campaignId) => database.prepare(`
+    SELECT i.id, i.linked_page_id, i.kind, i.title, i.body, i.media_url,
+           i.link_url, i.status, i.source_post_id, i.source_post_url,
+           ci.sort_order
+    FROM facebook_content_campaign_items ci
+    JOIN facebook_content_items i
+      ON i.id = ci.content_item_id
+     AND i.tenant_id = ?
+    WHERE ci.campaign_id = ? AND ci.is_active = 1
+    ORDER BY ci.sort_order, ci.id
+`).all(tenantId, campaignId);
+
+const presentCampaign = (database, row) => {
+    const selectedContentItems = selectedCampaignItems(database, row.tenant_id, row.id);
+    return {
+        ...row,
+        allowed_days: normalizeScheduleDays(parseStoredList(row.allowed_days_json, [])),
+        schedule_times: normalizeScheduleTimes(parseStoredList(row.schedule_times_json, [])),
+        approval_required: Boolean(row.approval_required),
+        content_item_ids: selectedContentItems.map(item => item.id),
+        selected_content_items: selectedContentItems,
+        allowed_days_json: undefined,
+        schedule_times_json: undefined,
+        content_item_ids_json: undefined,
+    };
+};
 
 const validateContentItems = (database, tenantId, values = []) => {
     const ids = [...new Set((Array.isArray(values) ? values : [])
         .map(value => Number.parseInt(value, 10))
-        .filter(Number.isInteger))]
-        .slice(0, 500);
+        .filter(Number.isInteger))];
+    if (ids.length > 500) {
+        throw contentError('يمكن ربط 500 عنصر محتوى كحد أقصى بالحملة', 400, 'TOO_MANY_CONTENT_ITEMS');
+    }
     if (!ids.length) return [];
     const placeholders = ids.map(() => '?').join(', ');
     const owned = database.prepare(`
@@ -192,7 +207,7 @@ export function createFacebookContentCampaignsRouter({ database } = {}) {
                 WHERE ${where}
                 ORDER BY c.updated_at DESC, c.id DESC
                 LIMIT ? OFFSET ?
-            `).all(...params, limit, offset).map(presentCampaign);
+            `).all(...params, limit, offset).map(row => presentCampaign(database, row));
             const total = database.prepare(`
                 SELECT COUNT(*) AS count
                 FROM facebook_content_campaigns c
@@ -246,7 +261,7 @@ export function createFacebookContentCampaignsRouter({ database } = {}) {
                 req.user?.id || null,
             );
             replaceCampaignItems(database, result.lastInsertRowid, tenant.id, req.body.content_item_ids);
-            res.status(201).json(presentCampaign(loadCampaign(database, tenant.id, result.lastInsertRowid)));
+            res.status(201).json(presentCampaign(database, loadCampaign(database, tenant.id, result.lastInsertRowid)));
         } catch (error) {
             sendContentError(res, error, 'فشل إنشاء حملة المحتوى');
         }
@@ -300,7 +315,7 @@ export function createFacebookContentCampaignsRouter({ database } = {}) {
             if (Object.hasOwn(req.body, 'content_item_ids')) {
                 replaceCampaignItems(database, existing.id, tenant.id, req.body.content_item_ids);
             }
-            res.json(presentCampaign(loadCampaign(database, tenant.id, existing.id)));
+            res.json(presentCampaign(database, loadCampaign(database, tenant.id, existing.id)));
         } catch (error) {
             sendContentError(res, error, 'فشل تحديث حملة المحتوى');
         }
@@ -327,7 +342,7 @@ export function createFacebookContentCampaignsRouter({ database } = {}) {
                     last_error = NULL, updated_at = datetime('now')
                 WHERE id = ? AND tenant_id = ?
             `).run(activate ? 'active' : 'paused', nextRun?.toISOString() || null, existing.id, tenant.id);
-            res.json(presentCampaign(loadCampaign(database, tenant.id, existing.id)));
+            res.json(presentCampaign(database, loadCampaign(database, tenant.id, existing.id)));
         } catch (error) {
             sendContentError(res, error, 'فشل تغيير حالة الحملة');
         }
