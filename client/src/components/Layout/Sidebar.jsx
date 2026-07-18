@@ -41,7 +41,8 @@ import {
     SmartToy as SmartToyIcon,
     FactCheck as FactCheckIcon,
     AccountBalanceWallet as BillingIcon,
-    Language as LanguageIcon
+    Language as LanguageIcon,
+    PointOfSale as PosIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -109,6 +110,7 @@ const Sidebar = () => {
                 { label: t('nav.dashboard'), path: '/portal', icon: <DashboardIcon /> },
                 { label: t('nav.inbox'), path: '/portal/inbox', icon: <InboxIcon /> },
                 { label: t('nav.tenantBilling'), path: '/portal/billing', icon: <BillingIcon /> },
+                { label: t('nav.posIntegration'), path: '/portal/integrations/pos', icon: <PosIcon /> },
             ],
         },
         {

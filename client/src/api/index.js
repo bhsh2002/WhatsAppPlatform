@@ -3,6 +3,7 @@ import { operationsMethods } from './operations';
 import { portalCoreMethods } from './portalCore';
 import { tenantFacebookMethods } from './tenantFacebook';
 import { tenantMetaMethods } from './tenantMeta';
+import { savanaIntegrationMethods } from './savanaIntegrations';
 
 // Keep browser traffic same-origin by default. In development Vite proxies
 // /api/* to Express; in production Nginx does the same. VITE_API_URL remains
@@ -286,6 +287,7 @@ Object.assign(
     operationsMethods,
     tenantFacebookMethods,
     tenantMetaMethods,
+    savanaIntegrationMethods,
 );
 
 const api = new ApiService();

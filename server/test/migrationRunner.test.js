@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '041_facebook_post_workflows.sql';
+    const latestMigration = '042_savana_integrations.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -177,6 +177,11 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'facebook_content_ai_generations'), true);
     assert.equal(tableExists(db, 'facebook_comment_reply_templates'), true);
     assert.equal(tableExists(db, 'facebook_comment_followups'), true);
+    assert.equal(tableExists(db, 'savana_integrations'), true);
+    assert.equal(tableExists(db, 'savana_integration_events'), true);
+    assert.equal(tableExists(db, 'savana_product_projection'), true);
+    assert.equal(tableExists(db, 'savana_pos_transactions'), true);
+    assert.equal(tableExists(db, 'savana_notification_candidates'), true);
     assert.equal(
         db.pragma('table_info(bot_products)')
             .some(column => column.name === 'approval_status'),

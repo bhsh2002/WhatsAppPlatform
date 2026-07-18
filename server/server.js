@@ -33,6 +33,10 @@ import messengerBotRouter from './routes/messengerBot.js';
 import facebookContentStudioRouter from './routes/facebookContentStudio.js';
 import dataDeletionRouter from './routes/dataDeletion.js';
 import metricsRouter from './routes/metrics.js';
+import {
+    createConnectCallbacksRouter,
+    createTenantIntegrationsRouter,
+} from './routes/savanaIntegrations.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -56,6 +60,11 @@ import { createOriginGuard } from './middleware/originGuard.js';
 import { createMetricsAuth } from './middleware/metricsAuth.js';
 import { ensureBootstrapAdmin } from './services/bootstrapAdmin.js';
 import { startFacebookContentScheduler } from './services/facebookContentScheduler.js';
+import {
+    integrationConfigFromEnv,
+    SavanaIntegrationService,
+    validateIntegrationConfig,
+} from './services/savanaIntegration.js';
 
 // ===========================================
 // Startup validation — fail fast on missing/insecure secrets
@@ -113,6 +122,14 @@ if (process.env.METRICS_TOKEN && process.env.METRICS_TOKEN.trim().length < 32) {
     process.exit(1);
 }
 
+const savanaIntegrationConfig = integrationConfigFromEnv();
+try {
+    validateIntegrationConfig(savanaIntegrationConfig);
+} catch (error) {
+    console.error(`❌ FATAL: ${error.message}`);
+    process.exit(1);
+}
+
 // Initialize encryption service
 try {
     initEncryption();
@@ -130,6 +147,10 @@ const app = express();
 // untrusted client address without accepting spoofed public proxy headers.
 app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
 const PORT = process.env.PORT || 3031;
+const savanaIntegrationService = new SavanaIntegrationService({
+    database: db,
+    config: savanaIntegrationConfig,
+});
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
 // are never generated into or printed through application logs.
@@ -376,6 +397,12 @@ h1{color:#075E54;border-bottom:3px solid #25D366;padding-bottom:10px}h2{color:#1
 // Meta compliance: public data-deletion callback and evidence-backed status page.
 app.use(dataDeletionRouter);
 
+// Signed service-to-service callbacks are public from the browser's point of
+// view but require the dedicated Connect callback token and connection scope.
+app.use('/integrations/connect', createConnectCallbacksRouter({
+    service: savanaIntegrationService,
+}));
+
 // Auth routes (stricter rate limit only on credential-entry endpoints)
 app.use('/auth/login', authLimiter);
 app.use('/auth/register', authLimiter);
@@ -440,6 +467,10 @@ app.use('/content-studio', authMiddleware, adminMiddleware, facebookContentStudi
 // Protected API Routes - Tenant Portal
 app.use('/portal/messenger-bot', authMiddleware, tenantMiddleware, messengerBotRouter);
 app.use('/portal/content-studio', authMiddleware, tenantMiddleware, facebookContentStudioRouter);
+app.use('/portal/integrations', authMiddleware, tenantMiddleware, createTenantIntegrationsRouter({
+    database: db,
+    service: savanaIntegrationService,
+}));
 app.use('/portal/fb-content', authMiddleware, tenantMiddleware, fbContentRouter);
 app.use('/portal/fb-insights', authMiddleware, tenantMiddleware, fbInsightsRouter);
 app.use('/portal', authMiddleware, tenantMiddleware, tenantPortalRouter);
