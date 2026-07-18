@@ -10,6 +10,8 @@ Connect.
 - Catalog هو مصدر بيانات المنتج التجارية عند وصول
   `catalog.product_snapshot.v1`.
 - Wa Savana تحتفظ بنسخة projection محلية ولا تعدل المصدر.
+- scope `pos.products.map` يسمح بتمرير projection من Catalog عبر اتصال
+  POS الصريح، من غير إنشاء اعتماد خفي بين المنصتين.
 - لا يرسل المحول رسائل تلقائية. ينشئ مرشح مراجعة فقط عند وجود
   `phone_e164` و`receipt_notification_consent=true`.
 - الوحدة المحلية للأرصدة وتكلفة Meta هي دفتر تشغيلي؛ أما خطة المنصة

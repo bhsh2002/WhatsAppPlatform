@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 export const POS_SCOPES = Object.freeze([
+    'pos.products.map',
     'pos.inventory.snapshot',
     'pos.sales.events',
     'pos.returns.events',
