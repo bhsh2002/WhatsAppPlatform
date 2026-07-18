@@ -13,8 +13,8 @@ existing live post/comment manager without replacing it.
 - Existing Facebook posts can be reviewed and converted into products in that
   shared catalog.
 - Existing posts can be imported into the content library, copied, used as the
-  only source of an independent draft campaign, scheduled again, and inspected
-  through their local publication history.
+  source of an independent campaign individually or in a selected group,
+  scheduled again, and inspected through their local publication history.
 - Direct post writing tools create linked drafts for rewriting, variants,
   call-to-action improvement, hashtag suggestions, shortening, and tone
   changes. They never edit the remote post.
@@ -104,6 +104,38 @@ Neither operation mutates the remote post.
 A campaign created from a post uses `source_mode=library`, contains only the
 imported library item, requires approval, and starts in `draft`. It has no
 dependency on the shared product catalog.
+
+## Bulk post campaigns
+
+The campaign editor can use remote Facebook posts without requiring products.
+For the selected Page, the tenant can:
+
+- check any combination of the currently displayed posts;
+- select all posts currently loaded in the editor;
+- fetch and select every available Page post, following Meta cursors;
+- fetch and select posts whose creation time is inside a start/end date range;
+- clear the selection and return to the normal eligible-library behavior.
+
+The safe limit is 500 unique remote posts in one campaign. The editor reports
+when a Page has more history than that limit instead of silently sending a
+larger, partially effective campaign. Changing the target Page clears the
+selection so post identifiers cannot cross Page boundaries.
+
+Saving performs tenant-scoped bulk imports in transaction-backed batches of 50
+so the platform's 1 MB JSON request limit remains effective even when a campaign
+contains 500 posts. Existing active imports are reused by Page and source-post
+ID; missing imports are created as independent library copies. The campaign then
+stores the exact resulting content-item IDs in
+`facebook_content_campaign_items`. Reopening the campaign returns the selected
+item summaries so the same remote-post selection can be reviewed and changed
+safely.
+
+When “approved content only” is enabled, saving this explicit selection records
+approval of the selected copies. When it is disabled, new copies remain drafts
+and are still eligible for that campaign. Neither path edits, deletes, or
+re-publishes the original post while saving the campaign. Publication billing,
+retry, idempotency, and audit history begin only when the scheduler materializes
+and publishes a normal publication.
 
 Scheduling again approves the imported library item explicitly and creates a
 normal durable publication. Publication billing, idempotency, retries, and
@@ -249,8 +281,11 @@ pending queue.
 
 ## Campaign selection rules
 
-- Library campaigns select items visible to the target page. When approval is
-  required, only `approved` items are eligible.
+- Library campaigns can store an explicit ordered set of up to 500 items. When
+  no explicit set is stored, they select all eligible items visible to the
+  target page. When approval is required, only `approved` items are eligible.
+- Remote post selection imports or reuses local library items before storing
+  that explicit set; it never makes the campaign depend on products.
 - Product campaigns select active, available shared products, optionally
   restricted to one category.
 - Mixed campaigns alternate the preferred source and fall back to the other
@@ -317,10 +352,13 @@ tenant portal:
    product list.
 8. Confirm the converted product cannot be approved until price, category, and
    SKU are complete.
-9. Import the post into the library, create a draft campaign from it, run one
-   writing tool, and confirm each result is a new local draft linked to the
-   source post.
-10. Add a reply template, request a suggested reply, and mark a harmless
+9. Create a library campaign and select several remote posts. Save, reopen it,
+   and confirm the same posts remain selected.
+10. Repeat with “Select all Page posts” and with a small date range. Confirm the
+    campaign item count and that no original remote post changed.
+11. Run one writing tool and confirm each result is a new local draft linked to
+    the source post.
+12. Add a reply template, request a suggested reply, and mark a harmless
     comment for follow-up. Confirm tenant/page isolation with a second page when
     available.
 
