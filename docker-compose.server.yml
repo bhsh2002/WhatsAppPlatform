@@ -1,0 +1,77 @@
+name: wa-savana
+
+services:
+  server:
+    build:
+      context: ./server
+    image: wa-savana-server:latest
+    container_name: wa-savana-server
+    restart: unless-stopped
+    env_file:
+      - ./server/.env
+    environment:
+      TZ: Africa/Tripoli
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/platform.db
+      BACKUP_DIR: /app/data/backups
+    expose:
+      - "3031"
+    volumes:
+      - ./data:/app/data
+      - ./server/uploads:/app/uploads
+    read_only: true
+    tmpfs:
+      - /tmp:rw,uid=1000,gid=1000,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+      - control-plane
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3031/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  client:
+    build:
+      context: ./client
+    image: wa-savana-frontend:latest
+    container_name: wa-savana-frontend
+    restart: unless-stopped
+    expose:
+      - "8080"
+    depends_on:
+      server:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,uid=101,gid=101,mode=0755
+      - /var/run:rw,uid=101,gid=101,mode=0755
+      - /tmp:rw,uid=101,gid=101,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+      - edge
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+networks:
+  internal:
+    name: wa-savana-internal
+    driver: bridge
+  edge:
+    name: wa-savana-network
+    driver: bridge
+  control-plane:
+    name: savana-control-plane-network
+    external: true
