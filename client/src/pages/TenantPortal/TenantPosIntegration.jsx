@@ -1,176 +1,157 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Chip,
-    CircularProgress,
-    Divider,
-    Stack,
-    TextField,
-    Typography,
+    Alert, Box, Button, Card, CardActionArea, CardContent, Chip,
+    CircularProgress, Divider, Stack, TextField, Typography,
 } from '@mui/material';
 import {
-    Link as LinkIcon,
-    Pause as PauseIcon,
-    PlayArrow as ResumeIcon,
-    PointOfSale as PosIcon,
-    Refresh as RefreshIcon,
-    LinkOff as RevokeIcon,
+    Hub as HubIcon, Link as LinkIcon, LinkOff as RevokeIcon,
+    Pause as PauseIcon, PlayArrow as ResumeIcon, Refresh as RefreshIcon,
 } from '@mui/icons-material';
 
 import api from '../../api';
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { useLanguage } from '../../context/LanguageContext';
 
+const PLATFORMS = {
+    pos: { ar: 'Savana POS', en: 'Savana POS', detailAr: 'المبيعات والإرجاعات والمخزون', detailEn: 'Sales, returns and inventory' },
+    catalog: { ar: 'Catalog', en: 'Catalog', detailAr: 'المنتجات وإشعارات الطلبات والحملات', detailEn: 'Products, order notifications and campaigns' },
+    sawemly: { ar: 'Sawemly', en: 'Sawemly', detailAr: 'إتاحة المنتجات ومواقع الأرفف', detailEn: 'Product availability and shelf locations' },
+};
+
 const STATUS_COLORS = {
-    active: 'success',
-    pending_authorization: 'warning',
-    paused: 'default',
-    error: 'error',
-    revoked: 'error',
-    disconnected: 'default',
+    active: 'success', pending_authorization: 'warning', paused: 'default',
+    degraded: 'warning', error: 'error', revoked: 'error', disconnected: 'default',
+};
+
+const STATUS_AR = {
+    active: 'نشط', pending_authorization: 'بانتظار موافقة الطرف الآخر', paused: 'متوقف مؤقتًا',
+    degraded: 'يحتاج متابعة', error: 'خطأ', revoked: 'ملغى', disconnected: 'غير مربوط',
 };
 
 const TenantPosIntegration = () => {
     const { language } = useLanguage();
     const ar = language === 'ar';
-    const [integration, setIntegration] = useState(null);
+    const [integrations, setIntegrations] = useState([]);
+    const [selectedPlatform, setSelectedPlatform] = useState('catalog');
     const [diagnostics, setDiagnostics] = useState(null);
     const [loading, setLoading] = useState(true);
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-    const [form, setForm] = useState({ organization_id: '', pos_external_tenant_id: '' });
+    const [form, setForm] = useState({ organization_id: '', remote_external_tenant_id: '' });
+
+    const integration = useMemo(
+        () => integrations.find(item => item.platform_code === selectedPlatform)
+            || { platform_code: selectedPlatform, status: 'disconnected', scopes: [] },
+        [integrations, selectedPlatform],
+    );
+    const profile = PLATFORMS[selectedPlatform];
 
     const load = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
-            const current = await api.getPortalPosIntegration();
-            setIntegration(current);
-            if (current.connection_id) {
-                setDiagnostics(await api.getPortalPosDiagnostics());
-            } else {
-                setDiagnostics(null);
-            }
+            const response = await api.getPortalPlatformIntegrations();
+            const rows = response?.data || response || [];
+            setIntegrations(rows);
+            const selected = rows.find(item => item.platform_code === selectedPlatform);
+            setDiagnostics(selected?.connection_id
+                ? await api.getPortalPlatformDiagnostics(selectedPlatform)
+                : null);
         } catch (requestError) {
             setError(requestError.message);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedPlatform]);
 
     useEffect(() => { load(); }, [load]);
 
     const connect = async () => {
-        setWorking(true);
-        setError('');
-        setSuccess('');
+        setWorking(true); setError(''); setSuccess('');
         try {
-            await api.connectPortalPos(form);
-            setSuccess(ar ? 'تم إنشاء طلب الربط. يبقى معزولاً حتى التفعيل.' : 'Connection request created. It stays isolated until authorized.');
+            await api.connectPortalPlatform(selectedPlatform, form);
+            setSuccess(ar ? 'تم إنشاء طلب الربط المباشر وبانتظار موافقة الطرف الآخر.' : 'Direct connection request created and awaiting peer approval.');
             await load();
-        } catch (requestError) {
-            setError(requestError.message);
-        } finally {
-            setWorking(false);
-        }
+        } catch (requestError) { setError(requestError.message); }
+        finally { setWorking(false); }
     };
 
     const action = async actionName => {
-        setWorking(true);
-        setError('');
-        setSuccess('');
+        setWorking(true); setError(''); setSuccess('');
         try {
-            await api.actionPortalPos(actionName);
+            await api.actionPortalPlatform(selectedPlatform, actionName);
             setSuccess(ar ? 'تم تحديث حالة الربط.' : 'Connection state updated.');
             await load();
-        } catch (requestError) {
-            setError(requestError.message);
-        } finally {
-            setWorking(false);
-        }
+        } catch (requestError) { setError(requestError.message); }
+        finally { setWorking(false); }
     };
 
-    if (loading && !integration) {
+    if (loading && integrations.length === 0) {
         return <Box sx={{ minHeight: '60vh', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>;
     }
 
-    const status = integration?.status || 'disconnected';
-    const canConnect = !integration?.connection_id || status === 'revoked';
+    const status = integration.status || 'disconnected';
+    const canConnect = !integration.connection_id || ['revoked', 'error', 'disconnected'].includes(status);
     const counts = diagnostics?.counts || {};
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: 'auto' }}>
             <PageTitle variant="h4" fontWeight={800} gutterBottom>
-                {ar ? 'ربط Savana POS' : 'Savana POS integration'}
+                {ar ? 'ربط منصات سافانا' : 'Savana platform integrations'}
             </PageTitle>
             <Typography color="text.secondary" sx={{ mb: 3 }}>
-                {ar
-                    ? 'ربط اختياري يستقبل المبيعات والإرجاعات والمخزون. تستمر Wa Savana بالعمل كاملاً عند إيقافه.'
-                    : 'Optional sales, returns and inventory feed. Wa Savana remains fully operational when it is paused.'}
+                {ar ? 'روابط مباشرة ومستقلة؛ لا تمر بيانات Catalog أو Sawemly عبر POS.' : 'Direct independent links; Catalog and Sawemly data never transit through POS.'}
             </Typography>
-
             {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
             {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 2 }}>{success}</Alert>}
+
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
+                {Object.entries(PLATFORMS).map(([code, item]) => {
+                    const row = integrations.find(value => value.platform_code === code);
+                    return (
+                        <Card key={code} variant={selectedPlatform === code ? 'elevation' : 'outlined'} sx={{ flex: 1 }}>
+                            <CardActionArea onClick={() => setSelectedPlatform(code)}>
+                                <CardContent>
+                                    <Stack direction="row" justifyContent="space-between" gap={1}>
+                                        <Typography fontWeight={800}>{ar ? item.ar : item.en}</Typography>
+                                        <Chip size="small" label={ar ? STATUS_AR[row?.status || 'disconnected'] : row?.status || 'disconnected'} color={STATUS_COLORS[row?.status] || 'default'} />
+                                    </Stack>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{ar ? item.detailAr : item.detailEn}</Typography>
+                                </CardContent>
+                            </CardActionArea>
+                        </Card>
+                    );
+                })}
+            </Stack>
 
             <Card sx={{ mb: 3 }}>
                 <CardContent>
                     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}>
                         <Stack direction="row" spacing={1.5} alignItems="center">
-                            <PosIcon color="primary" fontSize="large" />
+                            <HubIcon color="primary" fontSize="large" />
                             <Box>
-                                <Typography variant="h6" fontWeight={800}>Savana POS</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    {integration?.remote_external_tenant_id || (ar ? 'غير مربوط' : 'Not connected')}
-                                </Typography>
+                                <Typography variant="h6" fontWeight={800}>{ar ? profile.ar : profile.en}</Typography>
+                                <Typography variant="body2" color="text.secondary">{integration.remote_external_tenant_id || (ar ? 'غير مربوط' : 'Not connected')}</Typography>
                             </Box>
                         </Stack>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                            <Chip label={status} color={STATUS_COLORS[status] || 'default'} />
-                            <Chip
-                                label={integration?.pos_entitled
-                                    ? (ar ? 'الاشتراك يشمل الربط' : 'Subscription entitled')
-                                    : (ar ? 'غير مشمول بالاشتراك' : 'Not entitled')}
-                                color={integration?.pos_entitled ? 'success' : 'warning'}
-                                variant="outlined"
-                            />
+                            <Chip label={ar ? STATUS_AR[status] : status} color={STATUS_COLORS[status] || 'default'} />
+                            <Chip label={integration.entitled || integration.pos_entitled ? (ar ? 'الاشتراك يشمل الربط' : 'Subscription entitled') : (ar ? 'غير مشمول بالاشتراك' : 'Not entitled')} color={integration.entitled || integration.pos_entitled ? 'success' : 'warning'} variant="outlined" />
                         </Stack>
                     </Stack>
 
                     {canConnect ? (
                         <Stack spacing={2} sx={{ mt: 3 }}>
-                            <TextField
-                                label={ar ? 'معرف المؤسسة المركزي (UUID)' : 'Central organization ID (UUID)'}
-                                value={form.organization_id}
-                                onChange={event => setForm(current => ({ ...current, organization_id: event.target.value }))}
-                                fullWidth
-                            />
-                            <TextField
-                                label={ar ? 'معرف شركة POS' : 'POS company identifier'}
-                                value={form.pos_external_tenant_id}
-                                onChange={event => setForm(current => ({ ...current, pos_external_tenant_id: event.target.value }))}
-                                fullWidth
-                            />
-                            <Button
-                                variant="contained"
-                                startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />}
-                                disabled={working || !form.organization_id || !form.pos_external_tenant_id}
-                                onClick={connect}
-                                sx={{ alignSelf: 'flex-start' }}
-                            >
-                                {ar ? 'طلب الربط' : 'Request connection'}
-                            </Button>
+                            <TextField label={ar ? 'معرف المؤسسة المركزي (UUID)' : 'Central organization ID (UUID)'} value={form.organization_id} onChange={event => setForm(current => ({ ...current, organization_id: event.target.value }))} fullWidth />
+                            <TextField label={ar ? `معرف الحساب داخل ${profile.ar}` : `${profile.en} account identifier`} value={form.remote_external_tenant_id} onChange={event => setForm(current => ({ ...current, remote_external_tenant_id: event.target.value }))} fullWidth />
+                            <Button variant="contained" startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />} disabled={working || !form.organization_id || !form.remote_external_tenant_id} onClick={connect} sx={{ alignSelf: 'flex-start' }}>{ar ? 'طلب الربط' : 'Request connection'}</Button>
                         </Stack>
                     ) : (
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 3 }}>
                             {status === 'active' && <Button startIcon={<PauseIcon />} variant="outlined" onClick={() => action('pause')} disabled={working}>{ar ? 'إيقاف مؤقت' : 'Pause'}</Button>}
-                            {status === 'paused' && <Button startIcon={<ResumeIcon />} variant="contained" onClick={() => action('resume')} disabled={working}>{ar ? 'استئناف' : 'Resume'}</Button>}
+                            {['paused', 'degraded'].includes(status) && <Button startIcon={<ResumeIcon />} variant="contained" onClick={() => action('resume')} disabled={working}>{ar ? 'استئناف' : 'Resume'}</Button>}
                             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => action('refresh-status')} disabled={working}>{ar ? 'تحديث الحالة' : 'Refresh status'}</Button>
-                            <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => action('refresh-entitlements')} disabled={working}>{ar ? 'تحديث الاشتراك' : 'Refresh subscription'}</Button>
                             <Button startIcon={<RevokeIcon />} color="error" variant="outlined" onClick={() => action('revoke')} disabled={working}>{ar ? 'إلغاء الربط' : 'Revoke'}</Button>
                         </Stack>
                     )}
@@ -179,24 +160,17 @@ const TenantPosIntegration = () => {
 
             <Card>
                 <CardContent>
-                    <Typography variant="h6" fontWeight={800}>{ar ? 'حالة المزامنة' : 'Synchronization status'}</Typography>
+                    <Typography variant="h6" fontWeight={800}>{ar ? 'حالة الخدمة' : 'Service status'}</Typography>
                     <Divider sx={{ my: 2 }} />
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                         {[
-                            [ar ? 'المنتجات المحلية' : 'Local product projections', counts.products || 0],
-                            [ar ? 'المعاملات' : 'POS transactions', counts.transactions || 0],
-                            [ar ? 'إشعارات تحت المراجعة' : 'Notifications pending review', counts.pending_notification_candidates || 0],
-                        ].map(([label, value]) => (
-                            <Box key={label} sx={{ flex: 1, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
-                                <Typography variant="h5" fontWeight={800}>{value}</Typography>
-                                <Typography variant="body2" color="text.secondary">{label}</Typography>
-                            </Box>
-                        ))}
+                            [ar ? 'نسخ المنتجات' : 'Product projections', counts.products || 0],
+                            [ar ? 'طلبات خدمة للمراجعة' : 'Service requests pending review', counts.pending_service_requests || 0],
+                            [ar ? 'إشعارات POS للمراجعة' : 'POS notifications pending review', counts.pending_notification_candidates || 0],
+                        ].map(([label, value]) => <Box key={label} sx={{ flex: 1, p: 2, bgcolor: 'background.default', borderRadius: 2 }}><Typography variant="h5" fontWeight={800}>{value}</Typography><Typography variant="body2" color="text.secondary">{label}</Typography></Box>)}
                     </Stack>
                     <Alert severity="info" icon={<LinkIcon />} sx={{ mt: 2 }}>
-                        {ar
-                            ? 'لا تُرسل المنصة إيصالاً تلقائياً. يُنشأ مرشح مراجعة فقط عند وجود رقم وموافقة صريحة من POS.'
-                            : 'No receipt is sent automatically. A review candidate is created only when POS supplies a phone number and explicit consent.'}
+                        {ar ? 'طلبات الإشعار الواردة لا تُرسل تلقائيًا؛ تُحفظ للمراجعة وتطبق سياسات القالب والموافقة.' : 'Incoming notification requests are never sent automatically; they await review and channel consent checks.'}
                     </Alert>
                 </CardContent>
             </Card>

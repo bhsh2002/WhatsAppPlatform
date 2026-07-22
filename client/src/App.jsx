@@ -328,6 +328,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/portal/integrations"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantPosIntegration /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/portal/chat"
         element={
           <ProtectedRoute requireTenant>

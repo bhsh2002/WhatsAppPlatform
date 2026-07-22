@@ -8,6 +8,34 @@ export const POS_SCOPES = Object.freeze([
     'pos.customers.reference',
 ]);
 
+export const INTEGRATION_PROFILES = Object.freeze({
+    pos: Object.freeze({ displayName: 'Savana POS', scopes: POS_SCOPES }),
+    catalog: Object.freeze({
+        displayName: 'Catalog',
+        scopes: Object.freeze([
+            'catalog.products.projection',
+            'catalog.orders.events',
+            'catalog.customers.reference',
+            'wa_savana.products.receive',
+            'wa_savana.contacts.reference',
+            'wa_savana.notifications.send',
+            'wa_savana.delivery_status.events',
+            'wa_savana.campaigns.send',
+        ]),
+    }),
+    sawemly: Object.freeze({
+        displayName: 'Sawemly',
+        scopes: Object.freeze([
+            'sawemly.shelves.projection',
+            'sawemly.availability.events',
+            'wa_savana.products.receive',
+            'wa_savana.notifications.send',
+            'wa_savana.delivery_status.events',
+            'wa_savana.campaigns.send',
+        ]),
+    }),
+});
+
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'past_due']);
 const CONNECTION_ACTIONS = new Set(['pause', 'resume', 'revoke']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -96,6 +124,33 @@ const parseJson = (value, fallback = null) => {
 
 const nowIso = () => new Date().toISOString();
 
+const connectionSecretKey = config => crypto.createHash('sha256')
+    .update(String(config.subscriptionsSigningSecret || config.connectAdminToken || ''))
+    .digest();
+
+const encryptConnectionSecret = (config, plaintext) => {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', connectionSecretKey(config), iv);
+    const ciphertext = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
+    return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64');
+};
+
+const decryptConnectionSecret = (config, encoded) => {
+    const value = Buffer.from(String(encoded || ''), 'base64');
+    const decipher = crypto.createDecipheriv(
+        'aes-256-gcm', connectionSecretKey(config), value.subarray(0, 12)
+    );
+    decipher.setAuthTag(value.subarray(12, 28));
+    return Buffer.concat([decipher.update(value.subarray(28)), decipher.final()]).toString('utf8');
+};
+
+const signWebhook = (secret, timestamp, deliveryId, body) => `v1=${crypto
+    .createHmac('sha256', secret)
+    .update(Buffer.concat([
+        Buffer.from(timestamp), Buffer.from('.'), Buffer.from(deliveryId), Buffer.from('.'), body,
+    ]))
+    .digest('hex')}`;
+
 export class SavanaIntegrationService {
     constructor({ database, fetchImpl = globalThis.fetch, config = integrationConfigFromEnv() }) {
         if (!database) throw new TypeError('database is required');
@@ -112,12 +167,33 @@ export class SavanaIntegrationService {
         `).get(tenantId, platformCode);
     }
 
+    list(tenantId) {
+        return this.db.prepare(`
+            SELECT * FROM savana_integrations WHERE tenant_id = ? ORDER BY platform_code
+        `).all(tenantId);
+    }
+
+    availablePlatforms() {
+        return Object.keys(INTEGRATION_PROFILES);
+    }
+
+    profile(platformCode) {
+        const profile = INTEGRATION_PROFILES[platformCode];
+        if (!profile) {
+            throw new SavanaIntegrationError(
+                'Wa Savana cannot connect to this platform', 422, 'unsupported_platform'
+            );
+        }
+        return profile;
+    }
+
     getOrCreate(tenantId, platformCode = 'pos') {
+        const profile = this.profile(platformCode);
         this.db.prepare(`
             INSERT INTO savana_integrations (tenant_id, platform_code, scopes_json)
             VALUES (?, ?, ?)
             ON CONFLICT(tenant_id, platform_code) DO NOTHING
-        `).run(tenantId, platformCode, JSON.stringify(POS_SCOPES));
+        `).run(tenantId, platformCode, JSON.stringify(profile.scopes));
         return this.get(tenantId, platformCode);
     }
 
@@ -196,8 +272,9 @@ export class SavanaIntegrationService {
         }
         if (!ACTIVE_SUBSCRIPTION_STATUSES.has(payload.subscription_status)) return false;
         const entitlements = payload.entitlements || {};
-        return entitlements['wa_savana.integration.pos.enabled'] === true
-            || entitlements['wa_savana.integrations.pos.enabled'] === true;
+        const key = `wa_savana.integration.${item.platform_code}.enabled`;
+        return entitlements[key] === true
+            || entitlements[key.replace('.integration.', '.integrations.')] === true;
     }
 
     async refreshEntitlement(item) {
@@ -226,7 +303,7 @@ export class SavanaIntegrationService {
         return this.get(item.tenant_id, item.platform_code);
     }
 
-    async requestConnection(tenantId, payload, actorId) {
+    async requestConnection(tenantId, payload, actorId, platformCode = 'pos') {
         if (!this.config.enabled) {
             throw new SavanaIntegrationError(
                 'Savana integrations are disabled', 503, 'integrations_disabled'
@@ -234,13 +311,17 @@ export class SavanaIntegrationService {
         }
         const tenant = this.db.prepare('SELECT id, name FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) throw new SavanaIntegrationError('Tenant was not found', 404, 'tenant_not_found');
-        let item = this.getOrCreate(tenantId);
+        const profile = this.profile(platformCode);
+        let item = this.getOrCreate(tenantId, platformCode);
         if (item.connection_id && item.status !== 'revoked') {
-            throw new SavanaIntegrationError('POS connection already exists', 409, 'connection_exists');
+            throw new SavanaIntegrationError('Platform connection already exists', 409, 'connection_exists');
         }
         const organizationId = requireUuid(payload.organization_id, 'organization_id');
         const remoteExternalTenantId = requiredString(
-            payload.pos_external_tenant_id, 'pos_external_tenant_id'
+            payload.remote_external_tenant_id
+                || payload[`${platformCode}_external_tenant_id`]
+                || (platformCode === 'pos' ? payload.pos_external_tenant_id : null),
+            'remote_external_tenant_id'
         );
         const callbackUrl = String(payload.callback_url || this.config.callbackUrl || '').trim();
         if (!/^https?:\/\//.test(callbackUrl)) {
@@ -251,10 +332,10 @@ export class SavanaIntegrationService {
                 last_error = NULL, updated_at = datetime('now', 'localtime')
             WHERE id = ?
         `).run(organizationId, item.id);
-        item = await this.refreshEntitlement(this.get(tenantId));
+        item = await this.refreshEntitlement(this.get(tenantId, platformCode));
         if (!this.hasEntitlement(item)) {
             throw new SavanaIntegrationError(
-                'The subscription does not include Wa Savana POS integration',
+                `The subscription does not include Wa Savana ${profile.displayName} integration`,
                 402,
                 'entitlement_required'
             );
@@ -277,24 +358,35 @@ export class SavanaIntegrationService {
             });
             const remote = await this.requestJson('connect', 'POST', '/v1/platform-tenants', {
                 organization_id: organizationId,
-                platform_code: 'pos',
+                platform_code: platformCode,
                 external_tenant_id: remoteExternalTenantId,
-                display_name: String(payload.pos_display_name || 'Savana POS'),
+                display_name: String(
+                    payload.remote_display_name
+                    || payload[`${platformCode}_display_name`]
+                    || profile.displayName
+                ),
             });
             const connection = await this.requestJson('connect', 'POST', '/v1/connections', {
                 organization_id: organizationId,
                 source_tenant_id: local.id,
                 target_tenant_id: remote.id,
-                scopes: POS_SCOPES,
+                scopes: profile.scopes,
                 source_callback_url: callbackUrl,
-                target_callback_url: payload.pos_callback_url || null,
+                target_callback_url: payload.remote_callback_url
+                    || payload[`${platformCode}_callback_url`]
+                    || (platformCode === 'pos' ? payload.pos_callback_url : null),
                 actor_id: String(actorId || 'tenant'),
             });
+            const credentials = await this.requestJson(
+                'connect', 'POST', `/v1/connections/${connection.id}/credentials`,
+                { platform_tenant_id: local.id }
+            );
             this.db.prepare(`
                 UPDATE savana_integrations SET
                     local_platform_tenant_id = ?, remote_platform_tenant_id = ?,
                     remote_external_tenant_id = ?, connection_id = ?, status = ?,
-                    scopes_json = ?, last_sync_at = ?, last_error = NULL,
+                    scopes_json = ?, webhook_secret_encrypted = ?,
+                    last_sync_at = ?, last_error = NULL,
                     updated_at = datetime('now', 'localtime')
                 WHERE id = ?
             `).run(
@@ -303,7 +395,8 @@ export class SavanaIntegrationService {
                 remoteExternalTenantId,
                 connection.id,
                 connection.status,
-                JSON.stringify(POS_SCOPES),
+                JSON.stringify(profile.scopes),
+                encryptConnectionSecret(this.config, credentials.webhook_secret),
                 nowIso(),
                 item.id,
             );
@@ -314,7 +407,7 @@ export class SavanaIntegrationService {
             `).run(String(error.message).slice(0, 4000), item.id);
             throw error;
         }
-        return this.get(tenantId);
+        return this.get(tenantId, platformCode);
     }
 
     async transition(item, action, actorId) {
@@ -327,8 +420,9 @@ export class SavanaIntegrationService {
         );
         this.db.prepare(`
             UPDATE savana_integrations SET status = ?, last_sync_at = ?, last_error = NULL,
+                webhook_secret_encrypted = CASE WHEN ? = 'revoke' THEN NULL ELSE webhook_secret_encrypted END,
                 updated_at = datetime('now', 'localtime') WHERE id = ?
-        `).run(result.status, nowIso(), item.id);
+        `).run(result.status, nowIso(), action, item.id);
         return this.get(item.tenant_id, item.platform_code);
     }
 
@@ -355,7 +449,7 @@ export class SavanaIntegrationService {
         `).get(String(connectionId || ''));
         if (!item) {
             throw new SavanaIntegrationError(
-                'Active POS connection was not found', 404, 'connection_not_found'
+                'Active platform connection was not found', 404, 'connection_not_found'
             );
         }
         let envelope;
@@ -364,7 +458,10 @@ export class SavanaIntegrationService {
         } catch {
             throw new SavanaIntegrationError('Invalid event JSON', 400, 'invalid_event_json');
         }
-        if (envelope.organization_id !== item.organization_id) {
+        if (
+            envelope.organization_id !== item.organization_id
+            || envelope.source !== item.platform_code
+        ) {
             throw new SavanaIntegrationError('Event organization mismatch', 403, 'event_scope_mismatch');
         }
         const eventId = requireUuid(envelope.event_id, 'event_id');
@@ -410,11 +507,104 @@ export class SavanaIntegrationService {
             case 'pos.retail_sale_returned.v1':
                 this.applyReturn(item.tenant_id, data);
                 break;
+            case 'catalog.order_status_changed.v1':
+                this.insertServiceRequest(item, envelope, 'order_notification');
+                break;
+            case 'catalog.customer_reference_updated.v1':
+                this.insertServiceRequest(item, envelope, 'contact_reference');
+                break;
+            case 'sawemly.availability_changed.v1':
+                this.applySawemlyAvailability(item.tenant_id, data);
+                break;
+            case 'sawemly.shelf_location_changed.v1':
+                this.applySawemlyAvailability(item.tenant_id, { items: [data] });
+                break;
             default:
                 throw new SavanaIntegrationError(
                     'Unsupported POS projection event', 422, 'unsupported_event'
                 );
         }
+    }
+
+    applySawemlyAvailability(tenantId, data) {
+        for (const product of data.items || []) {
+            this.upsertProduct(tenantId, {
+                ...product,
+                quantity_available: product.quantity_available ?? product.quantity ?? null,
+                quantity_on_hand: product.quantity_on_hand ?? product.quantity ?? null,
+            }, data.occurred_at || nowIso());
+            if (product.shelf_code) {
+                const key = this.productProjectionKey(product);
+                this.db.prepare(`
+                    UPDATE savana_product_projection SET shelf_code = ?,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE tenant_id = ? AND projection_key = ?
+                `).run(product.shelf_code, tenantId, key);
+            }
+        }
+    }
+
+    insertServiceRequest(item, envelope, kind) {
+        this.db.prepare(`
+            INSERT INTO savana_service_requests (
+                tenant_id, integration_id, event_id, request_kind, request_key, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(integration_id, request_key) DO NOTHING
+        `).run(
+            item.tenant_id,
+            item.id,
+            envelope.event_id,
+            kind,
+            String(envelope.data?.request_id || envelope.data?.order_id || envelope.event_id),
+            JSON.stringify(envelope.data || {}),
+        );
+    }
+
+    async publishNotificationStatus(item, data) {
+        if (!item?.connection_id || item.status !== 'active' || !item.webhook_secret_encrypted) {
+            throw new SavanaIntegrationError('Platform connection is not active', 409, 'connection_inactive');
+        }
+        if (!this.hasEntitlement(item)) {
+            throw new SavanaIntegrationError('Integration entitlement is unavailable', 402, 'entitlement_required');
+        }
+        const envelope = {
+            spec_version: '1.0',
+            event_id: crypto.randomUUID(),
+            event_type: 'wa_savana.notification_status_changed.v1',
+            source: 'wa_savana',
+            organization_id: item.organization_id,
+            platform_tenant_id: `wa_savana:tenant:${item.tenant_id}`,
+            entity_id: null,
+            entity_version: 1,
+            occurred_at: nowIso(),
+            idempotency_key: `wa_savana:notification:${requiredString(data.request_id, 'request_id')}:${data.status}`,
+            correlation_id: crypto.randomUUID(),
+            causation_id: data.causation_id || null,
+            data,
+        };
+        const body = Buffer.from(canonicalJson(envelope));
+        const timestamp = String(Math.floor(Date.now() / 1000));
+        const deliveryId = crypto.randomUUID();
+        const secret = decryptConnectionSecret(this.config, item.webhook_secret_encrypted);
+        const response = await this.fetch(`${this.config.connectUrl}/v1/events`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Savana-Connection-Id': item.connection_id,
+                'X-Savana-Delivery-Id': deliveryId,
+                'X-Savana-Timestamp': timestamp,
+                'X-Savana-Signature': signWebhook(secret, timestamp, deliveryId, body),
+            },
+            body,
+            signal: AbortSignal.timeout(this.config.timeoutMs),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            throw new SavanaIntegrationError(
+                `connect returned ${response.status}`, 502, 'control_plane_error'
+            );
+        }
+        return { event: envelope, receipt: result };
     }
 
     productProjectionKey(row) {
@@ -556,19 +746,29 @@ export class SavanaIntegrationService {
             SELECT COUNT(*) AS count FROM savana_notification_candidates
             WHERE tenant_id = ? AND status = 'pending_review'
         `).get(item.tenant_id).count;
+        const serviceRequests = this.db.prepare(`
+            SELECT COUNT(*) AS count FROM savana_service_requests
+            WHERE integration_id = ? AND status = 'pending_review'
+        `).get(item.id).count;
         return {
             integration: this.serialize(item),
             events,
-            counts: { products, transactions, pending_notification_candidates: notifications },
+            counts: {
+                products,
+                transactions,
+                pending_notification_candidates: notifications,
+                pending_service_requests: serviceRequests,
+            },
         };
     }
 
-    serialize(item) {
+    serialize(item, platformCode = 'pos') {
         if (!item) {
+            const profile = this.profile(platformCode);
             return {
-                platform_code: 'pos',
+                platform_code: platformCode,
                 status: 'disconnected',
-                scopes: POS_SCOPES,
+                scopes: profile.scopes,
                 independent_mode: true,
                 pos_entitled: false,
             };
@@ -580,7 +780,8 @@ export class SavanaIntegrationService {
             status: item.status,
             scopes: parseJson(item.scopes_json, []),
             remote_external_tenant_id: item.remote_external_tenant_id,
-            pos_entitled: this.hasEntitlement(item),
+            entitled: this.hasEntitlement(item),
+            pos_entitled: item.platform_code === 'pos' && this.hasEntitlement(item),
             entitlement_valid_until: item.entitlement_valid_until,
             last_sync_at: item.last_sync_at,
             last_error: item.last_error,

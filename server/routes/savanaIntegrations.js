@@ -15,6 +15,86 @@ const boundedLimit = value => Math.min(100, Math.max(1, Number.parseInt(value ||
 export const createTenantIntegrationsRouter = ({ database, service }) => {
     const router = express.Router();
 
+    router.get('/platforms', (req, res) => {
+        try {
+            const existing = new Map(
+                service.list(req.user.tenant_id).map(item => [item.platform_code, item])
+            );
+            return res.json({
+                data: service.availablePlatforms().map(platformCode => service.serialize(
+                    existing.get(platformCode), platformCode
+                )),
+            });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.get('/platforms/:platformCode', (req, res) => {
+        try {
+            service.profile(req.params.platformCode);
+            return res.json(service.serialize(
+                service.get(req.user.tenant_id, req.params.platformCode),
+                req.params.platformCode,
+            ));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.put('/platforms/:platformCode', async (req, res) => {
+        try {
+            const item = await service.requestConnection(
+                req.user.tenant_id, req.body || {}, req.user.id, req.params.platformCode,
+            );
+            return res.status(201).json(service.serialize(item));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.post('/platforms/:platformCode/:action', async (req, res) => {
+        try {
+            const item = service.get(req.user.tenant_id, req.params.platformCode);
+            if (!item) {
+                throw new SavanaIntegrationError(
+                    'Platform connection does not exist', 404, 'connection_not_found'
+                );
+            }
+            if (['pause', 'resume', 'revoke'].includes(req.params.action)) {
+                return res.json(service.serialize(
+                    await service.transition(item, req.params.action, req.user.id)
+                ));
+            }
+            if (req.params.action === 'refresh-status') {
+                return res.json(service.serialize(await service.refreshStatus(item)));
+            }
+            if (req.params.action === 'refresh-entitlements') {
+                return res.json(service.serialize(await service.refreshEntitlement(item)));
+            }
+            if (req.params.action === 'publish-status') {
+                return res.status(202).json(await service.publishNotificationStatus(item, req.body || {}));
+            }
+            throw new SavanaIntegrationError('Unsupported action', 404, 'action_not_found');
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.get('/platforms/:platformCode/diagnostics', (req, res) => {
+        try {
+            const item = service.get(req.user.tenant_id, req.params.platformCode);
+            if (!item) {
+                throw new SavanaIntegrationError(
+                    'Platform connection does not exist', 404, 'connection_not_found'
+                );
+            }
+            return res.json(service.diagnostics(item));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.get('/pos', (req, res) => {
         try {
             return res.json(service.serialize(service.get(req.user.tenant_id)));

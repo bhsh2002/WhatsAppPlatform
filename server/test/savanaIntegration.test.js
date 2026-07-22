@@ -41,7 +41,11 @@ const entitlementSnapshot = ({ entitled = true, secret = signingSecret } = {}) =
         version: 1,
         issued_at: new Date().toISOString(),
         valid_until: new Date(Date.now() + 86_400_000).toISOString(),
-        entitlements: { 'wa_savana.integration.pos.enabled': entitled },
+        entitlements: {
+            'wa_savana.integration.pos.enabled': entitled,
+            'wa_savana.integration.catalog.enabled': entitled,
+            'wa_savana.integration.sawemly.enabled': entitled,
+        },
     };
     return {
         payload,
@@ -62,12 +66,18 @@ const createFetch = ({ entitled = true, badSignature = false } = {}) => async (u
     if (pathName === '/v1/platform-tenants') {
         const body = JSON.parse(options.body);
         return Response.json({
-            id: body.platform_code === 'pos' ? 'pos-tenant-id' : 'wa-tenant-id',
+            id: `${body.platform_code}-tenant-id`,
             platform_code: body.platform_code,
         }, { status: 201 });
     }
     if (pathName === '/v1/connections' && options.method === 'POST') {
         return Response.json({ id: 'connection-1', status: 'pending_authorization' }, { status: 201 });
+    }
+    if (pathName === '/v1/connections/connection-1/credentials') {
+        return Response.json({ webhook_secret: 'wa-savana-connection-secret' });
+    }
+    if (pathName === '/v1/events' && options.method === 'POST') {
+        return Response.json({ event_id: crypto.randomUUID(), duplicate: false }, { status: 202 });
     }
     if (pathName === '/v1/connections/connection-1' && options.method === 'GET') {
         return Response.json({ status: 'active', scopes: ['pos.sales.events'] });
@@ -115,7 +125,7 @@ const envelope = (eventType, data, eventId, idempotencyKey) => ({
     data,
 });
 
-test('migration 042 creates isolated integration, projection and notification tables', () => {
+test('migrations create isolated integration, projection and service request tables', () => {
     const database = createDatabase();
     const tables = new Set(database.prepare(`
         SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'savana_%'
@@ -126,6 +136,7 @@ test('migration 042 creates isolated integration, projection and notification ta
         'savana_product_projection',
         'savana_pos_transactions',
         'savana_notification_candidates',
+        'savana_service_requests',
     ]));
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
@@ -250,6 +261,47 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
         products: 1,
         transactions: 2,
         pending_notification_candidates: 2,
+        pending_service_requests: 0,
     });
+    database.close();
+});
+
+test('Catalog connects directly and creates reviewed Wa service requests without POS', async () => {
+    const database = createDatabase();
+    const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
+    const item = await service.requestConnection(1, {
+        organization_id: organizationId,
+        remote_external_tenant_id: 'catalog-shop-1',
+    }, 'tenant-user', 'catalog');
+    assert.equal(item.platform_code, 'catalog');
+    database.prepare("UPDATE savana_integrations SET status = 'active' WHERE id = ?").run(item.id);
+
+    const product = envelope('catalog.product_snapshot.v1', {
+        snapshot_id: crypto.randomUUID(),
+        generated_at: new Date().toISOString(),
+        products: [{
+            canonical_product_id: crypto.randomUUID(),
+            sku: 'CAT-1',
+            name: 'Catalog product',
+            online_price: '12.500',
+            currency: 'LYD',
+            is_active: true,
+        }],
+    }, crypto.randomUUID(), 'catalog:products:direct-1');
+    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(product)));
+
+    const order = envelope('catalog.order_status_changed.v1', {
+        order_id: 'ORDER-1',
+        status: 'ready',
+        recipient_phone_e164: '+218910000001',
+        notification_consent: true,
+    }, crypto.randomUUID(), 'catalog:order:ORDER-1:ready');
+    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(order)));
+
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_product_projection').get().count, 1);
+    const request = database.prepare('SELECT * FROM savana_service_requests').get();
+    assert.equal(request.request_kind, 'order_notification');
+    assert.equal(request.status, 'pending_review');
+    assert.equal(service.diagnostics(service.get(1, 'catalog')).counts.pending_service_requests, 1);
     database.close();
 });
