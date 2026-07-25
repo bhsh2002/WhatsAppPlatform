@@ -71,6 +71,10 @@ networks:
   internal:
     name: wa-savana-internal
     driver: bridge
+    ipam:
+      config:
+        # Keep Docker away from the company's WireGuard client range (192.168.3.0/24).
+        - subnet: 172.16.240.0/24
   edge:
     name: wa-savana-network
     driver: bridge
