@@ -7,6 +7,7 @@ services:
       NODE_ENV: production
       DATABASE_PATH: /app/data/platform.db
       BACKUP_DIR: /app/data/backups
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
     ports:
       - "3031:3031"
     volumes:
