@@ -11,6 +11,7 @@ import {
     canonicalJson,
     SavanaIntegrationError,
     SavanaIntegrationService,
+    validateIntegrationConfig,
 } from '../services/savanaIntegration.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -99,6 +100,28 @@ const config = {
     subscriptionsSigningSecret: signingSecret,
     timeoutMs: 1000,
 };
+
+test('production callback policy permits only HTTPS or the canonical private Docker service', () => {
+    assert.doesNotThrow(() => validateIntegrationConfig(config, { NODE_ENV: 'production' }));
+    assert.doesNotThrow(() => validateIntegrationConfig({
+        ...config,
+        callbackUrl: 'http://wa-savana-server:3031/integrations/connect/events',
+    }, { NODE_ENV: 'production' }));
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            callbackUrl: 'http://wa.example.com/integrations/connect/events',
+        }, { NODE_ENV: 'production' }),
+        /must use HTTPS/
+    );
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            callbackUrl: 'not-a-url',
+        }, { NODE_ENV: 'production' }),
+        /valid absolute URL/
+    );
+});
 
 const provision = async (database, fetchImpl = createFetch()) => {
     const service = new SavanaIntegrationService({ database, fetchImpl, config });

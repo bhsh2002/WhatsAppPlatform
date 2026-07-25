@@ -65,7 +65,7 @@ export const integrationConfigFromEnv = (env = process.env) => ({
     timeoutMs: Math.max(500, Number(env.SAVANA_CONTROL_PLANE_TIMEOUT_MS || 10_000)),
 });
 
-export const validateIntegrationConfig = config => {
+export const validateIntegrationConfig = (config, env = process.env) => {
     if (!config.enabled) return;
     const missing = [
         ['SAVANA_CONNECT_ADMIN_TOKEN', config.connectAdminToken],
@@ -77,8 +77,24 @@ export const validateIntegrationConfig = config => {
     if (missing.length > 0) {
         throw new Error(`Missing Savana integration settings: ${missing.join(', ')}`);
     }
-    if (!config.callbackUrl.startsWith('https://') && process.env.NODE_ENV === 'production') {
-        throw new Error('SAVANA_CONNECT_CALLBACK_URL must use HTTPS in production');
+
+    let callbackUrl;
+    try {
+        callbackUrl = new URL(config.callbackUrl);
+    } catch {
+        throw new Error('SAVANA_CONNECT_CALLBACK_URL must be a valid absolute URL');
+    }
+
+    const isPrivateDockerCallback = (
+        callbackUrl.protocol === 'http:'
+        && callbackUrl.hostname === 'wa-savana-server'
+        && callbackUrl.port === '3031'
+    );
+    if (env.NODE_ENV === 'production' && callbackUrl.protocol !== 'https:' && !isPrivateDockerCallback) {
+        throw new Error(
+            'SAVANA_CONNECT_CALLBACK_URL must use HTTPS in production '
+            + 'unless it targets the private wa-savana-server:3031 Docker service'
+        );
     }
 };
 
