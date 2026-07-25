@@ -59,6 +59,7 @@ const TenantBilling = () => {
     const [summary, setSummary] = useState(null);
     const [ledger, setLedger] = useState([]);
     const [invoices, setInvoices] = useState([]);
+    const [centralSubscription, setCentralSubscription] = useState(null);
     const [periodForm, setPeriodForm] = useState(defaultPeriod);
     const [appliedPeriod, setAppliedPeriod] = useState(defaultPeriod);
     const [loading, setLoading] = useState(true);
@@ -68,14 +69,24 @@ const TenantBilling = () => {
         try {
             setLoading(true);
             setError(null);
-            const [summaryData, ledgerData, invoicesData] = await Promise.all([
+            const [summaryData, ledgerData, invoicesData, centralData] = await Promise.all([
                 api.getPortalBillingSummary(appliedPeriod),
                 api.getPortalBillingLedger({ limit: 10 }),
                 api.getPortalBillingInvoices({ limit: 5 }),
+                api.getPortalCentralSubscription(),
             ]);
             setSummary(summaryData);
             setLedger(ledgerData.ledger || []);
-            setInvoices(invoicesData.invoices || []);
+            setCentralSubscription(centralData);
+            setInvoices(
+                centralData?.managed_centrally
+                    ? (centralData.invoices || []).map(invoice => ({
+                        ...invoice,
+                        invoice_number: invoice.number,
+                        subtotal_credits: invoice.total_minor,
+                    }))
+                    : (invoicesData.invoices || [])
+            );
         } catch (err) {
             setError(err.message || t('billing.fetchFailed'));
         } finally {
@@ -108,10 +119,25 @@ const TenantBilling = () => {
     }
 
     const balances = summary?.balances || {};
-    const plan = summary?.plan;
-    const account = summary?.account || {};
+    const plan = centralSubscription?.managed_centrally
+        ? centralSubscription.active_plan
+        : summary?.plan;
+    const centralItem = centralSubscription?.active_items?.[0] || null;
+    const centralRecord = centralItem
+        ? centralSubscription.subscriptions?.find(subscription =>
+            subscription.items.some(item => item.id === centralItem.id)
+        )
+        : null;
+    const account = centralSubscription?.managed_centrally ? {
+        ...(summary?.account || {}),
+        billing_cycle_start: centralRecord?.current_period_start || null,
+        billing_cycle_end: centralRecord?.current_period_end || null,
+        status: centralSubscription.subscription_status,
+    } : (summary?.account || {});
     const usageRows = summary?.usage_period || summary?.usage_month || [];
-    const cycleBlocked = Boolean(balances.billing_cycle_blocked);
+    const cycleBlocked = centralSubscription?.managed_centrally
+        ? !['active', 'trialing', 'past_due'].includes(centralSubscription.subscription_status)
+        : Boolean(balances.billing_cycle_blocked);
     const lowBalance = !cycleBlocked && Number(balances.available_credits || 0) < 10;
     const usingCreditLimit = Number(balances.credit_used_credits || 0) > 0;
     const number = (value) => Number(value || 0).toLocaleString(locale);
@@ -136,6 +162,11 @@ const TenantBilling = () => {
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {centralSubscription?.managed_centrally && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                    الخطة ودورة الاشتراك والفواتير تدار من نظام اشتراكات سافانا المركزي. تحتفظ Wa Savana بسجل الاستخدام والرصيد التشغيلي فقط.
+                </Alert>
+            )}
             {cycleBlocked && (
                 <Alert severity="error" sx={{ mb: 2 }}>
                     انتهت دورة الاشتراك الحالية، ولا يمكن تنفيذ عمليات جديدة حتى يتم تجديد الباقة من الإدارة.
@@ -192,7 +223,7 @@ const TenantBilling = () => {
                     <StatCard title={t('billing.availableCredits')} value={number(balances.available_credits)} icon={<WalletIcon />} color={lowBalance ? 'warning' : 'success'} caption={t('billing.availableCreditsCaption')} />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                    <StatCard title={t('billing.currentPlan')} value={plan?.name || t('billing.noPlan')} icon={<UsageIcon />} caption={plan ? money(plan.monthly_price_lyd) : t('common.notSet')} />
+                    <StatCard title={t('billing.currentPlan')} value={plan?.name || t('billing.noPlan')} icon={<UsageIcon />} caption={plan ? money(plan.monthly_price_lyd ?? ((plan.prices?.find(item => item.active)?.amount_minor || 0) / 100)) : t('common.notSet')} />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                     <StatCard title={t('billing.planCredits')} value={number(balances.plan_balance_credits)} icon={<PaymentsIcon />} color="info" caption={t('billing.planCreditsCaption')} />

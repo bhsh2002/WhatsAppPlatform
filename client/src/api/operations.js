@@ -190,6 +190,14 @@ export const operationsMethods = {
         return this.request('/api/billing/plans');
     },
 
+    async getCentralSubscriptionMode() {
+        return this.request('/api/billing/central-subscriptions/mode');
+    },
+
+    async getCentralTenantSubscription(tenantId) {
+        return this.request(`/api/billing/central-subscriptions/${tenantId}`);
+    },
+
     async createBillingPlan(data) {
         return this.request('/api/billing/plans', {
             method: 'POST',
@@ -368,6 +376,10 @@ export const operationsMethods = {
     async getPortalBillingSummary(params = {}) {
         const query = new URLSearchParams(params).toString();
         return this.request(`/api/portal/billing/summary${query ? '?' + query : ''}`);
+    },
+
+    async getPortalCentralSubscription() {
+        return this.request('/api/portal/integrations/subscription');
     },
 
     async getPortalBillingLedger(params = {}) {

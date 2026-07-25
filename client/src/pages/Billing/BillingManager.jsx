@@ -174,6 +174,8 @@ const BillingManager = () => {
   const [tenants, setTenants] = useState([]);
   const [selectedTenantId, setSelectedTenantId] = useState('');
   const [billing, setBilling] = useState(null);
+  const [centralSubscription, setCentralSubscription] = useState(null);
+  const [centralMode, setCentralMode] = useState(false);
   const [billingPeriodForm, setBillingPeriodForm] = useState(defaultBillingPeriod);
   const [billingPeriod, setBillingPeriod] = useState(defaultBillingPeriod);
   const [planDialog, setPlanDialog] = useState(false);
@@ -251,11 +253,12 @@ const BillingManager = () => {
     try {
       setLoading(true);
       setError(null);
-      const [plansData, pricesData, tenantsData] = await Promise.all([api.getBillingPlans(), api.getBillingPrices(), api.getTenants()]);
+      const [plansData, pricesData, tenantsData, modeData] = await Promise.all([api.getBillingPlans(), api.getBillingPrices(), api.getTenants(), api.getCentralSubscriptionMode()]);
       const tenantRows = Array.isArray(tenantsData) ? tenantsData : [];
       setPlans(plansData.plans || []);
       setPrices(pricesData.prices || []);
       setTenants(tenantRows);
+      setCentralMode(Boolean(modeData.managed_centrally));
       const nextTenantId = selectedTenantId || tenantRows[0]?.id || '';
       setSelectedTenantId(nextTenantId);
       if (nextTenantId) {
@@ -273,8 +276,12 @@ const BillingManager = () => {
       setBilling(null);
       return;
     }
-    const data = await api.getTenantBilling(tenantId, periodOverride);
+    const [data, centralData] = await Promise.all([
+      api.getTenantBilling(tenantId, periodOverride),
+      api.getCentralTenantSubscription(tenantId)
+    ]);
     setBilling(data);
+    setCentralSubscription(centralData);
     setAccountForm({
       plan_id: data?.account?.plan_id || '',
       credit_limit_credits: data?.account?.credit_limit_credits || 0,
@@ -628,6 +635,9 @@ const BillingManager = () => {
             {error && <Alert severity="error" sx={{
       mb: 2
     }}>{error}</Alert>}
+            {centralMode && <Alert severity="info" sx={{ mb: 2 }}>
+                الخطط وحالة الاشتراك ودورته تدار مركزياً. تبقى هنا أدوات الرصيد والاستخدام وتسوية تكلفة Meta فقط.
+            </Alert>}
 
             <Paper sx={{
       mb: 3
@@ -661,7 +671,7 @@ const BillingManager = () => {
             mb: 2
           }}>
                                 <InputLabel>{tx("auto.k_bcbc8982094b")}</InputLabel>
-                                <Select value={accountForm.plan_id} label={tx("auto.k_bcbc8982094b")} onChange={e => setAccountForm({
+                                <Select disabled={centralMode} value={accountForm.plan_id} label={tx("auto.k_bcbc8982094b")} onChange={e => setAccountForm({
               ...accountForm,
               plan_id: e.target.value
             })}>
@@ -670,7 +680,7 @@ const BillingManager = () => {
                                     {plans.map(plan => <MenuItem key={plan.id} value={plan.id}>{plan.name}</MenuItem>)}
                                 </Select>
                             </FormControl>
-                            <TextField fullWidth type="number" label={tx("auto.k_d806363e06a1")} value={accountForm.credit_limit_credits} onChange={e => setAccountForm({
+                            <TextField disabled={centralMode} fullWidth type="number" label={tx("auto.k_d806363e06a1")} value={accountForm.credit_limit_credits} onChange={e => setAccountForm({
             ...accountForm,
             credit_limit_credits: Number(e.target.value) || 0
           })} sx={{
@@ -681,7 +691,7 @@ const BillingManager = () => {
             mb: 2
           }}>
                                 <InputLabel>{tx("auto.k_b2b02f1745b7")}</InputLabel>
-                                <Select value={accountForm.status} label={tx("auto.k_b2b02f1745b7")} onChange={e => setAccountForm({
+                                <Select disabled={centralMode} value={accountForm.status} label={tx("auto.k_b2b02f1745b7")} onChange={e => setAccountForm({
               ...accountForm,
               status: e.target.value
             })}>
@@ -690,7 +700,7 @@ const BillingManager = () => {
                                     <MenuItem value="closed">{tx("auto.k_d59687babb13")}</MenuItem>
                                 </Select>
                             </FormControl>
-                            <Button fullWidth variant="contained" startIcon={<SaveIcon />} onClick={saveAccount} disabled={saving || !selectedTenantId}>{tx("auto.k_04b4b72720b8")}
+                            <Button fullWidth variant="contained" startIcon={<SaveIcon />} onClick={saveAccount} disabled={centralMode || saving || !selectedTenantId}>{centralMode ? 'مدار مركزياً' : tx("auto.k_04b4b72720b8")}
 
             </Button>
                         </Paper>
@@ -790,7 +800,7 @@ const BillingManager = () => {
             mb: 2
           }}>
                                 <Typography component="h2" variant="h6" fontWeight={700}>دورة الاشتراك</Typography>
-                                <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={saving || !selectedTenantId || !cycleRenewDue}>تجديد الدورة</Button>
+                                <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={centralMode || saving || !selectedTenantId || !cycleRenewDue}>{centralMode ? 'تجدد مركزياً' : 'تجديد الدورة'}</Button>
                             </Box>
                             {cycleRenewDue ? <Alert severity="warning" sx={{
             mb: 2
@@ -903,7 +913,14 @@ const BillingManager = () => {
                     </Grid>
                 </Grid>}
 
-            {tab === 1 && <Paper sx={{
+            {tab === 1 && centralMode && <Paper sx={{ p: 3 }}>
+                    <Typography component="h2" variant="h6" fontWeight={700}>خطط سافانا المركزية</Typography>
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        لا يمكن إنشاء أو تعديل خطط محلية في هذا الوضع. الخطة الحالية: {centralSubscription?.active_plan?.name || 'لا توجد خطة نشطة'}.
+                    </Alert>
+                </Paper>}
+
+            {tab === 1 && !centralMode && <Paper sx={{
       p: 2
     }}>
                     <Box sx={{

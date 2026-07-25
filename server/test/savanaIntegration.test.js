@@ -46,6 +46,8 @@ const entitlementSnapshot = ({ entitled = true, secret = signingSecret } = {}) =
             'wa_savana.integration.pos.enabled': entitled,
             'wa_savana.integration.catalog.enabled': entitled,
             'wa_savana.integration.sawemly.enabled': entitled,
+            'wa_savana.credits.monthly': 10000,
+            'wa_savana.credit_limit.default': 250,
         },
     };
     return {
@@ -191,6 +193,100 @@ test('missing entitlement and invalid signed snapshots fail closed', async () =>
         );
         database.close();
     }
+});
+
+test('central subscription context becomes the tenant billing enforcement source', async () => {
+    const database = createDatabase();
+    const planId = crypto.randomUUID();
+    const itemId = crypto.randomUUID();
+    const subscriptionId = crypto.randomUUID();
+    const periodStart = '2026-07-01T00:00:00+00:00';
+    const periodEnd = '2026-08-01T00:00:00+00:00';
+    const snapshot = entitlementSnapshot();
+    const fetchImpl = async url => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/v1/platform-tenants') {
+            assert.equal(parsed.searchParams.get('platform_code'), 'wa_savana');
+            assert.equal(parsed.searchParams.get('external_tenant_id'), 'wa_savana:tenant:1');
+            return Response.json([{
+                id: crypto.randomUUID(),
+                organization_id: organizationId,
+                platform_code: 'wa_savana',
+                external_tenant_id: 'wa_savana:tenant:1',
+            }]);
+        }
+        if (parsed.pathname.endsWith('/subscription-context/wa_savana')) {
+            return Response.json({ data: {
+                source: 'savana_subscriptions',
+                managed_centrally: true,
+                platform_code: 'wa_savana',
+                subscription_status: 'active',
+                active_items: [{
+                    id: itemId,
+                    plan_id: planId,
+                    plan_name: 'Wa Central',
+                    billing_period: 'monthly',
+                }],
+                plans: [{
+                    id: planId,
+                    code: 'wa_standard',
+                    name: 'Wa Central',
+                    description: 'Central plan',
+                    prices: [{
+                        billing_period: 'monthly',
+                        amount_minor: 4500,
+                        currency: 'LYD',
+                        active: true,
+                    }],
+                }],
+                subscriptions: [{
+                    id: subscriptionId,
+                    status: 'active',
+                    current_period_start: periodStart,
+                    current_period_end: periodEnd,
+                    items: [{ id: itemId, plan_id: planId }],
+                }],
+                entitlement_snapshot: snapshot,
+                invoices: [],
+                ui: {},
+            } });
+        }
+        return Response.json({ error: 'unexpected request' }, { status: 500 });
+    };
+    const service = new SavanaIntegrationService({
+        database,
+        fetchImpl,
+        config: { ...config, subscriptionsMode: 'central' },
+    });
+
+    const context = await service.synchronizeCentralSubscription(1);
+    assert.equal(context.active_plan.name, 'Wa Central');
+    assert.equal(context.bound, true);
+    const account = database.prepare(
+        'SELECT * FROM tenant_billing_accounts WHERE tenant_id = 1'
+    ).get();
+    assert.equal(account.plan_balance_credits, 10000);
+    assert.equal(account.credit_limit_credits, 250);
+    assert.equal(account.billing_cycle_start, periodStart);
+    assert.equal(account.billing_cycle_end, periodEnd);
+    assert.equal(account.status, 'active');
+    const shadowPlan = database.prepare(
+        'SELECT * FROM billing_plans WHERE id = ?'
+    ).get(account.plan_id);
+    assert.equal(shadowPlan.name, 'Wa Central');
+    assert.equal(shadowPlan.is_active, 0);
+
+    database.prepare(
+        'UPDATE tenant_billing_accounts SET plan_balance_credits = 7500 WHERE tenant_id = 1'
+    ).run();
+    await service.synchronizeCentralSubscription(1);
+    assert.equal(
+        database.prepare(
+            'SELECT plan_balance_credits FROM tenant_billing_accounts WHERE tenant_id = 1'
+        ).get().plan_balance_credits,
+        7500,
+    );
+    database.close();
 });
 
 test('POS simulator sales, returns and inventory are idempotent and consent aware', async () => {

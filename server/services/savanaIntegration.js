@@ -62,6 +62,7 @@ export const integrationConfigFromEnv = (env = process.env) => ({
     subscriptionsUrl: String(env.SAVANA_SUBSCRIPTIONS_URL || 'http://savana-subscriptions:8020').replace(/\/+$/, ''),
     subscriptionsPlatformToken: env.SAVANA_SUBSCRIPTIONS_PLATFORM_TOKEN || '',
     subscriptionsSigningSecret: env.SAVANA_SUBSCRIPTIONS_SIGNING_SECRET || '',
+    subscriptionsMode: String(env.SAVANA_SUBSCRIPTIONS_MODE || 'local').trim().toLowerCase(),
     timeoutMs: Math.max(500, Number(env.SAVANA_CONTROL_PLANE_TIMEOUT_MS || 10_000)),
 });
 
@@ -258,6 +259,180 @@ export class SavanaIntegrationService {
             throw error;
         }
         return isSubscriptions ? body.data : body;
+    }
+
+    async subscriptionContext(tenantId) {
+        if (!this.config.enabled || this.config.subscriptionsMode !== 'central') {
+            return {
+                managed_centrally: false,
+                source: 'wa_savana',
+                subscription_status: 'local',
+            };
+        }
+        const tenant = this.db.prepare('SELECT id, name FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError('Tenant was not found', 404, 'tenant_not_found');
+        }
+        const externalTenantId = `wa_savana:tenant:${tenant.id}`;
+        const tenants = await this.requestJson(
+            'connect',
+            'GET',
+            `/v1/platform-tenants?platform_code=wa_savana&external_tenant_id=${encodeURIComponent(externalTenantId)}`
+        );
+        if (tenants.length === 0) {
+            return {
+                source: 'savana_subscriptions',
+                managed_centrally: true,
+                bound: false,
+                platform_code: 'wa_savana',
+                subscription_status: 'unbound',
+                subscriptions: [],
+                active_items: [],
+                plans: [],
+                bundles: [],
+                entitlement_snapshot: null,
+                invoices: [],
+                ui: {},
+            };
+        }
+        if (tenants.length !== 1) {
+            throw new SavanaIntegrationError(
+                'External tenant resolves to multiple organizations',
+                409,
+                'central_subscription_conflict'
+            );
+        }
+        const platformTenant = tenants[0];
+        const context = await this.requestJson(
+            'subscriptions',
+            'GET',
+            `/v1/organizations/${encodeURIComponent(platformTenant.organization_id)}`
+            + '/subscription-context/wa_savana'
+        );
+        if (context.entitlement_snapshot) {
+            this.verifyEntitlement(
+                platformTenant.organization_id,
+                context.entitlement_snapshot
+            );
+        }
+        return {
+            ...context,
+            bound: true,
+            platform_tenant: platformTenant,
+        };
+    }
+
+    async synchronizeCentralSubscription(tenantId) {
+        const context = await this.subscriptionContext(tenantId);
+        if (!context.managed_centrally) return context;
+
+        const activeItem = context.active_items?.[0] || null;
+        const centralPlan = activeItem
+            ? context.plans.find(item => item.id === activeItem.plan_id)
+            : null;
+        const entitlements = context.entitlement_snapshot?.payload?.entitlements || {};
+        const includedCredits = Number(entitlements['wa_savana.credits.monthly'] || 0);
+        const creditLimit = Number(entitlements['wa_savana.credit_limit.default'] || 0);
+        const statusActive = ['active', 'trialing', 'past_due'].includes(
+            context.subscription_status
+        ) && Boolean(activeItem);
+
+        const synchronize = this.db.transaction(() => {
+            let planId = null;
+            if (centralPlan) {
+                const code = `savana_central_${centralPlan.id}`;
+                const price = centralPlan.prices?.find(
+                    item => item.billing_period === 'monthly' && item.active
+                ) || centralPlan.prices?.find(item => item.active) || null;
+                this.db.prepare(`
+                    INSERT INTO billing_plans (
+                        code, name, description, monthly_price_lyd,
+                        monthly_included_credits, default_credit_limit, is_active,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now', 'localtime'))
+                    ON CONFLICT(code) DO UPDATE SET
+                        name = excluded.name,
+                        description = excluded.description,
+                        monthly_price_lyd = excluded.monthly_price_lyd,
+                        monthly_included_credits = excluded.monthly_included_credits,
+                        default_credit_limit = excluded.default_credit_limit,
+                        is_active = 0,
+                        updated_at = datetime('now', 'localtime')
+                `).run(
+                    code,
+                    centralPlan.name,
+                    centralPlan.description || 'مرآة اشتراك سافانا المركزي',
+                    Number(price?.amount_minor || 0) / 100,
+                    includedCredits,
+                    creditLimit,
+                );
+                planId = this.db.prepare(
+                    'SELECT id FROM billing_plans WHERE code = ?'
+                ).get(code).id;
+            }
+
+            const existing = this.db.prepare(
+                'SELECT * FROM tenant_billing_accounts WHERE tenant_id = ?'
+            ).get(tenantId);
+            const periodStart = activeItem
+                ? context.subscriptions.find(subscription =>
+                    subscription.items.some(item => item.id === activeItem.id)
+                )?.current_period_start || null
+                : null;
+            const periodEnd = activeItem
+                ? context.subscriptions.find(subscription =>
+                    subscription.items.some(item => item.id === activeItem.id)
+                )?.current_period_end || null
+                : null;
+            const periodChanged = !existing || existing.billing_cycle_start !== periodStart;
+            this.db.prepare(`
+                INSERT INTO tenant_billing_accounts (
+                    tenant_id, plan_id, plan_balance_credits, credit_limit_credits,
+                    billing_cycle_start, billing_cycle_end, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id) DO UPDATE SET
+                    plan_id = excluded.plan_id,
+                    plan_balance_credits = CASE
+                        WHEN tenant_billing_accounts.billing_cycle_start IS NOT excluded.billing_cycle_start
+                        THEN excluded.plan_balance_credits
+                        ELSE tenant_billing_accounts.plan_balance_credits
+                    END,
+                    credit_limit_credits = excluded.credit_limit_credits,
+                    billing_cycle_start = excluded.billing_cycle_start,
+                    billing_cycle_end = excluded.billing_cycle_end,
+                    status = excluded.status,
+                    updated_at = datetime('now', 'localtime')
+            `).run(
+                tenantId,
+                planId,
+                periodChanged ? includedCredits : existing?.plan_balance_credits || 0,
+                creditLimit,
+                periodStart,
+                periodEnd,
+                statusActive ? 'active' : 'suspended',
+            );
+        });
+        synchronize.immediate();
+        return {
+            ...context,
+            active_plan: centralPlan,
+        };
+    }
+
+    async synchronizeAllCentralSubscriptions() {
+        if (!this.config.enabled || this.config.subscriptionsMode !== 'central') return [];
+        const results = [];
+        for (const tenant of this.db.prepare('SELECT id FROM tenants ORDER BY id').all()) {
+            try {
+                results.push(await this.synchronizeCentralSubscription(tenant.id));
+            } catch (error) {
+                console.error(
+                    `[SavanaSubscriptions] Failed to synchronize tenant ${tenant.id}:`,
+                    error.message
+                );
+            }
+        }
+        return results;
     }
 
     verifyEntitlement(organizationId, snapshot) {

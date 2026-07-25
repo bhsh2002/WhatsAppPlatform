@@ -15,6 +15,14 @@ const boundedLimit = value => Math.min(100, Math.max(1, Number.parseInt(value ||
 export const createTenantIntegrationsRouter = ({ database, service }) => {
     const router = express.Router();
 
+    router.get('/subscription', async (req, res) => {
+        try {
+            return res.json(await service.synchronizeCentralSubscription(req.user.tenant_id));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.get('/platforms', (req, res) => {
         try {
             const existing = new Map(
@@ -206,6 +214,27 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 return res.status(404).json({ error: 'مرشح الإشعار غير موجود', code: 'candidate_not_found' });
             }
             return res.json({ dismissed: true });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    return router;
+};
+
+export const createAdminSubscriptionsRouter = ({ service }) => {
+    const router = express.Router();
+
+    router.get('/mode', (_req, res) => res.json({
+        mode: service.config.subscriptionsMode,
+        managed_centrally: (
+            service.config.enabled && service.config.subscriptionsMode === 'central'
+        ),
+    }));
+
+    router.get('/:tenantId', async (req, res) => {
+        try {
+            return res.json(await service.synchronizeCentralSubscription(req.params.tenantId));
         } catch (error) {
             return respondError(res, error);
         }

@@ -21,6 +21,14 @@ import {
 } from '../services/billing.js';
 
 const router = express.Router();
+const centralSubscriptionsEnabled = () => (
+    String(process.env.SAVANA_SUBSCRIPTIONS_MODE || 'local').trim().toLowerCase() === 'central'
+);
+
+const centralManagedResponse = res => res.status(409).json({
+    error: 'تدار الخطة ودورة الاشتراك من نظام اشتراكات سافانا المركزي',
+    code: 'central_subscription_managed',
+});
 
 // Get all tenants
 router.get('/', (req, res) => {
@@ -490,6 +498,7 @@ router.get('/:id/billing', (req, res) => {
 });
 
 router.patch('/:id/billing/account', (req, res) => {
+    if (centralSubscriptionsEnabled()) return centralManagedResponse(res);
     try {
         const summary = updateTenantBillingAccount(req.params.id, req.body);
         res.json({ success: true, summary });
@@ -501,6 +510,7 @@ router.patch('/:id/billing/account', (req, res) => {
 });
 
 router.post('/:id/billing/renew-cycle', (req, res) => {
+    if (centralSubscriptionsEnabled()) return centralManagedResponse(res);
     try {
         const result = applyMonthlyAllowance(req.params.id);
         res.json(result);

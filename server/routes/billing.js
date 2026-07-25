@@ -28,6 +28,14 @@ import {
 } from '../services/billing.js';
 
 const router = express.Router();
+const centralSubscriptionsEnabled = () => (
+    String(process.env.SAVANA_SUBSCRIPTIONS_MODE || 'local').trim().toLowerCase() === 'central'
+);
+
+const centralManagedResponse = res => res.status(409).json({
+    error: 'تدار الخطط والاشتراكات من نظام اشتراكات سافانا المركزي',
+    code: 'central_subscription_managed',
+});
 
 const parseCsv = (text) => {
     const rows = [];
@@ -113,12 +121,17 @@ const normalizeRateRows = (rows, defaults = {}) => {
 
 router.get('/plans', (req, res) => {
     try {
-        const plans = db.prepare(`
+        const plans = db.prepare(centralSubscriptionsEnabled() ? `
+            SELECT *
+            FROM billing_plans
+            WHERE code LIKE 'savana_central_%'
+            ORDER BY monthly_price_lyd ASC, id ASC
+        ` : `
             SELECT *
             FROM billing_plans
             ORDER BY is_active DESC, monthly_price_lyd ASC, id ASC
         `).all();
-        res.json({ plans });
+        res.json({ plans, managed_centrally: centralSubscriptionsEnabled() });
     } catch (error) {
         console.error('[Billing] Plans fetch error:', error);
         res.status(500).json({ error: 'فشل جلب الباقات' });
@@ -126,6 +139,7 @@ router.get('/plans', (req, res) => {
 });
 
 router.post('/plans', (req, res) => {
+    if (centralSubscriptionsEnabled()) return centralManagedResponse(res);
     try {
         const {
             code,
@@ -169,6 +183,7 @@ router.post('/plans', (req, res) => {
 });
 
 router.patch('/plans/:id', (req, res) => {
+    if (centralSubscriptionsEnabled()) return centralManagedResponse(res);
     try {
         const allowed = [
             'code',

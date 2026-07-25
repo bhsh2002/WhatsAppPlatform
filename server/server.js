@@ -34,6 +34,7 @@ import facebookContentStudioRouter from './routes/facebookContentStudio.js';
 import dataDeletionRouter from './routes/dataDeletion.js';
 import metricsRouter from './routes/metrics.js';
 import {
+    createAdminSubscriptionsRouter,
     createConnectCallbacksRouter,
     createTenantIntegrationsRouter,
 } from './routes/savanaIntegrations.js';
@@ -151,6 +152,16 @@ const savanaIntegrationService = new SavanaIntegrationService({
     database: db,
     config: savanaIntegrationConfig,
 });
+if (savanaIntegrationConfig.enabled && savanaIntegrationConfig.subscriptionsMode === 'central') {
+    const refreshCentralSubscriptions = () => {
+        savanaIntegrationService.synchronizeAllCentralSubscriptions().catch(error => {
+            console.error('[SavanaSubscriptions] Background synchronization failed:', error.message);
+        });
+    };
+    refreshCentralSubscriptions();
+    const centralSubscriptionTimer = setInterval(refreshCentralSubscriptions, 5 * 60 * 1000);
+    centralSubscriptionTimer.unref();
+}
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
 // are never generated into or printed through application logs.
@@ -460,6 +471,9 @@ app.use('/webhook-admin', authMiddleware, adminMiddleware, webhookAdminRouter);
 app.use('/unified', authMiddleware, adminMiddleware, unifiedRouter);
 app.use('/automation', authMiddleware, adminMiddleware, automationRouter);
 app.use('/settings', authMiddleware, adminMiddleware, settingsRouter);
+app.use('/billing/central-subscriptions', authMiddleware, adminMiddleware, createAdminSubscriptionsRouter({
+    service: savanaIntegrationService,
+}));
 app.use('/billing', authMiddleware, adminMiddleware, billingRouter);
 app.use('/messenger-bot', authMiddleware, adminMiddleware, messengerBotRouter);
 app.use('/content-studio', authMiddleware, adminMiddleware, facebookContentStudioRouter);
