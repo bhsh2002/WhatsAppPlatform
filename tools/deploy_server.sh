@@ -9,7 +9,7 @@ if [[ ! -f server/.env ]]; then
   exit 2
 fi
 
-mkdir -p data server/uploads
+mkdir -p server/db server/uploads
 docker network inspect savana-control-plane-network >/dev/null
 
 compose=(docker compose -f docker-compose.server.yml)

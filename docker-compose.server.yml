@@ -17,7 +17,7 @@ services:
     expose:
       - "3031"
     volumes:
-      - ./data:/app/data
+      - ./server/db:/app/data
       - ./server/uploads:/app/uploads
     read_only: true
     tmpfs:
