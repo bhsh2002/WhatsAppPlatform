@@ -253,6 +253,19 @@ export const createAdminSubscriptionsRouter = ({ service }) => {
         }
     });
 
+    router.post('/:tenantId/checkout', async (req, res) => {
+        try {
+            const result = await service.subscriptionCheckout(
+                req.params.tenantId,
+                req.body || {},
+                `admin:${req.user.id}`,
+            );
+            return res.status(201).json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     return router;
 };
 

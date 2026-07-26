@@ -176,6 +176,8 @@ const BillingManager = () => {
   const [billing, setBilling] = useState(null);
   const [centralSubscription, setCentralSubscription] = useState(null);
   const [centralMode, setCentralMode] = useState(false);
+  const [centralCheckoutWorking, setCentralCheckoutWorking] = useState('');
+  const [centralCheckoutMessage, setCentralCheckoutMessage] = useState('');
   const [billingPeriodForm, setBillingPeriodForm] = useState(defaultBillingPeriod);
   const [billingPeriod, setBillingPeriod] = useState(defaultBillingPeriod);
   const [planDialog, setPlanDialog] = useState(false);
@@ -332,6 +334,7 @@ const BillingManager = () => {
   const handleTenantChange = async tenantId => {
     setSelectedTenantId(tenantId);
     setError(null);
+    setCentralCheckoutMessage('');
     try {
       await fetchTenantBilling(tenantId);
       await fetchMetaBilling(tenantId);
@@ -501,6 +504,41 @@ const BillingManager = () => {
       setError(err.message || 'فشل تجديد دورة الاشتراك');
     } finally {
       setSaving(false);
+    }
+  };
+  const provisionCentralSubscription = async (kind, offer) => {
+    if (!selectedTenantId) return;
+    const price = kind === 'plan' ? offer.prices?.find(item => item.active) : null;
+    if (kind === 'plan' && !price) {
+      setError('لا يوجد سعر مركزي فعال لهذه الباقة.');
+      return;
+    }
+    setCentralCheckoutWorking(offer.id);
+    setCentralCheckoutMessage('');
+    setError(null);
+    try {
+      const result = await api.checkoutCentralTenantSubscription(selectedTenantId, {
+        ...(kind === 'plan'
+          ? {
+              plan_id: offer.id,
+              price_id: price.id
+            }
+          : {
+              bundle_id: offer.id
+            }),
+        idempotency_key: `wa-savana-admin-${selectedTenantId}-${crypto.randomUUID()}`
+      });
+      const invoiceNumber = result?.invoice?.number;
+      setCentralCheckoutMessage(
+        invoiceNumber
+          ? `تم إنشاء طلب الاشتراك المركزي والفاتورة ${invoiceNumber}. الطلب الآن قيد المراجعة وبانتظار السداد.`
+          : 'تم إنشاء طلب الاشتراك المركزي، وهو الآن قيد المراجعة.'
+      );
+      await fetchTenantBilling(selectedTenantId);
+    } catch (checkoutError) {
+      setError(checkoutError.message || 'تعذر إنشاء طلب الاشتراك المركزي.');
+    } finally {
+      setCentralCheckoutWorking('');
     }
   };
   const createMetaInvoice = async () => {
@@ -914,10 +952,106 @@ const BillingManager = () => {
                 </Grid>}
 
             {tab === 1 && centralMode && <Paper sx={{ p: 3 }}>
-                    <Typography component="h2" variant="h6" fontWeight={700}>خطط سافانا المركزية</Typography>
-                    <Alert severity="info" sx={{ mt: 2 }}>
-                        لا يمكن إنشاء أو تعديل خطط محلية في هذا الوضع. الخطة الحالية: {centralSubscription?.active_plan?.name || 'لا توجد خطة نشطة'}.
-                    </Alert>
+                    <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 2,
+        flexWrap: 'wrap',
+        mb: 2
+      }}>
+                        <Box>
+                            <Typography component="h2" variant="h6" fontWeight={700}>توفير اشتراك مركزي للمستخدم</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                اختر المستخدم ثم الباقة. يُنشأ الطلب في نظام اشتراكات سافانا المركزي ويظل قيد المراجعة حتى اعتماده أو سداد فاتورته.
+                            </Typography>
+                        </Box>
+                        <FormControl sx={{ minWidth: 280 }}>
+                            <InputLabel>المستخدم</InputLabel>
+                            <Select value={selectedTenantId} label="المستخدم" onChange={e => handleTenantChange(e.target.value)}>
+                                {tenants.map(tenant => <MenuItem key={tenant.id} value={tenant.id}>{tenant.name}</MenuItem>)}
+                            </Select>
+                        </FormControl>
+                    </Box>
+
+                    {centralCheckoutMessage && <Alert severity="success" onClose={() => setCentralCheckoutMessage('')} sx={{ mb: 2 }}>
+                            {centralCheckoutMessage}
+                        </Alert>}
+
+                    {!selectedTenantId && <Alert severity="warning">اختر مستخدماً أولاً.</Alert>}
+
+                    {selectedTenantId && !centralSubscription?.bound && <Alert severity="warning">
+                            يجب ربط مستخدم Wa Savana بمؤسسة سافانا المركزية قبل توفير الاشتراك.
+                        </Alert>}
+
+                    {selectedTenantId && centralSubscription?.bound && <>
+                            <Alert severity={centralSubscription.subscription_status === 'pending_payment' ? 'warning' : 'info'} sx={{ mb: 2 }}>
+                                المستخدم: {selectedTenant?.name || selectedTenantId}
+                                {' — '}الحالة المركزية: {centralSubscription.subscription_status || 'غير مشترك'}
+                                {' — '}الباقة الحالية: {centralSubscription.active_plan?.name || 'لا توجد باقة نشطة'}.
+                            </Alert>
+
+                            <Grid container spacing={2}>
+                                {(centralSubscription.plans || []).map(offer => {
+                const price = offer.prices?.find(item => item.active);
+                const requestPending = centralSubscription.subscription_status === 'pending_payment';
+                return <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <Card variant="outlined" sx={{ height: '100%' }}>
+                                            <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                                <Chip size="small" color="primary" label="باقة Wa Savana" sx={{ alignSelf: 'flex-start', mb: 1 }} />
+                                                <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
+                                                <Typography variant="body2" color="text.secondary" sx={{ my: 1, flexGrow: 1 }}>
+                                                    {offer.description || 'اشتراك مركزي مستقل لمنصة Wa Savana.'}
+                                                </Typography>
+                                                <Typography fontWeight={800} sx={{ mb: 1.5 }}>
+                                                    {price ? `${money(Number(price.amount_minor) / 100, price.currency)} / ${price.billing_period === 'yearly' ? 'سنة' : 'شهر'}` : 'السعر غير متاح'}
+                                                </Typography>
+                                                <Button
+                                                    variant="contained"
+                                                    disabled={!price || Boolean(centralCheckoutWorking) || requestPending}
+                                                    onClick={() => provisionCentralSubscription('plan', offer)}
+                                                >
+                                                    {centralCheckoutWorking === offer.id
+                              ? <CircularProgress size={20} color="inherit" />
+                              : requestPending ? 'يوجد طلب قيد المراجعة' : 'توفير الاشتراك'}
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>;
+              })}
+                                {(centralSubscription.bundles || []).map(offer => {
+                const requestPending = centralSubscription.subscription_status === 'pending_payment';
+                return <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <Card variant="outlined" sx={{ height: '100%', borderColor: 'secondary.main' }}>
+                                            <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                                <Chip size="small" color="secondary" label="باقة مجمعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
+                                                <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
+                                                <Typography variant="body2" color="text.secondary" sx={{ my: 1 }}>
+                                                    {offer.description || 'اشتراك مركزي موحد لعدة منصات سافانا.'}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, flexGrow: 1 }}>
+                                                    {(offer.items || []).map(item => item.plan_name).join(' • ')}
+                                                </Typography>
+                                                <Button
+                                                    color="secondary"
+                                                    variant="contained"
+                                                    disabled={Boolean(centralCheckoutWorking) || requestPending}
+                                                    onClick={() => provisionCentralSubscription('bundle', offer)}
+                                                >
+                                                    {centralCheckoutWorking === offer.id
+                              ? <CircularProgress size={20} color="inherit" />
+                              : requestPending ? 'يوجد طلب قيد المراجعة' : 'توفير الباقة المجمعة'}
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>;
+              })}
+                            </Grid>
+
+                            {(centralSubscription.plans || []).length === 0 && (centralSubscription.bundles || []).length === 0 && <Alert severity="info" sx={{ mt: 2 }}>
+                                    لا توجد باقات مركزية متاحة حالياً لـ Wa Savana.
+                                </Alert>}
+                        </>}
                 </Paper>}
 
             {tab === 1 && !centralMode && <Paper sx={{

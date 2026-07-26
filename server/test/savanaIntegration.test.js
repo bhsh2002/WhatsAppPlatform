@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import Database from 'better-sqlite3';
+import express from 'express';
 
+import { createAdminSubscriptionsRouter } from '../routes/savanaIntegrations.js';
 import {
     canonicalJson,
     SavanaIntegrationError,
@@ -407,6 +410,68 @@ test('central plan checkout is validated locally and delegated idempotently', as
         quantity: 1,
     }]);
     database.close();
+});
+
+test('Wa manager can create a central pending-review subscription for a selected tenant', async (t) => {
+    let checkoutCall;
+    const service = {
+        config: {
+            enabled: true,
+            subscriptionsMode: 'central',
+        },
+        async subscriptionCheckout(tenantId, payload, actorId) {
+            checkoutCall = { tenantId, payload, actorId };
+            return {
+                subscription: {
+                    id: crypto.randomUUID(),
+                    status: 'pending_payment',
+                },
+                invoice: {
+                    id: crypto.randomUUID(),
+                    number: 'SAV-WA-ADMIN-001',
+                    status: 'open',
+                },
+                payment_required: true,
+            };
+        },
+    };
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+        req.user = { id: 'manager-7' };
+        next();
+    });
+    app.use('/central-subscriptions', createAdminSubscriptionsRouter({ service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+
+    const response = await fetch(
+        `http://127.0.0.1:${server.address().port}/central-subscriptions/42/checkout`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                plan_id: 'plan-wa-standard',
+                price_id: 'price-wa-monthly',
+                idempotency_key: 'wa-manager-checkout-001',
+            }),
+        },
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(body.subscription.status, 'pending_payment');
+    assert.equal(body.invoice.status, 'open');
+    assert.deepEqual(checkoutCall, {
+        tenantId: '42',
+        payload: {
+            plan_id: 'plan-wa-standard',
+            price_id: 'price-wa-monthly',
+            idempotency_key: 'wa-manager-checkout-001',
+        },
+        actorId: 'admin:manager-7',
+    });
 });
 
 test('missing entitlement and invalid signed snapshots fail closed', async () => {

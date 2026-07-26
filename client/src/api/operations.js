@@ -198,6 +198,13 @@ export const operationsMethods = {
         return this.request(`/api/billing/central-subscriptions/${tenantId}`);
     },
 
+    async checkoutCentralTenantSubscription(tenantId, data) {
+        return this.request(`/api/billing/central-subscriptions/${tenantId}/checkout`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async createBillingPlan(data) {
         return this.request('/api/billing/plans', {
             method: 'POST',
