@@ -23,6 +23,19 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
+    router.post('/subscription/checkout', async (req, res) => {
+        try {
+            const result = await service.subscriptionCheckout(
+                req.user.tenant_id,
+                req.body || {},
+                req.user.id,
+            );
+            return res.status(201).json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.get('/platforms', (req, res) => {
         try {
             const existing = new Map(
@@ -245,6 +258,17 @@ export const createAdminSubscriptionsRouter = ({ service }) => {
 
 export const createConnectCallbacksRouter = ({ service }) => {
     const router = express.Router();
+    router.post('/provision', async (req, res) => {
+        try {
+            const item = await service.provisionConnection(
+                req.body || {},
+                req.get('X-Savana-Callback-Token'),
+            );
+            return res.json(service.serialize(item, item.platform_code));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
     router.post('/events', (req, res) => {
         try {
             const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));

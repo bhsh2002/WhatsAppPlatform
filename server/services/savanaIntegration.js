@@ -322,6 +322,82 @@ export class SavanaIntegrationService {
         };
     }
 
+    async subscriptionCheckout(tenantId, payload = {}, actorId = 'tenant') {
+        const context = await this.subscriptionContext(tenantId);
+        if (!context.managed_centrally || !context.bound || !context.organization?.id) {
+            throw new SavanaIntegrationError(
+                'The tenant is not linked to a central Savana organization',
+                409,
+                'central_subscription_unbound'
+            );
+        }
+
+        const planId = String(payload.plan_id || '').trim();
+        const bundleId = String(payload.bundle_id || '').trim();
+        if (Boolean(planId) === Boolean(bundleId)) {
+            throw new SavanaIntegrationError(
+                'Choose exactly one central plan or bundle',
+                400,
+                'invalid_checkout_offer'
+            );
+        }
+
+        let offer;
+        if (planId) {
+            const plan = context.plans?.find(item => item.id === planId);
+            if (!plan) {
+                throw new SavanaIntegrationError(
+                    'The selected central plan is unavailable',
+                    404,
+                    'central_plan_not_found'
+                );
+            }
+            const requestedPriceId = String(payload.price_id || '').trim();
+            const price = requestedPriceId
+                ? plan.prices?.find(item => item.id === requestedPriceId && item.active)
+                : plan.prices?.find(item => item.active);
+            if (!price) {
+                throw new SavanaIntegrationError(
+                    'The selected central plan has no active price',
+                    409,
+                    'central_price_unavailable'
+                );
+            }
+            offer = {
+                items: [{
+                    plan_id: plan.id,
+                    price_id: price.id,
+                    quantity: 1,
+                }],
+            };
+        } else {
+            const bundle = context.bundles?.find(item => item.id === bundleId && item.active);
+            if (!bundle) {
+                throw new SavanaIntegrationError(
+                    'The selected central bundle is unavailable',
+                    404,
+                    'central_bundle_not_found'
+                );
+            }
+            offer = { bundle_id: bundle.id };
+        }
+
+        return this.requestJson(
+            'subscriptions',
+            'POST',
+            `/v1/organizations/${encodeURIComponent(context.organization.id)}/checkout`,
+            {
+                platform_code: 'wa_savana',
+                actor_id: String(actorId || 'tenant'),
+                period_days: Math.min(366, Math.max(1, Number(payload.period_days || 30))),
+                idempotency_key: String(
+                    payload.idempotency_key || `wa-savana-checkout-${crypto.randomUUID()}`
+                ),
+                ...offer,
+            }
+        );
+    }
+
     async synchronizeCentralSubscription(tenantId) {
         const context = await this.subscriptionContext(tenantId);
         if (!context.managed_centrally) return context;
@@ -507,6 +583,15 @@ export class SavanaIntegrationService {
         if (item.connection_id && item.status !== 'revoked') {
             throw new SavanaIntegrationError('Platform connection already exists', 409, 'connection_exists');
         }
+        if (!String(payload?.organization_id || '').trim()) {
+            return this.requestOneClickConnection(
+                tenant,
+                item,
+                actorId,
+                platformCode,
+                profile,
+            );
+        }
         const organizationId = requireUuid(payload.organization_id, 'organization_id');
         const remoteExternalTenantId = requiredString(
             payload.remote_external_tenant_id
@@ -599,6 +684,158 @@ export class SavanaIntegrationService {
             throw error;
         }
         return this.get(tenantId, platformCode);
+    }
+
+    async requestOneClickConnection(tenant, item, actorId, platformCode, profile) {
+        try {
+            const context = await this.subscriptionContext(tenant.id);
+            if (!context.managed_centrally || !context.bound || !context.platform_tenant?.id) {
+                throw new SavanaIntegrationError(
+                    'Link this Wa Savana account to a central organization before connecting platforms',
+                    409,
+                    'central_tenant_unbound'
+                );
+            }
+            const organizationId = context.platform_tenant.organization_id;
+            this.db.prepare(`
+                UPDATE savana_integrations SET organization_id = ?, status = 'disconnected',
+                    last_error = NULL, updated_at = datetime('now', 'localtime')
+                WHERE id = ?
+            `).run(organizationId, item.id);
+            item = await this.refreshEntitlement(this.get(tenant.id, platformCode));
+            if (!this.hasEntitlement(item)) {
+                throw new SavanaIntegrationError(
+                    `The subscription does not include Wa Savana ${profile.displayName} integration`,
+                    402,
+                    'entitlement_required'
+                );
+            }
+
+            const result = await this.requestJson(
+                'connect',
+                'POST',
+                '/v1/connections/one-click',
+                {
+                    source_tenant_id: context.platform_tenant.id,
+                    target_platform_code: platformCode,
+                    actor_id: String(actorId || 'tenant'),
+                },
+            );
+            const connection = result.connection;
+            this.db.prepare(`
+                UPDATE savana_integrations SET
+                    organization_id = ?, local_platform_tenant_id = ?,
+                    remote_platform_tenant_id = ?, remote_external_tenant_id = ?,
+                    connection_id = ?, status = ?, scopes_json = ?,
+                    webhook_secret_encrypted = ?, last_sync_at = ?,
+                    last_error = NULL, updated_at = datetime('now', 'localtime')
+                WHERE id = ?
+            `).run(
+                connection.organization_id,
+                connection.source_tenant_id,
+                connection.target_tenant_id,
+                connection.target_external_tenant_id,
+                connection.id,
+                connection.status,
+                JSON.stringify(connection.scopes || profile.scopes),
+                encryptConnectionSecret(this.config, result.webhook_secret),
+                nowIso(),
+                item.id,
+            );
+            return this.get(tenant.id, platformCode);
+        } catch (error) {
+            this.db.prepare(`
+                UPDATE savana_integrations SET status = 'error', last_error = ?,
+                    updated_at = datetime('now', 'localtime') WHERE id = ?
+            `).run(String(error.message).slice(0, 4000), item.id);
+            throw error;
+        }
+    }
+
+    async provisionConnection(payload, callbackToken) {
+        if (!safeCompare(this.config.callbackToken, callbackToken)) {
+            throw new SavanaIntegrationError(
+                'Invalid Connect callback token',
+                401,
+                'invalid_callback_token'
+            );
+        }
+        const connection = payload?.connection || {};
+        if (
+            connection.source_platform !== 'wa_savana'
+            && connection.target_platform !== 'wa_savana'
+        ) {
+            throw new SavanaIntegrationError(
+                'Wa Savana is not a participant in this connection',
+                422,
+                'invalid_connection_target'
+            );
+        }
+        const localIsSource = connection.source_platform === 'wa_savana';
+        const localSide = localIsSource ? 'source' : 'target';
+        const remoteSide = localIsSource ? 'target' : 'source';
+        const match = /^wa_savana:tenant:(\d+)$/.exec(
+            String(connection[`${localSide}_external_tenant_id`] || '')
+        );
+        if (!match) {
+            throw new SavanaIntegrationError(
+                'Invalid Wa Savana target tenant identifier',
+                422,
+                'invalid_target_tenant'
+            );
+        }
+        const tenantId = Number(match[1]);
+        const tenant = this.db.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError('Tenant was not found', 404, 'tenant_not_found');
+        }
+        const remotePlatform = connection[`${remoteSide}_platform`];
+        const profile = this.profile(remotePlatform);
+        const secret = requiredString(payload.webhook_secret, 'webhook_secret');
+        const connectionId = requiredString(connection.id, 'connection.id');
+        let item = this.getOrCreate(tenantId, remotePlatform);
+        if (
+            item.connection_id
+            && item.connection_id !== connectionId
+            && !['disconnected', 'revoked', 'error'].includes(item.status)
+        ) {
+            throw new SavanaIntegrationError(
+                'A different platform connection already exists',
+                409,
+                'connection_exists'
+            );
+        }
+
+        this.db.prepare(`
+            UPDATE savana_integrations SET
+                organization_id = ?, local_platform_tenant_id = ?,
+                remote_platform_tenant_id = ?, remote_external_tenant_id = ?,
+                connection_id = ?, status = 'active', scopes_json = ?,
+                webhook_secret_encrypted = ?, last_sync_at = ?,
+                last_error = NULL, updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `).run(
+            requiredString(connection.organization_id, 'connection.organization_id'),
+            requiredString(
+                connection[`${localSide}_tenant_id`],
+                `connection.${localSide}_tenant_id`
+            ),
+            requiredString(
+                connection[`${remoteSide}_tenant_id`],
+                `connection.${remoteSide}_tenant_id`
+            ),
+            requiredString(
+                connection[`${remoteSide}_external_tenant_id`],
+                `connection.${remoteSide}_external_tenant_id`
+            ),
+            connectionId,
+            JSON.stringify(connection.scopes || profile.scopes),
+            encryptConnectionSecret(this.config, secret),
+            nowIso(),
+            item.id,
+        );
+        item = await this.refreshEntitlement(this.get(tenantId, remotePlatform));
+        return item;
     }
 
     async transition(item, action, actorId) {

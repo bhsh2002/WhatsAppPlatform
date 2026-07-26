@@ -1,4 +1,11 @@
 export const savanaIntegrationMethods = {
+    async checkoutPortalCentralSubscription(data) {
+        return this.request('/api/portal/integrations/subscription/checkout', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async getPortalPlatformIntegrations() {
         return this.request('/api/portal/integrations/platforms');
     },

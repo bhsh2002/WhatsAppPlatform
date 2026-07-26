@@ -64,6 +64,8 @@ const TenantBilling = () => {
     const [appliedPeriod, setAppliedPeriod] = useState(defaultPeriod);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [checkoutWorking, setCheckoutWorking] = useState('');
+    const [checkoutMessage, setCheckoutMessage] = useState('');
 
     const fetchBilling = useCallback(async () => {
         try {
@@ -109,6 +111,34 @@ const TenantBilling = () => {
     useEffect(() => {
         fetchBilling();
     }, [fetchBilling]);
+
+    const checkout = async (kind, offer) => {
+        setCheckoutWorking(offer.id);
+        setCheckoutMessage('');
+        setError(null);
+        try {
+            const price = kind === 'plan'
+                ? offer.prices?.find(item => item.active)
+                : null;
+            const result = await api.checkoutPortalCentralSubscription({
+                ...(kind === 'plan'
+                    ? { plan_id: offer.id, price_id: price?.id }
+                    : { bundle_id: offer.id }),
+                idempotency_key: `wa-savana-checkout-${crypto.randomUUID()}`,
+            });
+            const invoice = result?.invoice;
+            setCheckoutMessage(
+                invoice
+                    ? `تم إنشاء طلب الاشتراك والفاتورة ${invoice.number}.`
+                    : 'تم إنشاء طلب الاشتراك المركزي بنجاح.'
+            );
+            await fetchBilling();
+        } catch (checkoutError) {
+            setError(checkoutError.message || 'تعذر إنشاء الاشتراك المركزي.');
+        } finally {
+            setCheckoutWorking('');
+        }
+    };
 
     if (loading) {
         return (
@@ -162,9 +192,19 @@ const TenantBilling = () => {
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {checkoutMessage && (
+                <Alert severity="success" onClose={() => setCheckoutMessage('')} sx={{ mb: 2 }}>
+                    {checkoutMessage}
+                </Alert>
+            )}
             {centralSubscription?.managed_centrally && (
                 <Alert severity="info" sx={{ mb: 2 }}>
                     الخطة ودورة الاشتراك والفواتير تدار من نظام اشتراكات سافانا المركزي. تحتفظ Wa Savana بسجل الاستخدام والرصيد التشغيلي فقط.
+                </Alert>
+            )}
+            {centralSubscription?.managed_centrally && !centralSubscription?.bound && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    اربط هذا الحساب بمؤسسة سافانا المركزية أولاً حتى تظهر الباقات ويتاح الاشتراك من داخل المنصة.
                 </Alert>
             )}
             {cycleBlocked && (
@@ -181,6 +221,71 @@ const TenantBilling = () => {
                 <Alert severity="info" sx={{ mb: 2 }}>
                     {t('billing.creditLimitInfo', { used: number(balances.credit_used_credits), limit: number(balances.credit_limit_credits) })}
                 </Alert>
+            )}
+
+            {centralSubscription?.managed_centrally && centralSubscription?.bound && (
+                <Paper sx={{ p: 2, mb: 3 }}>
+                    <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 0.5 }}>
+                        باقات سافانا المركزية
+                    </SectionTitle>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        يمكنك الاشتراك في باقة Wa Savana مستقلة أو اختيار باقة مجمّعة من داخل المنصة.
+                    </Typography>
+                    <Grid container spacing={2}>
+                        {(centralSubscription.plans || []).map(offer => {
+                            const price = offer.prices?.find(item => item.active);
+                            return (
+                                <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                                    <Card variant="outlined" sx={{ height: '100%' }}>
+                                        <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                            <Chip size="small" color="primary" label="باقة Wa Savana" sx={{ alignSelf: 'flex-start', mb: 1 }} />
+                                            <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
+                                            <Typography variant="body2" color="text.secondary" sx={{ my: 1, flexGrow: 1 }}>
+                                                {offer.description || 'اشتراك مركزي مستقل للمنصة.'}
+                                            </Typography>
+                                            <Typography fontWeight={800} sx={{ mb: 1.5 }}>
+                                                {price
+                                                    ? `${money(Number(price.amount_minor) / 100)} / ${price.billing_period === 'yearly' ? 'سنة' : 'شهر'}`
+                                                    : 'السعر غير متاح'}
+                                            </Typography>
+                                            <Button
+                                                variant="contained"
+                                                disabled={!price || Boolean(checkoutWorking)}
+                                                onClick={() => checkout('plan', offer)}
+                                            >
+                                                {checkoutWorking === offer.id ? <CircularProgress size={20} color="inherit" /> : 'اشترك الآن'}
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            );
+                        })}
+                        {(centralSubscription.bundles || []).map(offer => (
+                            <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                                <Card variant="outlined" sx={{ height: '100%', borderColor: 'secondary.main' }}>
+                                    <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                        <Chip size="small" color="secondary" label="باقة مجمّعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
+                                        <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ my: 1 }}>
+                                            {offer.description || 'اشتراك موحّد لعدة منصات سافانا.'}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, flexGrow: 1 }}>
+                                            {(offer.items || []).map(item => item.plan_name).join(' • ')}
+                                        </Typography>
+                                        <Button
+                                            color="secondary"
+                                            variant="contained"
+                                            disabled={Boolean(checkoutWorking)}
+                                            onClick={() => checkout('bundle', offer)}
+                                        >
+                                            {checkoutWorking === offer.id ? <CircularProgress size={20} color="inherit" /> : 'اشترك في الباقة'}
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        ))}
+                    </Grid>
+                </Paper>
             )}
 
             <Paper sx={{ p: 2, mb: 3 }}>

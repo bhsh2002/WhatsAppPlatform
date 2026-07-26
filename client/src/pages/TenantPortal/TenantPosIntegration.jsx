@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Box, Button, Card, CardActionArea, CardContent, Chip,
-    CircularProgress, Divider, Stack, TextField, Typography,
+    CircularProgress, Divider, Stack, Typography,
 } from '@mui/material';
 import {
     Hub as HubIcon, Link as LinkIcon, LinkOff as RevokeIcon,
@@ -38,7 +38,6 @@ const TenantPosIntegration = () => {
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-    const [form, setForm] = useState({ organization_id: '', remote_external_tenant_id: '' });
 
     const integration = useMemo(
         () => integrations.find(item => item.platform_code === selectedPlatform)
@@ -70,8 +69,8 @@ const TenantPosIntegration = () => {
     const connect = async () => {
         setWorking(true); setError(''); setSuccess('');
         try {
-            await api.connectPortalPlatform(selectedPlatform, form);
-            setSuccess(ar ? 'تم إنشاء طلب الربط المباشر وبانتظار موافقة الطرف الآخر.' : 'Direct connection request created and awaiting peer approval.');
+            await api.connectPortalPlatform(selectedPlatform, {});
+            setSuccess(ar ? 'تم ربط المنصتين وتفعيلهما تلقائياً.' : 'The platforms were connected and activated automatically.');
             await load();
         } catch (requestError) { setError(requestError.message); }
         finally { setWorking(false); }
@@ -143,9 +142,12 @@ const TenantPosIntegration = () => {
 
                     {canConnect ? (
                         <Stack spacing={2} sx={{ mt: 3 }}>
-                            <TextField label={ar ? 'معرف المؤسسة المركزي (UUID)' : 'Central organization ID (UUID)'} value={form.organization_id} onChange={event => setForm(current => ({ ...current, organization_id: event.target.value }))} fullWidth />
-                            <TextField label={ar ? `معرف الحساب داخل ${profile.ar}` : `${profile.en} account identifier`} value={form.remote_external_tenant_id} onChange={event => setForm(current => ({ ...current, remote_external_tenant_id: event.target.value }))} fullWidth />
-                            <Button variant="contained" startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />} disabled={working || !form.organization_id || !form.remote_external_tenant_id} onClick={connect} sx={{ alignSelf: 'flex-start' }}>{ar ? 'طلب الربط' : 'Request connection'}</Button>
+                            <Alert severity="info">
+                                {ar
+                                    ? `سيعثر النظام تلقائياً على حساب ${profile.ar} المسجل ضمن مؤسستك المركزية ويُفعّل الربط فوراً.`
+                                    : `Savana will automatically find the ${profile.en} account registered to your central organization and activate the link.`}
+                            </Alert>
+                            <Button variant="contained" startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />} disabled={working} onClick={connect} sx={{ alignSelf: 'flex-start' }}>{ar ? 'ربط الآن بضغطة واحدة' : 'Connect now in one click'}</Button>
                         </Stack>
                     ) : (
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 3 }}>

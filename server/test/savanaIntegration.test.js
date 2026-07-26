@@ -180,6 +180,235 @@ test('POS provisioning is centrally entitled and supports explicit lifecycle con
     database.close();
 });
 
+test('one-click linking discovers and activates the target platform automatically', async () => {
+    const database = createDatabase();
+    const sourceTenantId = crypto.randomUUID();
+    const targetTenantId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const snapshot = entitlementSnapshot();
+    const fetchImpl = async (url, options = {}) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/v1/platform-tenants' && options.method === 'GET') {
+            return Response.json([{
+                id: sourceTenantId,
+                organization_id: organizationId,
+                platform_code: 'wa_savana',
+                external_tenant_id: 'wa_savana:tenant:1',
+            }]);
+        }
+        if (parsed.pathname.endsWith('/subscription-context/wa_savana')) {
+            return Response.json({ data: {
+                source: 'savana_subscriptions',
+                managed_centrally: true,
+                organization: { id: organizationId, name: 'Savana tenant' },
+                platform_code: 'wa_savana',
+                subscription_status: 'active',
+                subscriptions: [],
+                active_items: [],
+                plans: [],
+                bundles: [],
+                entitlement_snapshot: snapshot,
+                invoices: [],
+                ui: {},
+            } });
+        }
+        if (parsed.pathname.includes('/entitlements/')) {
+            return Response.json({ data: snapshot });
+        }
+        if (parsed.pathname === '/v1/connections/one-click' && options.method === 'POST') {
+            assert.deepEqual(JSON.parse(options.body), {
+                source_tenant_id: sourceTenantId,
+                target_platform_code: 'catalog',
+                actor_id: 'tenant-user',
+            });
+            return Response.json({
+                connection: {
+                    id: connectionId,
+                    organization_id: organizationId,
+                    source_tenant_id: sourceTenantId,
+                    target_tenant_id: targetTenantId,
+                    source_platform: 'wa_savana',
+                    target_platform: 'catalog',
+                    source_external_tenant_id: 'wa_savana:tenant:1',
+                    target_external_tenant_id: 'catalog:shop:42',
+                    status: 'active',
+                    scopes: ['catalog.products.projection'],
+                },
+                webhook_secret: 'one-click-secret',
+            }, { status: 201 });
+        }
+        return Response.json({ error: 'unexpected request' }, { status: 500 });
+    };
+    const service = new SavanaIntegrationService({
+        database,
+        fetchImpl,
+        config: { ...config, subscriptionsMode: 'central' },
+    });
+
+    const item = await service.requestConnection(1, {}, 'tenant-user', 'catalog');
+    assert.equal(item.status, 'active');
+    assert.equal(item.connection_id, connectionId);
+    assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
+    assert.equal(service.serialize(item, 'catalog').entitled, true);
+    database.close();
+});
+
+test('authenticated one-click provisioning configures Wa Savana as the target', async () => {
+    const database = createDatabase();
+    const snapshot = entitlementSnapshot();
+    const service = new SavanaIntegrationService({
+        database,
+        fetchImpl: async url => {
+            if (new URL(url).pathname.includes('/entitlements/')) {
+                return Response.json({ data: snapshot });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+        config,
+    });
+    const connectionId = crypto.randomUUID();
+    const item = await service.provisionConnection({
+        connection: {
+            id: connectionId,
+            organization_id: organizationId,
+            source_tenant_id: crypto.randomUUID(),
+            target_tenant_id: crypto.randomUUID(),
+            source_platform: 'catalog',
+            target_platform: 'wa_savana',
+            source_external_tenant_id: 'catalog:shop:42',
+            target_external_tenant_id: 'wa_savana:tenant:1',
+            status: 'active',
+            scopes: ['catalog.products.projection'],
+        },
+        webhook_secret: 'target-provision-secret',
+    }, callbackToken);
+
+    assert.equal(item.connection_id, connectionId);
+    assert.equal(item.platform_code, 'catalog');
+    assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
+    assert.equal(item.status, 'active');
+    await assert.rejects(
+        () => service.provisionConnection({
+            connection: { target_platform: 'wa_savana' },
+            webhook_secret: 'secret',
+        }, 'wrong-token'),
+        error => error.statusCode === 401,
+    );
+    database.close();
+});
+
+test('authenticated one-click provisioning configures Wa Savana as the source', async () => {
+    const database = createDatabase();
+    const snapshot = entitlementSnapshot();
+    const service = new SavanaIntegrationService({
+        database,
+        fetchImpl: async url => {
+            if (new URL(url).pathname.includes('/entitlements/')) {
+                return Response.json({ data: snapshot });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+        config,
+    });
+    const sourceTenantId = crypto.randomUUID();
+    const targetTenantId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const item = await service.provisionConnection({
+        connection: {
+            id: connectionId,
+            organization_id: organizationId,
+            source_tenant_id: sourceTenantId,
+            target_tenant_id: targetTenantId,
+            source_platform: 'wa_savana',
+            target_platform: 'catalog',
+            source_external_tenant_id: 'wa_savana:tenant:1',
+            target_external_tenant_id: 'catalog:shop:99',
+            status: 'active',
+            scopes: ['catalog.products.projection'],
+        },
+        webhook_secret: 'source-provision-secret',
+    }, callbackToken);
+
+    assert.equal(item.connection_id, connectionId);
+    assert.equal(item.platform_code, 'catalog');
+    assert.equal(item.local_platform_tenant_id, sourceTenantId);
+    assert.equal(item.remote_platform_tenant_id, targetTenantId);
+    assert.equal(item.remote_external_tenant_id, 'catalog:shop:99');
+    database.close();
+});
+
+test('central plan checkout is validated locally and delegated idempotently', async () => {
+    const database = createDatabase();
+    const platformTenantId = crypto.randomUUID();
+    const planId = crypto.randomUUID();
+    const priceId = crypto.randomUUID();
+    const snapshot = entitlementSnapshot();
+    let checkoutPayload;
+    const service = new SavanaIntegrationService({
+        database,
+        fetchImpl: async (url, options = {}) => {
+            const parsed = new URL(url);
+            if (parsed.pathname === '/v1/platform-tenants') {
+                return Response.json([{
+                    id: platformTenantId,
+                    organization_id: organizationId,
+                    platform_code: 'wa_savana',
+                    external_tenant_id: 'wa_savana:tenant:1',
+                }]);
+            }
+            if (parsed.pathname.endsWith('/subscription-context/wa_savana')) {
+                return Response.json({ data: {
+                    source: 'savana_subscriptions',
+                    managed_centrally: true,
+                    organization: { id: organizationId, name: 'Savana tenant' },
+                    platform_code: 'wa_savana',
+                    subscription_status: 'unsubscribed',
+                    subscriptions: [],
+                    active_items: [],
+                    plans: [{
+                        id: planId,
+                        name: 'Wa Standard',
+                        prices: [{
+                            id: priceId,
+                            amount_minor: 8000,
+                            billing_period: 'monthly',
+                            active: true,
+                        }],
+                    }],
+                    bundles: [],
+                    entitlement_snapshot: snapshot,
+                    invoices: [],
+                    ui: {},
+                } });
+            }
+            if (parsed.pathname.endsWith('/checkout') && options.method === 'POST') {
+                checkoutPayload = JSON.parse(options.body);
+                return Response.json({ data: {
+                    subscription: { id: crypto.randomUUID(), status: 'pending_payment' },
+                    invoice: { number: 'SAV-TEST', status: 'open' },
+                    payment_required: true,
+                } }, { status: 201 });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+        config: { ...config, subscriptionsMode: 'central' },
+    });
+
+    const result = await service.subscriptionCheckout(1, {
+        plan_id: planId,
+        price_id: priceId,
+        idempotency_key: 'wa-test-checkout-0001',
+    }, 'tenant-user');
+    assert.equal(result.invoice.number, 'SAV-TEST');
+    assert.equal(checkoutPayload.platform_code, 'wa_savana');
+    assert.deepEqual(checkoutPayload.items, [{
+        plan_id: planId,
+        price_id: priceId,
+        quantity: 1,
+    }]);
+    database.close();
+});
+
 test('missing entitlement and invalid signed snapshots fail closed', async () => {
     for (const fetchImpl of [createFetch({ entitled: false }), createFetch({ badSignature: true })]) {
         const database = createDatabase();
