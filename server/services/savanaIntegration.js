@@ -487,6 +487,33 @@ export class SavanaIntegrationService {
                 periodEnd,
                 statusActive ? 'active' : 'suspended',
             );
+
+            const accountCanActivate = ['active', 'trialing'].includes(
+                context.subscription_status
+            ) && Boolean(activeItem);
+            if (accountCanActivate) {
+                const activation = this.db.prepare(`
+                    UPDATE tenants
+                    SET status = 'Active', updated_at = datetime('now', 'localtime')
+                    WHERE id = ? AND status = 'Pending'
+                `).run(tenantId);
+                if (activation.changes > 0) {
+                    this.db.prepare(`
+                        UPDATE users
+                        SET is_active = 1, updated_at = datetime('now', 'localtime')
+                        WHERE tenant_id = ?
+                    `).run(tenantId);
+                    this.db.prepare(`
+                        INSERT INTO activity_logs (
+                            tenant_id, tenant_name, event_type, description, status
+                        )
+                        SELECT id, name, 'central_subscription_activated',
+                            'تم تفعيل الحساب تلقائياً بعد تفعيل الاشتراك المركزي',
+                            'success'
+                        FROM tenants WHERE id = ?
+                    `).run(tenantId);
+                }
+            }
         });
         synchronize.immediate();
         return {

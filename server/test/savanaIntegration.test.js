@@ -491,6 +491,12 @@ test('missing entitlement and invalid signed snapshots fail closed', async () =>
 
 test('central subscription context becomes the tenant billing enforcement source', async () => {
     const database = createDatabase();
+    database.prepare("UPDATE tenants SET status = 'Pending' WHERE id = 1").run();
+    database.prepare(`
+        INSERT INTO users (
+            username, password_hash, name, role, tenant_id, is_active
+        ) VALUES ('pending-wa-user', 'test-password-hash', 'Pending Wa user', 'user', 1, 0)
+    `).run();
     const planId = crypto.randomUUID();
     const itemId = crypto.randomUUID();
     const subscriptionId = crypto.randomUUID();
@@ -564,6 +570,21 @@ test('central subscription context becomes the tenant billing enforcement source
     assert.equal(account.billing_cycle_start, periodStart);
     assert.equal(account.billing_cycle_end, periodEnd);
     assert.equal(account.status, 'active');
+    assert.equal(
+        database.prepare('SELECT status FROM tenants WHERE id = 1').get().status,
+        'Active',
+    );
+    assert.equal(
+        database.prepare("SELECT is_active FROM users WHERE username = 'pending-wa-user'").get().is_active,
+        1,
+    );
+    assert.equal(
+        database.prepare(`
+            SELECT COUNT(*) AS count FROM activity_logs
+            WHERE tenant_id = 1 AND event_type = 'central_subscription_activated'
+        `).get().count,
+        1,
+    );
     const shadowPlan = database.prepare(
         'SELECT * FROM billing_plans WHERE id = ?'
     ).get(account.plan_id);
@@ -579,6 +600,61 @@ test('central subscription context becomes the tenant billing enforcement source
             'SELECT plan_balance_credits FROM tenant_billing_accounts WHERE tenant_id = 1'
         ).get().plan_balance_credits,
         7500,
+    );
+    assert.equal(
+        database.prepare(`
+            SELECT COUNT(*) AS count FROM activity_logs
+            WHERE tenant_id = 1 AND event_type = 'central_subscription_activated'
+        `).get().count,
+        1,
+    );
+    database.close();
+});
+
+test('pending central payment keeps the Wa account under review', async () => {
+    const database = createDatabase();
+    database.prepare("UPDATE tenants SET status = 'Pending' WHERE id = 1").run();
+    database.prepare(`
+        INSERT INTO users (
+            username, password_hash, name, role, tenant_id, is_active
+        ) VALUES ('pending-payment-user', 'test-password-hash', 'Pending payment', 'user', 1, 0)
+    `).run();
+    const service = new SavanaIntegrationService({
+        database,
+        fetchImpl: async () => Response.json({ error: 'unexpected request' }, { status: 500 }),
+        config: { ...config, subscriptionsMode: 'central' },
+    });
+    service.subscriptionContext = async () => ({
+        source: 'savana_subscriptions',
+        managed_centrally: true,
+        bound: true,
+        platform_code: 'wa_savana',
+        subscription_status: 'pending_payment',
+        subscriptions: [],
+        active_items: [],
+        plans: [],
+        bundles: [],
+        entitlement_snapshot: null,
+        invoices: [],
+        ui: {},
+    });
+
+    await service.synchronizeCentralSubscription(1);
+
+    assert.equal(
+        database.prepare('SELECT status FROM tenants WHERE id = 1').get().status,
+        'Pending',
+    );
+    assert.equal(
+        database.prepare("SELECT is_active FROM users WHERE username = 'pending-payment-user'").get().is_active,
+        0,
+    );
+    assert.equal(
+        database.prepare(`
+            SELECT COUNT(*) AS count FROM activity_logs
+            WHERE tenant_id = 1 AND event_type = 'central_subscription_activated'
+        `).get().count,
+        0,
     );
     database.close();
 });
