@@ -251,9 +251,9 @@ export class SavanaIntegrationService {
         if (!response.ok) {
             const detail = body?.error?.message || body?.detail || body?.error || text || response.statusText;
             const error = new SavanaIntegrationError(
-                `${service} returned ${response.status}: ${detail}`,
-                502,
-                'control_plane_error'
+                String(detail),
+                response.status >= 400 && response.status < 500 ? response.status : 502,
+                body?.error?.code || 'control_plane_error'
             );
             error.remoteStatus = response.status;
             throw error;
@@ -402,10 +402,19 @@ export class SavanaIntegrationService {
         const context = await this.subscriptionContext(tenantId);
         if (!context.managed_centrally) return context;
 
-        const activeItem = context.active_items?.[0] || null;
-        const centralPlan = activeItem
-            ? context.plans.find(item => item.id === activeItem.plan_id)
-            : null;
+        const activeItem = context.current_plan_item || context.active_items?.[0] || null;
+        const centralPlan = context.current_plan || (
+            activeItem
+                ? context.plans.find(item => item.id === activeItem.plan_id)
+                : null
+        );
+        const currentSubscription = context.current_subscription || (
+            activeItem
+                ? context.subscriptions.find(subscription =>
+                    subscription.items.some(item => item.id === activeItem.id)
+                )
+                : null
+        );
         const entitlements = context.entitlement_snapshot?.payload?.entitlements || {};
         const includedCredits = Number(entitlements['wa_savana.credits.monthly'] || 0);
         const creditLimit = Number(entitlements['wa_savana.credit_limit.default'] || 0);
@@ -450,16 +459,8 @@ export class SavanaIntegrationService {
             const existing = this.db.prepare(
                 'SELECT * FROM tenant_billing_accounts WHERE tenant_id = ?'
             ).get(tenantId);
-            const periodStart = activeItem
-                ? context.subscriptions.find(subscription =>
-                    subscription.items.some(item => item.id === activeItem.id)
-                )?.current_period_start || null
-                : null;
-            const periodEnd = activeItem
-                ? context.subscriptions.find(subscription =>
-                    subscription.items.some(item => item.id === activeItem.id)
-                )?.current_period_end || null
-                : null;
+            const periodStart = currentSubscription?.current_period_start || null;
+            const periodEnd = currentSubscription?.current_period_end || null;
             const periodChanged = !existing || existing.billing_cycle_start !== periodStart;
             this.db.prepare(`
                 INSERT INTO tenant_billing_accounts (

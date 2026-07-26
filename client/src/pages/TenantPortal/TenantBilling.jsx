@@ -207,6 +207,11 @@ const TenantBilling = () => {
                     اربط هذا الحساب بمؤسسة سافانا المركزية أولاً حتى تظهر الباقات ويتاح الاشتراك من داخل المنصة.
                 </Alert>
             )}
+            {centralSubscription?.pending_checkout && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    يوجد طلب تغيير باقة قيد السداد. لن يُنشأ طلب آخر حتى يُسدّد أو يُلغى الطلب الحالي.
+                </Alert>
+            )}
             {cycleBlocked && (
                 <Alert severity="error" sx={{ mb: 2 }}>
                     انتهت دورة الاشتراك الحالية، ولا يمكن تنفيذ عمليات جديدة حتى يتم تجديد الباقة من الإدارة.
@@ -234,9 +239,12 @@ const TenantBilling = () => {
                     <Grid container spacing={2}>
                         {(centralSubscription.plans || []).map(offer => {
                             const price = offer.prices?.find(item => item.active);
+                            const isCurrent = offer.is_current;
+                            const isIncluded = offer.is_subscribed && !isCurrent;
+                            const isPending = offer.checkout_state === 'pending';
                             return (
                                 <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                                    <Card variant="outlined" sx={{ height: '100%' }}>
+                                    <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'primary.main' : 'divider' }}>
                                         <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                             <Chip size="small" color="primary" label="باقة Wa Savana" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                             <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
@@ -249,20 +257,34 @@ const TenantBilling = () => {
                                                     : 'السعر غير متاح'}
                                             </Typography>
                                             <Button
-                                                variant="contained"
-                                                disabled={!price || Boolean(checkoutWorking)}
+                                                variant={isCurrent ? 'outlined' : 'contained'}
+                                                disabled={!price || Boolean(checkoutWorking) || offer.checkout_available === false}
                                                 onClick={() => checkout('plan', offer)}
                                             >
-                                                {checkoutWorking === offer.id ? <CircularProgress size={20} color="inherit" /> : 'اشترك الآن'}
+                                                {checkoutWorking === offer.id
+                                                    ? <CircularProgress size={20} color="inherit" />
+                                                    : isCurrent
+                                                        ? 'الخطة الحالية'
+                                                        : isIncluded
+                                                            ? 'مشمولة في اشتراكك'
+                                                            : isPending
+                                                                ? 'يوجد طلب قيد السداد'
+                                                                : centralSubscription.active_plan
+                                                                    ? 'تغيير الباقة'
+                                                                    : 'اشترك الآن'}
                                             </Button>
                                         </CardContent>
                                     </Card>
                                 </Grid>
                             );
                         })}
-                        {(centralSubscription.bundles || []).map(offer => (
+                        {(centralSubscription.bundles || []).map(offer => {
+                            const isCurrent = offer.is_current;
+                            const isIncluded = offer.is_subscribed && !isCurrent;
+                            const isPending = offer.checkout_state === 'pending';
+                            return (
                             <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                                <Card variant="outlined" sx={{ height: '100%', borderColor: 'secondary.main' }}>
+                                <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'secondary.main' : 'divider' }}>
                                     <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                         <Chip size="small" color="secondary" label="باقة مجمّعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                         <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
@@ -274,16 +296,25 @@ const TenantBilling = () => {
                                         </Typography>
                                         <Button
                                             color="secondary"
-                                            variant="contained"
-                                            disabled={Boolean(checkoutWorking)}
+                                            variant={isCurrent ? 'outlined' : 'contained'}
+                                            disabled={Boolean(checkoutWorking) || offer.checkout_available === false}
                                             onClick={() => checkout('bundle', offer)}
                                         >
-                                            {checkoutWorking === offer.id ? <CircularProgress size={20} color="inherit" /> : 'اشترك في الباقة'}
+                                            {checkoutWorking === offer.id
+                                                ? <CircularProgress size={20} color="inherit" />
+                                                : isCurrent
+                                                    ? 'الباقة الحالية'
+                                                    : isIncluded
+                                                        ? 'مشمولة في اشتراكك'
+                                                        : isPending
+                                                            ? 'يوجد طلب قيد السداد'
+                                                            : 'الترقية إلى الباقة المجمعة'}
                                         </Button>
                                     </CardContent>
                                 </Card>
                             </Grid>
-                        ))}
+                            );
+                        })}
                     </Grid>
                 </Paper>
             )}

@@ -994,9 +994,11 @@ const BillingManager = () => {
                             <Grid container spacing={2}>
                                 {(centralSubscription.plans || []).map(offer => {
                 const price = offer.prices?.find(item => item.active);
-                const requestPending = centralSubscription.subscription_status === 'pending_payment';
+                const requestPending = Boolean(centralSubscription.pending_checkout);
+                const isCurrent = offer.is_current;
+                const isIncluded = offer.is_subscribed && !isCurrent;
                 return <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                                        <Card variant="outlined" sx={{ height: '100%' }}>
+                                        <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'primary.main' : 'divider' }}>
                                             <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                                 <Chip size="small" color="primary" label="باقة Wa Savana" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                                 <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
@@ -1007,22 +1009,32 @@ const BillingManager = () => {
                                                     {price ? `${money(Number(price.amount_minor) / 100, price.currency)} / ${price.billing_period === 'yearly' ? 'سنة' : 'شهر'}` : 'السعر غير متاح'}
                                                 </Typography>
                                                 <Button
-                                                    variant="contained"
-                                                    disabled={!price || Boolean(centralCheckoutWorking) || requestPending}
+                                                    variant={isCurrent ? 'outlined' : 'contained'}
+                                                    disabled={!price || Boolean(centralCheckoutWorking) || requestPending || offer.checkout_available === false}
                                                     onClick={() => provisionCentralSubscription('plan', offer)}
                                                 >
                                                     {centralCheckoutWorking === offer.id
                               ? <CircularProgress size={20} color="inherit" />
-                              : requestPending ? 'يوجد طلب قيد المراجعة' : 'توفير الاشتراك'}
+                              : isCurrent
+                                ? 'الخطة الحالية'
+                                : isIncluded
+                                  ? 'مشمولة في اشتراكه'
+                                  : requestPending
+                                    ? 'يوجد طلب قيد السداد'
+                                    : centralSubscription.active_plan
+                                      ? 'تغيير الباقة'
+                                      : 'توفير الاشتراك'}
                                                 </Button>
                                             </CardContent>
                                         </Card>
                                     </Grid>;
               })}
                                 {(centralSubscription.bundles || []).map(offer => {
-                const requestPending = centralSubscription.subscription_status === 'pending_payment';
+                const requestPending = Boolean(centralSubscription.pending_checkout);
+                const isCurrent = offer.is_current;
+                const isIncluded = offer.is_subscribed && !isCurrent;
                 return <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                                        <Card variant="outlined" sx={{ height: '100%', borderColor: 'secondary.main' }}>
+                                        <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'secondary.main' : 'divider' }}>
                                             <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                                 <Chip size="small" color="secondary" label="باقة مجمعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                                 <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
@@ -1034,13 +1046,19 @@ const BillingManager = () => {
                                                 </Typography>
                                                 <Button
                                                     color="secondary"
-                                                    variant="contained"
-                                                    disabled={Boolean(centralCheckoutWorking) || requestPending}
+                                                    variant={isCurrent ? 'outlined' : 'contained'}
+                                                    disabled={Boolean(centralCheckoutWorking) || requestPending || offer.checkout_available === false}
                                                     onClick={() => provisionCentralSubscription('bundle', offer)}
                                                 >
                                                     {centralCheckoutWorking === offer.id
                               ? <CircularProgress size={20} color="inherit" />
-                              : requestPending ? 'يوجد طلب قيد المراجعة' : 'توفير الباقة المجمعة'}
+                              : isCurrent
+                                ? 'الباقة الحالية'
+                                : isIncluded
+                                  ? 'مشمولة في اشتراكه'
+                                  : requestPending
+                                    ? 'يوجد طلب قيد السداد'
+                                    : 'توفير الباقة المجمعة'}
                                                 </Button>
                                             </CardContent>
                                         </Card>
