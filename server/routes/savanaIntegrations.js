@@ -63,6 +63,16 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
+    router.get('/platforms/:platformCode/candidates', async (req, res) => {
+        try {
+            return res.json(await service.connectionCandidates(
+                req.user.tenant_id, req.params.platformCode
+            ));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.put('/platforms/:platformCode', async (req, res) => {
         try {
             const item = await service.requestConnection(
@@ -111,6 +121,76 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 );
             }
             return res.json(service.diagnostics(item));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.get('/platforms/:platformCode/service-requests', (req, res) => {
+        try {
+            const item = service.get(req.user.tenant_id, req.params.platformCode);
+            if (!item) {
+                throw new SavanaIntegrationError(
+                    'Platform connection does not exist', 404, 'connection_not_found'
+                );
+            }
+            const rows = database.prepare(`
+                SELECT id, request_kind, request_key, payload_json, status, created_at
+                FROM savana_service_requests
+                WHERE integration_id = ? AND tenant_id = ?
+                ORDER BY id DESC LIMIT ?
+            `).all(item.id, req.user.tenant_id, boundedLimit(req.query.limit));
+            return res.json({
+                data: rows.map(row => ({
+                    ...row,
+                    payload: JSON.parse(row.payload_json || '{}'),
+                    payload_json: undefined,
+                })),
+            });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.post('/platforms/:platformCode/service-requests/:id/dismiss', async (req, res) => {
+        try {
+            const item = service.get(req.user.tenant_id, req.params.platformCode);
+            if (!item) {
+                throw new SavanaIntegrationError(
+                    'Platform connection does not exist', 404, 'connection_not_found'
+                );
+            }
+            const requestRecord = database.prepare(`
+                SELECT id, event_id, request_key FROM savana_service_requests
+                WHERE id = ? AND integration_id = ? AND tenant_id = ?
+                  AND status = 'pending_review'
+            `).get(req.params.id, item.id, req.user.tenant_id);
+            if (!requestRecord) {
+                throw new SavanaIntegrationError(
+                    'Service request was not found', 404, 'service_request_not_found'
+                );
+            }
+            database.prepare(`
+                UPDATE savana_service_requests
+                SET status = 'dismissed', updated_at = datetime('now', 'localtime')
+                WHERE id = ? AND integration_id = ? AND tenant_id = ?
+                  AND status = 'pending_review'
+            `).run(req.params.id, item.id, req.user.tenant_id);
+            let statusPublished = true;
+            try {
+                await service.publishNotificationStatus(item, {
+                    request_id: requestRecord.request_key,
+                    status: 'dismissed',
+                    causation_id: requestRecord.event_id,
+                });
+            } catch (error) {
+                statusPublished = false;
+                console.warn(
+                    '[SavanaIntegrations] Failed to publish dismissed request status:',
+                    error.message
+                );
+            }
+            return res.json({ dismissed: true, status_published: statusPublished });
         } catch (error) {
             return respondError(res, error);
         }
@@ -274,6 +354,17 @@ export const createConnectCallbacksRouter = ({ service }) => {
     router.post('/provision', async (req, res) => {
         try {
             const item = await service.provisionConnection(
+                req.body || {},
+                req.get('X-Savana-Callback-Token'),
+            );
+            return res.json(service.serialize(item, item.platform_code));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+    router.post('/lifecycle', (req, res) => {
+        try {
+            const item = service.applyLifecycle(
                 req.body || {},
                 req.get('X-Savana-Callback-Token'),
             );

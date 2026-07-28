@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Box, Button, Card, CardActionArea, CardContent, Chip,
-    CircularProgress, Divider, Stack, Typography,
+    CircularProgress, Divider, FormControl, InputLabel, MenuItem,
+    Stack, Typography,
 } from '@mui/material';
 import {
     Hub as HubIcon, Link as LinkIcon, LinkOff as RevokeIcon,
@@ -9,6 +10,7 @@ import {
 } from '@mui/icons-material';
 
 import api from '../../api';
+import Select from '../../components/Form/AccessibleSelect';
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -34,6 +36,9 @@ const TenantPosIntegration = () => {
     const [integrations, setIntegrations] = useState([]);
     const [selectedPlatform, setSelectedPlatform] = useState('catalog');
     const [diagnostics, setDiagnostics] = useState(null);
+    const [serviceRequests, setServiceRequests] = useState([]);
+    const [candidateDocument, setCandidateDocument] = useState(null);
+    const [selectedTarget, setSelectedTarget] = useState('');
     const [loading, setLoading] = useState(true);
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
@@ -54,8 +59,21 @@ const TenantPosIntegration = () => {
             const rows = response?.data || response || [];
             setIntegrations(rows);
             const selected = rows.find(item => item.platform_code === selectedPlatform);
+            const isConnectable = !selected?.connection_id
+                || ['revoked', 'error', 'disconnected'].includes(selected?.status);
             setDiagnostics(selected?.connection_id
                 ? await api.getPortalPlatformDiagnostics(selectedPlatform)
+                : null);
+            if (selected?.connection_id && selectedPlatform === 'catalog') {
+                const requests = await api.getPortalPlatformServiceRequests(
+                    selectedPlatform
+                );
+                setServiceRequests(requests?.data || requests || []);
+            } else {
+                setServiceRequests([]);
+            }
+            setCandidateDocument(isConnectable
+                ? await api.getPortalPlatformCandidates(selectedPlatform)
                 : null);
         } catch (requestError) {
             setError(requestError.message);
@@ -65,12 +83,33 @@ const TenantPosIntegration = () => {
     }, [selectedPlatform]);
 
     useEffect(() => { load(); }, [load]);
+    const candidates = useMemo(
+        () => (candidateDocument?.organizations || []).flatMap((organization) => (
+            (organization.candidates || []).map((target) => ({
+                source: organization.source_tenant,
+                organization: organization.organization,
+                target,
+                key: `${organization.source_tenant.id}:${target.id}`,
+            }))
+        )),
+        [candidateDocument],
+    );
+    useEffect(() => {
+        const connectable = candidates.filter(
+            (item) => item.target.connectable || integration.status === 'error',
+        );
+        setSelectedTarget(connectable.length === 1 ? connectable[0].key : '');
+    }, [selectedPlatform, candidates, integration.status]);
+    const selectedCandidate = candidates.find((item) => item.key === selectedTarget);
 
     const connect = async () => {
         setWorking(true); setError(''); setSuccess('');
         try {
-            await api.connectPortalPlatform(selectedPlatform, {});
-            setSuccess(ar ? 'تم ربط المنصتين وتفعيلهما تلقائياً.' : 'The platforms were connected and activated automatically.');
+            await api.connectPortalPlatform(selectedPlatform, {
+                source_tenant_id: selectedCandidate.source.id,
+                target_tenant_id: selectedCandidate.target.id,
+            });
+            setSuccess(ar ? 'تم ربط الحسابين وبدأت المزامنة الأولية.' : 'The selected accounts were linked and initial synchronization started.');
             await load();
         } catch (requestError) { setError(requestError.message); }
         finally { setWorking(false); }
@@ -84,6 +123,21 @@ const TenantPosIntegration = () => {
             await load();
         } catch (requestError) { setError(requestError.message); }
         finally { setWorking(false); }
+    };
+
+    const dismissServiceRequest = async requestId => {
+        setWorking(true); setError(''); setSuccess('');
+        try {
+            await api.dismissPortalPlatformServiceRequest(
+                selectedPlatform, requestId
+            );
+            setSuccess(ar ? 'تم تجاهل طلب الخدمة.' : 'Service request dismissed.');
+            await load();
+        } catch (requestError) {
+            setError(requestError.message);
+        } finally {
+            setWorking(false);
+        }
     };
 
     if (loading && integrations.length === 0) {
@@ -144,17 +198,77 @@ const TenantPosIntegration = () => {
                         <Stack spacing={2} sx={{ mt: 3 }}>
                             <Alert severity="info">
                                 {ar
-                                    ? `سيعثر النظام تلقائياً على حساب ${profile.ar} المسجل ضمن مؤسستك المركزية ويُفعّل الربط فوراً.`
-                                    : `Savana will automatically find the ${profile.en} account registered to your central organization and activate the link.`}
+                                    ? `اختر المؤسسة وحساب ${profile.ar} المقصودين صراحةً قبل التفعيل.`
+                                    : `Explicitly select the organization and ${profile.en} account before activation.`}
                             </Alert>
-                            <Button variant="contained" startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />} disabled={working} onClick={connect} sx={{ alignSelf: 'flex-start' }}>{ar ? 'ربط الآن بضغطة واحدة' : 'Connect now in one click'}</Button>
+                            <FormControl fullWidth>
+                                <InputLabel id="wa-savana-integration-target-label">
+                                    {ar ? 'المؤسسة والحساب الهدف' : 'Organization and target account'}
+                                </InputLabel>
+                                <Select
+                                    labelId="wa-savana-integration-target-label"
+                                    label={ar ? 'المؤسسة والحساب الهدف' : 'Organization and target account'}
+                                    value={selectedTarget}
+                                    onChange={(event) => setSelectedTarget(event.target.value)}
+                                >
+                                    {candidates.map((candidate) => (
+                                        <MenuItem
+                                            key={candidate.key}
+                                            value={candidate.key}
+                                            disabled={!candidate.target.connectable && status !== 'error'}
+                                        >
+                                            {candidate.organization.name} — {candidate.target.display_name}
+                                            {!candidate.target.connectable
+                                                ? (status === 'error'
+                                                    ? (ar ? ' (إصلاح الرابط الحالي)' : ' (repair current link)')
+                                                    : (ar ? ' (مربوط بالفعل)' : ' (already connected)'))
+                                                : ''}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            {candidates.length === 0 && (
+                                <Alert severity="warning">
+                                    {ar ? `لا يوجد حساب ${profile.ar} متاح ضمن مؤسستك.` : `No ${profile.en} account is available in your organization.`}
+                                </Alert>
+                            )}
+                            {selectedCandidate && (
+                                <Alert severity="success">
+                                    {ar
+                                        ? `سيتم ربط «${selectedCandidate.source.display_name}» في «${selectedCandidate.organization.name}» مع «${selectedCandidate.target.display_name}».`
+                                        : `“${selectedCandidate.source.display_name}” in “${selectedCandidate.organization.name}” will connect to “${selectedCandidate.target.display_name}”.`}
+                                </Alert>
+                            )}
+                            <Button
+                                variant="contained"
+                                startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />}
+                                disabled={working || !selectedCandidate}
+                                onClick={connect}
+                                sx={{ alignSelf: 'flex-start' }}
+                            >
+                                {ar ? 'تأكيد الربط وبدء المزامنة' : 'Confirm and start synchronization'}
+                            </Button>
                         </Stack>
                     ) : (
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 3 }}>
                             {status === 'active' && <Button startIcon={<PauseIcon />} variant="outlined" onClick={() => action('pause')} disabled={working}>{ar ? 'إيقاف مؤقت' : 'Pause'}</Button>}
                             {['paused', 'degraded'].includes(status) && <Button startIcon={<ResumeIcon />} variant="contained" onClick={() => action('resume')} disabled={working}>{ar ? 'استئناف' : 'Resume'}</Button>}
                             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => action('refresh-status')} disabled={working}>{ar ? 'تحديث الحالة' : 'Refresh status'}</Button>
-                            <Button startIcon={<RevokeIcon />} color="error" variant="outlined" onClick={() => action('revoke')} disabled={working}>{ar ? 'إلغاء الربط' : 'Revoke'}</Button>
+                            <Button
+                                startIcon={<RevokeIcon />}
+                                color="error"
+                                variant="outlined"
+                                onClick={() => {
+                                    if (window.confirm(ar
+                                        ? 'سيُفصل الرابط من المنصتين وتتوقف المزامنة الجديدة. هل تريد المتابعة؟'
+                                        : 'The link will be disconnected on both platforms and new synchronization will stop. Continue?')) {
+                                        action('revoke');
+                                    }
+                                }}
+                                disabled={working}
+                            >
+                                {ar ? 'إلغاء الربط' : 'Revoke'}
+                            </Button>
                         </Stack>
                     )}
                 </CardContent>
@@ -174,6 +288,27 @@ const TenantPosIntegration = () => {
                     <Alert severity="info" icon={<LinkIcon />} sx={{ mt: 2 }}>
                         {ar ? 'طلبات الإشعار الواردة لا تُرسل تلقائيًا؛ تُحفظ للمراجعة وتطبق سياسات القالب والموافقة.' : 'Incoming notification requests are never sent automatically; they await review and channel consent checks.'}
                     </Alert>
+                    {selectedPlatform === 'catalog' && serviceRequests.map((request) => (
+                        <Alert
+                            key={request.id}
+                            severity={request.status === 'pending_review' ? 'warning' : 'info'}
+                            sx={{ mt: 1 }}
+                            action={request.status === 'pending_review' ? (
+                                <Button
+                                    color="inherit"
+                                    size="small"
+                                    disabled={working}
+                                    onClick={() => dismissServiceRequest(request.id)}
+                                >
+                                    {ar ? 'تجاهل' : 'Dismiss'}
+                                </Button>
+                            ) : null}
+                        >
+                            {ar
+                                ? `طلب ${request.payload?.order_number || request.request_key}: الحالة ${request.payload?.status || request.status}`
+                                : `Request ${request.payload?.order_number || request.request_key}: ${request.payload?.status || request.status}`}
+                        </Alert>
+                    ))}
                 </CardContent>
             </Card>
         </Box>

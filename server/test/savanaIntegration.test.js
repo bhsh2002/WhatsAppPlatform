@@ -199,6 +199,23 @@ test('one-click linking discovers and activates the target platform automaticall
                 external_tenant_id: 'wa_savana:tenant:1',
             }]);
         }
+        if (parsed.pathname === '/v1/connection-candidates' && options.method === 'GET') {
+            return Response.json({
+                organization: { id: organizationId, name: 'Savana tenant' },
+                source_tenant: {
+                    id: sourceTenantId,
+                    organization_id: organizationId,
+                    platform_code: 'wa_savana',
+                    external_tenant_id: 'wa_savana:tenant:1',
+                },
+                target_platform_code: 'catalog',
+                candidates: [{
+                    id: targetTenantId,
+                    display_name: 'Catalog Shop',
+                    connectable: true,
+                }],
+            });
+        }
         if (parsed.pathname.endsWith('/subscription-context/wa_savana')) {
             return Response.json({ data: {
                 source: 'savana_subscriptions',
@@ -223,6 +240,7 @@ test('one-click linking discovers and activates the target platform automaticall
                 source_tenant_id: sourceTenantId,
                 target_platform_code: 'catalog',
                 actor_id: 'tenant-user',
+                provision_source: false,
             });
             return Response.json({
                 connection: {
@@ -290,6 +308,15 @@ test('authenticated one-click provisioning configures Wa Savana as the target', 
     assert.equal(item.platform_code, 'catalog');
     assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
     assert.equal(item.status, 'active');
+    const revoked = service.applyLifecycle({
+        connection: {
+            id: connectionId,
+            scopes: ['catalog.products.projection'],
+        },
+        action: 'revoked',
+    }, callbackToken);
+    assert.equal(revoked.status, 'revoked');
+    assert.equal(revoked.webhook_secret_encrypted, null);
     await assert.rejects(
         () => service.provisionConnection({
             connection: { target_platform: 'wa_savana' },
@@ -788,6 +815,14 @@ test('Catalog connects directly and creates reviewed Wa service requests without
     service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(order)));
 
     assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_product_projection').get().count, 1);
+    const sharedProduct = database.prepare(`
+        SELECT sku, name, price, savana_projection_key, is_active
+        FROM bot_products WHERE tenant_id = 1 AND sku = 'CAT-1'
+    `).get();
+    assert.equal(sharedProduct.name, 'Catalog product');
+    assert.equal(sharedProduct.price, 12.5);
+    assert.ok(sharedProduct.savana_projection_key);
+    assert.equal(sharedProduct.is_active, 1);
     const request = database.prepare('SELECT * FROM savana_service_requests').get();
     assert.equal(request.request_kind, 'order_notification');
     assert.equal(request.status, 'pending_review');

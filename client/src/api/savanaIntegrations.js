@@ -17,6 +17,10 @@ export const savanaIntegrationMethods = {
         });
     },
 
+    async getPortalPlatformCandidates(platformCode) {
+        return this.request(`/api/portal/integrations/platforms/${platformCode}/candidates`);
+    },
+
     async actionPortalPlatform(platformCode, action, data = undefined) {
         return this.request(`/api/portal/integrations/platforms/${platformCode}/${action}`, {
             method: 'POST',
@@ -26,6 +30,19 @@ export const savanaIntegrationMethods = {
 
     async getPortalPlatformDiagnostics(platformCode) {
         return this.request(`/api/portal/integrations/platforms/${platformCode}/diagnostics`);
+    },
+
+    async getPortalPlatformServiceRequests(platformCode, limit = 20) {
+        return this.request(
+            `/api/portal/integrations/platforms/${platformCode}/service-requests?limit=${limit}`
+        );
+    },
+
+    async dismissPortalPlatformServiceRequest(platformCode, requestId) {
+        return this.request(
+            `/api/portal/integrations/platforms/${platformCode}/service-requests/${requestId}/dismiss`,
+            { method: 'POST' },
+        );
     },
 
     async getPortalPosIntegration() {

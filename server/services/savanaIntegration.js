@@ -608,7 +608,10 @@ export class SavanaIntegrationService {
         if (!tenant) throw new SavanaIntegrationError('Tenant was not found', 404, 'tenant_not_found');
         const profile = this.profile(platformCode);
         let item = this.getOrCreate(tenantId, platformCode);
-        if (item.connection_id && item.status !== 'revoked') {
+        if (
+            item.connection_id
+            && !['disconnected', 'revoked', 'error'].includes(item.status)
+        ) {
             throw new SavanaIntegrationError('Platform connection already exists', 409, 'connection_exists');
         }
         if (!String(payload?.organization_id || '').trim()) {
@@ -618,6 +621,7 @@ export class SavanaIntegrationService {
                 actorId,
                 platformCode,
                 profile,
+                payload || {},
             );
         }
         const organizationId = requireUuid(payload.organization_id, 'organization_id');
@@ -714,17 +718,69 @@ export class SavanaIntegrationService {
         return this.get(tenantId, platformCode);
     }
 
-    async requestOneClickConnection(tenant, item, actorId, platformCode, profile) {
+    async connectionCandidates(tenantId, targetPlatformCode) {
+        this.profile(targetPlatformCode);
+        const tenant = this.db.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError('Tenant was not found', 404, 'tenant_not_found');
+        }
+        const externalTenantId = `wa_savana:tenant:${tenant.id}`;
+        const registrations = await this.requestJson(
+            'connect',
+            'GET',
+            `/v1/platform-tenants?platform_code=wa_savana&external_tenant_id=${encodeURIComponent(externalTenantId)}`
+        );
+        const organizations = [];
+        for (const registration of registrations) {
+            organizations.push(await this.requestJson(
+                'connect',
+                'GET',
+                `/v1/connection-candidates?source_tenant_id=${encodeURIComponent(registration.id)}`
+                + `&target_platform_code=${encodeURIComponent(targetPlatformCode)}`
+            ));
+        }
+        return {
+            source_external_tenant_id: externalTenantId,
+            target_platform_code: targetPlatformCode,
+            organizations,
+        };
+    }
+
+    async requestOneClickConnection(tenant, item, actorId, platformCode, profile, payload = {}) {
+        const repairExisting = item.status === 'error';
         try {
-            const context = await this.subscriptionContext(tenant.id);
-            if (!context.managed_centrally || !context.bound || !context.platform_tenant?.id) {
+            const discovery = await this.connectionCandidates(tenant.id, platformCode);
+            if (discovery.organizations.length === 0) {
                 throw new SavanaIntegrationError(
                     'Link this Wa Savana account to a central organization before connecting platforms',
                     409,
                     'central_tenant_unbound'
                 );
             }
-            const organizationId = context.platform_tenant.organization_id;
+            const selectedSourceId = String(payload.source_tenant_id || '');
+            let selected;
+            if (selectedSourceId) {
+                selected = discovery.organizations.find(
+                    entry => entry.source_tenant.id === selectedSourceId
+                );
+                if (!selected) {
+                    throw new SavanaIntegrationError(
+                        'The selected Wa Savana account does not belong to this tenant',
+                        403,
+                        'source_tenant_mismatch'
+                    );
+                }
+            } else if (discovery.organizations.length === 1) {
+                [selected] = discovery.organizations;
+            } else {
+                throw new SavanaIntegrationError(
+                    'Select the organization and target account before connecting',
+                    409,
+                    'organization_ambiguous'
+                );
+            }
+            const platformTenant = selected.source_tenant;
+            const organizationId = platformTenant.organization_id;
             this.db.prepare(`
                 UPDATE savana_integrations SET organization_id = ?, status = 'disconnected',
                     last_error = NULL, updated_at = datetime('now', 'localtime')
@@ -744,9 +800,11 @@ export class SavanaIntegrationService {
                 'POST',
                 '/v1/connections/one-click',
                 {
-                    source_tenant_id: context.platform_tenant.id,
+                    source_tenant_id: platformTenant.id,
                     target_platform_code: platformCode,
+                    target_tenant_id: payload.target_tenant_id || undefined,
                     actor_id: String(actorId || 'tenant'),
+                    provision_source: repairExisting,
                 },
             );
             const connection = result.connection;
@@ -864,6 +922,42 @@ export class SavanaIntegrationService {
         );
         item = await this.refreshEntitlement(this.get(tenantId, remotePlatform));
         return item;
+    }
+
+    applyLifecycle(payload, callbackToken) {
+        if (!safeCompare(this.config.callbackToken, callbackToken)) {
+            throw new SavanaIntegrationError(
+                'Invalid Connect callback token', 401, 'invalid_callback_token'
+            );
+        }
+        const connection = payload?.connection || {};
+        const item = this.db.prepare(
+            'SELECT * FROM savana_integrations WHERE connection_id = ?'
+        ).get(String(connection.id || ''));
+        if (!item) {
+            throw new SavanaIntegrationError(
+                'Platform connection does not exist', 404, 'connection_not_found'
+            );
+        }
+        const status = String(payload?.action || connection.status || '');
+        if (!['active', 'paused', 'degraded', 'revoked'].includes(status)) {
+            throw new SavanaIntegrationError(
+                'Unsupported lifecycle status', 422, 'invalid_connection_state'
+            );
+        }
+        this.db.prepare(`
+            UPDATE savana_integrations SET status = ?, scopes_json = ?,
+                webhook_secret_encrypted = CASE WHEN ? = 'revoked'
+                    THEN NULL ELSE webhook_secret_encrypted END,
+                last_error = NULL, updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `).run(
+            status,
+            JSON.stringify(connection.scopes || parseJson(item.scopes_json, [])),
+            status,
+            item.id,
+        );
+        return this.get(item.tenant_id, item.platform_code);
     }
 
     async transition(item, action, actorId) {
@@ -1102,15 +1196,113 @@ export class SavanaIntegrationService {
             row.quantity_on_hand ?? null, row.quantity_available ?? null,
             row.unit_code || row.base_unit || null, sourceUpdatedAt || nowIso(),
         );
+        this.synchronizeBotProduct(tenantId, projectionKey, row);
+    }
+
+    synchronizeBotProduct(tenantId, projectionKey, incoming) {
+        const projection = this.db.prepare(`
+            SELECT * FROM savana_product_projection
+            WHERE tenant_id = ? AND projection_key = ?
+        `).get(tenantId, projectionKey);
+        if (!projection?.name) return;
+
+        let product = this.db.prepare(`
+            SELECT * FROM bot_products
+            WHERE tenant_id = ? AND savana_projection_key = ?
+        `).get(tenantId, projectionKey);
+        if (!product && projection.sku) {
+            product = this.db.prepare(`
+                SELECT * FROM bot_products
+                WHERE tenant_id = ? AND sku = ?
+            `).get(tenantId, projection.sku);
+        }
+        const numericQuantity = Number(
+            projection.quantity_available ?? projection.quantity_on_hand
+        );
+        const availability = Number.isFinite(numericQuantity) && numericQuantity <= 0
+            ? 'out_of_stock'
+            : 'available';
+        const active = incoming.is_active === false
+            ? 0
+            : incoming.is_active === true
+                ? 1
+                : (product?.is_active ?? 1);
+        if (product) {
+            this.db.prepare(`
+                UPDATE bot_products SET
+                    savana_projection_key = ?,
+                    sku = COALESCE(?, sku),
+                    name = ?,
+                    description = COALESCE(?, description),
+                    price = COALESCE(?, price),
+                    currency = COALESCE(?, currency),
+                    image_url = COALESCE(?, image_url),
+                    availability = ?,
+                    is_active = ?,
+                    approval_status = 'approved',
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ? AND tenant_id = ?
+            `).run(
+                projectionKey,
+                projection.sku,
+                projection.name,
+                projection.description,
+                projection.price,
+                projection.currency,
+                projection.image_url,
+                availability,
+                active,
+                product.id,
+                tenantId,
+            );
+            return;
+        }
+        this.db.prepare(`
+            INSERT INTO bot_products (
+                tenant_id, savana_projection_key, sku, name, description,
+                price, currency, image_url, availability, is_active,
+                approval_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')
+        `).run(
+            tenantId,
+            projectionKey,
+            projection.sku,
+            projection.name,
+            projection.description,
+            projection.price || 0,
+            projection.currency || 'LYD',
+            projection.image_url,
+            availability,
+            active,
+        );
     }
 
     applyProductSnapshot(tenantId, data) {
+        const receivedKeys = new Set();
         for (const product of data.products || []) {
             const barcodes = product.barcodes || [];
-            this.upsertProduct(tenantId, {
+            const normalized = {
                 ...product,
                 barcode: product.barcode || barcodes[0] || null,
-            }, data.generated_at);
+            };
+            receivedKeys.add(this.productProjectionKey(normalized));
+            this.upsertProduct(tenantId, normalized, data.generated_at);
+        }
+        if (data.complete === true) {
+            const imported = this.db.prepare(`
+                SELECT id, savana_projection_key FROM bot_products
+                WHERE tenant_id = ? AND savana_projection_key IS NOT NULL
+            `).all(tenantId);
+            const hide = this.db.prepare(`
+                UPDATE bot_products SET is_active = 0, availability = 'hidden',
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ? AND tenant_id = ?
+            `);
+            for (const product of imported) {
+                if (!receivedKeys.has(product.savana_projection_key)) {
+                    hide.run(product.id, tenantId);
+                }
+            }
         }
     }
 
