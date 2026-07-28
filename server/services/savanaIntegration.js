@@ -416,6 +416,7 @@ export class SavanaIntegrationService {
                 : null
         );
         const entitlements = context.entitlement_snapshot?.payload?.entitlements || {};
+        const entitlementSnapshot = context.entitlement_snapshot || null;
         const includedCredits = Number(entitlements['wa_savana.credits.monthly'] || 0);
         const creditLimit = Number(entitlements['wa_savana.credit_limit.default'] || 0);
         const statusActive = ['active', 'trialing', 'past_due'].includes(
@@ -488,6 +489,31 @@ export class SavanaIntegrationService {
                 periodEnd,
                 statusActive ? 'active' : 'suspended',
             );
+
+            if (
+                context.bound
+                && context.organization?.id
+                && entitlementSnapshot?.payload
+                && entitlementSnapshot?.signature
+            ) {
+                this.db.prepare(`
+                    UPDATE savana_integrations SET
+                        entitlement_payload_json = ?,
+                        entitlement_signature = ?,
+                        entitlement_valid_until = ?,
+                        last_sync_at = ?,
+                        last_error = NULL,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE tenant_id = ? AND organization_id = ?
+                `).run(
+                    JSON.stringify(entitlementSnapshot.payload),
+                    entitlementSnapshot.signature,
+                    entitlementSnapshot.payload.valid_until,
+                    nowIso(),
+                    tenantId,
+                    context.organization.id,
+                );
+            }
 
             const accountCanActivate = ['active', 'trialing'].includes(
                 context.subscription_status

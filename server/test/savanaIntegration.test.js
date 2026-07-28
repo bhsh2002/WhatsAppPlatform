@@ -546,6 +546,10 @@ test('central subscription context becomes the tenant billing enforcement source
             return Response.json({ data: {
                 source: 'savana_subscriptions',
                 managed_centrally: true,
+                organization: {
+                    id: organizationId,
+                    name: 'Savana test organization',
+                },
                 platform_code: 'wa_savana',
                 subscription_status: 'active',
                 active_items: [{
@@ -585,6 +589,13 @@ test('central subscription context becomes the tenant billing enforcement source
         fetchImpl,
         config: { ...config, subscriptionsMode: 'central' },
     });
+    const localIntegration = service.getOrCreate(1, 'catalog');
+    database.prepare(`
+        UPDATE savana_integrations SET organization_id = ?,
+            entitlement_valid_until = '2020-01-01T00:00:00Z',
+            last_error = 'expired snapshot'
+        WHERE id = ?
+    `).run(organizationId, localIntegration.id);
 
     const context = await service.synchronizeCentralSubscription(1);
     assert.equal(context.active_plan.name, 'Wa Central');
@@ -617,6 +628,16 @@ test('central subscription context becomes the tenant billing enforcement source
     ).get(account.plan_id);
     assert.equal(shadowPlan.name, 'Wa Central');
     assert.equal(shadowPlan.is_active, 0);
+    const synchronizedIntegration = service.get(1, 'catalog');
+    assert.equal(
+        synchronizedIntegration.entitlement_valid_until,
+        snapshot.payload.valid_until,
+    );
+    assert.deepEqual(
+        JSON.parse(synchronizedIntegration.entitlement_payload_json),
+        snapshot.payload,
+    );
+    assert.equal(synchronizedIntegration.last_error, null);
 
     database.prepare(
         'UPDATE tenant_billing_accounts SET plan_balance_credits = 7500 WHERE tenant_id = 1'
