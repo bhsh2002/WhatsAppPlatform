@@ -10,6 +10,13 @@ export const savanaIntegrationMethods = {
         });
     },
 
+    async authorizePortalPlatformBinding(redirectUri, state) {
+        return this.request('/api/portal/integrations/binding/authorize', {
+            method: 'POST',
+            body: JSON.stringify({ redirect_uri: redirectUri, state }),
+        });
+    },
+
     async getPortalIncomingConnections() {
         return this.request('/api/portal/integrations/incoming-connections');
     },

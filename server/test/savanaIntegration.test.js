@@ -212,6 +212,49 @@ test('migrations create isolated integration, projection and service request tab
     database.close();
 });
 
+test('organization authorization is started for the exact authenticated tenant', async () => {
+    const database = createDatabase();
+    let authorizationPayload;
+    const service = new SavanaIntegrationService({
+        database,
+        config,
+        fetchImpl: async (url, options) => {
+            const parsed = new URL(url);
+            if (
+                parsed.pathname === '/v1/platform-authorizations'
+                && options.method === 'POST'
+            ) {
+                authorizationPayload = JSON.parse(options.body);
+                return Response.json({
+                    id: crypto.randomUUID(),
+                    status: 'pending',
+                    authorization_url: (
+                        'https://control.example/?authorization_request=test'
+                    ),
+                }, { status: 201 });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+    });
+
+    const result = await service.startBindingAuthorization(
+        1,
+        'https://wa.example/portal/integrations',
+        'c'.repeat(64),
+        42,
+    );
+
+    assert.equal(result.status, 'pending');
+    assert.deepEqual(authorizationPayload, {
+        external_tenant_id: 'wa_savana:tenant:1',
+        display_name: 'Wa tenant',
+        redirect_uri: 'https://wa.example/portal/integrations',
+        state: 'c'.repeat(64),
+        actor_id: '42',
+    });
+    database.close();
+});
+
 test('approved POS provisioning is centrally entitled and supports explicit lifecycle control', async () => {
     const database = createDatabase();
     const { service, item } = await provision(database);

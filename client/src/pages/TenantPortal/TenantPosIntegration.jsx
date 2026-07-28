@@ -42,10 +42,12 @@ const TenantPosIntegration = () => {
     const [binding, setBinding] = useState(null);
     const [incoming, setIncoming] = useState([]);
     const [invitationCode, setInvitationCode] = useState('');
+    const [showFallback, setShowFallback] = useState(false);
     const [loading, setLoading] = useState(true);
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const authorizationStateKey = 'savana-binding-state:wa-savana';
 
     const integration = useMemo(
         () => integrations.find(item => item.platform_code === selectedPlatform)
@@ -92,6 +94,37 @@ const TenantPosIntegration = () => {
     }, [selectedPlatform]);
 
     useEffect(() => { load(); }, [load]);
+    useEffect(() => {
+        const parameters = new URLSearchParams(window.location.search);
+        const result = parameters.get('savana_binding');
+        if (!result) return;
+        const returnedState = parameters.get('state');
+        const expectedState = window.sessionStorage.getItem(authorizationStateKey);
+        parameters.delete('savana_binding');
+        parameters.delete('state');
+        const queryString = parameters.toString();
+        window.history.replaceState(
+            {},
+            document.title,
+            `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`,
+        );
+        window.sessionStorage.removeItem(authorizationStateKey);
+        if (!expectedState || returnedState !== expectedState) {
+            setError(ar
+                ? 'تعذر التحقق من عودة طلب الربط. لم تُجرَ أي عملية من هذه الصفحة.'
+                : 'The account-linking return could not be verified.');
+            return;
+        }
+        if (result === 'approved') {
+            setSuccess(ar
+                ? 'تم ربط حساب Wa Savana بالمؤسسة المختارة.'
+                : 'Wa Savana was linked to the selected organization.');
+        } else {
+            setSuccess(ar
+                ? 'تم إلغاء طلب ربط المؤسسة.'
+                : 'Organization linking was cancelled.');
+        }
+    }, [ar, authorizationStateKey]);
     const candidates = useMemo(
         () => (candidateDocument?.organizations || []).flatMap((organization) => (
             (organization.candidates || []).map((target) => ({
@@ -136,6 +169,25 @@ const TenantPosIntegration = () => {
         } catch (requestError) {
             setError(requestError.message);
         } finally {
+            setWorking(false);
+        }
+    };
+
+    const authorizeBinding = async () => {
+        setWorking(true); setError(''); setSuccess('');
+        try {
+            const bytes = window.crypto.getRandomValues(new Uint8Array(32));
+            const requestState = Array.from(
+                bytes, value => value.toString(16).padStart(2, '0')
+            ).join('');
+            const redirectUri = `${window.location.origin}${window.location.pathname}`;
+            const result = await api.authorizePortalPlatformBinding(
+                redirectUri, requestState
+            );
+            window.sessionStorage.setItem(authorizationStateKey, requestState);
+            window.location.assign(result.authorization_url);
+        } catch (requestError) {
+            setError(requestError.message);
             setWorking(false);
         }
     };
@@ -207,23 +259,43 @@ const TenantPosIntegration = () => {
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ my: 1.5 }}>
                             {ar
-                                ? `أرسل إلى مدير المؤسسة معرف هذا الحساب: ${binding.external_tenant_id}. ستُقيد الدعوة به ولا تعمل مع حساب آخر.`
-                                : `Send this account identifier to the organization manager: ${binding.external_tenant_id}. The invitation will only work for this account.`}
+                                ? 'انتقل إلى مركز سافانا، اختر المؤسسة المقصودة ووافق على ربط هذا الحساب. ستعود إلى هنا تلقائيًا.'
+                                : 'Open Savana Control Center, choose the organization, approve, and return here automatically.'}
                         </Typography>
-                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                            <TextField
-                                fullWidth
-                                label={ar ? 'رمز دعوة المؤسسة' : 'Organization invitation'}
-                                value={invitationCode}
-                                onChange={(event) => setInvitationCode(event.target.value)}
-                            />
+                        <Stack spacing={1}>
                             <Button
                                 variant="contained"
-                                disabled={working || invitationCode.trim().length < 20}
-                                onClick={redeemBinding}
+                                disabled={working}
+                                onClick={authorizeBinding}
                             >
-                                {ar ? 'تحقق وانضم' : 'Verify and join'}
+                                {ar ? 'ربط بمؤسسة سافانا' : 'Link a Savana organization'}
                             </Button>
+                            <Button
+                                size="small"
+                                color="inherit"
+                                onClick={() => setShowFallback(value => !value)}
+                            >
+                                {showFallback
+                                    ? (ar ? 'إخفاء الرمز الاحتياطي' : 'Hide fallback code')
+                                    : (ar ? 'لدي رمز ربط احتياطي' : 'I have a fallback code')}
+                            </Button>
+                            {showFallback && (
+                                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                    <TextField
+                                        fullWidth
+                                        label={ar ? 'رمز الربط الاحتياطي' : 'Fallback linking code'}
+                                        value={invitationCode}
+                                        onChange={(event) => setInvitationCode(event.target.value)}
+                                    />
+                                    <Button
+                                        variant="outlined"
+                                        disabled={working || invitationCode.trim().length < 20}
+                                        onClick={redeemBinding}
+                                    >
+                                        {ar ? 'تحقق وانضم' : 'Verify and join'}
+                                    </Button>
+                                </Stack>
+                            )}
                         </Stack>
                     </CardContent>
                 </Card>

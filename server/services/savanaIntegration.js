@@ -253,6 +253,31 @@ export class SavanaIntegrationService {
         );
     }
 
+    async startBindingAuthorization(
+        tenantId, redirectUri, state, actorId
+    ) {
+        const tenant = this.db.prepare(
+            'SELECT id, name FROM tenants WHERE id = ?'
+        ).get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError(
+                'Tenant was not found', 404, 'tenant_not_found'
+            );
+        }
+        return this.requestJson(
+            'connect',
+            'POST',
+            '/v1/platform-authorizations',
+            {
+                external_tenant_id: `wa_savana:tenant:${tenant.id}`,
+                display_name: tenant.name,
+                redirect_uri: requiredString(redirectUri, 'redirect_uri'),
+                state: requiredString(state, 'state'),
+                actor_id: String(actorId || 'tenant'),
+            },
+        );
+    }
+
     async incomingConnections(tenantId) {
         const tenant = this.db.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) {

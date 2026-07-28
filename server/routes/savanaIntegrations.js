@@ -36,6 +36,20 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
+    router.post('/binding/authorize', async (req, res) => {
+        try {
+            const result = await service.startBindingAuthorization(
+                req.user.tenant_id,
+                req.body?.redirect_uri,
+                req.body?.state,
+                req.user.id,
+            );
+            return res.status(201).json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.get('/incoming-connections', async (req, res) => {
         try {
             return res.json({
