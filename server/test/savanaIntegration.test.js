@@ -66,26 +66,57 @@ const createFetch = ({ entitled = true, badSignature = false } = {}) => async (u
         if (badSignature) snapshot.signature = 'v1=invalid';
         return Response.json({ data: snapshot });
     }
-    if (pathName === '/v1/organizations') {
-        return Response.json({ id: organizationId }, { status: 201 });
+    if (pathName === '/v1/platform-bindings' && options.method === 'GET') {
+        return Response.json([{
+            id: 'wa-savana-tenant-id',
+            organization_id: organizationId,
+            platform_code: 'wa_savana',
+            external_tenant_id: 'wa_savana:tenant:1',
+        }]);
     }
-    if (pathName === '/v1/platform-tenants') {
-        const body = JSON.parse(options.body);
+    if (pathName === '/v1/platform-connection-candidates' && options.method === 'GET') {
         return Response.json({
-            id: `${body.platform_code}-tenant-id`,
-            platform_code: body.platform_code,
+            organization: { id: organizationId, name: 'Wa test organization' },
+            source_tenant: {
+                id: 'wa-savana-tenant-id',
+                organization_id: organizationId,
+                platform_code: 'wa_savana',
+                external_tenant_id: 'wa_savana:tenant:1',
+            },
+            target_platform_code: 'pos',
+            candidates: [{
+                id: 'pos-tenant-id',
+                external_tenant_id: 'pos-company-1',
+                display_name: 'POS account',
+                connectable: true,
+            }],
+        });
+    }
+    if (pathName === '/v1/platform-connections/requests' && options.method === 'POST') {
+        return Response.json({
+            connection: {
+                id: 'connection-1',
+                organization_id: organizationId,
+                source_tenant_id: 'wa-savana-tenant-id',
+                target_tenant_id: 'pos-tenant-id',
+                source_platform: 'wa_savana',
+                target_platform: 'pos',
+                source_external_tenant_id: 'wa_savana:tenant:1',
+                target_external_tenant_id: 'pos-company-1',
+                status: 'pending_authorization',
+                scopes: ['pos.sales.events'],
+            },
+            target_tenant: {
+                id: 'pos-tenant-id',
+                external_tenant_id: 'pos-company-1',
+            },
+            approval_required: true,
         }, { status: 201 });
-    }
-    if (pathName === '/v1/connections' && options.method === 'POST') {
-        return Response.json({ id: 'connection-1', status: 'pending_authorization' }, { status: 201 });
-    }
-    if (pathName === '/v1/connections/connection-1/credentials') {
-        return Response.json({ webhook_secret: 'wa-savana-connection-secret' });
     }
     if (pathName === '/v1/events' && options.method === 'POST') {
         return Response.json({ event_id: crypto.randomUUID(), duplicate: false }, { status: 202 });
     }
-    if (pathName === '/v1/connections/connection-1' && options.method === 'GET') {
+    if (pathName === '/v1/platform-connections/connection-1' && options.method === 'GET') {
         return Response.json({ status: 'active', scopes: ['pos.sales.events'] });
     }
     if (pathName.endsWith('/pause')) return Response.json({ status: 'paused' });
@@ -97,7 +128,7 @@ const createFetch = ({ entitled = true, badSignature = false } = {}) => async (u
 const config = {
     enabled: true,
     connectUrl: 'https://connect.test',
-    connectAdminToken: 'connect-admin',
+    connectPlatformToken: 'wa-savana-connect-platform-token',
     callbackUrl: 'https://wa.test/integrations/connect/events',
     callbackToken,
     subscriptionsUrl: 'https://subscriptions.test',
@@ -130,10 +161,21 @@ test('production callback policy permits only HTTPS or the canonical private Doc
 
 const provision = async (database, fetchImpl = createFetch()) => {
     const service = new SavanaIntegrationService({ database, fetchImpl, config });
-    const item = await service.requestConnection(1, {
-        organization_id: organizationId,
-        pos_external_tenant_id: 'pos-company-1',
-    }, 'tenant-user');
+    const item = await service.provisionConnection({
+        connection: {
+            id: 'connection-1',
+            organization_id: organizationId,
+            source_tenant_id: 'pos-tenant-id',
+            target_tenant_id: 'wa-savana-tenant-id',
+            source_platform: 'pos',
+            target_platform: 'wa_savana',
+            source_external_tenant_id: 'pos-company-1',
+            target_external_tenant_id: 'wa_savana:tenant:1',
+            status: 'active',
+            scopes: ['pos.sales.events'],
+        },
+        webhook_secret: 'wa-savana-connection-secret',
+    }, callbackToken);
     return { service, item };
 };
 
@@ -170,10 +212,10 @@ test('migrations create isolated integration, projection and service request tab
     database.close();
 });
 
-test('POS provisioning is centrally entitled and supports explicit lifecycle control', async () => {
+test('approved POS provisioning is centrally entitled and supports explicit lifecycle control', async () => {
     const database = createDatabase();
     const { service, item } = await provision(database);
-    assert.equal(item.status, 'pending_authorization');
+    assert.equal(item.status, 'active');
     assert.equal(service.hasEntitlement(item), true);
     assert.equal(service.serialize(item).independent_mode, true);
     assert.equal((await service.refreshStatus(item)).status, 'active');
@@ -183,7 +225,7 @@ test('POS provisioning is centrally entitled and supports explicit lifecycle con
     database.close();
 });
 
-test('one-click linking discovers and activates the target platform automatically', async () => {
+test('link request discovers the bound account and waits for target approval', async () => {
     const database = createDatabase();
     const sourceTenantId = crypto.randomUUID();
     const targetTenantId = crypto.randomUUID();
@@ -191,7 +233,7 @@ test('one-click linking discovers and activates the target platform automaticall
     const snapshot = entitlementSnapshot();
     const fetchImpl = async (url, options = {}) => {
         const parsed = new URL(url);
-        if (parsed.pathname === '/v1/platform-tenants' && options.method === 'GET') {
+        if (parsed.pathname === '/v1/platform-bindings' && options.method === 'GET') {
             return Response.json([{
                 id: sourceTenantId,
                 organization_id: organizationId,
@@ -199,7 +241,7 @@ test('one-click linking discovers and activates the target platform automaticall
                 external_tenant_id: 'wa_savana:tenant:1',
             }]);
         }
-        if (parsed.pathname === '/v1/connection-candidates' && options.method === 'GET') {
+        if (parsed.pathname === '/v1/platform-connection-candidates' && options.method === 'GET') {
             return Response.json({
                 organization: { id: organizationId, name: 'Savana tenant' },
                 source_tenant: {
@@ -235,12 +277,10 @@ test('one-click linking discovers and activates the target platform automaticall
         if (parsed.pathname.includes('/entitlements/')) {
             return Response.json({ data: snapshot });
         }
-        if (parsed.pathname === '/v1/connections/one-click' && options.method === 'POST') {
+        if (parsed.pathname === '/v1/platform-connections/requests' && options.method === 'POST') {
             assert.deepEqual(JSON.parse(options.body), {
-                source_tenant_id: sourceTenantId,
-                target_platform_code: 'catalog',
+                source_external_tenant_id: 'wa_savana:tenant:1',
                 actor_id: 'tenant-user',
-                provision_source: false,
             });
             return Response.json({
                 connection: {
@@ -252,10 +292,14 @@ test('one-click linking discovers and activates the target platform automaticall
                     target_platform: 'catalog',
                     source_external_tenant_id: 'wa_savana:tenant:1',
                     target_external_tenant_id: 'catalog:shop:42',
-                    status: 'active',
+                    status: 'pending_authorization',
                     scopes: ['catalog.products.projection'],
                 },
-                webhook_secret: 'one-click-secret',
+                target_tenant: {
+                    id: targetTenantId,
+                    external_tenant_id: 'catalog:shop:42',
+                },
+                approval_required: true,
             }, { status: 201 });
         }
         return Response.json({ error: 'unexpected request' }, { status: 500 });
@@ -267,7 +311,7 @@ test('one-click linking discovers and activates the target platform automaticall
     });
 
     const item = await service.requestConnection(1, {}, 'tenant-user', 'catalog');
-    assert.equal(item.status, 'active');
+    assert.equal(item.status, 'pending_authorization');
     assert.equal(item.connection_id, connectionId);
     assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
     assert.equal(service.serialize(item, 'catalog').entitled, true);
@@ -378,7 +422,7 @@ test('central plan checkout is validated locally and delegated idempotently', as
         database,
         fetchImpl: async (url, options = {}) => {
             const parsed = new URL(url);
-            if (parsed.pathname === '/v1/platform-tenants') {
+            if (parsed.pathname === '/v1/platform-bindings') {
                 return Response.json([{
                     id: platformTenantId,
                     organization_id: organizationId,
@@ -506,10 +550,7 @@ test('missing entitlement and invalid signed snapshots fail closed', async () =>
         const database = createDatabase();
         const service = new SavanaIntegrationService({ database, fetchImpl, config });
         await assert.rejects(
-            () => service.requestConnection(1, {
-                organization_id: organizationId,
-                pos_external_tenant_id: 'pos-company-1',
-            }, 'tenant-user'),
+            () => service.requestConnection(1, {}, 'tenant-user'),
             error => error instanceof SavanaIntegrationError && [401, 402].includes(error.statusCode),
         );
         database.close();
@@ -532,8 +573,7 @@ test('central subscription context becomes the tenant billing enforcement source
     const snapshot = entitlementSnapshot();
     const fetchImpl = async url => {
         const parsed = new URL(url);
-        if (parsed.pathname === '/v1/platform-tenants') {
-            assert.equal(parsed.searchParams.get('platform_code'), 'wa_savana');
+        if (parsed.pathname === '/v1/platform-bindings') {
             assert.equal(parsed.searchParams.get('external_tenant_id'), 'wa_savana:tenant:1');
             return Response.json([{
                 id: crypto.randomUUID(),
@@ -803,15 +843,25 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
     database.close();
 });
 
-test('Catalog connects directly and creates reviewed Wa service requests without POS', async () => {
+test('approved Catalog link creates reviewed Wa service requests without POS', async () => {
     const database = createDatabase();
     const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
-    const item = await service.requestConnection(1, {
-        organization_id: organizationId,
-        remote_external_tenant_id: 'catalog-shop-1',
-    }, 'tenant-user', 'catalog');
+    const item = await service.provisionConnection({
+        connection: {
+            id: 'connection-1',
+            organization_id: organizationId,
+            source_tenant_id: 'catalog-tenant-id',
+            target_tenant_id: 'wa-savana-tenant-id',
+            source_platform: 'catalog',
+            target_platform: 'wa_savana',
+            source_external_tenant_id: 'catalog:shop:1',
+            target_external_tenant_id: 'wa_savana:tenant:1',
+            status: 'active',
+            scopes: ['catalog.products.projection'],
+        },
+        webhook_secret: 'wa-savana-connection-secret',
+    }, callbackToken);
     assert.equal(item.platform_code, 'catalog');
-    database.prepare("UPDATE savana_integrations SET status = 'active' WHERE id = ?").run(item.id);
 
     const product = envelope('catalog.product_snapshot.v1', {
         snapshot_id: crypto.randomUUID(),

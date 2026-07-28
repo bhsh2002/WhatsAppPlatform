@@ -15,6 +15,53 @@ const boundedLimit = value => Math.min(100, Math.max(1, Number.parseInt(value ||
 export const createTenantIntegrationsRouter = ({ database, service }) => {
     const router = express.Router();
 
+    router.get('/binding', async (req, res) => {
+        try {
+            return res.json(await service.bindingContext(req.user.tenant_id));
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.post('/binding/redeem', async (req, res) => {
+        try {
+            const result = await service.redeemBinding(
+                req.user.tenant_id,
+                req.body?.invitation_code,
+                req.user.id,
+            );
+            return res.status(201).json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.get('/incoming-connections', async (req, res) => {
+        try {
+            return res.json({
+                data: await service.incomingConnections(req.user.tenant_id),
+            });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.post(
+        '/incoming-connections/:connectionId/:decision',
+        async (req, res) => {
+            try {
+                return res.json(await service.decideIncomingConnection(
+                    req.user.tenant_id,
+                    req.params.connectionId,
+                    req.params.decision,
+                    req.user.id,
+                ));
+            } catch (error) {
+                return respondError(res, error);
+            }
+        }
+    );
+
     router.get('/subscription', async (req, res) => {
         try {
             return res.json(await service.synchronizeCentralSubscription(req.user.tenant_id));

@@ -1,4 +1,25 @@
 export const savanaIntegrationMethods = {
+    async getPortalPlatformBinding() {
+        return this.request('/api/portal/integrations/binding');
+    },
+
+    async redeemPortalPlatformBinding(invitationCode) {
+        return this.request('/api/portal/integrations/binding/redeem', {
+            method: 'POST',
+            body: JSON.stringify({ invitation_code: invitationCode }),
+        });
+    },
+
+    async getPortalIncomingConnections() {
+        return this.request('/api/portal/integrations/incoming-connections');
+    },
+
+    async decidePortalIncomingConnection(connectionId, decision) {
+        return this.request(
+            `/api/portal/integrations/incoming-connections/${connectionId}/${decision}`,
+            { method: 'POST' },
+        );
+    },
     async checkoutPortalCentralSubscription(data) {
         return this.request('/api/portal/integrations/subscription/checkout', {
             method: 'POST',

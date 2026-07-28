@@ -56,7 +56,7 @@ const parseBoolean = value => ['1', 'true', 'yes', 'on'].includes(
 export const integrationConfigFromEnv = (env = process.env) => ({
     enabled: parseBoolean(env.SAVANA_INTEGRATIONS_ENABLED),
     connectUrl: String(env.SAVANA_CONNECT_URL || 'http://savana-connect:8010').replace(/\/+$/, ''),
-    connectAdminToken: env.SAVANA_CONNECT_ADMIN_TOKEN || '',
+    connectPlatformToken: env.SAVANA_CONNECT_PLATFORM_TOKEN || '',
     callbackUrl: env.SAVANA_CONNECT_CALLBACK_URL || '',
     callbackToken: env.SAVANA_CONNECT_CALLBACK_TOKEN || '',
     subscriptionsUrl: String(env.SAVANA_SUBSCRIPTIONS_URL || 'http://savana-subscriptions:8020').replace(/\/+$/, ''),
@@ -69,14 +69,27 @@ export const integrationConfigFromEnv = (env = process.env) => ({
 export const validateIntegrationConfig = (config, env = process.env) => {
     if (!config.enabled) return;
     const missing = [
-        ['SAVANA_CONNECT_ADMIN_TOKEN', config.connectAdminToken],
         ['SAVANA_CONNECT_CALLBACK_URL', config.callbackUrl],
         ['SAVANA_CONNECT_CALLBACK_TOKEN', config.callbackToken],
+        ['SAVANA_CONNECT_PLATFORM_TOKEN', config.connectPlatformToken],
         ['SAVANA_SUBSCRIPTIONS_PLATFORM_TOKEN', config.subscriptionsPlatformToken],
         ['SAVANA_SUBSCRIPTIONS_SIGNING_SECRET', config.subscriptionsSigningSecret],
     ].filter(([, value]) => !value).map(([name]) => name);
     if (missing.length > 0) {
         throw new Error(`Missing Savana integration settings: ${missing.join(', ')}`);
+    }
+    if (
+        String(config.connectPlatformToken).length < 32
+        || String(config.callbackToken).length < 32
+    ) {
+        throw new Error(
+            'Savana Connect platform and callback tokens must be at least 32 characters'
+        );
+    }
+    if (safeCompare(config.connectPlatformToken, config.callbackToken)) {
+        throw new Error(
+            'SAVANA_CONNECT_PLATFORM_TOKEN must differ from SAVANA_CONNECT_CALLBACK_TOKEN'
+        );
     }
 
     let callbackUrl;
@@ -142,7 +155,7 @@ const parseJson = (value, fallback = null) => {
 const nowIso = () => new Date().toISOString();
 
 const connectionSecretKey = config => crypto.createHash('sha256')
-    .update(String(config.subscriptionsSigningSecret || config.connectAdminToken || ''))
+    .update(String(config.subscriptionsSigningSecret || ''))
     .digest();
 
 const encryptConnectionSecret = (config, plaintext) => {
@@ -194,6 +207,97 @@ export class SavanaIntegrationService {
         return Object.keys(INTEGRATION_PROFILES);
     }
 
+    async bindingContext(tenantId) {
+        const tenant = this.db.prepare(
+            'SELECT id, name FROM tenants WHERE id = ?'
+        ).get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError(
+                'Tenant was not found', 404, 'tenant_not_found'
+            );
+        }
+        const externalTenantId = `wa_savana:tenant:${tenant.id}`;
+        const bindings = await this.requestJson(
+            'connect',
+            'GET',
+            `/v1/platform-bindings?external_tenant_id=${encodeURIComponent(externalTenantId)}`
+        );
+        return {
+            bound: bindings.length > 0,
+            binding: bindings[0] || null,
+            external_tenant_id: externalTenantId,
+        };
+    }
+
+    async redeemBinding(tenantId, invitationCode, actorId) {
+        const tenant = this.db.prepare(
+            'SELECT id, name FROM tenants WHERE id = ?'
+        ).get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError(
+                'Tenant was not found', 404, 'tenant_not_found'
+            );
+        }
+        return this.requestJson(
+            'connect',
+            'POST',
+            '/v1/platform-bindings/redeem',
+            {
+                invitation_code: requiredString(
+                    invitationCode, 'invitation_code'
+                ),
+                external_tenant_id: `wa_savana:tenant:${tenant.id}`,
+                display_name: tenant.name,
+                actor_id: String(actorId || 'tenant'),
+            },
+        );
+    }
+
+    async incomingConnections(tenantId) {
+        const tenant = this.db.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) {
+            throw new SavanaIntegrationError(
+                'Tenant was not found', 404, 'tenant_not_found'
+            );
+        }
+        try {
+            return await this.requestJson(
+                'connect',
+                'GET',
+                '/v1/platform-connections/incoming?external_tenant_id='
+                + encodeURIComponent(`wa_savana:tenant:${tenant.id}`)
+            );
+        } catch (error) {
+            if (error.remoteStatus === 404) return [];
+            throw error;
+        }
+    }
+
+    async decideIncomingConnection(
+        tenantId, connectionId, decision, actorId
+    ) {
+        if (!['approve', 'reject'].includes(decision)) {
+            throw new SavanaIntegrationError(
+                'Unsupported connection decision', 404, 'decision_not_found'
+            );
+        }
+        const result = await this.requestJson(
+            'connect',
+            'POST',
+            `/v1/platform-connections/${encodeURIComponent(connectionId)}/${decision}`,
+            {
+                target_external_tenant_id: `wa_savana:tenant:${tenantId}`,
+                actor_id: String(actorId || 'tenant'),
+            },
+        );
+        if (decision !== 'approve') return result;
+        const connection = result.connection || {};
+        const remotePlatform = connection.source_platform === 'wa_savana'
+            ? connection.target_platform
+            : connection.source_platform;
+        return this.serialize(this.get(tenantId, remotePlatform), remotePlatform);
+    }
+
     profile(platformCode) {
         const profile = INTEGRATION_PROFILES[platformCode];
         if (!profile) {
@@ -222,7 +326,10 @@ export class SavanaIntegrationService {
             ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }),
             ...(isSubscriptions
                 ? { 'X-Savana-Platform-Token': this.config.subscriptionsPlatformToken }
-                : { Authorization: `Bearer ${this.config.connectAdminToken}` }),
+                : {
+                    'X-Savana-Platform-Code': 'wa_savana',
+                    'X-Savana-Platform-Token': this.config.connectPlatformToken,
+                }),
         };
         let response;
         try {
@@ -277,7 +384,7 @@ export class SavanaIntegrationService {
         const tenants = await this.requestJson(
             'connect',
             'GET',
-            `/v1/platform-tenants?platform_code=wa_savana&external_tenant_id=${encodeURIComponent(externalTenantId)}`
+            `/v1/platform-bindings?external_tenant_id=${encodeURIComponent(externalTenantId)}`
         );
         if (tenants.length === 0) {
             return {
@@ -640,108 +747,21 @@ export class SavanaIntegrationService {
         ) {
             throw new SavanaIntegrationError('Platform connection already exists', 409, 'connection_exists');
         }
-        if (!String(payload?.organization_id || '').trim()) {
-            return this.requestOneClickConnection(
-                tenant,
-                item,
-                actorId,
-                platformCode,
-                profile,
-                payload || {},
-            );
-        }
-        const organizationId = requireUuid(payload.organization_id, 'organization_id');
-        const remoteExternalTenantId = requiredString(
-            payload.remote_external_tenant_id
-                || payload[`${platformCode}_external_tenant_id`]
-                || (platformCode === 'pos' ? payload.pos_external_tenant_id : null),
-            'remote_external_tenant_id'
-        );
-        const callbackUrl = String(payload.callback_url || this.config.callbackUrl || '').trim();
-        if (!/^https?:\/\//.test(callbackUrl)) {
-            throw new SavanaIntegrationError('A valid callback_url is required');
-        }
-        this.db.prepare(`
-            UPDATE savana_integrations SET organization_id = ?, status = 'disconnected',
-                last_error = NULL, updated_at = datetime('now', 'localtime')
-            WHERE id = ?
-        `).run(organizationId, item.id);
-        item = await this.refreshEntitlement(this.get(tenantId, platformCode));
-        if (!this.hasEntitlement(item)) {
+        if (String(payload?.organization_id || '').trim()) {
             throw new SavanaIntegrationError(
-                `The subscription does not include Wa Savana ${profile.displayName} integration`,
-                402,
-                'entitlement_required'
+                'Use an organization invitation and select the target account; the legacy flow is disabled',
+                410,
+                'legacy_connection_flow_disabled'
             );
         }
-
-        try {
-            try {
-                await this.requestJson('connect', 'POST', '/v1/organizations', {
-                    organization_id: organizationId,
-                    name: `Wa Savana — ${tenant.name}`,
-                });
-            } catch (error) {
-                if (error.remoteStatus !== 409) throw error;
-            }
-            const local = await this.requestJson('connect', 'POST', '/v1/platform-tenants', {
-                organization_id: organizationId,
-                platform_code: 'wa_savana',
-                external_tenant_id: `wa_savana:tenant:${tenant.id}`,
-                display_name: tenant.name,
-            });
-            const remote = await this.requestJson('connect', 'POST', '/v1/platform-tenants', {
-                organization_id: organizationId,
-                platform_code: platformCode,
-                external_tenant_id: remoteExternalTenantId,
-                display_name: String(
-                    payload.remote_display_name
-                    || payload[`${platformCode}_display_name`]
-                    || profile.displayName
-                ),
-            });
-            const connection = await this.requestJson('connect', 'POST', '/v1/connections', {
-                organization_id: organizationId,
-                source_tenant_id: local.id,
-                target_tenant_id: remote.id,
-                scopes: profile.scopes,
-                source_callback_url: callbackUrl,
-                target_callback_url: payload.remote_callback_url
-                    || payload[`${platformCode}_callback_url`]
-                    || (platformCode === 'pos' ? payload.pos_callback_url : null),
-                actor_id: String(actorId || 'tenant'),
-            });
-            const credentials = await this.requestJson(
-                'connect', 'POST', `/v1/connections/${connection.id}/credentials`,
-                { platform_tenant_id: local.id }
-            );
-            this.db.prepare(`
-                UPDATE savana_integrations SET
-                    local_platform_tenant_id = ?, remote_platform_tenant_id = ?,
-                    remote_external_tenant_id = ?, connection_id = ?, status = ?,
-                    scopes_json = ?, webhook_secret_encrypted = ?,
-                    last_sync_at = ?, last_error = NULL,
-                    updated_at = datetime('now', 'localtime')
-                WHERE id = ?
-            `).run(
-                local.id,
-                remote.id,
-                remoteExternalTenantId,
-                connection.id,
-                connection.status,
-                JSON.stringify(profile.scopes),
-                encryptConnectionSecret(this.config, credentials.webhook_secret),
-                nowIso(),
-                item.id,
-            );
-        } catch (error) {
-            this.db.prepare(`
-                UPDATE savana_integrations SET status = 'error', last_error = ?,
-                    updated_at = datetime('now', 'localtime') WHERE id = ?
-            `).run(String(error.message).slice(0, 4000), item.id);
-            throw error;
-        }
-        return this.get(tenantId, platformCode);
+        return this.requestOneClickConnection(
+            tenant,
+            item,
+            actorId,
+            platformCode,
+            profile,
+            payload || {},
+        );
     }
 
     async connectionCandidates(tenantId, targetPlatformCode) {
@@ -754,14 +774,14 @@ export class SavanaIntegrationService {
         const registrations = await this.requestJson(
             'connect',
             'GET',
-            `/v1/platform-tenants?platform_code=wa_savana&external_tenant_id=${encodeURIComponent(externalTenantId)}`
+            `/v1/platform-bindings?external_tenant_id=${encodeURIComponent(externalTenantId)}`
         );
         const organizations = [];
-        for (const registration of registrations) {
+        if (registrations.length > 0) {
             organizations.push(await this.requestJson(
                 'connect',
                 'GET',
-                `/v1/connection-candidates?source_tenant_id=${encodeURIComponent(registration.id)}`
+                `/v1/platform-connection-candidates?source_external_tenant_id=${encodeURIComponent(externalTenantId)}`
                 + `&target_platform_code=${encodeURIComponent(targetPlatformCode)}`
             ));
         }
@@ -773,7 +793,6 @@ export class SavanaIntegrationService {
     }
 
     async requestOneClickConnection(tenant, item, actorId, platformCode, profile, payload = {}) {
-        const repairExisting = item.status === 'error';
         try {
             const discovery = await this.connectionCandidates(tenant.id, platformCode);
             if (discovery.organizations.length === 0) {
@@ -824,13 +843,11 @@ export class SavanaIntegrationService {
             const result = await this.requestJson(
                 'connect',
                 'POST',
-                '/v1/connections/one-click',
+                '/v1/platform-connections/requests',
                 {
-                    source_tenant_id: platformTenant.id,
-                    target_platform_code: platformCode,
+                    source_external_tenant_id: `wa_savana:tenant:${tenant.id}`,
                     target_tenant_id: payload.target_tenant_id || undefined,
                     actor_id: String(actorId || 'tenant'),
-                    provision_source: repairExisting,
                 },
             );
             const connection = result.connection;
@@ -850,7 +867,7 @@ export class SavanaIntegrationService {
                 connection.id,
                 connection.status,
                 JSON.stringify(connection.scopes || profile.scopes),
-                encryptConnectionSecret(this.config, result.webhook_secret),
+                null,
                 nowIso(),
                 item.id,
             );
@@ -991,8 +1008,11 @@ export class SavanaIntegrationService {
             throw new SavanaIntegrationError('Unsupported connection action', 404, 'action_not_found');
         }
         const result = await this.requestJson(
-            'connect', 'POST', `/v1/connections/${item.connection_id}/${action}`,
-            { actor_id: String(actorId || 'tenant') }
+            'connect', 'POST', `/v1/platform-connections/${item.connection_id}/${action}`,
+            {
+                external_tenant_id: `wa_savana:tenant:${item.tenant_id}`,
+                actor_id: String(actorId || 'tenant'),
+            }
         );
         this.db.prepare(`
             UPDATE savana_integrations SET status = ?, last_sync_at = ?, last_error = NULL,
@@ -1005,12 +1025,24 @@ export class SavanaIntegrationService {
     async refreshStatus(item) {
         if (!item?.connection_id) return item;
         const result = await this.requestJson(
-            'connect', 'GET', `/v1/connections/${item.connection_id}`
+            'connect',
+            'GET',
+            `/v1/platform-connections/${item.connection_id}`
+            + `?external_tenant_id=${encodeURIComponent(`wa_savana:tenant:${item.tenant_id}`)}`
         );
+        const localStatus = result.status === 'rejected' ? 'revoked' : result.status;
         this.db.prepare(`
             UPDATE savana_integrations SET status = ?, scopes_json = ?, last_sync_at = ?,
+                webhook_secret_encrypted = CASE WHEN ? = 'revoked'
+                    THEN NULL ELSE webhook_secret_encrypted END,
                 last_error = NULL, updated_at = datetime('now', 'localtime') WHERE id = ?
-        `).run(result.status, JSON.stringify(result.scopes || []), nowIso(), item.id);
+        `).run(
+            localStatus,
+            JSON.stringify(result.scopes || []),
+            nowIso(),
+            localStatus,
+            item.id,
+        );
         return this.get(item.tenant_id, item.platform_code);
     }
 

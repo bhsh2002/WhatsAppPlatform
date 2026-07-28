@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert, Box, Button, Card, CardActionArea, CardContent, Chip,
     CircularProgress, Divider, FormControl, InputLabel, MenuItem,
-    Stack, Typography,
+    Stack, TextField, Typography,
 } from '@mui/material';
 import {
     Hub as HubIcon, Link as LinkIcon, LinkOff as RevokeIcon,
@@ -22,12 +22,12 @@ const PLATFORMS = {
 
 const STATUS_COLORS = {
     active: 'success', pending_authorization: 'warning', paused: 'default',
-    degraded: 'warning', error: 'error', revoked: 'error', disconnected: 'default',
+    degraded: 'warning', rejected: 'error', error: 'error', revoked: 'error', disconnected: 'default',
 };
 
 const STATUS_AR = {
     active: 'نشط', pending_authorization: 'بانتظار موافقة الطرف الآخر', paused: 'متوقف مؤقتًا',
-    degraded: 'يحتاج متابعة', error: 'خطأ', revoked: 'ملغى', disconnected: 'غير مربوط',
+    degraded: 'يحتاج متابعة', rejected: 'مرفوض', error: 'خطأ', revoked: 'ملغى', disconnected: 'غير مربوط',
 };
 
 const TenantPosIntegration = () => {
@@ -39,6 +39,9 @@ const TenantPosIntegration = () => {
     const [serviceRequests, setServiceRequests] = useState([]);
     const [candidateDocument, setCandidateDocument] = useState(null);
     const [selectedTarget, setSelectedTarget] = useState('');
+    const [binding, setBinding] = useState(null);
+    const [incoming, setIncoming] = useState([]);
+    const [invitationCode, setInvitationCode] = useState('');
     const [loading, setLoading] = useState(true);
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
@@ -55,6 +58,12 @@ const TenantPosIntegration = () => {
         setLoading(true);
         setError('');
         try {
+            const bindingDocument = await api.getPortalPlatformBinding();
+            setBinding(bindingDocument);
+            const incomingDocument = bindingDocument?.bound
+                ? await api.getPortalIncomingConnections()
+                : { data: [] };
+            setIncoming(incomingDocument?.data || incomingDocument || []);
             const response = await api.getPortalPlatformIntegrations();
             const rows = response?.data || response || [];
             setIntegrations(rows);
@@ -72,7 +81,7 @@ const TenantPosIntegration = () => {
             } else {
                 setServiceRequests([]);
             }
-            setCandidateDocument(isConnectable
+            setCandidateDocument(isConnectable && bindingDocument?.bound
                 ? await api.getPortalPlatformCandidates(selectedPlatform)
                 : null);
         } catch (requestError) {
@@ -109,10 +118,41 @@ const TenantPosIntegration = () => {
                 source_tenant_id: selectedCandidate.source.id,
                 target_tenant_id: selectedCandidate.target.id,
             });
-            setSuccess(ar ? 'تم ربط الحسابين وبدأت المزامنة الأولية.' : 'The selected accounts were linked and initial synchronization started.');
+            setSuccess(ar ? 'تم إرسال طلب الربط إلى مدير الحساب الآخر.' : 'The connection request was sent to the other account manager.');
             await load();
         } catch (requestError) { setError(requestError.message); }
         finally { setWorking(false); }
+    };
+
+    const redeemBinding = async () => {
+        setWorking(true); setError(''); setSuccess('');
+        try {
+            await api.redeemPortalPlatformBinding(invitationCode);
+            setInvitationCode('');
+            setSuccess(ar
+                ? 'تم ربط حساب Wa Savana بالمؤسسة بعد التحقق من الدعوة.'
+                : 'Wa Savana was bound to the organization after invitation verification.');
+            await load();
+        } catch (requestError) {
+            setError(requestError.message);
+        } finally {
+            setWorking(false);
+        }
+    };
+
+    const decideIncoming = async (connectionId, decision) => {
+        setWorking(true); setError(''); setSuccess('');
+        try {
+            await api.decidePortalIncomingConnection(connectionId, decision);
+            setSuccess(decision === 'approve'
+                ? (ar ? 'تمت الموافقة وتفعيل الرابط للطرفين.' : 'Approved and activated for both platforms.')
+                : (ar ? 'تم رفض طلب الربط.' : 'Connection request rejected.'));
+            await load();
+        } catch (requestError) {
+            setError(requestError.message);
+        } finally {
+            setWorking(false);
+        }
     };
 
     const action = async actionName => {
@@ -145,7 +185,7 @@ const TenantPosIntegration = () => {
     }
 
     const status = integration.status || 'disconnected';
-    const canConnect = !integration.connection_id || ['revoked', 'error', 'disconnected'].includes(status);
+    const canConnect = !integration.connection_id || ['rejected', 'revoked', 'error', 'disconnected'].includes(status);
     const counts = diagnostics?.counts || {};
 
     return (
@@ -158,6 +198,74 @@ const TenantPosIntegration = () => {
             </Typography>
             {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
             {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 2 }}>{success}</Alert>}
+
+            {binding && !binding.bound && (
+                <Card variant="outlined" sx={{ mb: 2 }}>
+                    <CardContent>
+                        <Typography variant="h6" fontWeight={800}>
+                            {ar ? 'انضمام الحساب إلى مؤسسة سافانا' : 'Join a Savana organization'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ my: 1.5 }}>
+                            {ar
+                                ? `أرسل إلى مدير المؤسسة معرف هذا الحساب: ${binding.external_tenant_id}. ستُقيد الدعوة به ولا تعمل مع حساب آخر.`
+                                : `Send this account identifier to the organization manager: ${binding.external_tenant_id}. The invitation will only work for this account.`}
+                        </Typography>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                            <TextField
+                                fullWidth
+                                label={ar ? 'رمز دعوة المؤسسة' : 'Organization invitation'}
+                                value={invitationCode}
+                                onChange={(event) => setInvitationCode(event.target.value)}
+                            />
+                            <Button
+                                variant="contained"
+                                disabled={working || invitationCode.trim().length < 20}
+                                onClick={redeemBinding}
+                            >
+                                {ar ? 'تحقق وانضم' : 'Verify and join'}
+                            </Button>
+                        </Stack>
+                    </CardContent>
+                </Card>
+            )}
+            {binding?.bound && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                    {ar
+                        ? `هذا الحساب تابع للمؤسسة «${binding.binding?.organization_name}».`
+                        : `This account belongs to “${binding.binding?.organization_name}”.`}
+                </Alert>
+            )}
+            {incoming.map((request) => (
+                <Alert
+                    key={request.id}
+                    severity="warning"
+                    sx={{ mb: 1 }}
+                    action={(
+                        <Stack direction="row" spacing={0.5}>
+                            <Button
+                                color="inherit"
+                                size="small"
+                                disabled={working}
+                                onClick={() => decideIncoming(request.id, 'approve')}
+                            >
+                                {ar ? 'موافقة' : 'Approve'}
+                            </Button>
+                            <Button
+                                color="error"
+                                size="small"
+                                disabled={working}
+                                onClick={() => decideIncoming(request.id, 'reject')}
+                            >
+                                {ar ? 'رفض' : 'Reject'}
+                            </Button>
+                        </Stack>
+                    )}
+                >
+                    {ar
+                        ? `طلب ربط وارد من ${request.source_external_tenant_id}. لن تبدأ المزامنة قبل موافقتك.`
+                        : `Incoming request from ${request.source_external_tenant_id}. Synchronization waits for your approval.`}
+                </Alert>
+            ))}
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
                 {Object.entries(PLATFORMS).map(([code, item]) => {
@@ -198,8 +306,8 @@ const TenantPosIntegration = () => {
                         <Stack spacing={2} sx={{ mt: 3 }}>
                             <Alert severity="info">
                                 {ar
-                                    ? `اختر المؤسسة وحساب ${profile.ar} المقصودين صراحةً قبل التفعيل.`
-                                    : `Explicitly select the organization and ${profile.en} account before activation.`}
+                                    ? `اختر حساب ${profile.ar} المقصود. سيصل لمديره طلب موافقة قبل بدء المزامنة.`
+                                    : `Select the intended ${profile.en} account. Its manager must approve before synchronization.`}
                             </Alert>
                             <FormControl fullWidth>
                                 <InputLabel id="wa-savana-integration-target-label">
@@ -246,7 +354,7 @@ const TenantPosIntegration = () => {
                                 onClick={connect}
                                 sx={{ alignSelf: 'flex-start' }}
                             >
-                                {ar ? 'تأكيد الربط وبدء المزامنة' : 'Confirm and start synchronization'}
+                                {ar ? 'إرسال طلب الربط' : 'Send connection request'}
                             </Button>
                         </Stack>
                     ) : (
