@@ -162,6 +162,24 @@ if (savanaIntegrationConfig.enabled && savanaIntegrationConfig.subscriptionsMode
     const centralSubscriptionTimer = setInterval(refreshCentralSubscriptions, 5 * 60 * 1000);
     centralSubscriptionTimer.unref();
 }
+if (
+    savanaIntegrationConfig.enabled
+    && !['1', 'true'].includes(
+        String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase()
+    )
+) {
+    const dispatchIntegrationOutbox = () => {
+        savanaIntegrationService.dispatchOutbox({ limit: 100 }).catch(error => {
+            console.error('[SavanaConnect] Outbox dispatch failed:', error.message);
+        });
+    };
+    dispatchIntegrationOutbox();
+    const integrationOutboxTimer = setInterval(
+        dispatchIntegrationOutbox,
+        30 * 1000,
+    );
+    integrationOutboxTimer.unref();
+}
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
 // are never generated into or printed through application logs.

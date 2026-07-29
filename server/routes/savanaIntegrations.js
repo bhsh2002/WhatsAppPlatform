@@ -167,6 +167,9 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
             if (req.params.action === 'publish-status') {
                 return res.status(202).json(await service.publishNotificationStatus(item, req.body || {}));
             }
+            if (req.params.action === 'retry-outbox') {
+                return res.status(202).json(await service.retryOutbox(item));
+            }
             throw new SavanaIntegrationError('Unsupported action', 404, 'action_not_found');
         } catch (error) {
             return respondError(res, error);
@@ -440,6 +443,9 @@ export const createConnectCallbacksRouter = ({ service }) => {
             const result = service.receiveEvent(
                 req.get('X-Savana-Connection-Id'),
                 req.get('X-Savana-Callback-Token'),
+                req.get('X-Savana-Delivery-Id'),
+                req.get('X-Savana-Timestamp'),
+                req.get('X-Savana-Signature'),
                 rawBody,
             );
             return res.json(result);

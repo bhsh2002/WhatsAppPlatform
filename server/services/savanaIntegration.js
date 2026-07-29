@@ -64,6 +64,10 @@ export const integrationConfigFromEnv = (env = process.env) => ({
     subscriptionsSigningSecret: env.SAVANA_SUBSCRIPTIONS_SIGNING_SECRET || '',
     subscriptionsMode: String(env.SAVANA_SUBSCRIPTIONS_MODE || 'local').trim().toLowerCase(),
     timeoutMs: Math.max(500, Number(env.SAVANA_CONTROL_PLANE_TIMEOUT_MS || 10_000)),
+    outboxMaxAttempts: Math.max(
+        1,
+        Number(env.SAVANA_INTEGRATION_OUTBOX_MAX_ATTEMPTS || 8),
+    ),
 });
 
 export const validateIntegrationConfig = (config, env = process.env) => {
@@ -174,12 +178,23 @@ const decryptConnectionSecret = (config, encoded) => {
     return Buffer.concat([decipher.update(value.subarray(28)), decipher.final()]).toString('utf8');
 };
 
-const signWebhook = (secret, timestamp, deliveryId, body) => `v1=${crypto
+export const signWebhook = (secret, timestamp, deliveryId, body) => `v1=${crypto
     .createHmac('sha256', secret)
     .update(Buffer.concat([
         Buffer.from(timestamp), Buffer.from('.'), Buffer.from(deliveryId), Buffer.from('.'), body,
     ]))
     .digest('hex')}`;
+
+export const verifyWebhook = (secret, timestamp, deliveryId, body, signature) => {
+    const sentAt = Number.parseInt(String(timestamp || ''), 10);
+    if (!Number.isSafeInteger(sentAt) || Math.abs(Math.floor(Date.now() / 1000) - sentAt) > 300) {
+        return false;
+    }
+    return safeCompare(
+        signWebhook(secret, String(timestamp), String(deliveryId || ''), body),
+        signature,
+    );
+};
 
 export class SavanaIntegrationService {
     constructor({ database, fetchImpl = globalThis.fetch, config = integrationConfigFromEnv() }) {
@@ -350,7 +365,10 @@ export class SavanaIntegrationService {
             Accept: 'application/json',
             ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }),
             ...(isSubscriptions
-                ? { 'X-Savana-Platform-Token': this.config.subscriptionsPlatformToken }
+                ? {
+                    'X-Savana-Platform-Code': 'wa_savana',
+                    'X-Savana-Platform-Token': this.config.subscriptionsPlatformToken,
+                }
                 : {
                     'X-Savana-Platform-Code': 'wa_savana',
                     'X-Savana-Platform-Token': this.config.connectPlatformToken,
@@ -1071,7 +1089,14 @@ export class SavanaIntegrationService {
         return this.get(item.tenant_id, item.platform_code);
     }
 
-    receiveEvent(connectionId, callbackToken, rawBody) {
+    receiveEvent(
+        connectionId,
+        callbackToken,
+        deliveryId,
+        timestamp,
+        signature,
+        rawBody,
+    ) {
         if (!safeCompare(this.config.callbackToken, callbackToken)) {
             throw new SavanaIntegrationError(
                 'Invalid Connect callback token', 401, 'invalid_callback_token'
@@ -1083,6 +1108,28 @@ export class SavanaIntegrationService {
         if (!item) {
             throw new SavanaIntegrationError(
                 'Active platform connection was not found', 404, 'connection_not_found'
+            );
+        }
+        let connectionSecret;
+        try {
+            connectionSecret = decryptConnectionSecret(
+                this.config,
+                item.webhook_secret_encrypted,
+            );
+        } catch {
+            throw new SavanaIntegrationError(
+                'Invalid Connect signature', 401, 'invalid_signature'
+            );
+        }
+        if (!verifyWebhook(
+            connectionSecret,
+            timestamp,
+            deliveryId,
+            rawBody,
+            signature,
+        )) {
+            throw new SavanaIntegrationError(
+                'Invalid Connect signature', 401, 'invalid_signature'
             );
         }
         let envelope;
@@ -1193,6 +1240,185 @@ export class SavanaIntegrationService {
         );
     }
 
+    enqueueEvent(item, envelope) {
+        this.db.prepare(`
+            INSERT INTO savana_integration_outbox (
+                integration_id, event_id, idempotency_key, event_type,
+                payload_json, status, attempts, available_at
+            ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?)
+            ON CONFLICT(integration_id, idempotency_key) DO NOTHING
+        `).run(
+            item.id,
+            envelope.event_id,
+            envelope.idempotency_key,
+            envelope.event_type,
+            JSON.stringify(envelope),
+            nowIso(),
+        );
+        return this.db.prepare(`
+            SELECT * FROM savana_integration_outbox
+            WHERE integration_id = ? AND idempotency_key = ?
+        `).get(item.id, envelope.idempotency_key);
+    }
+
+    async dispatchOutbox({ limit = 100 } = {}) {
+        const now = new Date();
+        const staleBefore = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
+        this.db.prepare(`
+            UPDATE savana_integration_outbox
+            SET status = 'pending', locked_at = NULL, updated_at = datetime('now')
+            WHERE status = 'processing' AND locked_at < ?
+        `).run(staleBefore);
+        const records = this.db.prepare(`
+            SELECT * FROM savana_integration_outbox
+            WHERE status IN ('pending', 'failed') AND available_at <= ?
+            ORDER BY id ASC LIMIT ?
+        `).all(now.toISOString(), Math.max(1, Math.min(Number(limit) || 100, 500)));
+        const results = [];
+        const maxAttempts = Math.max(
+            1,
+            Number(this.config.outboxMaxAttempts || 8),
+        );
+        for (const record of records) {
+            const claimed = this.db.prepare(`
+                UPDATE savana_integration_outbox
+                SET status = 'processing', locked_at = ?, updated_at = datetime('now')
+                WHERE id = ? AND status IN ('pending', 'failed')
+            `).run(nowIso(), record.id);
+            if (claimed.changes !== 1) continue;
+            const item = this.db.prepare(`
+                SELECT * FROM savana_integrations WHERE id = ?
+            `).get(record.integration_id);
+            try {
+                if (!item || item.status !== 'active' || !item.webhook_secret_encrypted) {
+                    throw new SavanaIntegrationError(
+                        'Platform connection is not active',
+                        409,
+                        'connection_inactive',
+                    );
+                }
+                const envelope = JSON.parse(record.payload_json);
+                const body = Buffer.from(canonicalJson(envelope));
+                const timestamp = String(Math.floor(Date.now() / 1000));
+                const deliveryId = crypto.randomUUID();
+                const secret = decryptConnectionSecret(
+                    this.config,
+                    item.webhook_secret_encrypted,
+                );
+                const response = await this.fetch(`${this.config.connectUrl}/v1/events`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Savana-Platform-Code': 'wa_savana',
+                        'X-Savana-Platform-Token': this.config.connectPlatformToken,
+                        'X-Savana-Connection-Id': item.connection_id,
+                        'X-Savana-Delivery-Id': deliveryId,
+                        'X-Savana-Timestamp': timestamp,
+                        'X-Savana-Signature': signWebhook(
+                            secret,
+                            timestamp,
+                            deliveryId,
+                            body,
+                        ),
+                    },
+                    body,
+                    signal: AbortSignal.timeout(this.config.timeoutMs),
+                });
+                const receipt = await response.json();
+                if (!response.ok) {
+                    throw new SavanaIntegrationError(
+                        `connect returned ${response.status}`,
+                        502,
+                        'control_plane_error',
+                    );
+                }
+                this.db.prepare(`
+                    UPDATE savana_integration_outbox
+                    SET status = 'published', published_at = ?, locked_at = NULL,
+                        last_error = NULL, updated_at = datetime('now')
+                    WHERE id = ?
+                `).run(nowIso(), record.id);
+                this.db.prepare(`
+                    UPDATE savana_integrations
+                    SET last_sync_at = ?, last_error = NULL,
+                        updated_at = datetime('now') WHERE id = ?
+                `).run(nowIso(), item.id);
+                results.push({
+                    event_id: record.event_id,
+                    status: 'published',
+                    receipt,
+                });
+            } catch (error) {
+                const attempts = Number(record.attempts || 0) + 1;
+                const status = attempts >= maxAttempts ? 'dead_letter' : 'failed';
+                const delaySeconds = Math.min(3600, 2 ** Math.min(attempts, 10));
+                const availableAt = new Date(
+                    Date.now() + delaySeconds * 1000,
+                ).toISOString();
+                this.db.prepare(`
+                    UPDATE savana_integration_outbox
+                    SET status = ?, attempts = ?, available_at = ?, locked_at = NULL,
+                        last_error = ?, updated_at = datetime('now') WHERE id = ?
+                `).run(
+                    status,
+                    attempts,
+                    availableAt,
+                    String(error.message || error).slice(0, 4000),
+                    record.id,
+                );
+                results.push({
+                    event_id: record.event_id,
+                    status,
+                    error: String(error.message || error),
+                });
+            }
+        }
+        return results;
+    }
+
+    outboxDiagnostics(item) {
+        const counts = Object.fromEntries(
+            ['pending', 'processing', 'failed', 'dead_letter', 'published'].map(status => [
+                status,
+                this.db.prepare(`
+                    SELECT COUNT(*) AS count FROM savana_integration_outbox
+                    WHERE integration_id = ? AND status = ?
+                `).get(item.id, status).count,
+            ])
+        );
+        const recentFailures = this.db.prepare(`
+            SELECT event_id, event_type, status, attempts, available_at, last_error
+            FROM savana_integration_outbox
+            WHERE integration_id = ? AND status IN ('failed', 'dead_letter')
+            ORDER BY id DESC LIMIT 20
+        `).all(item.id);
+        return { counts, recent_failures: recentFailures };
+    }
+
+    async retryOutbox(item) {
+        if (!item?.connection_id || item.status !== 'active' || !item.webhook_secret_encrypted) {
+            throw new SavanaIntegrationError(
+                'Platform connection is not active',
+                409,
+                'connection_inactive',
+            );
+        }
+        const queued = this.db.prepare(`
+            UPDATE savana_integration_outbox
+            SET status = 'pending', attempts = 0, available_at = ?,
+                locked_at = NULL, last_error = NULL, updated_at = datetime('now')
+            WHERE integration_id = ? AND status IN ('failed', 'dead_letter')
+        `).run(nowIso(), item.id).changes;
+        const deliveries = queued
+            ? await this.dispatchOutbox({ limit: Math.min(queued, 500) })
+            : [];
+        return {
+            queued,
+            published: deliveries.filter(row => row.status === 'published').length,
+            failed: deliveries.filter(row => row.status !== 'published').length,
+        };
+    }
+
     async publishNotificationStatus(item, data) {
         if (!item?.connection_id || item.status !== 'active' || !item.webhook_secret_encrypted) {
             throw new SavanaIntegrationError('Platform connection is not active', 409, 'connection_inactive');
@@ -1215,29 +1441,16 @@ export class SavanaIntegrationService {
             causation_id: data.causation_id || null,
             data,
         };
-        const body = Buffer.from(canonicalJson(envelope));
-        const timestamp = String(Math.floor(Date.now() / 1000));
-        const deliveryId = crypto.randomUUID();
-        const secret = decryptConnectionSecret(this.config, item.webhook_secret_encrypted);
-        const response = await this.fetch(`${this.config.connectUrl}/v1/events`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Savana-Connection-Id': item.connection_id,
-                'X-Savana-Delivery-Id': deliveryId,
-                'X-Savana-Timestamp': timestamp,
-                'X-Savana-Signature': signWebhook(secret, timestamp, deliveryId, body),
+        const record = this.enqueueEvent(item, envelope);
+        const dispatched = await this.dispatchOutbox({ limit: 1 });
+        const result = dispatched.find(entry => entry.event_id === record.event_id);
+        return {
+            event: envelope,
+            receipt: result?.receipt || {
+                queued: true,
+                status: result?.status || record.status,
             },
-            body,
-            signal: AbortSignal.timeout(this.config.timeoutMs),
-        });
-        const result = await response.json();
-        if (!response.ok) {
-            throw new SavanaIntegrationError(
-                `connect returned ${response.status}`, 502, 'control_plane_error'
-            );
-        }
-        return { event: envelope, receipt: result };
+        };
     }
 
     productProjectionKey(row) {
@@ -1484,6 +1697,7 @@ export class SavanaIntegrationService {
         return {
             integration: this.serialize(item),
             events,
+            outbox: this.outboxDiagnostics(item),
             counts: {
                 products,
                 transactions,

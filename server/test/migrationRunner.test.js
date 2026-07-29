@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '044_link_savana_products_to_content_catalog.sql';
+    const latestMigration = '045_savana_integration_outbox.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();

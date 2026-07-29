@@ -14,6 +14,7 @@ import {
     canonicalJson,
     SavanaIntegrationError,
     SavanaIntegrationService,
+    signWebhook,
     validateIntegrationConfig,
 } from '../services/savanaIntegration.js';
 
@@ -195,6 +196,29 @@ const envelope = (eventType, data, eventId, idempotencyKey) => ({
     data,
 });
 
+const deliver = (
+    service,
+    payload,
+    {
+        connectionId = 'connection-1',
+        callback = callbackToken,
+        secret = 'wa-savana-connection-secret',
+        signature = null,
+    } = {},
+) => {
+    const rawBody = Buffer.from(JSON.stringify(payload));
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const deliveryId = crypto.randomUUID();
+    return service.receiveEvent(
+        connectionId,
+        callback,
+        deliveryId,
+        timestamp,
+        signature || signWebhook(secret, timestamp, deliveryId, rawBody),
+        rawBody,
+    );
+};
+
 test('migrations create isolated integration, projection and service request tables', () => {
     const database = createDatabase();
     const tables = new Set(database.prepare(`
@@ -207,6 +231,7 @@ test('migrations create isolated integration, projection and service request tab
         'savana_pos_transactions',
         'savana_notification_candidates',
         'savana_service_requests',
+        'savana_integration_outbox',
     ]));
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
@@ -827,9 +852,8 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
         }],
         payments: [{ method: 'cash', amount: '25.000', reference: null }],
     }, '7f754f8c-c0c8-4a21-aedd-0cd7b8ab90ca', 'pos:sale:branch-1:1001');
-    const rawSale = Buffer.from(JSON.stringify(sale));
-    assert.equal(service.receiveEvent('connection-1', callbackToken, rawSale).duplicate, false);
-    assert.equal(service.receiveEvent('connection-1', callbackToken, rawSale).duplicate, true);
+    assert.equal(deliver(service, sale).duplicate, false);
+    assert.equal(deliver(service, sale).duplicate, true);
 
     const inventory = envelope('pos.inventory_snapshot.v1', {
         snapshot_id: '5499a20e-39b8-413e-9bb9-ac34c4aec37e',
@@ -848,7 +872,7 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
             unit_code: 'PCS',
         }],
     }, '004a2c66-5b9c-488a-a5fe-7e8e2a056f90', 'pos:inventory:snapshot:branch-1:one');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(inventory)));
+    deliver(service, inventory);
 
     const returned = envelope('pos.retail_sale_returned.v1', {
         local_return_id: '2001',
@@ -867,15 +891,20 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
             restock: true,
         }],
     }, '508ed5ca-16ad-43ad-baad-2b24530f2e9d', 'pos:return:branch-1:2001');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(returned)));
+    deliver(service, returned);
 
     assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_integration_events').get().count, 3);
     assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_pos_transactions').get().count, 2);
     assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_notification_candidates').get().count, 2);
     assert.equal(database.prepare('SELECT quantity_available FROM savana_product_projection').get().quantity_available, '18.000000');
     assert.throws(
-        () => service.receiveEvent('connection-1', 'wrong-token', rawSale),
+        () => deliver(service, sale, { callback: 'wrong-token' }),
         error => error instanceof SavanaIntegrationError && error.statusCode === 401,
+    );
+    assert.throws(
+        () => deliver(service, sale, { signature: 'v1=invalid' }),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'invalid_signature',
     );
     assert.deepEqual(service.diagnostics(service.get(1)).counts, {
         products: 1,
@@ -918,7 +947,7 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
             is_active: true,
         }],
     }, crypto.randomUUID(), 'catalog:products:direct-1');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(product)));
+    deliver(service, product);
 
     const order = envelope('catalog.order_status_changed.v1', {
         order_id: 'ORDER-1',
@@ -926,7 +955,7 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
         recipient_phone_e164: '+218910000001',
         notification_consent: true,
     }, crypto.randomUUID(), 'catalog:order:ORDER-1:ready');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(order)));
+    deliver(service, order);
 
     assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_product_projection').get().count, 1);
     const sharedProduct = database.prepare(`
@@ -941,5 +970,46 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     assert.equal(request.request_kind, 'order_notification');
     assert.equal(request.status, 'pending_review');
     assert.equal(service.diagnostics(service.get(1, 'catalog')).counts.pending_service_requests, 1);
+    database.close();
+});
+
+test('notification status remains durable while Connect is unavailable', async () => {
+    const database = createDatabase();
+    const baseFetch = createFetch();
+    let failEvents = true;
+    const fetchImpl = async (url, options) => {
+        if (new URL(url).pathname === '/v1/events' && failEvents) {
+            return Response.json(
+                { error: { code: 'temporary_unavailable' } },
+                { status: 503 },
+            );
+        }
+        return baseFetch(url, options);
+    };
+    const { service, item } = await provision(database, fetchImpl);
+    const published = await service.publishNotificationStatus(item, {
+        request_id: 'notification-request-1',
+        status: 'delivered',
+    });
+    assert.equal(published.receipt.queued, true);
+    assert.equal(published.receipt.status, 'failed');
+    assert.equal(
+        database.prepare(`
+            SELECT status FROM savana_integration_outbox
+        `).get().status,
+        'failed',
+    );
+    assert.equal(service.diagnostics(item).outbox.counts.failed, 1);
+    assert.equal(service.diagnostics(item).outbox.recent_failures.length, 1);
+
+    failEvents = false;
+    const retried = await service.retryOutbox(item);
+    assert.deepEqual(retried, { queued: 1, published: 1, failed: 0 });
+    assert.equal(
+        database.prepare(`
+            SELECT status FROM savana_integration_outbox
+        `).get().status,
+        'published',
+    );
     database.close();
 });
