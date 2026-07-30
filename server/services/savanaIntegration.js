@@ -744,7 +744,8 @@ export class SavanaIntegrationService {
         if (!ACTIVE_SUBSCRIPTION_STATUSES.has(payload.subscription_status)) return false;
         const entitlements = payload.entitlements || {};
         const key = `wa_savana.integration.${item.platform_code}.enabled`;
-        return entitlements[key] === true
+        return entitlements['savana.integrations.enabled'] === true
+            || entitlements[key] === true
             || entitlements[key.replace('.integration.', '.integrations.')] === true;
     }
 
@@ -1176,6 +1177,7 @@ export class SavanaIntegrationService {
         const data = envelope.data || {};
         switch (envelope.event_type) {
             case 'catalog.product_snapshot.v1':
+            case 'savana.product_snapshot.v1':
                 this.applyProductSnapshot(item.tenant_id, data);
                 break;
             case 'pos.inventory_snapshot.v1':
