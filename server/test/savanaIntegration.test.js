@@ -949,12 +949,14 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     }, crypto.randomUUID(), 'catalog:products:direct-1');
     deliver(service, product);
 
-    const order = envelope('catalog.order_status_changed.v1', {
-        order_id: 'ORDER-1',
-        status: 'ready',
-        recipient_phone_e164: '+218910000001',
-        notification_consent: true,
+    const order = envelope('wa_savana.notification_send_requested.v1', {
+        request_id: 'ORDER-1-ready',
+        recipient: { phone_e164: '+218910000001' },
+        template_key: 'catalog_order_ready',
+        requires_review: true,
+        consent_asserted: false,
     }, crypto.randomUUID(), 'catalog:order:ORDER-1:ready');
+    order.source = 'catalog';
     deliver(service, order);
 
     assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_product_projection').get().count, 1);
@@ -967,9 +969,30 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     assert.ok(sharedProduct.savana_projection_key);
     assert.equal(sharedProduct.is_active, 1);
     const request = database.prepare('SELECT * FROM savana_service_requests').get();
-    assert.equal(request.request_kind, 'order_notification');
+    assert.equal(request.request_kind, 'notification_request');
     assert.equal(request.status, 'pending_review');
     assert.equal(service.diagnostics(service.get(1, 'catalog')).counts.pending_service_requests, 1);
+    database.close();
+});
+
+test('cross-platform Wa commands remain reviewable and idempotent', async () => {
+    const database = createDatabase();
+    const { service } = await provision(database);
+    database.prepare("UPDATE savana_integrations SET status = 'active' WHERE tenant_id = 1").run();
+
+    const command = envelope('wa_savana.content_publish_requested.v1', {
+        request_id: 'content-request-1',
+        channels: ['facebook'],
+        content_type: 'post',
+        text: 'منشور منتج جاهز للمراجعة',
+        requires_review: true,
+    }, crypto.randomUUID(), 'pos:content:content-request-1');
+
+    assert.equal(deliver(service, command).duplicate, false);
+    assert.equal(deliver(service, command).duplicate, true);
+    const request = database.prepare('SELECT * FROM savana_service_requests').get();
+    assert.equal(request.request_kind, 'content_publication');
+    assert.equal(request.status, 'pending_review');
     database.close();
 });
 
@@ -991,6 +1014,7 @@ test('notification status remains durable while Connect is unavailable', async (
         request_id: 'notification-request-1',
         status: 'delivered',
     });
+    assert.equal(published.event.reply_to_platform, 'pos');
     assert.equal(published.receipt.queued, true);
     assert.equal(published.receipt.status, 'failed');
     assert.equal(

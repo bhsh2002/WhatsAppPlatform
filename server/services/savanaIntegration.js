@@ -3,9 +3,16 @@ import crypto from 'node:crypto';
 export const POS_SCOPES = Object.freeze([
     'pos.products.map',
     'pos.inventory.snapshot',
+    'pos.inventory.events',
     'pos.sales.events',
     'pos.returns.events',
     'pos.customers.reference',
+    'pos.receipts.events',
+    'savana.products.sync',
+    'wa_savana.notifications.send',
+    'wa_savana.delivery_status.events',
+    'wa_savana.campaigns.send',
+    'wa_savana.content.publish',
 ]);
 
 export const INTEGRATION_PROFILES = Object.freeze({
@@ -21,6 +28,8 @@ export const INTEGRATION_PROFILES = Object.freeze({
             'wa_savana.notifications.send',
             'wa_savana.delivery_status.events',
             'wa_savana.campaigns.send',
+            'wa_savana.content.publish',
+            'savana.products.sync',
         ]),
     }),
     sawemly: Object.freeze({
@@ -32,6 +41,8 @@ export const INTEGRATION_PROFILES = Object.freeze({
             'wa_savana.notifications.send',
             'wa_savana.delivery_status.events',
             'wa_savana.campaigns.send',
+            'wa_savana.content.publish',
+            'savana.products.sync',
         ]),
     }),
 });
@@ -1178,10 +1189,18 @@ export class SavanaIntegrationService {
         switch (envelope.event_type) {
             case 'catalog.product_snapshot.v1':
             case 'savana.product_snapshot.v1':
-                this.applyProductSnapshot(item.tenant_id, data);
+                this.applyProductSnapshot(item.tenant_id, data, {
+                    source: envelope.source,
+                    eventType: envelope.event_type,
+                });
                 break;
             case 'pos.inventory_snapshot.v1':
                 this.applyInventorySnapshot(item.tenant_id, data);
+                break;
+            case 'pos.inventory_adjusted.v1':
+            case 'pos.retail_sale_voided.v1':
+                // The signed receipt is the durable audit projection. These
+                // events deliberately do not create customer notifications.
                 break;
             case 'pos.retail_sale_completed.v1':
                 this.applySale(item.tenant_id, data);
@@ -1190,7 +1209,8 @@ export class SavanaIntegrationService {
                 this.applyReturn(item.tenant_id, data);
                 break;
             case 'catalog.order_status_changed.v1':
-                this.insertServiceRequest(item, envelope, 'order_notification');
+                // This is a business fact. Sending is requested separately via
+                // wa_savana.notification_send_requested.v1.
                 break;
             case 'catalog.customer_reference_updated.v1':
                 this.insertServiceRequest(item, envelope, 'contact_reference');
@@ -1201,9 +1221,18 @@ export class SavanaIntegrationService {
             case 'sawemly.shelf_location_changed.v1':
                 this.applySawemlyAvailability(item.tenant_id, { items: [data] });
                 break;
+            case 'wa_savana.notification_send_requested.v1':
+                this.insertServiceRequest(item, envelope, 'notification_request');
+                break;
+            case 'wa_savana.campaign_create_requested.v1':
+                this.insertServiceRequest(item, envelope, 'campaign_request');
+                break;
+            case 'wa_savana.content_publish_requested.v1':
+                this.insertServiceRequest(item, envelope, 'content_publication');
+                break;
             default:
                 throw new SavanaIntegrationError(
-                    'Unsupported POS projection event', 422, 'unsupported_event'
+                    'Unsupported Savana integration event', 422, 'unsupported_event'
                 );
         }
     }
@@ -1441,6 +1470,7 @@ export class SavanaIntegrationService {
             idempotency_key: `wa_savana:notification:${requiredString(data.request_id, 'request_id')}:${data.status}`,
             correlation_id: crypto.randomUUID(),
             causation_id: data.causation_id || null,
+            reply_to_platform: item.platform_code,
             data,
         };
         const record = this.enqueueEvent(item, envelope);
@@ -1575,7 +1605,7 @@ export class SavanaIntegrationService {
         );
     }
 
-    applyProductSnapshot(tenantId, data) {
+    applyProductSnapshot(tenantId, data, { source = 'catalog', eventType = '' } = {}) {
         const receivedKeys = new Set();
         for (const product of data.products || []) {
             const barcodes = product.barcodes || [];
@@ -1583,6 +1613,14 @@ export class SavanaIntegrationService {
                 ...product,
                 barcode: product.barcode || barcodes[0] || null,
             };
+            // A POS-authored neutral snapshot owns product identity/core only.
+            // Catalog content remains authoritative for descriptions, media
+            // and online pricing even when POS is the product-core authority.
+            if (eventType === 'savana.product_snapshot.v1' && source === 'pos') {
+                delete normalized.description;
+                delete normalized.image_url;
+                delete normalized.online_price;
+            }
             receivedKeys.add(this.productProjectionKey(normalized));
             this.upsertProduct(tenantId, normalized, data.generated_at);
         }
