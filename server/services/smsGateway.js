@@ -45,6 +45,11 @@ const callbackBaseUrl = () => String(process.env.SMS_GATEWAY_CALLBACK_BASE_URL |
     .trim()
     .replace(/\/+$/, '');
 
+const privateGatewayHostnames = () => String(process.env.SMS_GATEWAY_PRIVATE_HOST_ALLOWLIST || '')
+    .split(',')
+    .map(hostname => hostname.trim().toLowerCase())
+    .filter(Boolean);
+
 const callbackUrlFor = webhookKey => {
     const base = callbackBaseUrl();
     if (!base) {
@@ -102,6 +107,7 @@ const gatewayJson = async (account, path, {
             timeoutMs: 15_000,
             readBody: true,
             maxResponseBytes: 1024 * 1024,
+            allowedPrivateHostnames: privateGatewayHostnames(),
         });
     } catch (error) {
         throw new SmsGatewayError(
@@ -194,7 +200,10 @@ export class SmsGatewayService {
         if (!requestedBase) {
             throw new SmsGatewayError('رابط بوابة SMS مطلوب', 400, 'SMS_GATEWAY_URL_REQUIRED');
         }
-        const normalizedBase = (await validateOutboundUrl(`${requestedBase}/services/v1/health.php`))
+        const normalizedBase = (await validateOutboundUrl(
+            `${requestedBase}/services/v1/health.php`,
+            { allowedPrivateHostnames: privateGatewayHostnames() }
+        ))
             .replace(/\/services\/v1\/health\.php\/?$/, '');
         const plainApiKey = String(payload.api_key || '').trim();
         const apiKeyEncrypted = plainApiKey ? encrypt(plainApiKey) : existing?.api_key_encrypted;

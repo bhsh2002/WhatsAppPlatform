@@ -49,3 +49,20 @@ test('validated targets retain the public address selected for pinned connection
         'https://hooks.example.com/callback'
     );
 });
+
+test('an operator allowlist permits only the exact private gateway hostname', async () => {
+    const lookup = async () => [{ address: '192.168.188.136', family: 4 }];
+    const options = {
+        lookup,
+        allowedPrivateHostnames: ['sms.dev.brmajat.net'],
+    };
+
+    assert.equal(
+        await validateOutboundUrl('https://sms.dev.brmajat.net/services/v1/health.php', options),
+        'https://sms.dev.brmajat.net/services/v1/health.php'
+    );
+    await assert.rejects(
+        validateOutboundUrl('https://other.dev.brmajat.net/services/v1/health.php', options),
+        UnsafeOutboundUrlError
+    );
+});

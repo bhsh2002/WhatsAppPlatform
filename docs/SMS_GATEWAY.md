@@ -18,6 +18,14 @@ SMS_GATEWAY_CALLBACK_BASE_URL=https://wa.example.com/api/integrations/sms-gatewa
 SMS_WEBHOOK_RATE_LIMIT_PER_MINUTE=1200
 ```
 
+إذا كانت بوابة SMS داخل شبكة خاصة، أضف أسماء DNS الدقيقة التي يديرها المشغّل فقط:
+
+```dotenv
+SMS_GATEWAY_PRIVATE_HOST_ALLOWLIST=sms.dev.example.com
+```
+
+اترك هذا المتغير فارغًا للبوابات العامة؛ لا تُستخدم wildcards ولا قيم يحددها المستأجر.
+
 ثم افتح `/portal/integrations/sms` وأضف كل حساب على حدة. بيانات كل حساب هي:
 
 - اسم فريد داخل الـTenant.

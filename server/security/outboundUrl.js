@@ -119,9 +119,16 @@ export const parseOutboundUrl = (value) => {
     return url;
 };
 
-export const resolveSafeOutboundTarget = async (value, lookup = dns.lookup) => {
+export const resolveSafeOutboundTarget = async (value, options = {}) => {
+    const resolvedOptions = typeof options === 'function' ? { lookup: options } : options;
+    const lookup = resolvedOptions.lookup || dns.lookup;
     const url = parseOutboundUrl(value);
     const hostname = normalizeHostname(url.hostname);
+    const allowedPrivateHostnames = new Set(
+        (resolvedOptions.allowedPrivateHostnames || [])
+            .map(candidate => normalizeHostname(String(candidate).trim()))
+            .filter(Boolean)
+    );
     const literalFamily = net.isIP(hostname);
     const addresses = literalFamily
         ? [{ address: hostname, family: literalFamily }]
@@ -130,7 +137,8 @@ export const resolveSafeOutboundTarget = async (value, lookup = dns.lookup) => {
     if (!Array.isArray(addresses) || addresses.length === 0) {
         throw new UnsafeOutboundUrlError('تعذر حل اسم المضيف');
     }
-    if (addresses.some(({ address }) => !isPublicIpAddress(address))) {
+    if (addresses.some(({ address }) => !isPublicIpAddress(address))
+        && !allowedPrivateHostnames.has(hostname)) {
         throw new UnsafeOutboundUrlError('الرابط يحل إلى عنوان شبكة غير عام');
     }
 
@@ -139,7 +147,7 @@ export const resolveSafeOutboundTarget = async (value, lookup = dns.lookup) => {
 
 export const validateOutboundUrl = async (value, options = {}) => {
     if (value === null || value === undefined || value === '') return null;
-    const target = await resolveSafeOutboundTarget(value, options.lookup);
+    const target = await resolveSafeOutboundTarget(value, options);
     return target.url.toString();
 };
 
@@ -196,7 +204,7 @@ const requestPinnedTarget = ({ url, address, family }, options) => new Promise((
 });
 
 export const safeOutboundFetch = async (value, options = {}, redirectCount = 0) => {
-    const target = await resolveSafeOutboundTarget(value, options.lookup);
+    const target = await resolveSafeOutboundTarget(value, options);
     const response = await requestPinnedTarget(target, options);
 
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
