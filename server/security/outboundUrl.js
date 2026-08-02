@@ -151,6 +151,14 @@ export const validateOutboundUrl = async (value, options = {}) => {
     return target.url.toString();
 };
 
+export const createPinnedLookup = (address, family) => (_hostname, lookupOptions, callback) => {
+    if (lookupOptions?.all) {
+        callback(null, [{ address, family }]);
+        return;
+    }
+    callback(null, address, family);
+};
+
 const requestPinnedTarget = ({ url, address, family }, options) => new Promise((resolve, reject) => {
     const body = options.body === undefined || options.body === null
         ? null
@@ -164,7 +172,7 @@ const requestPinnedTarget = ({ url, address, family }, options) => new Promise((
         method: options.method || 'GET',
         headers,
         servername: normalizeHostname(url.hostname),
-        lookup: (_hostname, _lookupOptions, callback) => callback(null, address, family),
+        lookup: createPinnedLookup(address, family),
         timeout: options.timeoutMs || DEFAULT_TIMEOUT_MS,
     }, response => {
         if (!options.readBody) {
