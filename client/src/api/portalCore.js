@@ -289,6 +289,27 @@ export const portalCoreMethods = {
         return this.request(`/api/portal/sms-gateway/${accountId}/devices`);
     },
 
+    async getUssdRequests({ accountId, limit = 100 } = {}) {
+        const params = new URLSearchParams();
+        if (accountId) params.set('account_id', accountId);
+        params.set('limit', String(limit));
+        return this.request(`/api/portal/sms-gateway/ussd?${params.toString()}`);
+    },
+
+    async sendUssdRequest(accountId, data, idempotencyKey) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/ussd`, {
+            method: 'POST',
+            headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+            body: JSON.stringify(data),
+        });
+    },
+
+    async refreshUssdRequest(accountId, ussdId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/ussd/${ussdId}/refresh`, {
+            method: 'POST',
+        });
+    },
+
     async testSmsAccount(accountId, data) {
         return this.request(`/api/portal/sms-gateway/${accountId}/test`, {
             method: 'POST',
