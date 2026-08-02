@@ -39,7 +39,7 @@ test('backup creation validates and restores an isolated SQLite snapshot', async
     assert.equal(result.restoredBytes > 0, true);
     assert.match(result.sha256, /^[a-f0-9]{64}$/);
     assert.equal(fs.existsSync(result.archivePath), true);
-    assert.equal(fs.readdirSync(backupDirectory).some((name) => name.endsWith('.partial')), false);
+    assert.equal(fs.readdirSync(backupDirectory).some((name) => name.includes('.partial')), false);
 
     const verifiedAgain = await verifyBackupArchive(result.archivePath);
     assert.equal(verifiedAgain.sha256, result.sha256);
