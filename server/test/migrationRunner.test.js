@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '046_whatsapp_number_scoped_conversions.sql';
+    const latestMigration = '047_sms_gateway.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -112,8 +112,11 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     `).run();
     db.prepare(`
         INSERT INTO conversion_events (
-            tenant_id, dataset_id, event_name, event_time, status
-        ) VALUES (41, 'dataset-upgrade', 'Purchase', '2026-07-15 12:00:00', 'sent')
+            tenant_id, dataset_id, phone_number_id, event_name, event_time, status
+        ) VALUES (
+            41, 'dataset-upgrade', 'phone-upgrade',
+            'Purchase', '2026-07-15 12:00:00', 'sent'
+        )
     `).run();
 
     const result = runMigrationsSync(db);
@@ -197,6 +200,9 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'savana_notification_candidates'), true);
     assert.equal(tableExists(db, 'tenant_whatsapp_numbers'), true);
     assert.equal(tableExists(db, 'tenant_whatsapp_contact_windows'), true);
+    assert.equal(tableExists(db, 'sms_gateway_accounts'), true);
+    assert.equal(tableExists(db, 'sms_messages'), true);
+    assert.equal(tableExists(db, 'sms_webhook_deliveries'), true);
     assert.deepEqual(
         db.prepare(`
             SELECT tenant_id, phone_number_id, waba_id, dataset_id, access_token_encrypted,

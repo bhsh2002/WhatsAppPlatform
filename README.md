@@ -89,6 +89,18 @@ public bot image assets receive random names with extensions derived from the
 verified content. The application does not perform antivirus scanning; add an
 external scanner if the deployment threat model requires one.
 
+## SMS Gateway accounts
+
+Each Wa Savana tenant can link multiple Android SMS Gateway accounts from
+`/portal/integrations/sms`. Credentials and webhook secrets are encrypted with
+`CRYPTO_KEY`; API calls are HTTPS-only and pinned to public DNS targets. Set
+`SMS_GATEWAY_CALLBACK_BASE_URL` to the public API path ending in
+`/integrations/sms-gateway/events`. Delivery and inbound events are signed and
+deduplicated per linked account. One enabled account can be marked as the
+tenant default while conversations remain isolated by `sms_account_id`. See
+[docs/SMS_GATEWAY.md](docs/SMS_GATEWAY.md) for the production account, billing,
+delivery, and monitoring contract.
+
 The contacts CSV schema, limits, tenant isolation, and import/update behavior are
 documented in [docs/CONTACTS_CSV.md](docs/CONTACTS_CSV.md).
 
