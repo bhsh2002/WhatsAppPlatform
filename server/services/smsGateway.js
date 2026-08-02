@@ -5,6 +5,7 @@ import { safeOutboundFetch, validateOutboundUrl } from '../security/outboundUrl.
 
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 const PHONE_PATTERN = /^\+?\d{5,20}$/;
+const USSD_PATTERN = /^[*#][0-9*#+]{0,180}#$/;
 
 export class SmsGatewayError extends Error {
     constructor(message, status = 400, code = 'SMS_GATEWAY_ERROR', details = {}) {
@@ -520,6 +521,180 @@ export class SmsGatewayService {
         return { account, message: result.data };
     }
 
+    async sendUssd(tenantId, {
+        accountId,
+        request,
+        deviceId,
+        simSlot,
+        idempotencyKey,
+    } = {}) {
+        const account = this.requireActiveAccount(tenantId, accountId);
+        const key = String(idempotencyKey || '');
+        if (!IDEMPOTENCY_PATTERN.test(key)) {
+            throw new SmsGatewayError('مفتاح منع التكرار غير صالح', 400, 'INVALID_IDEMPOTENCY_KEY');
+        }
+        const requestCode = String(request || '').trim();
+        if (!USSD_PATTERN.test(requestCode)) {
+            throw new SmsGatewayError('رمز USSD غير صالح أو لا ينتهي بـ #', 422, 'INVALID_USSD_REQUEST');
+        }
+        const defaults = parseJson(account.default_devices_json, []);
+        const selectedDevice = deviceId ?? (defaults.length === 1 ? defaults[0] : null);
+        if (!/^\d+$/.test(String(selectedDevice || ''))) {
+            throw new SmsGatewayError('يجب اختيار جهاز واحد لتنفيذ USSD', 422, 'INVALID_USSD_DEVICE');
+        }
+        const selectedSim = simSlot ?? account.default_sim_slot;
+        if (selectedSim !== null && selectedSim !== undefined
+            && (!Number.isInteger(Number(selectedSim)) || Number(selectedSim) < 0)) {
+            throw new SmsGatewayError('منفذ SIM غير صالح', 422, 'INVALID_USSD_SIM_SLOT');
+        }
+
+        let result;
+        let lastError;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+                result = await gatewayJson(account, 'services/v1/ussd.php', {
+                    method: 'POST',
+                    idempotencyKey: key,
+                    body: {
+                        request: requestCode,
+                        device_id: Number(selectedDevice),
+                        ...(selectedSim === null || selectedSim === undefined
+                            ? {}
+                            : { sim_slot: Number(selectedSim) }),
+                    },
+                });
+                break;
+            } catch (error) {
+                lastError = error;
+                const retryable = error.status >= 500 || error.code === 'request_in_progress';
+                if (!retryable || attempt === 3) break;
+                await wait(250 * (2 ** (attempt - 1)));
+            }
+        }
+        if (!result) {
+            if (lastError?.status >= 500) this.markError(account.id, lastError);
+            throw lastError || new SmsGatewayError(
+                'فشل تنفيذ طلب USSD',
+                502,
+                'SMS_GATEWAY_UNAVAILABLE',
+            );
+        }
+        return { account, ussd: result.data };
+    }
+
+    listUssd(tenantId, { accountId = null, limit = 100 } = {}) {
+        const normalizedLimit = Math.max(1, Math.min(200, Number(limit) || 100));
+        const numericAccountId = accountId == null || accountId === '' ? null : Number(accountId);
+        if (numericAccountId !== null && (!Number.isSafeInteger(numericAccountId) || numericAccountId <= 0)) {
+            throw new SmsGatewayError('حساب SMS غير صالح', 400, 'SMS_ACCOUNT_INVALID');
+        }
+        return this.db.prepare(`
+            SELECT request.*, account.name AS sms_account_name
+            FROM sms_ussd_requests request
+            INNER JOIN sms_gateway_accounts account ON account.id = request.sms_account_id
+            WHERE request.tenant_id = @tenant_id
+              AND (@sms_account_id IS NULL OR request.sms_account_id = @sms_account_id)
+            ORDER BY request.id DESC
+            LIMIT @limit
+        `).all({
+            tenant_id: tenantId,
+            sms_account_id: numericAccountId,
+            limit: normalizedLimit,
+        });
+    }
+
+    storeUssd(account, data) {
+        const gatewayUssdId = String(data.ussd_id || '').trim();
+        if (!gatewayUssdId) {
+            throw new SmsGatewayError('حدث USSD لا يحتوي ussd_id', 422, 'INVALID_USSD_EVENT');
+        }
+        const requestCode = String(data.request || '').trim();
+        if (!USSD_PATTERN.test(requestCode)) {
+            throw new SmsGatewayError('حدث USSD يحتوي رمزًا غير صالح', 422, 'INVALID_USSD_EVENT');
+        }
+        const deviceId = String(data.device_id || '').trim();
+        if (!/^\d+$/.test(deviceId)) {
+            throw new SmsGatewayError('حدث USSD لا يحتوي جهازًا صالحًا', 422, 'INVALID_USSD_EVENT');
+        }
+        const responseText = data.response == null ? null : String(data.response).slice(0, 10000);
+        const status = responseText !== null || data.response_at ? 'completed' : 'pending';
+        const values = {
+            tenant_id: account.tenant_id,
+            sms_account_id: account.id,
+            gateway_ussd_id: gatewayUssdId,
+            idempotency_key: data.external_id || null,
+            request_code: requestCode,
+            response_text: responseText,
+            status,
+            device_id: deviceId,
+            sim_slot: data.sim_slot == null ? null : Number(data.sim_slot),
+            sent_at: data.sent_at || null,
+            response_at: data.response_at || null,
+        };
+        const existing = values.idempotency_key
+            ? this.db.prepare(`
+                SELECT id FROM sms_ussd_requests
+                WHERE sms_account_id = ? AND idempotency_key = ?
+            `).get(account.id, values.idempotency_key)
+            : null;
+        if (existing) {
+            this.db.prepare(`
+                UPDATE sms_ussd_requests SET
+                    gateway_ussd_id = @gateway_ussd_id,
+                    request_code = @request_code,
+                    response_text = @response_text,
+                    status = @status,
+                    device_id = @device_id,
+                    sim_slot = @sim_slot,
+                    sent_at = @sent_at,
+                    response_at = @response_at,
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = @id AND tenant_id = @tenant_id AND sms_account_id = @sms_account_id
+            `).run({ ...values, id: existing.id });
+        } else {
+            this.db.prepare(`
+                INSERT INTO sms_ussd_requests (
+                    tenant_id, sms_account_id, gateway_ussd_id, idempotency_key,
+                    request_code, response_text, status, device_id, sim_slot,
+                    sent_at, response_at
+                ) VALUES (
+                    @tenant_id, @sms_account_id, @gateway_ussd_id, @idempotency_key,
+                    @request_code, @response_text, @status, @device_id, @sim_slot,
+                    @sent_at, @response_at
+                )
+                ON CONFLICT(sms_account_id, gateway_ussd_id) DO UPDATE SET
+                    idempotency_key = COALESCE(excluded.idempotency_key, sms_ussd_requests.idempotency_key),
+                    request_code = excluded.request_code,
+                    response_text = excluded.response_text,
+                    status = excluded.status,
+                    device_id = excluded.device_id,
+                    sim_slot = excluded.sim_slot,
+                    sent_at = excluded.sent_at,
+                    response_at = excluded.response_at,
+                    updated_at = datetime('now', 'localtime')
+            `).run(values);
+        }
+        return this.db.prepare(`
+            SELECT request.*, account.name AS sms_account_name
+            FROM sms_ussd_requests request
+            INNER JOIN sms_gateway_accounts account ON account.id = request.sms_account_id
+            WHERE request.sms_account_id = ? AND request.gateway_ussd_id = ?
+        `).get(account.id, gatewayUssdId);
+    }
+
+    async refreshUssd(tenantId, accountId, gatewayUssdId) {
+        const account = this.requireActiveAccount(tenantId, accountId, false);
+        const normalizedId = String(gatewayUssdId || '').trim();
+        if (!/^\d+$/.test(normalizedId)) {
+            throw new SmsGatewayError('معرف طلب USSD غير صالح', 400, 'INVALID_USSD_ID');
+        }
+        const result = await gatewayJson(
+            account,
+            `services/v1/ussd.php?id=${encodeURIComponent(normalizedId)}`,
+        );
+        return this.storeUssd(account, result.data || {});
+    }
+
     storeMessage(account, data) {
         const gatewayMessageId = String(data.message_id || '').trim();
         if (!gatewayMessageId) {
@@ -634,6 +809,7 @@ export class SmsGatewayService {
         if (envelope.delivery_id !== deliveryId || ![
             'sms.message.received.v1',
             'sms.message.status_changed.v1',
+            'ussd.response.v1',
         ].includes(envelope.event)) {
             throw new SmsGatewayError('نوع حدث SMS غير مدعوم', 422, 'SMS_WEBHOOK_EVENT_UNSUPPORTED');
         }
@@ -647,7 +823,10 @@ export class SmsGatewayService {
                     delivery_id, tenant_id, sms_account_id, event_type
                 ) VALUES (?, ?, ?, ?)
             `).run(deliveryId, account.tenant_id, account.id, envelope.event);
-            return { duplicate: false, message: this.storeMessage(account, envelope.data || {}) };
+            if (envelope.event === 'ussd.response.v1') {
+                return { duplicate: false, message: null, ussd: this.storeUssd(account, envelope.data || {}) };
+            }
+            return { duplicate: false, message: this.storeMessage(account, envelope.data || {}), ussd: null };
         });
         return {
             tenantId: account.tenant_id,

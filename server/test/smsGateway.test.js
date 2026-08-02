@@ -97,6 +97,37 @@ test('one Wa tenant keeps multiple SMS accounts and identical gateway ids isolat
     assert.equal(database.prepare(`
         SELECT content FROM sms_messages WHERE sms_account_id = 12
     `).get().content, 'رسالة من بنغازي');
+
+    const firstUssd = service.storeUssd(service.getAccount(1, 11), {
+        ussd_id: 'same-gateway-ussd-id',
+        external_id: 'wa-ussd-tripoli',
+        request: '*100#',
+        status: 'pending',
+        device_id: '301',
+        sim_slot: 0,
+    });
+    const secondUssd = service.storeUssd(service.getAccount(1, 12), {
+        ussd_id: 'same-gateway-ussd-id',
+        external_id: 'wa-ussd-benghazi',
+        request: '*101#',
+        response: 'الرصيد 10 د.ل',
+        status: 'completed',
+        device_id: '302',
+        sim_slot: 1,
+        response_at: '2026-08-02T12:00:00Z',
+    });
+
+    assert.notEqual(firstUssd.id, secondUssd.id);
+    assert.equal(firstUssd.status, 'pending');
+    assert.equal(secondUssd.status, 'completed');
+    assert.equal(database.prepare(`
+        SELECT COUNT(*) AS count FROM sms_ussd_requests
+        WHERE tenant_id = 1 AND gateway_ussd_id = 'same-gateway-ussd-id'
+    `).get().count, 2);
+    assert.deepEqual(
+        service.listUssd(1, { accountId: 11 }).map(item => item.request_code),
+        ['*100#'],
+    );
 });
 
 test('signed SMS webhooks are deduplicated and cannot cross account boundaries', (t) => {
@@ -155,4 +186,71 @@ test('signed SMS webhooks are deduplicated and cannot cross account boundaries',
         ),
         error => error instanceof SmsGatewayError && error.code === 'SMS_WEBHOOK_SIGNATURE_INVALID',
     );
+});
+
+test('signed USSD response webhooks update only their linked SMS account', (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const webhookKey = '77777777-7777-4777-8777-777777777777';
+    const deliveryId = '88888888-8888-4888-8888-888888888888';
+    const secret = 'ussd-account-webhook-secret';
+    insertAccount(database, { id: 15, name: 'USSD gateway', key: webhookKey, secret, isDefault: true });
+    insertAccount(database, {
+        id: 16,
+        name: 'Other gateway',
+        key: '99999999-9999-4999-8999-999999999999',
+        secret: 'other-ussd-secret',
+    });
+
+    const envelope = {
+        delivery_id: deliveryId,
+        event: 'ussd.response.v1',
+        data: {
+            ussd_id: '501',
+            external_id: 'wa-ussd-request-501',
+            request: '*100#',
+            response: 'الرصيد 25 د.ل',
+            status: 'completed',
+            device_id: '301',
+            sim_slot: 0,
+            sent_at: '2026-08-02T12:00:00Z',
+            response_at: '2026-08-02T12:00:03Z',
+        },
+    };
+    const rawBody = Buffer.from(JSON.stringify(envelope));
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = `v1=${crypto.createHmac('sha256', secret)
+        .update(`${timestamp}.${deliveryId}.`)
+        .update(rawBody)
+        .digest('hex')}`;
+    const service = new SmsGatewayService({ database });
+    const pending = service.storeUssd(service.getAccount(1, 15), {
+        ussd_id: '501',
+        external_id: 'wa-ussd-request-501',
+        request: '*100#',
+        response: null,
+        device_id: '301',
+        sim_slot: 0,
+        sent_at: '2026-08-02T12:00:00Z',
+    });
+    const accepted = service.acceptWebhook(webhookKey, { timestamp, deliveryId, signature }, rawBody);
+
+    assert.equal(accepted.duplicate, false);
+    assert.equal(accepted.accountId, 15);
+    assert.equal(accepted.message, null);
+    assert.equal(accepted.ussd.id, pending.id);
+    assert.equal(accepted.ussd.sms_account_id, 15);
+    assert.equal(accepted.ussd.status, 'completed');
+    assert.equal(accepted.ussd.response_text, 'الرصيد 25 د.ل');
+    assert.equal(database.prepare(`
+        SELECT COUNT(*) AS count FROM sms_ussd_requests WHERE sms_account_id = 15
+    `).get().count, 1);
+    assert.equal(database.prepare(`
+        SELECT COUNT(*) AS count FROM sms_ussd_requests WHERE sms_account_id = 16
+    `).get().count, 0);
+    assert.equal(service.acceptWebhook(
+        webhookKey,
+        { timestamp, deliveryId, signature },
+        rawBody,
+    ).duplicate, true);
 });

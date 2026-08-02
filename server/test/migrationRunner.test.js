@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '047_sms_gateway.sql';
+    const latestMigration = '048_sms_ussd.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -203,6 +203,7 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'sms_gateway_accounts'), true);
     assert.equal(tableExists(db, 'sms_messages'), true);
     assert.equal(tableExists(db, 'sms_webhook_deliveries'), true);
+    assert.equal(tableExists(db, 'sms_ussd_requests'), true);
     assert.deepEqual(
         db.prepare(`
             SELECT tenant_id, phone_number_id, waba_id, dataset_id, access_token_encrypted,
@@ -257,6 +258,14 @@ test('latest migration upgrades a tracked production-like snapshot without data 
             WHERE operation_key = 'facebook.ai_generation'
         `).get(),
         { channel: 'facebook', operation_type: 'ai_generation', unit_price_credits: 5 }
+    );
+    assert.deepEqual(
+        db.prepare(`
+            SELECT channel, operation_type, unit_price_credits
+            FROM billing_price_items
+            WHERE operation_key = 'sms.ussd'
+        `).get(),
+        { channel: 'sms', operation_type: 'ussd', unit_price_credits: 1 }
     );
     assert.equal(db.pragma('foreign_key_check').length, 0);
     assert.deepEqual(runMigrationsSync(db), {

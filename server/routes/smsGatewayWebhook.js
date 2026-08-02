@@ -22,6 +22,10 @@ export const createSmsGatewayWebhookRouter = ({ service, eventBus }) => {
                     eventBus.broadcast('admin', 'sms_message:status', message);
                 }
             }
+            if (!result.duplicate && result.ussd) {
+                eventBus.broadcast(`tenant:${result.tenantId}`, 'sms_ussd:updated', result.ussd);
+                eventBus.broadcast('admin', 'sms_ussd:updated', result.ussd);
+            }
             return res.json({ accepted: true, duplicate: result.duplicate });
         } catch (error) {
             if (error instanceof SmsGatewayError) {

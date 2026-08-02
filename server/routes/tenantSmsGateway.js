@@ -15,6 +15,19 @@ export const createTenantSmsGatewayRouter = ({ service, billing }) => {
     if (!billing) throw new TypeError('Tenant SMS gateway router requires billing');
     const router = express.Router();
 
+    router.get('/ussd', (req, res) => {
+        try {
+            return res.json({
+                data: service.listUssd(req.user.tenant_id, {
+                    accountId: req.query.account_id,
+                    limit: req.query.limit,
+                }),
+            });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.get('/', (req, res) => {
         try {
             return res.json({
@@ -66,6 +79,61 @@ export const createTenantSmsGatewayRouter = ({ service, billing }) => {
     router.get('/:accountId/devices', async (req, res) => {
         try {
             return res.json({ data: await service.devices(req.user.tenant_id, req.params.accountId) });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.post('/:accountId/ussd', async (req, res) => {
+        let reservation = null;
+        try {
+            const idempotencyKey = req.get('Idempotency-Key') || crypto.randomUUID();
+            reservation = billing.reserve({
+                tenantId: req.user.tenant_id,
+                operationKey: billing.operations.SMS_USSD,
+                quantity: 1,
+                referenceType: 'sms_ussd',
+                idempotencyKey: `billing:${req.user.tenant_id}:sms-ussd:${req.params.accountId}:${idempotencyKey}`,
+                metadata: { channel: 'sms', sms_account_id: Number(req.params.accountId) },
+            });
+            const result = await service.sendUssd(req.user.tenant_id, {
+                accountId: req.params.accountId,
+                request: req.body?.request,
+                deviceId: req.body?.device_id,
+                simSlot: req.body?.sim_slot,
+                idempotencyKey,
+            });
+            billing.commit(reservation, {
+                referenceId: result.ussd.ussd_id,
+                description: 'خصم طلب USSD',
+            });
+            reservation = null;
+            return res.status(202).json({
+                success: true,
+                data: service.storeUssd(result.account, result.ussd),
+            });
+        } catch (error) {
+            if (reservation) {
+                try {
+                    billing.release(reservation, error.message);
+                } catch (releaseError) {
+                    console.error('[TenantSmsGateway] USSD billing release error:', releaseError);
+                }
+            }
+            if (billing.handleError(res, error)) return undefined;
+            return respondError(res, error);
+        }
+    });
+
+    router.post('/:accountId/ussd/:ussdId/refresh', async (req, res) => {
+        try {
+            return res.json({
+                data: await service.refreshUssd(
+                    req.user.tenant_id,
+                    req.params.accountId,
+                    req.params.ussdId,
+                ),
+            });
         } catch (error) {
             return respondError(res, error);
         }
