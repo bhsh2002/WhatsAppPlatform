@@ -18,6 +18,7 @@ import {
 } from '../security/webhookSignature.js';
 import { safeOutboundFetch } from '../security/outboundUrl.js';
 import { readMetaResponse } from '../services/metaHttp.js';
+import { hasWhatsAppNumbersTable } from '../services/whatsappNumbers.js';
 
 const router = express.Router();
 
@@ -273,8 +274,31 @@ router.post('/', async (req, res) => {
                     const value = change.value;
                     const phoneNumberId = value.metadata?.phone_number_id;
 
-                    // Find tenant by phone_number_id
-                    const tenant = db.prepare('SELECT * FROM tenants WHERE phone_number_id = ?').get(phoneNumberId);
+                    // Resolve through the multi-number registry first. The
+                    // tenants column remains only as a legacy default pointer.
+                    const tenant = hasWhatsAppNumbersTable(db)
+                        ? (phoneNumberId ? db.prepare(`
+                            SELECT tenants.*,
+                                   tenant_whatsapp_numbers.id AS whatsapp_number_record_id,
+                                   tenant_whatsapp_numbers.waba_id AS webhook_waba_id
+                            FROM tenant_whatsapp_numbers
+                            JOIN tenants ON tenants.id = tenant_whatsapp_numbers.tenant_id
+                            WHERE tenant_whatsapp_numbers.phone_number_id = ?
+                              AND tenant_whatsapp_numbers.is_active = 1
+                            LIMIT 1
+                        `).get(phoneNumberId) : db.prepare(`
+                            SELECT tenants.*,
+                                   tenant_whatsapp_numbers.id AS whatsapp_number_record_id,
+                                   tenant_whatsapp_numbers.waba_id AS webhook_waba_id
+                            FROM tenant_whatsapp_numbers
+                            JOIN tenants ON tenants.id = tenant_whatsapp_numbers.tenant_id
+                            WHERE tenant_whatsapp_numbers.waba_id = ?
+                              AND tenant_whatsapp_numbers.is_active = 1
+                            ORDER BY tenant_whatsapp_numbers.is_default DESC,
+                                     tenant_whatsapp_numbers.id ASC
+                            LIMIT 1
+                        `).get(String(entry.id || '')))
+                        : db.prepare('SELECT * FROM tenants WHERE phone_number_id = ?').get(phoneNumberId);
 
                     // Associate webhook log with resolved tenant
                     if (tenant) {
@@ -350,6 +374,20 @@ router.post('/', async (req, res) => {
                                 messageData.referral_source_url
                             );
 
+                            if (tenant?.id && phoneNumberId && message.from
+                                && hasWhatsAppNumbersTable(db)) {
+                                db.prepare(`
+                                    INSERT INTO tenant_whatsapp_contact_windows (
+                                        tenant_id, phone_number_id, contact_phone,
+                                        last_customer_message_at, updated_at
+                                    ) VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+                                    ON CONFLICT(tenant_id, phone_number_id, contact_phone)
+                                    DO UPDATE SET
+                                        last_customer_message_at = datetime('now', 'localtime'),
+                                        updated_at = datetime('now', 'localtime')
+                                `).run(tenant.id, phoneNumberId, message.from);
+                            }
+
                             if (tenant?.id && message.from && referralInfo.ctwa_clid) {
                                 db.prepare(`
                                     INSERT INTO contacts (
@@ -391,6 +429,7 @@ router.post('/', async (req, res) => {
                             if (tenant?.id) {
                                 forwardToTenantWebhook(tenant.id, 'message_received', {
                                     from: message.from,
+                                    phone_number_id: phoneNumberId,
                                     message_id: message.id,
                                     type: message.type,
                                     content: extractMessageContent(message),
@@ -407,6 +446,7 @@ router.post('/', async (req, res) => {
                                 tenant_id: tenant?.id || null,
                                 direction: 'incoming',
                                 sender: message.from,
+                                recipient: phoneNumberId,
                                 message_type: message.type,
                                 content: extractMessageContent(message),
                                 wamid: message.id,
@@ -417,8 +457,8 @@ router.post('/', async (req, res) => {
 
                             // Auto-responder (fire-and-forget)
                             const existingMsgCount = db.prepare(
-                                'SELECT COUNT(*) as count FROM messages WHERE sender = ? AND direction = \'incoming\' AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))'
-                            ).get(message.from, tenant?.id || null, tenant?.id || null);
+                                'SELECT COUNT(*) as count FROM messages WHERE sender = ? AND recipient = ? AND direction = \'incoming\' AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))'
+                            ).get(message.from, phoneNumberId, tenant?.id || null, tenant?.id || null);
                             const isFirstMessage = (existingMsgCount?.count || 0) <= 1;
 
                             processIncomingMessage({
@@ -429,7 +469,7 @@ router.post('/', async (req, res) => {
                                 message_type: message.type,
                                 is_new_contact: isFirstMessage,
                                 phone_number_id: phoneNumberId,
-                                access_token: tenant?.access_token,
+                                access_token: null,
                             }).catch(err => console.error('[AutoResponder] WA error:', err.message));
                         });
                     }
@@ -497,6 +537,14 @@ router.post('/', async (req, res) => {
                             };
                             const newQuality = qualityMap[update.phone_number_quality_rating] || 'Medium';
 
+                            if (hasWhatsAppNumbersTable(db) && phoneNumberId) {
+                                db.prepare(`
+                                    UPDATE tenant_whatsapp_numbers
+                                    SET quality_rating = ?, updated_at = datetime('now', 'localtime')
+                                    WHERE tenant_id = ? AND phone_number_id = ?
+                                `).run(update.phone_number_quality_rating, tenant.id, phoneNumberId);
+                            }
+
                             db.prepare('UPDATE tenants SET quality = ? WHERE id = ?').run(newQuality, tenant.id);
 
                             db.prepare(`
@@ -521,8 +569,8 @@ router.post('/', async (req, res) => {
                         if (tenantId && message_template_id) {
                             db.prepare(`
                                 UPDATE templates SET status = ?, updated_at = datetime('now', 'localtime')
-                                WHERE meta_template_id = ?
-                            `).run((event || '').toLowerCase(), message_template_id);
+                                WHERE meta_template_id = ? AND tenant_id = ?
+                            `).run((event || '').toLowerCase(), message_template_id, tenantId);
 
                             console.log('[Webhook] Template status update:', message_template_name, '->', event);
                         }
@@ -535,8 +583,8 @@ router.post('/', async (req, res) => {
                         if (tenant && message_template_id) {
                             db.prepare(`
                                 UPDATE templates SET quality_score = ?, updated_at = datetime('now', 'localtime')
-                                WHERE meta_template_id = ?
-                            `).run(new_quality_score || 'UNKNOWN', message_template_id);
+                                WHERE meta_template_id = ? AND tenant_id = ?
+                            `).run(new_quality_score || 'UNKNOWN', message_template_id, tenant.id);
 
                             console.log('[Webhook] Template quality update:', message_template_id, '->', new_quality_score);
                         }

@@ -9,6 +9,11 @@ import {
 } from '../services/messengerMessages.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
+import { getWhatsAppConversationWindow } from '../services/whatsappConversationWindow.js';
+import {
+    resolveTenantWhatsAppContext,
+    selectedWhatsAppPhoneNumberId,
+} from '../services/whatsappNumbers.js';
 
 const VALID_CHANNELS = new Set(['whatsapp', 'messenger']);
 
@@ -51,26 +56,34 @@ export function createTenantUnifiedInboxRouter({
     }
     const router = express.Router();
 
+    const resolveWhatsAppContext = (req, res, options = {}) => {
+        const context = resolveTenantWhatsAppContext({
+            database,
+            tenantId: req.user?.tenant_id,
+            request: req,
+            accessTokenForTenant,
+            ...options,
+        });
+        if (context.error) {
+            res.status(context.status).json({ error: context.error, code: context.code });
+            return null;
+        }
+        return context;
+    };
+
     router.post('/mark-read', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
             const messageId = normalizeString(req.body?.message_id, 512);
             if (!messageId) return res.status(400).json({ error: 'message_id is required' });
-            const tenant = database.prepare(`
-                SELECT id, phone_number_id, status FROM tenants WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            if (tenant.status === 'Suspended') return res.status(403).json({ error: 'الحساب موقوف' });
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!tenant.phone_number_id || !accessToken) {
-                return res.status(400).json({ error: 'بيانات الاعتماد غير مكتملة' });
-            }
+            const context = resolveWhatsAppContext(req, res);
+            if (!context) return;
             const result = await requestMeta(
-                `${META_API_BASE}/${encodeURIComponent(tenant.phone_number_id)}/messages`,
+                `${META_API_BASE}/${encodeURIComponent(context.phoneNumberId)}/messages`,
                 {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        Authorization: `Bearer ${context.accessToken}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
@@ -103,11 +116,36 @@ export function createTenantUnifiedInboxRouter({
             const sourceWindowSize = limit + offset;
             const whatsapp = [];
             if (!channel || channel === 'whatsapp') {
+                const context = resolveTenantWhatsAppContext({
+                    database,
+                    tenantId,
+                    request: req,
+                    accessTokenForTenant,
+                    requireToken: false,
+                });
+                const hasExplicitNumber = !!selectedWhatsAppPhoneNumberId(req);
+                const historicalOnly = context.code === 'WHATSAPP_NUMBER_REQUIRED' && !hasExplicitNumber;
+                if (context.error && !historicalOnly && channel === 'whatsapp') {
+                    return res.status(context.status).json({ error: context.error, code: context.code });
+                }
+                if (!context.error || historicalOnly) {
+                const phoneNumberId = historicalOnly ? null : context.phoneNumberId;
+                const numberFilter = phoneNumberId
+                    ? {
+                        unreadSql: ' AND unread.recipient = ?',
+                        messageSql: `
+                          AND ((direction = 'incoming' AND recipient = ?)
+                            OR (direction = 'outgoing' AND sender = ?))`,
+                        unreadArgs: [phoneNumberId],
+                        messageArgs: [phoneNumberId, phoneNumberId],
+                    }
+                    : { unreadSql: '', messageSql: '', unreadArgs: [], messageArgs: [] };
                 whatsapp.push(...enrichTemplateFallbackMessages(database.prepare(`
                     SELECT
                         'whatsapp' AS channel,
                         latest.contact AS contact_id,
                         latest.tenant_id,
+                        ? AS phone_number_id,
                         tenant.name AS tenant_name,
                         latest.created_at AS last_message_time,
                         latest.content AS last_message,
@@ -125,6 +163,7 @@ export function createTenantUnifiedInboxRouter({
                               AND unread.direction = 'incoming'
                               AND unread.status = 'received'
                               AND unread.tenant_id = ?
+                              ${numberFilter.unreadSql}
                         ) AS unread_count,
                         NULL AS linked_page_id,
                         NULL AS page_name
@@ -140,6 +179,7 @@ export function createTenantUnifiedInboxRouter({
                             ) AS row_number
                         FROM messages
                         WHERE tenant_id = ?
+                          ${numberFilter.messageSql}
                     ) latest
                     LEFT JOIN contacts contact
                       ON contact.phone = latest.contact AND contact.tenant_id = ?
@@ -147,7 +187,16 @@ export function createTenantUnifiedInboxRouter({
                     WHERE latest.row_number = 1
                     ORDER BY last_message_time DESC
                     LIMIT ?
-                `).all(tenantId, tenantId, tenantId, sourceWindowSize), 'last_message', database));
+                `).all(
+                    phoneNumberId,
+                    tenantId,
+                    ...numberFilter.unreadArgs,
+                    tenantId,
+                    ...numberFilter.messageArgs,
+                    tenantId,
+                    sourceWindowSize,
+                ), 'last_message', database));
+                }
             }
 
             const messenger = [];
@@ -208,6 +257,8 @@ export function createTenantUnifiedInboxRouter({
             });
 
             if (channel === 'whatsapp') {
+                const context = resolveWhatsAppContext(req, res, { requireToken: false });
+                if (!context) return;
                 const messages = enrichTemplateFallbackMessages(database.prepare(`
                     SELECT * FROM (
                         SELECT
@@ -217,16 +268,26 @@ export function createTenantUnifiedInboxRouter({
                             referral_source_type, referral_source_url, created_at
                         FROM messages
                         WHERE (sender = ? OR recipient = ?) AND tenant_id = ?
+                          AND ((direction = 'incoming' AND recipient = ?)
+                            OR (direction = 'outgoing' AND sender = ?))
                         ORDER BY created_at DESC, id DESC
                         LIMIT ? OFFSET ?
                     ) page
                     ORDER BY created_at ASC, id ASC
-                `).all(contactId, contactId, tenantId, limit, offset), 'content', database);
+                `).all(
+                    contactId,
+                    contactId,
+                    tenantId,
+                    context.phoneNumberId,
+                    context.phoneNumberId,
+                    limit,
+                    offset,
+                ), 'content', database);
                 database.prepare(`
                     UPDATE messages SET status = 'read'
                     WHERE sender = ? AND direction = 'incoming'
-                      AND status = 'received' AND tenant_id = ?
-                `).run(contactId, tenantId);
+                      AND recipient = ? AND status = 'received' AND tenant_id = ?
+                `).run(contactId, context.phoneNumberId, tenantId);
                 return res.json(messages);
             }
 
@@ -274,18 +335,28 @@ export function createTenantUnifiedInboxRouter({
                 return res.status(400).json({ error: 'القناة أو جهة الاتصال غير صالحة' });
             }
             if (!message) return res.status(400).json({ error: 'الرسالة مطلوبة' });
-            const tenant = database.prepare(`
-                SELECT id, name, phone_number_id, status FROM tenants WHERE id = ?
-            `).get(tenantId);
+            const tenant = database.prepare('SELECT id, name, status FROM tenants WHERE id = ?').get(tenantId);
             if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
             if (tenant.status === 'Suspended') return res.status(403).json({ error: 'حسابك معلّق' });
 
             if (channel === 'whatsapp') {
                 const recipient = normalizeWhatsAppRecipient(contactId);
-                const accessToken = accessTokenForTenant(tenantId);
                 if (!recipient) return res.status(400).json({ error: 'رقم WhatsApp غير صالح' });
-                if (!tenant.phone_number_id || !accessToken) {
-                    return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+                const context = resolveWhatsAppContext(req, res);
+                if (!context) return;
+                const window = getWhatsAppConversationWindow(
+                    database,
+                    tenantId,
+                    recipient,
+                    Date.now(),
+                    context.phoneNumberId,
+                );
+                if (!window.isOpen) {
+                    return res.status(400).json({
+                        error: 'نافذة المحادثة (24 ساعة) مغلقة. استخدم قالباً معتمداً.',
+                        code: 'OUTSIDE_WINDOW',
+                        window_closed_at: window.closesAt,
+                    });
                 }
                 reservation = billing.reserve({
                     tenantId,
@@ -295,11 +366,11 @@ export function createTenantUnifiedInboxRouter({
                     metadata: { channel: 'whatsapp', recipient },
                 });
                 const result = await requestMeta(
-                    `${META_API_BASE}/${encodeURIComponent(tenant.phone_number_id)}/messages`,
+                    `${META_API_BASE}/${encodeURIComponent(context.phoneNumberId)}/messages`,
                     {
                         method: 'POST',
                         headers: {
-                            Authorization: `Bearer ${accessToken}`,
+                            Authorization: `Bearer ${context.accessToken}`,
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
@@ -324,12 +395,12 @@ export function createTenantUnifiedInboxRouter({
                         tenant_id, direction, sender, recipient,
                         message_type, content, status, wamid
                     ) VALUES (?, 'outgoing', ?, ?, 'text', ?, 'sent', ?)
-                `).run(tenantId, tenant.phone_number_id, recipient, message, messageId);
+                `).run(tenantId, context.phoneNumberId, recipient, message, messageId);
                 emitNewMessage({
                     tenant_id: tenantId,
                     tenant_name: tenant.name,
                     direction: 'outgoing',
-                    sender: tenant.phone_number_id,
+                    sender: context.phoneNumberId,
                     recipient,
                     content: message,
                     wamid: messageId,

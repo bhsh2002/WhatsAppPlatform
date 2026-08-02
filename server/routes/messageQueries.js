@@ -4,6 +4,7 @@ import db from '../db/database.js';
 import { normalizeContactPhone } from '../services/contactValidation.js';
 import { enrichTemplateFallbackMessages } from '../services/messaging.js';
 import { parseListPagination } from '../services/pagination.js';
+import { getWhatsAppConversationWindow } from '../services/whatsappConversationWindow.js';
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 const DIRECTIONS = new Set(['incoming', 'outgoing']);
@@ -47,6 +48,15 @@ const parsePhone = value => {
     }
 };
 
+const parsePhoneNumberId = value => {
+    if (value == null || value === '') return null;
+    const normalized = String(value).trim();
+    if (!normalized || normalized.length > 256 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+        throw new InvalidMessageQueryError('phone_number_id is invalid');
+    }
+    return normalized;
+};
+
 const sendQueryError = (res, error, fallbackMessage, logLabel) => {
     if (error instanceof InvalidMessageQueryError) {
         return res.status(400).json({ error: error.message });
@@ -68,6 +78,21 @@ export function createMessageQueriesRouter({
         try {
             const phone = parsePhone(req.params.phone);
             const tenantId = parseTenantId(req.query?.tenant_id, { allowNullTokens: true });
+            const phoneNumberId = parsePhoneNumberId(req.query?.phone_number_id);
+            if (tenantId && phoneNumberId) {
+                const window = getWhatsAppConversationWindow(
+                    database,
+                    tenantId,
+                    phone,
+                    now(),
+                    phoneNumberId,
+                );
+                return res.json({
+                    is_open: window.isOpen,
+                    last_customer_message_at: window.lastCustomerMessageAt,
+                    window_closes_at: window.closesAt,
+                });
+            }
             const contact = tenantId
                 ? database.prepare(`
                     SELECT last_customer_message_at
@@ -104,6 +129,7 @@ export function createMessageQueriesRouter({
                 maxLimit: 200,
             });
             const tenantId = parseTenantId(req.query?.tenant_id);
+            const phoneNumberId = parsePhoneNumberId(req.query?.phone_number_id);
             const direction = req.query?.direction == null || req.query.direction === ''
                 ? null
                 : String(req.query.direction).trim().toLowerCase();
@@ -120,6 +146,10 @@ export function createMessageQueriesRouter({
             if (direction) {
                 conditions.push('m.direction = ?');
                 filterParams.push(direction);
+            }
+            if (phoneNumberId) {
+                conditions.push("((m.direction = 'incoming' AND m.recipient = ?) OR (m.direction = 'outgoing' AND m.sender = ?))");
+                filterParams.push(phoneNumberId, phoneNumberId);
             }
             const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
             const messages = enrichMessages(database.prepare(`
@@ -166,8 +196,25 @@ export function createMessageQueriesRouter({
                 maxLimit: 200,
             });
             const tenantId = parseTenantId(req.query?.tenant_id);
-            const scopeSql = tenantId ? 'WHERE tenant_id = ?' : '';
-            const params = tenantId ? [tenantId, limit, offset] : [limit, offset];
+            const phoneNumberId = parsePhoneNumberId(req.query?.phone_number_id);
+            const scopeConditions = [];
+            const scopeParams = [];
+            if (tenantId) {
+                scopeConditions.push('tenant_id = ?');
+                scopeParams.push(tenantId);
+            }
+            if (phoneNumberId) {
+                scopeConditions.push("((direction = 'incoming' AND recipient = ?) OR (direction = 'outgoing' AND sender = ?))");
+                scopeParams.push(phoneNumberId, phoneNumberId);
+            }
+            const scopeSql = scopeConditions.length ? `WHERE ${scopeConditions.join(' AND ')}` : '';
+            const unreadNumberSql = phoneNumberId ? 'AND unread.recipient = ?' : '';
+            const params = [
+                ...(phoneNumberId ? [phoneNumberId] : []),
+                ...scopeParams,
+                limit,
+                offset,
+            ];
             const conversations = enrichMessages(database.prepare(`
                 SELECT
                     latest.contact,
@@ -190,6 +237,7 @@ export function createMessageQueriesRouter({
                           AND unread.direction = 'incoming'
                           AND unread.status = 'received'
                           AND unread.tenant_id IS latest.tenant_id
+                          ${unreadNumberSql}
                     ) AS unread_count
                 FROM (
                     SELECT
@@ -222,22 +270,27 @@ export function createMessageQueriesRouter({
         try {
             const phone = parsePhone(req.params.number);
             const tenantId = parseTenantId(req.query?.tenant_id, { allowNullTokens: true });
+            const phoneNumberId = parsePhoneNumberId(req.query?.phone_number_id);
             const { limit, offset } = parseListPagination(req.query, {
                 defaultLimit: 50,
                 maxLimit: 200,
             });
             const scopeSql = tenantId ? 'tenant_id = ?' : 'tenant_id IS NULL';
             const scopeParams = tenantId ? [tenantId] : [];
+            const numberSql = phoneNumberId
+                ? "AND ((direction = 'incoming' AND recipient = ?) OR (direction = 'outgoing' AND sender = ?))"
+                : '';
+            const numberParams = phoneNumberId ? [phoneNumberId, phoneNumberId] : [];
             const messages = enrichMessages(database.prepare(`
                 SELECT * FROM (
                     SELECT ${THREAD_MESSAGE_COLUMNS}
                     FROM messages
-                    WHERE (sender = ? OR recipient = ?) AND ${scopeSql}
+                    WHERE (sender = ? OR recipient = ?) AND ${scopeSql} ${numberSql}
                     ORDER BY created_at DESC, id DESC
                     LIMIT ? OFFSET ?
                 ) page
                 ORDER BY created_at ASC, id ASC
-            `).all(phone, phone, ...scopeParams, limit, offset));
+            `).all(phone, phone, ...scopeParams, ...numberParams, limit, offset));
             database.prepare(`
                 UPDATE messages
                 SET status = 'read'
@@ -245,7 +298,8 @@ export function createMessageQueriesRouter({
                   AND direction = 'incoming'
                   AND status = 'received'
                   AND ${scopeSql}
-            `).run(phone, ...scopeParams);
+                  ${phoneNumberId ? 'AND recipient = ?' : ''}
+            `).run(phone, ...scopeParams, ...(phoneNumberId ? [phoneNumberId] : []));
             return res.json(messages);
         } catch (error) {
             return sendQueryError(res, error, 'Failed to fetch thread messages', 'Thread fetch error');

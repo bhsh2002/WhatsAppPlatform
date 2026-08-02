@@ -46,8 +46,11 @@ export async function processIncomingMessage({
         }
 
         for (const rule of rules) {
+            const cooldownContactId = channel === 'whatsapp' && phone_number_id
+                ? `${phone_number_id}:${contact_id}`
+                : contact_id;
             // Check cooldown first (fast check, avoids expensive matching)
-            if (isOnCooldown(rule.id, contact_id, channel, rule.cooldown_seconds)) {
+            if (isOnCooldown(rule.id, cooldownContactId, channel, rule.cooldown_seconds)) {
                 continue;
             }
 
@@ -74,7 +77,7 @@ export async function processIncomingMessage({
 
             if (sent) {
                 // Update cooldown
-                updateCooldown(rule.id, contact_id, channel);
+                updateCooldown(rule.id, cooldownContactId, channel);
 
                 // Update stats
                 db.prepare(`
@@ -305,7 +308,10 @@ async function sendWhatsAppReply(rule, { tenant_id, contact_id, phone_number_id,
     let resolvedToken = access_token;
 
     if (tenant_id) {
-        const creds = resolveCredentials({ tenantId: tenant_id });
+        const creds = resolveCredentials({
+            tenantId: tenant_id,
+            phoneNumberIdOverride: phone_number_id,
+        });
         if (creds.isSuspended) return false;
         resolvedPhoneId = resolvedPhoneId || creds.phoneNumberId;
         resolvedToken = resolvedToken || creds.accessToken;

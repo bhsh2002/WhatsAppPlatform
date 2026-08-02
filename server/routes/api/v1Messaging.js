@@ -37,6 +37,7 @@ import {
     normalizeWhatsAppMediaUrl,
     normalizeWhatsAppRecipient,
 } from '../../services/whatsappMessageValidation.js';
+import { selectedWhatsAppPhoneNumberId } from '../../services/whatsappNumbers.js';
 
 const MAX_TEMPLATE_COMPONENT_BYTES = 64 * 1024;
 const defaultDocumentUpload = documentUpload.single('file');
@@ -50,8 +51,8 @@ const defaultBilling = {
     handleError: handleBillingError,
 };
 
-const defaultCredentialResolver = tenantId => {
-    const credentials = getTenantCredentials(tenantId);
+const defaultCredentialResolver = (tenantId, phoneNumberId) => {
+    const credentials = getTenantCredentials(tenantId, phoneNumberId);
     return {
         ...credentials,
         suspended: credentials.tenant?.status === 'Suspended',
@@ -109,9 +110,19 @@ export function createApiV1MessagingRouter({
         if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
             return { error: 'Invalid tenant context', status: 401 };
         }
-        const credentials = await credentialResolver(tenantId);
+        const credentials = await credentialResolver(
+            tenantId,
+            selectedWhatsAppPhoneNumberId(req),
+        );
         if (credentials?.suspended || credentials?.tenant?.status === 'Suspended') {
             return { error: 'Tenant account is suspended', status: 403 };
+        }
+        if (credentials?.error) {
+            return {
+                error: credentials.error,
+                status: credentials.status || 400,
+                code: credentials.code,
+            };
         }
         if (!credentials?.tenant || !credentials?.phoneNumberId || !credentials?.accessToken) {
             return { error: 'WhatsApp API credentials not configured', status: 400 };
@@ -130,6 +141,7 @@ export function createApiV1MessagingRouter({
             context.tenantId,
             recipient,
             now(),
+            context.phoneNumberId,
         );
         if (window.isOpen) return false;
         res.status(400).json({
@@ -289,6 +301,7 @@ export function createApiV1MessagingRouter({
                 try {
                     await callbackSender(context.tenantId, 'message_sent', {
                         message_id: messageId,
+                        phone_number_id: context.phoneNumberId,
                         recipient,
                         type: messageType,
                         status: 'sent',
@@ -339,7 +352,9 @@ export function createApiV1MessagingRouter({
                 || shortcut?.name;
             const messageType = normalizeMessageType(body.type, Boolean(rawTemplateName));
             const context = await resolveContext(req);
-            if (context.error) return res.status(context.status).json({ error: context.error });
+            if (context.error) {
+                return res.status(context.status).json({ error: context.error, code: context.code });
+            }
 
             let template = null;
             let templateName = null;
@@ -444,7 +459,7 @@ export function createApiV1MessagingRouter({
             const caption = normalizeWhatsAppMediaCaption(body.caption, mediaType);
             const filename = normalizeWhatsAppMediaFilename(body.filename, mediaType);
             const context = await resolveContext(req);
-            if (context.error) return res.status(context.status).json({ error: context.error });
+            if (context.error) return res.status(context.status).json({ error: context.error, code: context.code });
             if (rejectClosedWindow(res, context, recipient)) return undefined;
 
             const media = { link: mediaUrl };
@@ -497,7 +512,7 @@ export function createApiV1MessagingRouter({
                 'document',
             );
             const context = await resolveContext(req);
-            if (context.error) return res.status(context.status).json({ error: context.error });
+            if (context.error) return res.status(context.status).json({ error: context.error, code: context.code });
             if (rejectClosedWindow(res, context, recipient)) return undefined;
 
             const form = formDataFactory();
@@ -569,7 +584,7 @@ export function createApiV1MessagingRouter({
         try {
             const input = normalizeInteractiveInput(req.body || {});
             const context = await resolveContext(req);
-            if (context.error) return res.status(context.status).json({ error: context.error });
+            if (context.error) return res.status(context.status).json({ error: context.error, code: context.code });
             if (rejectClosedWindow(res, context, input.recipient)) return undefined;
             const interactive = buildInteractivePayload(input);
             const payload = {

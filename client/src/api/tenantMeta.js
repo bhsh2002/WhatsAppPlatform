@@ -52,7 +52,30 @@ export const tenantMetaMethods = {
         return this.request('/api/portal/whatsapp/status');
     },
 
-    async connectWhatsApp(code, phoneNumberId, wabaId, businessId, forceReconnect = false) {
+    async getPortalWhatsAppNumbers() {
+        return this.request('/api/portal/whatsapp/numbers');
+    },
+
+    async updatePortalWhatsAppNumber(phoneNumberId, data) {
+        return this.request(`/api/portal/whatsapp/numbers/${encodeURIComponent(phoneNumberId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async setDefaultPortalWhatsAppNumber(phoneNumberId) {
+        return this.request(`/api/portal/whatsapp/numbers/${encodeURIComponent(phoneNumberId)}/default`, {
+            method: 'POST',
+        });
+    },
+
+    async deletePortalWhatsAppNumber(phoneNumberId) {
+        return this.request(`/api/portal/whatsapp/numbers/${encodeURIComponent(phoneNumberId)}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async connectWhatsApp(code, phoneNumberId, wabaId, businessId, forceReconnect = false, setDefault = false) {
         return this.request('/api/portal/whatsapp/connect', {
             method: 'POST',
             body: JSON.stringify({
@@ -61,6 +84,7 @@ export const tenantMetaMethods = {
                 waba_id: wabaId,
                 business_id: businessId,
                 force_reconnect: forceReconnect,
+                set_default: setDefault,
             }),
         });
     },

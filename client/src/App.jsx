@@ -4,6 +4,7 @@ import { Box, CircularProgress } from '@mui/material';
 import MainLayout from './components/Layout/MainLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider } from './context/TenantContext';
+import { WhatsAppNumberProvider } from './context/WhatsAppNumberContext';
 import { useLanguage } from './context/LanguageContext';
 
 // Admin Pages
@@ -486,9 +487,11 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <TenantProvider>
-          <AppRoutes />
-        </TenantProvider>
+        <WhatsAppNumberProvider>
+          <TenantProvider>
+            <AppRoutes />
+          </TenantProvider>
+        </WhatsAppNumberProvider>
       </AuthProvider>
     </BrowserRouter>
   );

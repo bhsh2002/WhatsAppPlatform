@@ -15,6 +15,7 @@ class ApiService {
     constructor(baseUrl = API_BASE) {
         this.baseUrl = baseUrl;
         this._legacyAuthToken = localStorage.getItem('auth_token') || null;
+        this._whatsappPhoneNumberId = sessionStorage.getItem('whatsapp_phone_number_id') || null;
     }
 
     takeLegacyAuthToken() {
@@ -27,6 +28,22 @@ class ApiService {
     resetSessionCaches() {
         this._mediaToken = null;
         this._mediaTokenExpiry = 0;
+        this.setWhatsAppPhoneNumberId(null);
+    }
+
+    setWhatsAppPhoneNumberId(phoneNumberId) {
+        this._whatsappPhoneNumberId = phoneNumberId ? String(phoneNumberId) : null;
+        if (this._whatsappPhoneNumberId) {
+            sessionStorage.setItem('whatsapp_phone_number_id', this._whatsappPhoneNumberId);
+        } else {
+            sessionStorage.removeItem('whatsapp_phone_number_id');
+        }
+    }
+
+    getWhatsAppRequestHeaders() {
+        return this._whatsappPhoneNumberId
+            ? { 'X-WhatsApp-Phone-Number-Id': this._whatsappPhoneNumberId }
+            : {};
     }
 
     /**
@@ -65,6 +82,7 @@ class ApiService {
         const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
         const headers = {
             ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+            ...this.getWhatsAppRequestHeaders(),
             ...fetchOptions.headers,
         };
 
@@ -161,6 +179,17 @@ class ApiService {
 
     async getTenant(id) {
         return this.request(`/api/tenants/${id}`);
+    }
+
+    async getTenantWhatsAppNumbers(id) {
+        return this.request(`/api/tenants/${id}/whatsapp-numbers`);
+    }
+
+    async addTenantWhatsAppNumber(id, data) {
+        return this.request(`/api/tenants/${id}/whatsapp-numbers`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
     }
 
     async createTenant(data) {

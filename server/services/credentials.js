@@ -1,5 +1,6 @@
 import db from '../db/database.js';
-import { decrypt, decryptIfEncrypted, isEncrypted } from './encryption.js';
+import { decrypt } from './encryption.js';
+import { resolveTenantWhatsAppContext } from './whatsappNumbers.js';
 
 /**
  * Get access token from multiple sources with fallback:
@@ -22,6 +23,9 @@ export const getAccessToken = (tenantId = null) => {
                 return tenant.access_token;
             }
         }
+        // Never borrow another tenant's token. A shared system-user token may
+        // be configured explicitly, but database credentials stay isolated.
+        return process.env.DEFAULT_ACCESS_TOKEN || null;
     }
 
     // 2. Try env var
@@ -58,11 +62,43 @@ export const getFacebookUserAccessToken = (tenantId = null) => {
 /**
  * Get full tenant credentials (access_token + phone_number_id + waba_id)
  */
-export const getTenantCredentials = (tenantId = null) => {
+export const getTenantCredentials = (tenantId = null, phoneNumberIdOverride = null) => {
     let tenant = null;
 
     if (tenantId) {
         tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+    }
+
+    if (tenant) {
+        const context = resolveTenantWhatsAppContext({
+            database: db,
+            tenantId,
+            phoneNumberId: phoneNumberIdOverride,
+            accessTokenForTenant: getAccessToken,
+        });
+        if (!context.error) {
+            return {
+                tenant,
+                accessToken: context.accessToken,
+                phoneNumberId: context.phoneNumberId,
+                wabaId: context.wabaId,
+                businessId: context.businessId,
+                datasetId: context.datasetId,
+                number: context.number,
+            };
+        }
+        return {
+            tenant,
+            accessToken: null,
+            phoneNumberId: null,
+            wabaId: null,
+            businessId: null,
+            datasetId: null,
+            number: context.number || null,
+            error: context.error,
+            status: context.status,
+            code: context.code,
+        };
     }
 
     let accessToken = process.env.DEFAULT_ACCESS_TOKEN;
@@ -106,19 +142,29 @@ export const resolveCredentials = ({ tenantId, phoneNumberIdOverride, accessToke
             if (tenant.status === 'Suspended') {
                 return { tenant, phoneNumberId: null, accessToken: null, isSuspended: true };
             }
-            phoneNumberId = tenant.phone_number_id || phoneNumberId;
-            // Prefer encrypted token
-            if (tenant.access_token_encrypted) {
-                const decrypted = decrypt(tenant.access_token_encrypted);
-                if (decrypted) accessToken = decrypted;
-            } else if (tenant.access_token) {
-                accessToken = tenant.access_token;
+            const context = resolveTenantWhatsAppContext({
+                database: db,
+                tenantId,
+                phoneNumberId: phoneNumberIdOverride,
+                accessTokenForTenant: getAccessToken,
+            });
+            if (context.error) {
+                return {
+                    tenant,
+                    phoneNumberId: null,
+                    accessToken: null,
+                    isSuspended: false,
+                    error: context.error,
+                    code: context.code,
+                };
             }
+            phoneNumberId = context.phoneNumberId;
+            accessToken = context.accessToken;
         }
     }
 
     // Allow overrides from request body (for admin console testing)
-    phoneNumberId = phoneNumberIdOverride || phoneNumberId;
+    if (!tenantId) phoneNumberId = phoneNumberIdOverride || phoneNumberId;
     accessToken = accessTokenOverride || accessToken;
 
     return { tenant, phoneNumberId, accessToken, isSuspended: false };

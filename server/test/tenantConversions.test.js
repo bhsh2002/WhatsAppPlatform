@@ -10,7 +10,10 @@ function createDatabase() {
         CREATE TABLE tenants (
             id INTEGER PRIMARY KEY,
             name TEXT,
+            status TEXT,
+            phone_number_id TEXT,
             waba_id TEXT,
+            business_id TEXT,
             dataset_id TEXT,
             access_token TEXT,
             access_token_encrypted TEXT,
@@ -37,6 +40,7 @@ function createDatabase() {
         CREATE TABLE conversion_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_id INTEGER,
+            phone_number_id TEXT,
             dataset_id TEXT NOT NULL,
             event_name TEXT NOT NULL,
             event_time DATETIME NOT NULL,
@@ -56,6 +60,42 @@ function createDatabase() {
             (3, 'Tenant Local', 'waba-local', NULL, NULL, NULL);
     `);
     return db;
+}
+
+function enableMultipleWhatsAppNumbers(db) {
+    db.exec(`
+        CREATE TABLE tenant_whatsapp_numbers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            phone_number_id TEXT NOT NULL UNIQUE,
+            waba_id TEXT,
+            business_id TEXT,
+            dataset_id TEXT,
+            display_phone_number TEXT,
+            verified_name TEXT,
+            label TEXT,
+            quality_rating TEXT,
+            platform_status TEXT,
+            access_token_encrypted TEXT,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (tenant_id, phone_number_id)
+        );
+        CREATE UNIQUE INDEX one_conversion_default_number
+            ON tenant_whatsapp_numbers(tenant_id) WHERE is_default = 1;
+        UPDATE tenants
+        SET status = 'Active', phone_number_id = 'phone-a', business_id = 'business-a'
+        WHERE id = 1;
+        INSERT INTO tenant_whatsapp_numbers (
+            tenant_id, phone_number_id, waba_id, business_id, dataset_id,
+            access_token_encrypted, is_default, is_active
+        ) VALUES
+            (1, 'phone-a', 'waba/A', 'business-a', 'dataset-a', 'invalid-a', 1, 1),
+            (1, 'phone-a-2', 'waba/A2', 'business-a', 'dataset-a2', 'invalid-a2', 0, 1),
+            (2, 'phone-b', 'waba-b', 'business-b', 'dataset-b', 'invalid-b', 1, 1);
+    `);
 }
 
 function createBilling() {
@@ -206,6 +246,65 @@ test('conversion history is paginated, sanitized and isolated with aggregate sta
         user: { tenant_id: 99 },
     });
     assert.equal(missing.statusCode, 404);
+});
+
+test('conversion settings and history are isolated by the selected WhatsApp number', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    enableMultipleWhatsAppNumbers(db);
+    db.exec(`
+        INSERT INTO conversion_events (
+            tenant_id, phone_number_id, dataset_id, event_name, event_time, status
+        ) VALUES
+            (1, 'phone-a', 'dataset-a', 'Purchase', '2026-07-01', 'sent'),
+            (1, 'phone-a-2', 'dataset-a2', 'LeadSubmitted', '2026-07-02', 'failed');
+    `);
+    const metaCalls = [];
+    const router = createTenantConversionsRouter({
+        database: db,
+        accessTokenForTenant: () => 'fallback-token-a',
+        billing: createBilling(),
+        requestMeta: async (url) => {
+            metaCalls.push(url);
+            return { ok: true, status: 200, data: { data: [{ id: 'dataset-a2' }] } };
+        },
+    });
+    const selected = { 'x-whatsapp-phone-number-id': 'phone-a-2' };
+
+    const history = await invokeRoute(router, 'get', '/conversions/history', {
+        user: { tenant_id: 1 },
+        headers: selected,
+    });
+    assert.equal(history.statusCode, 200);
+    assert.equal(history.body.total, 1);
+    assert.equal(history.body.phone_number_id, 'phone-a-2');
+    assert.equal(history.body.events[0].phone_number_id, 'phone-a-2');
+    assert.equal(history.body.dataset_id, 'dataset-a2');
+
+    const updated = await invokeRoute(router, 'patch', '/meta-settings', {
+        user: { tenant_id: 1 },
+        headers: selected,
+        body: { dataset_id: 'dataset-a2-new' },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(
+        db.prepare("SELECT dataset_id FROM tenant_whatsapp_numbers WHERE phone_number_id = 'phone-a-2'").get().dataset_id,
+        'dataset-a2-new',
+    );
+    assert.equal(db.prepare('SELECT dataset_id FROM tenants WHERE id = 1').get().dataset_id, 'dataset-a');
+
+    const datasets = await invokeRoute(router, 'get', '/conversions/datasets', {
+        user: { tenant_id: 1 },
+        headers: selected,
+    });
+    assert.equal(datasets.statusCode, 200);
+    assert.match(metaCalls[0], /\/waba%2FA2\/dataset$/);
+
+    const crossTenant = await invokeRoute(router, 'get', '/conversions/history', {
+        user: { tenant_id: 1 },
+        headers: { 'x-whatsapp-phone-number-id': 'phone-b' },
+    });
+    assert.equal(crossTenant.statusCode, 404);
 });
 
 test('conversion events remain local without a dataset or Meta token', async (t) => {

@@ -54,6 +54,7 @@ export const portalCoreMethods = {
         const response = await fetch(`${this.baseUrl}/api/portal/media/upload-to-meta`, {
             method: 'POST',
             credentials: 'include',
+            headers: this.getWhatsAppRequestHeaders(),
             body: formData,
         });
 
@@ -93,6 +94,7 @@ export const portalCoreMethods = {
         const response = await fetch(`${this.baseUrl}/api/portal/messages/send-document`, {
             method: 'POST',
             credentials: 'include',
+            headers: this.getWhatsAppRequestHeaders(),
             body: formData
         });
 
@@ -141,6 +143,7 @@ export const portalCoreMethods = {
         const response = await fetch(`${this.baseUrl}/api/portal/messages/send-image`, {
             method: 'POST',
             credentials: 'include',
+            headers: this.getWhatsAppRequestHeaders(),
             body: formData
         });
 
@@ -154,6 +157,7 @@ export const portalCoreMethods = {
     getPortalMediaDownloadUrl(mediaId) {
         const params = new URLSearchParams();
         if (this._mediaToken) params.append('media_token', this._mediaToken);
+        if (this._whatsappPhoneNumberId) params.append('phone_number_id', this._whatsappPhoneNumberId);
         const queryString = params.toString() ? `?${params.toString()}` : '';
         return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
     },
@@ -162,6 +166,7 @@ export const portalCoreMethods = {
         const mediaToken = await this.getMediaToken();
         const params = new URLSearchParams();
         if (mediaToken) params.append('media_token', mediaToken);
+        if (this._whatsappPhoneNumberId) params.append('phone_number_id', this._whatsappPhoneNumberId);
         const queryString = params.toString() ? `?${params.toString()}` : '';
         return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
     },

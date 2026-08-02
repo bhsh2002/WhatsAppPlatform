@@ -4,12 +4,17 @@ import MenuIcon from '@mui/icons-material/Menu';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import Sidebar from './Sidebar';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
+import WhatsAppNumberSelector from '../WhatsApp/WhatsAppNumberSelector';
 
 const drawerWidth = 280;
 
 const MainLayout = ({ children }) => {
     const theme = useTheme();
     const { direction, t } = useLanguage();
+    const { isTenant } = useAuth();
+    const { selectedPhoneNumberId, numbers } = useWhatsAppNumbers();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -51,6 +56,9 @@ const MainLayout = ({ children }) => {
                         <Typography variant="subtitle1" component="div" fontWeight={800} sx={{ ml: 1 }}>
                             Wa Savana
                         </Typography>
+                        {isTenant && numbers.length > 0 && <Box sx={{ ml: 'auto' }}>
+                            <WhatsAppNumberSelector compact />
+                        </Box>}
                     </Toolbar>
                 </AppBar>
             )}
@@ -97,7 +105,25 @@ const MainLayout = ({ children }) => {
                     background: 'linear-gradient(180deg, #f7f2e8 0%, #f3ecdf 100%)',
                 }}
             >
-                {children}
+                {isTenant && numbers.length > 0 && !isMobile && <Box sx={{
+                    minHeight: 64,
+                    px: 3,
+                    py: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    bgcolor: 'rgba(255,255,255,0.72)',
+                    borderBottom: '1px solid #d7ccba',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10,
+                    backdropFilter: 'blur(12px)'
+                }}>
+                    <WhatsAppNumberSelector />
+                </Box>}
+                <Box key={isTenant ? selectedPhoneNumberId || 'no-whatsapp-number' : 'admin'}>
+                    {children}
+                </Box>
             </Box>
         </Box>
     );

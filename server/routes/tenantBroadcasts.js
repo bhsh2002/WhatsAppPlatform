@@ -9,6 +9,7 @@ import {
     normalizeBroadcastString,
     parseBroadcastJobId,
 } from '../services/broadcastProcessor.js';
+import { resolveTenantWhatsAppContext } from '../services/whatsappNumbers.js';
 
 export function createTenantBroadcastsRouter({
     database,
@@ -61,19 +62,16 @@ export function createTenantBroadcastsRouter({
                 return res.status(400).json({ error: 'لغة القالب غير صالحة' });
             }
 
-            const tenant = database.prepare(`
-                SELECT id, name, phone_number_id, status
-                FROM tenants
-                WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!tenant.phone_number_id || !accessToken) {
-                return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+            const context = resolveTenantWhatsAppContext({
+                database,
+                tenantId,
+                request: req,
+                accessTokenForTenant,
+            });
+            if (context.error) {
+                return res.status(context.status).json({ error: context.error, code: context.code });
             }
-            if (tenant.status === 'Suspended') {
-                return res.status(403).json({ error: 'حسابك معلّق. تواصل مع المدير.' });
-            }
+            const { tenant, phoneNumberId, accessToken } = context;
             const template = database.prepare(`
                 SELECT id, tenant_id, name, language, category, header_type,
                        header_content, body, footer, buttons, variables
@@ -117,7 +115,7 @@ export function createTenantBroadcastsRouter({
                 templateLanguage,
                 templateParams: req.body?.template_params,
                 variableMapping: Array.isArray(req.body?.variable_mapping) ? req.body.variable_mapping : [],
-                phoneNumberId: tenant.phone_number_id,
+                phoneNumberId,
                 accessToken,
                 tenantName: tenant.name,
                 billingReservation: reservation,

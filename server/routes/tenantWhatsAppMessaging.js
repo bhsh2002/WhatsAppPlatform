@@ -15,6 +15,7 @@ import {
     InvalidWhatsAppMessageError,
     normalizeInteractiveInput,
 } from '../services/whatsappMessageValidation.js';
+import { resolveTenantWhatsAppContext } from '../services/whatsappNumbers.js';
 import { createTenantWhatsAppMediaRouter } from './tenantWhatsAppMedia.js';
 
 const normalizeString = (value, maxLength) => {
@@ -50,11 +51,29 @@ export function createTenantWhatsAppMessagingRouter({
     const eventBus = { emitNewMessage, emitConversationUpdate };
     const router = express.Router();
 
+    const resolveContext = (req, res, options = {}) => {
+        const context = resolveTenantWhatsAppContext({
+            database: db,
+            tenantId: req.user?.tenant_id,
+            request: req,
+            accessTokenForTenant: getAccessToken,
+            ...options,
+        });
+        if (context.error) {
+            res.status(context.status).json({ error: context.error, code: context.code });
+            return null;
+        }
+        return context;
+    };
+
 // Conversations
 // ============================================
 router.get('/conversations', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
+        const context = resolveContext(req, res, { requireToken: false });
+        if (!context) return;
+        const phoneNumberId = context.phoneNumberId;
         const { limit, offset } = parseListPagination(req.query, { defaultLimit: 100 });
 
         const conversations = enrichTemplateFallbackMessages(db.prepare(`
@@ -77,6 +96,7 @@ router.get('/conversations', (req, res) => {
                     AND m2.direction = 'incoming'
                     AND m2.status = 'received'
                     AND m2.tenant_id = ?
+                    AND m2.recipient = ?
                 ) as unread_count
             FROM (
                 SELECT
@@ -100,12 +120,14 @@ router.get('/conversations', (req, res) => {
                     ) as rn
                 FROM messages
                 WHERE tenant_id = ?
+                  AND ((direction = 'incoming' AND recipient = ?)
+                    OR (direction = 'outgoing' AND sender = ?))
             ) t
             LEFT JOIN contacts c ON c.phone = t.contact AND c.tenant_id = t.tenant_id
             WHERE rn = 1
             ORDER BY last_interaction DESC
             LIMIT ? OFFSET ?
-        `).all(tenantId, tenantId, limit, offset), 'last_message', db);
+        `).all(tenantId, phoneNumberId, tenantId, phoneNumberId, phoneNumberId, limit, offset), 'last_message', db);
 
         res.json(conversations);
     } catch (error) {
@@ -118,6 +140,9 @@ router.get('/conversations', (req, res) => {
 router.get('/conversations/:phone/messages', (req, res) => {
     try {
         const tenantId = req.user.tenant_id;
+        const context = resolveContext(req, res, { requireToken: false });
+        if (!context) return;
+        const phoneNumberId = context.phoneNumberId;
         const contactPhone = normalizeRecipient(req.params.phone);
         if (!contactPhone) return res.status(400).json({ error: 'رقم الهاتف غير صالح' });
         const { limit, offset } = parseListPagination(req.query, { defaultLimit: 100 });
@@ -130,18 +155,30 @@ router.get('/conversations/:phone/messages', (req, res) => {
                     media_mime_type, referral_ctwa_clid, referral_source_id,
                     referral_source_type, referral_source_url, created_at
                 FROM messages
-                WHERE tenant_id = ? AND (sender = ? OR recipient = ?)
+                WHERE tenant_id = ?
+                  AND (sender = ? OR recipient = ?)
+                  AND ((direction = 'incoming' AND recipient = ?)
+                    OR (direction = 'outgoing' AND sender = ?))
                 ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
             ) ORDER BY created_at ASC, id ASC
-        `).all(tenantId, contactPhone, contactPhone, limit, offset), 'content', db);
+        `).all(
+            tenantId,
+            contactPhone,
+            contactPhone,
+            phoneNumberId,
+            phoneNumberId,
+            limit,
+            offset,
+        ), 'content', db);
 
         // Mark incoming messages as read
         db.prepare(`
             UPDATE messages
             SET status = 'read'
-            WHERE tenant_id = ? AND sender = ? AND direction = 'incoming' AND status = 'received'
-        `).run(tenantId, contactPhone);
+            WHERE tenant_id = ? AND sender = ? AND recipient = ?
+              AND direction = 'incoming' AND status = 'received'
+        `).run(tenantId, contactPhone, phoneNumberId);
 
         res.json(messages);
     } catch (error) {
@@ -155,9 +192,11 @@ router.get('/conversations/:phone/messages', (req, res) => {
 // ============================================
 router.get('/messages/window/:phone', (req, res) => {
     const tenantId = req.user.tenant_id;
+    const context = resolveContext(req, res, { requireToken: false });
+    if (!context) return;
     const phone = normalizeRecipient(req.params.phone);
     if (!phone) return res.status(400).json({ error: 'رقم الهاتف غير صالح' });
-    const window = getWhatsAppConversationWindow(db, tenantId, phone);
+    const window = getWhatsAppConversationWindow(db, tenantId, phone, Date.now(), context.phoneNumberId);
 
     res.json({
         is_open: window.isOpen,
@@ -194,24 +233,9 @@ router.post('/messages/send', async (req, res) => {
             return res.status(400).json({ error: 'رقم المستلم مطلوب' });
         }
 
-        // Get tenant credentials
-        const tenant = db.prepare(`
-            SELECT id, name, phone_number_id, status FROM tenants WHERE id = ?
-        `).get(tenantId);
-        if (!tenant) {
-            return res.status(404).json({ error: 'العميل غير موجود' });
-        }
-
-        const phoneNumberId = tenant.phone_number_id;
-        const accessToken = getAccessToken(tenantId);
-
-        if (!phoneNumberId || !accessToken) {
-            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
-        }
-
-        if (tenant.status === 'Suspended') {
-            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
-        }
+        const context = resolveContext(req, res);
+        if (!context) return;
+        const { tenant, phoneNumberId, accessToken } = context;
 
         if (effectiveType !== 'template' && !normalizeString(message, 4096)) {
             return res.status(400).json({ error: 'نص الرسالة مطلوب وبحد أقصى 4096 حرفًا' });
@@ -219,7 +243,7 @@ router.post('/messages/send', async (req, res) => {
 
         // 24h conversation window enforcement (non-template messages only)
         if (effectiveType !== 'template') {
-            const window = getWhatsAppConversationWindow(db, tenantId, recipient);
+            const window = getWhatsAppConversationWindow(db, tenantId, recipient, Date.now(), phoneNumberId);
             if (!window.isOpen) {
                 return res.status(400).json({
                     error: 'نافذة المحادثة (24 ساعة) مغلقة. يمكنك فقط إرسال قوالب معتمدة.',
@@ -314,7 +338,7 @@ router.post('/messages/send', async (req, res) => {
             },
         });
 
-        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+        const response = await fetch(`${META_API_BASE}/${encodeURIComponent(phoneNumberId)}/messages`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -435,26 +459,11 @@ router.post('/messages/send-interactive', async (req, res) => {
             sections,
         } = input;
 
-        // Get tenant credentials
-        const tenant = db.prepare(`
-            SELECT id, name, phone_number_id, status FROM tenants WHERE id = ?
-        `).get(tenantId);
-        if (!tenant) {
-            return res.status(404).json({ error: 'العميل غير موجود' });
-        }
+        const context = resolveContext(req, res);
+        if (!context) return;
+        const { tenant, phoneNumberId, accessToken } = context;
 
-        const phoneNumberId = tenant.phone_number_id;
-        const accessToken = getAccessToken(tenantId);
-
-        if (!phoneNumberId || !accessToken) {
-            return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
-        }
-
-        if (tenant.status === 'Suspended') {
-            return res.status(403).json({ error: 'حسابك معلّق ولا يمكنك إرسال الرسائل. تواصل مع المدير.' });
-        }
-
-        const window = getWhatsAppConversationWindow(db, tenantId, recipient);
+        const window = getWhatsAppConversationWindow(db, tenantId, recipient, Date.now(), phoneNumberId);
         if (!window.isOpen) {
             return res.status(400).json({
                 error: 'نافذة المحادثة (24 ساعة) مغلقة. يمكنك فقط إرسال قوالب معتمدة.',
@@ -489,7 +498,7 @@ router.post('/messages/send-interactive', async (req, res) => {
             metadata: { recipient, interactive_type },
         });
 
-        const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+        const response = await fetch(`${META_API_BASE}/${encodeURIComponent(phoneNumberId)}/messages`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,

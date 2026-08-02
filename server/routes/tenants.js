@@ -8,6 +8,11 @@ import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
 import { presentTenant, presentTenants } from '../presenters/tenant.js';
 import {
+    hasWhatsAppNumbersTable,
+    listTenantWhatsAppNumbers,
+    setDefaultTenantWhatsAppNumber,
+} from '../services/whatsappNumbers.js';
+import {
     applyMonthlyAllowance,
     createInvoice,
     ensureTenantBillingAccount,
@@ -29,6 +34,32 @@ const centralManagedResponse = res => res.status(409).json({
     error: 'تدار الخطة ودورة الاشتراك من نظام اشتراكات سافانا المركزي',
     code: 'central_subscription_managed',
 });
+
+const synchronizeLegacyDefaultNumber = (tenant, encryptedToken = undefined) => {
+    if (!tenant?.id || !tenant.phone_number_id || !hasWhatsAppNumbersTable(db)) return;
+    const tokenValue = encryptedToken === undefined ? tenant.access_token_encrypted : encryptedToken;
+    db.prepare(`
+        INSERT INTO tenant_whatsapp_numbers (
+            tenant_id, phone_number_id, waba_id, business_id, dataset_id,
+            access_token_encrypted, is_default, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, 1)
+        ON CONFLICT(tenant_id, phone_number_id) DO UPDATE SET
+            waba_id = excluded.waba_id,
+            business_id = excluded.business_id,
+            dataset_id = excluded.dataset_id,
+            access_token_encrypted = COALESCE(excluded.access_token_encrypted, tenant_whatsapp_numbers.access_token_encrypted),
+            is_active = 1,
+            updated_at = datetime('now', 'localtime')
+    `).run(
+        tenant.id,
+        tenant.phone_number_id,
+        tenant.waba_id || null,
+        tenant.business_id || null,
+        tenant.dataset_id || null,
+        tokenValue || null,
+    );
+    setDefaultTenantWhatsAppNumber(db, tenant.id, tenant.phone_number_id);
+};
 
 // Get all tenants
 router.get('/', (req, res) => {
@@ -162,6 +193,89 @@ router.patch('/:id/meta-settings', (req, res) => {
     }
 });
 
+// WhatsApp number registry management for platform administrators.
+router.get('/:id/whatsapp-numbers', (req, res) => {
+    try {
+        const tenant = db.prepare('SELECT id FROM tenants WHERE id = ?').get(req.params.id);
+        if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+        return res.json({ numbers: listTenantWhatsAppNumbers(db, tenant.id, { includeInactive: true }) });
+    } catch (error) {
+        console.error('Error fetching tenant WhatsApp numbers:', error);
+        return res.status(500).json({ error: 'Failed to fetch WhatsApp numbers' });
+    }
+});
+
+router.post('/:id/whatsapp-numbers', (req, res) => {
+    try {
+        if (!hasWhatsAppNumbersTable(db)) {
+            return res.status(409).json({ error: 'Multi-number migration is not applied' });
+        }
+        const tenantId = Number(req.params.id);
+        const tenant = db.prepare('SELECT id FROM tenants WHERE id = ?').get(tenantId);
+        if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+        const phoneNumberId = String(req.body?.phone_number_id || '').trim();
+        const wabaId = String(req.body?.waba_id || '').trim();
+        if (!phoneNumberId || !wabaId || phoneNumberId.length > 256 || wabaId.length > 256) {
+            return res.status(400).json({ error: 'phone_number_id and waba_id are required' });
+        }
+        const encryptedToken = req.body?.access_token
+            ? encrypt(String(req.body.access_token))
+            : null;
+        db.prepare(`
+            INSERT INTO tenant_whatsapp_numbers (
+                tenant_id, phone_number_id, waba_id, business_id, dataset_id,
+                display_phone_number, verified_name, label,
+                access_token_encrypted, is_default, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+            ON CONFLICT(tenant_id, phone_number_id) DO UPDATE SET
+                waba_id = excluded.waba_id,
+                business_id = excluded.business_id,
+                dataset_id = excluded.dataset_id,
+                display_phone_number = excluded.display_phone_number,
+                verified_name = excluded.verified_name,
+                label = excluded.label,
+                access_token_encrypted = COALESCE(excluded.access_token_encrypted, tenant_whatsapp_numbers.access_token_encrypted),
+                is_active = 1,
+                updated_at = datetime('now', 'localtime')
+        `).run(
+            tenantId,
+            phoneNumberId,
+            wabaId,
+            req.body?.business_id || null,
+            req.body?.dataset_id || null,
+            req.body?.display_phone_number || null,
+            req.body?.verified_name || null,
+            req.body?.label || null,
+            encryptedToken,
+        );
+        const numbers = listTenantWhatsAppNumbers(db, tenantId);
+        if (req.body?.is_default === true || !numbers.some(number => number.is_default)) {
+            setDefaultTenantWhatsAppNumber(db, tenantId, phoneNumberId);
+        }
+        return res.status(201).json(
+            listTenantWhatsAppNumbers(db, tenantId, { includeInactive: true })
+                .find(number => number.phone_number_id === phoneNumberId)
+        );
+    } catch (error) {
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            return res.status(409).json({ error: 'WhatsApp number is assigned to another tenant' });
+        }
+        console.error('Error saving tenant WhatsApp number:', error);
+        return res.status(500).json({ error: 'Failed to save WhatsApp number' });
+    }
+});
+
+router.post('/:id/whatsapp-numbers/:phoneNumberId/default', (req, res) => {
+    try {
+        const number = setDefaultTenantWhatsAppNumber(db, req.params.id, req.params.phoneNumberId);
+        if (!number) return res.status(404).json({ error: 'Active WhatsApp number not found' });
+        return res.json({ success: true, number });
+    } catch (error) {
+        console.error('Error setting default WhatsApp number:', error);
+        return res.status(500).json({ error: 'Failed to set default WhatsApp number' });
+    }
+});
+
 // ============================================
 // Dynamic routes — after static routes
 // ============================================
@@ -210,6 +324,7 @@ router.post('/', (req, res) => {
         );
 
         const newTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(result.lastInsertRowid);
+        synchronizeLegacyDefaultNumber(newTenant, encryptedAccessToken);
         ensureTenantBillingAccount(newTenant.id);
 
         // Log activity
@@ -278,6 +393,21 @@ router.put('/:id', (req, res) => {
         }
 
         const updatedTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
+        if (['phone_number_id', 'waba_id', 'business_id', 'access_token']
+            .some(field => Object.hasOwn(req.body || {}, field))) {
+            if (Object.hasOwn(req.body || {}, 'phone_number_id')
+                && !updatedTenant.phone_number_id
+                && hasWhatsAppNumbersTable(db)) {
+                db.prepare(`
+                    UPDATE tenant_whatsapp_numbers
+                    SET is_active = 0, is_default = 0,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE tenant_id = ?
+                `).run(updatedTenant.id);
+            } else {
+                synchronizeLegacyDefaultNumber(updatedTenant);
+            }
+        }
 
         // Log activity
         db.prepare(`

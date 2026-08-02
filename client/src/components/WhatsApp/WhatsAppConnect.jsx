@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Paper, Typography, Button, CircularProgress, Alert, Snackbar, Stepper, Step, StepLabel, TextField, Divider, Chip, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
-import { WhatsApp as WhatsAppIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
+import { Box, Paper, Typography, Button, CircularProgress, Alert, Snackbar, Stepper, Step, StepLabel, TextField, Divider, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Card, CardContent } from '@mui/material';
+import { WhatsApp as WhatsAppIcon, CheckCircle as CheckCircleIcon, DeleteOutline as DeleteIcon, StarOutline as DefaultIcon, Add as AddIcon, Save as SaveIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
+import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
 const getSteps = () => [tx("auto.k_db4f24f2031d"), tx("auto.k_d5b468e399c4"), tx("auto.k_e6537128f021")];
 const WhatsAppConnect = ({
   onComplete
@@ -14,7 +15,8 @@ const WhatsAppConnect = ({
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [reconnectMode, setReconnectMode] = useState(false);
-  const [confirmReconnectOpen, setConfirmReconnectOpen] = useState(false);
+  const [numberToDelete, setNumberToDelete] = useState(null);
+  const [labelDrafts, setLabelDrafts] = useState({});
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -27,11 +29,16 @@ const WhatsAppConnect = ({
     business_id: ''
   });
   const [sdkReady, setSdkReady] = useState(false);
+  const { refreshNumbers, selectNumber } = useWhatsAppNumbers();
   const fetchWhatsAppStatus = useCallback(async () => {
     try {
       setStatusLoading(true);
       const status = await api.getPortalWhatsAppStatus();
       setWhatsappStatus(status);
+      setLabelDrafts(Object.fromEntries((status?.numbers || []).map(number => [
+        number.phone_number_id,
+        number.label || ''
+      ])));
     } catch {
       setWhatsappStatus(null);
     } finally {
@@ -150,6 +157,7 @@ const WhatsAppConnect = ({
       const result = await api.connectWhatsApp(code, phoneId, wabaId, bizId, forceReconnect);
       setWhatsappStatus(result?.status || null);
       await fetchWhatsAppStatus();
+      await refreshNumbers();
       setReconnectMode(false);
       setActiveStep(3);
       setSnackbar({
@@ -173,6 +181,46 @@ const WhatsAppConnect = ({
     handleSubmitConnect(formData.code, formData.phone_number_id, formData.waba_id, formData.business_id, reconnectMode);
   };
   const connected = whatsappStatus?.connected;
+  const numbers = whatsappStatus?.numbers || [];
+  const handleSetDefault = async phoneNumberId => {
+    try {
+      setLoading(true);
+      await api.setDefaultPortalWhatsAppNumber(phoneNumberId);
+      selectNumber(phoneNumberId);
+      await Promise.all([fetchWhatsAppStatus(), refreshNumbers()]);
+      setSnackbar({ open: true, message: 'تم تعيين الرقم الافتراضي', severity: 'success' });
+    } catch (err) {
+      setError(err.message || 'فشل تعيين الرقم الافتراضي');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleSaveLabel = async phoneNumberId => {
+    try {
+      setLoading(true);
+      await api.updatePortalWhatsAppNumber(phoneNumberId, { label: labelDrafts[phoneNumberId] || null });
+      await Promise.all([fetchWhatsAppStatus(), refreshNumbers()]);
+      setSnackbar({ open: true, message: 'تم حفظ اسم الرقم', severity: 'success' });
+    } catch (err) {
+      setError(err.message || 'فشل تحديث الرقم');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleDeleteNumber = async () => {
+    if (!numberToDelete) return;
+    try {
+      setLoading(true);
+      await api.deletePortalWhatsAppNumber(numberToDelete.phone_number_id);
+      setNumberToDelete(null);
+      await Promise.all([fetchWhatsAppStatus(), refreshNumbers()]);
+      setSnackbar({ open: true, message: 'تم فصل رقم WhatsApp', severity: 'success' });
+    } catch (err) {
+      setError(err.message || 'فشل فصل الرقم');
+    } finally {
+      setLoading(false);
+    }
+  };
   const formatDateTime = value => {
     if (!value) return '';
     const parsed = new Date(String(value).replace(' ', 'T'));
@@ -204,7 +252,7 @@ const WhatsAppConnect = ({
                 <Box>
                     <Typography variant="h6" fontWeight={700}>حساب WhatsApp مربوط بالفعل</Typography>
                     <Typography variant="body2" color="text.secondary">
-                        يمكن استخدام الحساب الحالي للإرسال واستقبال الرسائل.
+                        يدير هذا الحساب {numbers.length} رقم WhatsApp. اختر الرقم النشط من أعلى المنصة.
                     </Typography>
                 </Box>
             </Box>
@@ -216,7 +264,7 @@ const WhatsAppConnect = ({
       }}>
                 <Chip color="success" label="مرتبط" />
                 {whatsappStatus.waba_id && <Chip label={`WABA: ${whatsappStatus.waba_id}`} variant="outlined" />}
-                {whatsappStatus.phone_number_id && <Chip label={`Phone: ${whatsappStatus.phone_number_id}`} variant="outlined" />}
+                {whatsappStatus.phone_number_id && <Chip label={`Default: ${whatsappStatus.phone_number_id}`} variant="outlined" />}
                 {whatsappStatus.business_id && <Chip label={`Business: ${whatsappStatus.business_id}`} variant="outlined" />}
             </Box>
             {whatsappStatus.connected_at && <Typography variant="body2" color="text.secondary" sx={{
@@ -224,23 +272,49 @@ const WhatsAppConnect = ({
       }}>
                 آخر ربط: {formatDateTime(whatsappStatus.connected_at)}
             </Typography>}
-            <Button variant="outlined" color="warning" onClick={() => setConfirmReconnectOpen(true)}>
-                إعادة الربط
+            <Box sx={{ display: 'grid', gap: 2, mb: 3 }}>
+              {numbers.map(number => <Card key={number.phone_number_id} variant="outlined">
+                <CardContent sx={{ display: 'grid', gap: 1.5 }}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Typography fontWeight={800}>{number.display_phone_number || number.phone_number_id}</Typography>
+                    {number.verified_name && <Chip label={number.verified_name} size="small" />}
+                    {number.is_default === 1 && <Chip label="الرقم الافتراضي" color="success" size="small" />}
+                    {number.quality_rating && <Chip label={`Quality: ${number.quality_rating}`} size="small" variant="outlined" />}
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Phone ID: {number.phone_number_id} · WABA: {number.waba_id}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <TextField
+                      size="small"
+                      label="اسم داخلي للرقم"
+                      value={labelDrafts[number.phone_number_id] || ''}
+                      onChange={event => setLabelDrafts(current => ({ ...current, [number.phone_number_id]: event.target.value }))}
+                      inputProps={{ maxLength: 100 }}
+                    />
+                    <Button size="small" startIcon={<SaveIcon />} onClick={() => handleSaveLabel(number.phone_number_id)} disabled={loading}>حفظ الاسم</Button>
+                    {number.is_default !== 1 && <Button size="small" startIcon={<DefaultIcon />} onClick={() => handleSetDefault(number.phone_number_id)} disabled={loading}>تعيين كافتراضي</Button>}
+                    <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => setNumberToDelete(number)} disabled={loading}>فصل الرقم</Button>
+                  </Box>
+                </CardContent>
+              </Card>)}
+            </Box>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => {
+              setReconnectMode(true);
+              setActiveStep(0);
+            }}>
+                إضافة أو مزامنة أرقام WhatsApp
             </Button>
-            <Dialog open={confirmReconnectOpen} onClose={() => setConfirmReconnectOpen(false)} slotProps={{ paper: { 'aria-label': 'تأكيد إعادة ربط WhatsApp' } }}>
-                <DialogTitle>تأكيد إعادة ربط WhatsApp</DialogTitle>
+            <Dialog open={!!numberToDelete} onClose={() => setNumberToDelete(null)} slotProps={{ paper: { 'aria-label': 'تأكيد فصل رقم WhatsApp' } }}>
+                <DialogTitle>تأكيد فصل رقم WhatsApp</DialogTitle>
                 <DialogContent>
                     <Typography>
-                        إعادة الربط ستستبدل بيانات WABA ورقم الهاتف والتوكن الحالي لهذا الحساب.
+                        سيتم فصل الرقم {numberToDelete?.display_phone_number || numberToDelete?.phone_number_id} من المنصة. لن تُحذف سجلات الرسائل السابقة.
                     </Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setConfirmReconnectOpen(false)}>إلغاء</Button>
-                    <Button color="warning" variant="contained" onClick={() => {
-            setConfirmReconnectOpen(false);
-            setReconnectMode(true);
-            setActiveStep(0);
-          }}>متابعة إعادة الربط</Button>
+                    <Button onClick={() => setNumberToDelete(null)}>إلغاء</Button>
+                    <Button color="error" variant="contained" onClick={handleDeleteNumber} disabled={loading}>فصل الرقم</Button>
                 </DialogActions>
             </Dialog>
         </Paper>;
@@ -272,9 +346,9 @@ const WhatsAppConnect = ({
             {error && <Alert severity="error" sx={{
       mb: 2
     }}>{error}</Alert>}
-            {reconnectMode && <Alert severity="warning" sx={{
+            {reconnectMode && <Alert severity="info" sx={{
       mb: 2
-    }}>أنت في وضع إعادة الربط. نجاح العملية سيستبدل بيانات WhatsApp الحالية.</Alert>}
+    }}>سيتم استيراد جميع الأرقام التي يسمح بها حساب WABA، مع الإبقاء على الرقم الافتراضي الحالي.</Alert>}
 
             {activeStep === 0 && <Box sx={{
       textAlign: 'center',

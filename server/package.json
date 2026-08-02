@@ -7,8 +7,8 @@
     "scripts": {
         "start": "node server.js",
         "dev": "node --watch server.js",
-        "test": "node --test --test-concurrency=1",
-        "test:coverage": "c8 --all --include 'routes/**/*.js' --include 'services/**/*.js' --include 'middleware/**/*.js' --include 'db/**/*.js' --reporter=text-summary --check-coverage --statements 51 --branches 66 --functions 71 --lines 51 node --test --test-concurrency=1",
+        "test": "NODE_ENV=test node --test --test-concurrency=1",
+        "test:coverage": "NODE_ENV=test c8 --all --include 'routes/**/*.js' --include 'services/**/*.js' --include 'middleware/**/*.js' --include 'db/**/*.js' --reporter=text-summary --check-coverage --statements 51 --branches 66 --functions 71 --lines 51 node --test --test-concurrency=1",
         "setup:local": "node scripts/ensure-local-secrets.js",
         "migrate:credentials": "node scripts/migrate-sensitive-credentials.js",
         "backup": "node scripts/backup-database.js",
