@@ -255,6 +255,47 @@ export const portalCoreMethods = {
         });
     },
 
+    async getSmsAccounts() {
+        return this.request('/api/portal/sms-gateway');
+    },
+
+    async createSmsAccount(data) {
+        return this.request('/api/portal/sms-gateway', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updateSmsAccount(accountId, data) {
+        return this.request(`/api/portal/sms-gateway/${accountId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async disableSmsAccount(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async checkSmsAccount(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/health`, {
+            method: 'POST',
+        });
+    },
+
+    async getSmsAccountDevices(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/devices`);
+    },
+
+    async testSmsAccount(accountId, data) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/test`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async getPortalProfile() {
         return this.request('/api/portal/profile');
     },

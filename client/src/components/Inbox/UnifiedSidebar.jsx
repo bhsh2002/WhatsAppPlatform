@@ -23,6 +23,7 @@ import {
     Refresh as RefreshIcon,
     WhatsApp as WhatsAppIcon,
     Facebook as FacebookIcon,
+    Sms as SmsIcon,
     Sync as SyncIcon
 } from '@mui/icons-material';
 import { getUnifiedConversationKey } from '../../utils/conversationKeys';
@@ -30,6 +31,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 const getChannelColor = (channel) => {
     if (channel === 'whatsapp') return '#25D366';
+    if (channel === 'sms') return '#7c3aed';
     return '#0084ff';
 };
 
@@ -71,6 +73,12 @@ const UnifiedSidebar = ({
             icon: <WhatsAppIcon sx={{ fontSize: 18, color: '#25D366' }} />,
         },
         {
+            value: 'sms',
+            title: 'SMS',
+            subtitle: 'رسائل الشرائح والأجهزة المرتبطة',
+            icon: <SmsIcon sx={{ fontSize: 18, color: '#7c3aed' }} />,
+        },
+        {
             value: 'messenger',
             title: 'Facebook',
             subtitle: t('inbox.messengerSubtitle'),
@@ -96,7 +104,7 @@ const UnifiedSidebar = ({
         const isSelected = getUnifiedConversationKey(conv) === getUnifiedConversationKey(selectedChat);
         const displayName = conv.display_name || conv.contact_id || t('common.unknown');
         const channelColor = getChannelColor(conv.channel);
-        const detailParts = [conv.tenant_name, conv.page_name].filter(Boolean);
+        const detailParts = [conv.tenant_name, conv.sms_account_name, conv.page_name].filter(Boolean);
 
         return (
             <ListItem
@@ -109,10 +117,10 @@ const UnifiedSidebar = ({
                     borderColor: 'divider',
                     borderInlineStart: `3px solid ${channelColor}`,
                     '&.Mui-selected': {
-                        bgcolor: conv.channel === 'whatsapp' ? '#25D36612' : '#1877f212',
+                        bgcolor: conv.channel === 'whatsapp' ? '#25D36612' : conv.channel === 'sms' ? '#7c3aed12' : '#1877f212',
                     },
                     '&:hover': {
-                        bgcolor: conv.channel === 'whatsapp' ? '#25D3660c' : '#1877f20c',
+                        bgcolor: conv.channel === 'whatsapp' ? '#25D3660c' : conv.channel === 'sms' ? '#7c3aed0c' : '#1877f20c',
                     },
                     px: 1.5,
                 }}
@@ -209,6 +217,7 @@ const UnifiedSidebar = ({
                 >
                     <Tab value="all" label={t('common.all')} />
                     <Tab value="whatsapp" icon={<WhatsAppIcon sx={{ fontSize: 16, color: '#25D366' }} />} iconPosition="start" label="WhatsApp" />
+                    <Tab value="sms" icon={<SmsIcon sx={{ fontSize: 16, color: '#7c3aed' }} />} iconPosition="start" label="SMS" />
                     <Tab value="messenger" icon={<FacebookIcon sx={{ fontSize: 16, color: '#1877f2' }} />} iconPosition="start" label="Facebook" />
                 </Tabs>
                 <TextField

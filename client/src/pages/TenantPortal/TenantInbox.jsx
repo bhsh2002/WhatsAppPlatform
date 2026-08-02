@@ -15,7 +15,7 @@ const TenantInbox = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialChannel = ['whatsapp', 'messenger'].includes(searchParams.get('channel')) ? searchParams.get('channel') : '';
+  const initialChannel = ['whatsapp', 'messenger', 'sms'].includes(searchParams.get('channel')) ? searchParams.get('channel') : '';
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -64,7 +64,7 @@ const TenantInbox = () => {
   }, [fetchConversations]);
   useEffect(() => {
     const channel = searchParams.get('channel');
-    if (['whatsapp', 'messenger'].includes(channel) && channelFilter !== channel) {
+    if (['whatsapp', 'messenger', 'sms'].includes(channel) && channelFilter !== channel) {
       setChannelFilter(channel);
     }
   }, [channelFilter, searchParams]);
@@ -75,6 +75,8 @@ const TenantInbox = () => {
       const params = {};
       if (conv.channel === 'messenger') {
         params.conversation_id = conv.conversation_id;
+      } else if (conv.channel === 'sms') {
+        params.sms_account_id = conv.sms_account_id;
       }
       const data = await api.getPortalUnifiedMessages(conv.channel, conv.contact_id, params);
       if (getUnifiedConversationKey(selectedChatRef.current) === requestedKey) {
@@ -379,6 +381,26 @@ const TenantInbox = () => {
       setSending(false);
     }
   }, [selectedChat, fetchMessages, fetchConversations]);
+
+  const handleSendSmsMessage = useCallback(async text => {
+    if (!text?.trim() || !selectedChat?.sms_account_id) return;
+    try {
+      setSending(true);
+      await api.sendPortalUnifiedMessage('sms', selectedChat.contact_id, {
+        message: text.trim(),
+        sms_account_id: selectedChat.sms_account_id,
+        idempotency_key: `wa-ui:${crypto.randomUUID()}`
+      });
+      setNewMessage('');
+      await fetchMessages(selectedChat);
+      fetchConversations();
+      scrollToBottom();
+    } catch (err) {
+      console.error('Failed to send SMS:', err);
+    } finally {
+      setSending(false);
+    }
+  }, [selectedChat, fetchMessages, fetchConversations]);
   const handleGetMessageTags = useCallback(async () => {
     return await api.getPortalMessageTags();
   }, []);
@@ -439,6 +461,23 @@ const TenantInbox = () => {
               fetchMessages(current);
             }
           }
+        });
+        evtSource.addEventListener('sms_message:new', e => {
+          fetchConversations();
+          const current = selectedChatRef.current;
+          if (current && current.channel === 'sms') {
+            const data = JSON.parse(e.data);
+            if (Number(data.sms_account_id) === Number(current.sms_account_id)
+              && (data.sender === current.contact_id || data.recipient === current.contact_id)) {
+              fetchMessages(current);
+            }
+          }
+        });
+        evtSource.addEventListener('sms_message:status', e => {
+          const data = JSON.parse(e.data);
+          setMessages(prev => prev.map(msg => (
+            msg.wamid === data.gateway_message_id ? { ...msg, status: data.status } : msg
+          )));
         });
         evtSource.addEventListener('conversation:update', () => {
           fetchConversations();
@@ -574,7 +613,7 @@ const TenantInbox = () => {
       display: isMobile && !selectedChat ? 'none' : 'flex',
       overflow: 'hidden'
     }}>
-                {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={handleSendMessengerMessage} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={handleSendUtilityMessage} getMessageTags={handleGetMessageTags} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} />}
+                {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} />}
             </Box>
         </Box>;
 };

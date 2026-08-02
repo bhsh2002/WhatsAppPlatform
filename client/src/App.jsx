@@ -40,6 +40,7 @@ const TenantFbInsights = lazy(() => import('./pages/TenantPortal/TenantFbInsight
 const TenantMetaReview = lazy(() => import('./pages/TenantPortal/TenantMetaReview'));
 const TenantBilling = lazy(() => import('./pages/TenantPortal/TenantBilling'));
 const TenantPosIntegration = lazy(() => import('./pages/TenantPortal/TenantPosIntegration'));
+const TenantSmsAccounts = lazy(() => import('./pages/TenantPortal/TenantSmsAccounts'));
 
 // Admin Feature Pages
 const BusinessManager = lazy(() => import('./pages/Settings/BusinessManager'));
@@ -317,6 +318,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireTenant>
             <MainLayout><TenantBilling /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/integrations/sms"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantSmsAccounts /></MainLayout>
           </ProtectedRoute>
         }
       />
