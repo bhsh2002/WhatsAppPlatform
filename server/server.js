@@ -38,6 +38,7 @@ import {
     createConnectCallbacksRouter,
     createTenantIntegrationsRouter,
 } from './routes/savanaIntegrations.js';
+import { createSmsGatewayWebhookRouter } from './routes/smsGatewayWebhook.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -66,6 +67,7 @@ import {
     SavanaIntegrationService,
     validateIntegrationConfig,
 } from './services/savanaIntegration.js';
+import { SmsGatewayService } from './services/smsGateway.js';
 
 // ===========================================
 // Startup validation — fail fast on missing/insecure secrets
@@ -152,6 +154,24 @@ const savanaIntegrationService = new SavanaIntegrationService({
     database: db,
     config: savanaIntegrationConfig,
 });
+const smsGatewayService = new SmsGatewayService({ database: db });
+if (process.env.NODE_ENV === 'production') {
+    const enabledSmsAccounts = db.prepare(
+        'SELECT COUNT(*) AS count FROM sms_gateway_accounts WHERE enabled = 1'
+    ).get().count;
+    if (enabledSmsAccounts > 0) {
+        let smsCallbackUrl = null;
+        try {
+            smsCallbackUrl = new URL(process.env.SMS_GATEWAY_CALLBACK_BASE_URL || '');
+        } catch {
+            // Handled by the fatal validation below.
+        }
+        if (!smsCallbackUrl || smsCallbackUrl.protocol !== 'https:') {
+            console.error('❌ FATAL: Enabled SMS accounts require an HTTPS SMS_GATEWAY_CALLBACK_BASE_URL.');
+            process.exit(1);
+        }
+    }
+}
 if (savanaIntegrationConfig.enabled && savanaIntegrationConfig.subscriptionsMode === 'central') {
     const refreshCentralSubscriptions = () => {
         savanaIntegrationService.synchronizeAllCentralSubscriptions().catch(error => {
@@ -179,6 +199,36 @@ if (
         30 * 1000,
     );
     integrationOutboxTimer.unref();
+}
+
+if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+    const refreshSmsAccountHealth = async () => {
+        const accounts = db.prepare(`
+            SELECT id, tenant_id FROM sms_gateway_accounts
+            WHERE enabled = 1 ORDER BY last_health_at ASC NULLS FIRST, id ASC LIMIT 100
+        `).all();
+        for (let index = 0; index < accounts.length; index += 5) {
+            await Promise.allSettled(accounts.slice(index, index + 5).map(account => (
+                smsGatewayService.health(account.tenant_id, account.id)
+            )));
+        }
+    };
+    const smsHealthInterval = Math.min(
+        Math.max(Number(process.env.SMS_HEALTH_INTERVAL_MS) || 300_000, 60_000),
+        3_600_000,
+    );
+    const initialSmsHealthTimer = setTimeout(() => {
+        refreshSmsAccountHealth().catch(error => {
+            console.error('[SmsGateway] Background health check failed:', error.message);
+        });
+    }, 30_000);
+    initialSmsHealthTimer.unref();
+    const smsHealthTimer = setInterval(() => {
+        refreshSmsAccountHealth().catch(error => {
+            console.error('[SmsGateway] Background health check failed:', error.message);
+        });
+    }, smsHealthInterval);
+    smsHealthTimer.unref();
 }
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
@@ -260,7 +310,16 @@ const apiLimiter = rateLimit({
     message: { error: GLOBAL_RATE_LIMIT.message },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith('/webhook'),
+    skip: (req) => req.path.startsWith('/webhook')
+        || req.path.startsWith('/integrations/sms-gateway/events'),
+});
+
+const smsWebhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: Math.min(Math.max(Number(process.env.SMS_WEBHOOK_RATE_LIMIT_PER_MINUTE) || 1200, 120), 10_000),
+    message: { error: 'SMS webhook rate limit exceeded' },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // Apply general rate limit to all routes
@@ -431,6 +490,14 @@ app.use(dataDeletionRouter);
 app.use('/integrations/connect', createConnectCallbacksRouter({
     service: savanaIntegrationService,
 }));
+app.use(
+    '/integrations/sms-gateway/events',
+    smsWebhookLimiter,
+    createSmsGatewayWebhookRouter({
+        service: smsGatewayService,
+        eventBus,
+    }),
+);
 
 // Auth routes (stricter rate limit only on credential-entry endpoints)
 app.use('/auth/login', authLimiter);

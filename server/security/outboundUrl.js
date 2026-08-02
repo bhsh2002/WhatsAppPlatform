@@ -159,12 +159,34 @@ const requestPinnedTarget = ({ url, address, family }, options) => new Promise((
         lookup: (_hostname, _lookupOptions, callback) => callback(null, address, family),
         timeout: options.timeoutMs || DEFAULT_TIMEOUT_MS,
     }, response => {
-        response.resume();
-        resolve({
+        if (!options.readBody) {
+            response.resume();
+            resolve({
+                ok: response.statusCode >= 200 && response.statusCode < 300,
+                status: response.statusCode,
+                headers: response.headers,
+            });
+            return;
+        }
+
+        const maxResponseBytes = Math.max(1024, Number(options.maxResponseBytes) || 1024 * 1024);
+        const chunks = [];
+        let received = 0;
+        response.on('data', chunk => {
+            received += chunk.length;
+            if (received > maxResponseBytes) {
+                response.destroy(new UnsafeOutboundUrlError('تجاوزت الاستجابة الخارجية الحجم المسموح'));
+                return;
+            }
+            chunks.push(chunk);
+        });
+        response.on('end', () => resolve({
             ok: response.statusCode >= 200 && response.statusCode < 300,
             status: response.statusCode,
             headers: response.headers,
-        });
+            body: Buffer.concat(chunks).toString('utf8'),
+        }));
+        response.on('error', reject);
     });
 
     request.on('timeout', () => request.destroy(new Error('انتهت مهلة الاتصال الخارجي')));

@@ -8,6 +8,7 @@ export const BILLING_OPERATIONS = Object.freeze({
     MESSENGER_REPLY: 'messenger.reply',
     MESSENGER_UTILITY: 'messenger.utility',
     MESSENGER_BOT_REPLY: 'messenger.bot_reply',
+    SMS_TEXT: 'sms.text',
     FACEBOOK_POST_CREATE: 'facebook.post_create',
     FACEBOOK_POST_EDIT: 'facebook.post_edit',
     FACEBOOK_POST_DELETE: 'facebook.post_delete',
