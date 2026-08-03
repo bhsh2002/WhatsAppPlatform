@@ -77,6 +77,10 @@ export const savanaIntegrationMethods = {
         return this.request(`/api/portal/integrations/message-requests?limit=${limit}`);
     },
 
+    async getPortalIntegrationProducts(limit = 100) {
+        return this.request(`/api/portal/integrations/products?limit=${limit}`);
+    },
+
     async acceptPortalMessageRequest(requestId) {
         return this.request(`/api/portal/integrations/message-requests/${requestId}/accept`, {
             method: 'POST',

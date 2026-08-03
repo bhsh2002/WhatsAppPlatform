@@ -29,8 +29,10 @@ import {
     ArrowBack as ArrowBackIcon,
     Label as LabelIcon,
     SmartToy as BotIcon,
+    Inventory2 as ProductIcon,
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';
+import IntegratedProductPicker from './IntegratedProductPicker';
 
 const formatTime = (dateStr, locale) => {
     if (!dateStr) return '';
@@ -111,6 +113,8 @@ const UnifiedChatWindow = ({
     utilityFallback, // { text, timestamp } — set by parent on 24h error
     botSession,
     onBotStatusChange,
+    integrationProducts = [],
+    productCapability = null,
 }) => {
     const { locale, t } = useLanguage();
     // Utility dialog state
@@ -122,6 +126,7 @@ const UnifiedChatWindow = ({
     const [utilityError, setUtilityError] = useState('');
     const [utilityLoadingTags, setUtilityLoadingTags] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const [productPickerOpen, setProductPickerOpen] = useState(false);
 
     const openUtilityDialog = useCallback(async () => {
         if (!getMessageTags) return;
@@ -340,6 +345,20 @@ const UnifiedChatWindow = ({
                     </Alert>
                 )}
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                    {productCapability && (
+                        <Tooltip title={productCapability.reason || ''} arrow>
+                            <span>
+                                <IconButton
+                                    aria-label="إدراج منتج مرتبط"
+                                    onClick={() => setProductPickerOpen(true)}
+                                    disabled={!productCapability.enabled}
+                                    sx={{ flexShrink: 0 }}
+                                >
+                                    <ProductIcon />
+                                </IconButton>
+                            </span>
+                        </Tooltip>
+                    )}
                     {hasUtilitySupport && (
                         <Tooltip title={t('inbox.taggedMessageTooltip')} arrow>
                             <IconButton
@@ -389,6 +408,13 @@ const UnifiedChatWindow = ({
                     </IconButton>
                 </Box>
             </Paper>
+
+            {productCapability && <IntegratedProductPicker
+                open={productPickerOpen}
+                onClose={() => setProductPickerOpen(false)}
+                products={integrationProducts}
+                onSelect={message => setNewMessage(message)}
+            />}
 
             {/* Utility Message Dialog */}
             {hasUtilitySupport && (

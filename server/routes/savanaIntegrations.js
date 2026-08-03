@@ -20,6 +20,13 @@ const parseMessageRequest = row => ({
 
 export const createTenantIntegrationsRouter = ({ database, service }) => {
     const router = express.Router();
+    const projectedProducts = (tenantId, limit) => database.prepare(`
+        SELECT canonical_product_id, local_product_id, sku, barcode, name,
+            description, price, currency, image_url, quantity_on_hand,
+            quantity_available, unit_code, shelf_code, source_updated_at
+        FROM savana_product_projection WHERE tenant_id = ?
+        ORDER BY updated_at DESC, id DESC LIMIT ?
+    `).all(tenantId, limit);
 
     router.get('/binding', async (req, res) => {
         try {
@@ -471,17 +478,24 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
+    router.get('/products', (req, res) => {
+        try {
+            const limit = boundedLimit(req.query.limit);
+            const rows = projectedProducts(req.user.tenant_id, limit);
+            return res.json({ data: rows, limit });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    // Compatibility alias for the first POS-only integration UI.
     router.get('/pos/products', (req, res) => {
         try {
             const limit = boundedLimit(req.query.limit);
-            const rows = database.prepare(`
-                SELECT canonical_product_id, local_product_id, sku, barcode, name,
-                    description, price, currency, image_url, quantity_on_hand,
-                    quantity_available, unit_code, source_updated_at
-                FROM savana_product_projection WHERE tenant_id = ?
-                ORDER BY updated_at DESC, id DESC LIMIT ?
-            `).all(req.user.tenant_id, limit);
-            return res.json({ data: rows, limit });
+            return res.json({
+                data: projectedProducts(req.user.tenant_id, limit),
+                limit,
+            });
         } catch (error) {
             return respondError(res, error);
         }

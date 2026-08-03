@@ -1058,6 +1058,53 @@ test('tenant inbox accepts and completes contextual message requests', async (t)
     );
 });
 
+test('tenant inbox product picker exposes every integrated product with the POS compatibility alias', async (t) => {
+    const database = createDatabase();
+    const { service } = await provision(database);
+    deliver(service, envelope('savana.product_snapshot.v1', {
+        snapshot_id: crypto.randomUUID(),
+        generated_at: new Date().toISOString(),
+        page_number: 1,
+        page_count: 1,
+        complete: true,
+        products: [{
+            canonical_product_id: null,
+            local_product_id: 'POS-PICKER-1',
+            sku: 'PICKER-1',
+            barcodes: ['100000000901'],
+            name: 'Picker product',
+            online_price: '15.000',
+            is_active: true,
+        }],
+    }, crypto.randomUUID(), 'pos:products:picker'));
+    database.prepare(`
+        UPDATE savana_product_projection SET shelf_code = 'A-04'
+        WHERE tenant_id = 1 AND sku = 'PICKER-1'
+    `).run();
+
+    const app = express();
+    app.use((req, _res, next) => {
+        req.user = { id: 'tenant-user', tenant_id: 1 };
+        next();
+    });
+    app.use('/integrations', createTenantIntegrationsRouter({ database, service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    t.after(() => database.close());
+    const baseUrl = `http://127.0.0.1:${server.address().port}/integrations`;
+
+    const productsResponse = await fetch(`${baseUrl}/products`);
+    const products = await productsResponse.json();
+    assert.equal(productsResponse.status, 200);
+    assert.equal(products.data[0].name, 'Picker product');
+    assert.equal(products.data[0].shelf_code, 'A-04');
+
+    const compatibilityResponse = await fetch(`${baseUrl}/pos/products`);
+    const compatibility = await compatibilityResponse.json();
+    assert.deepEqual(compatibility.data, products.data);
+});
+
 test('POS product snapshots keep prices and reconcile all pages together', async () => {
     const database = createDatabase();
     const { service } = await provision(database);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { DoneAll as DoneAllIcon, Done as DoneIcon, Schedule as ScheduleIcon, Error as ErrorIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
@@ -36,6 +36,8 @@ const TenantInbox = () => {
   const [integrationRequests, setIntegrationRequests] = useState([]);
   const [activeIntegrationRequest, setActiveIntegrationRequest] = useState(null);
   const [integrationRequestBusyId, setIntegrationRequestBusyId] = useState(null);
+  const [platformIntegrations, setPlatformIntegrations] = useState([]);
+  const [integrationProducts, setIntegrationProducts] = useState([]);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const selectedChatRef = useRef(null);
@@ -66,6 +68,57 @@ const TenantInbox = () => {
     fetchConversations();
     api.getMediaToken();
   }, [fetchConversations]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api.getPortalPlatformIntegrations(),
+      api.getPortalIntegrationProducts(100),
+    ]).then(([integrationResponse, productResponse]) => {
+      if (cancelled) return;
+      setPlatformIntegrations(integrationResponse?.data || integrationResponse || []);
+      setIntegrationProducts(productResponse?.data || productResponse || []);
+    }).catch(error => {
+      if (!cancelled) {
+        console.error('Failed to load contextual integration products:', error);
+        setPlatformIntegrations([]);
+        setIntegrationProducts([]);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const productCapability = useMemo(() => {
+    const connected = platformIntegrations.filter(item => item.connection_id);
+    const active = connected.filter(item => item.status === 'active');
+    const entitled = active.filter(item => item.entitled);
+    const providers = entitled.filter(item => {
+      const scopes = new Set(item.scopes || []);
+      if (item.platform_code === 'pos') {
+        return scopes.has('savana.products.sync') || scopes.has('pos.products.map');
+      }
+      if (item.platform_code === 'catalog') {
+        return scopes.has('wa_savana.products.receive') || scopes.has('catalog.products.projection');
+      }
+      return item.platform_code === 'sawemly'
+        && (scopes.has('wa_savana.products.receive') || scopes.has('sawemly.availability.events'));
+    });
+    if (providers.length) {
+      return {
+        enabled: true,
+        providers: providers.map(item => item.platform_code),
+        reason: 'إدراج منتج متزامن في الرسالة',
+      };
+    }
+    if (!connected.length) {
+      return { enabled: false, providers: [], reason: 'اربط POS أو Catalog أو Sawemly لاستخدام المنتجات في المحادثة.' };
+    }
+    if (!active.length) {
+      return { enabled: false, providers: [], reason: 'ربط المنتجات موجود لكنه غير نشط. استأنف الربط أولاً.' };
+    }
+    if (!entitled.length) {
+      return { enabled: false, providers: [], reason: 'هذه الميزة غير مشمولة في الاشتراك الحالي للربط.' };
+    }
+    return { enabled: false, providers: [], reason: 'الربط لا يملك صلاحية مشاركة المنتجات مع Wa.' };
+  }, [platformIntegrations]);
   const fetchIntegrationRequests = useCallback(async () => {
     try {
       const response = await api.getPortalMessageRequests(20);
@@ -701,7 +754,7 @@ const TenantInbox = () => {
                   onDismiss={handleDismissIntegrationRequest}
                 />
                 <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                  {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} />}
+                  {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} integrationProducts={integrationProducts} productCapability={productCapability} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} integrationProducts={integrationProducts} productCapability={productCapability} />}
                 </Box>
             </Box>
         </Box>;
