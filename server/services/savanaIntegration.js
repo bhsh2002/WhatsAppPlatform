@@ -1544,10 +1544,13 @@ export class SavanaIntegrationService {
                 WHERE tenant_id = ? AND sku = ?
             `).get(tenantId, projection.sku);
         }
-        const numericQuantity = Number(
-            projection.quantity_available ?? projection.quantity_on_hand
-        );
-        const availability = Number.isFinite(numericQuantity) && numericQuantity <= 0
+        const quantity = projection.quantity_available ?? projection.quantity_on_hand;
+        const numericQuantity = quantity === null || quantity === undefined
+            ? null
+            : Number(quantity);
+        const availability = numericQuantity !== null
+            && Number.isFinite(numericQuantity)
+            && numericQuantity <= 0
             ? 'out_of_stock'
             : 'available';
         const active = incoming.is_active === false
@@ -1619,12 +1622,17 @@ export class SavanaIntegrationService {
             if (eventType === 'savana.product_snapshot.v1' && source === 'pos') {
                 delete normalized.description;
                 delete normalized.image_url;
-                delete normalized.online_price;
             }
             receivedKeys.add(this.productProjectionKey(normalized));
             this.upsertProduct(tenantId, normalized, data.generated_at);
         }
         if (data.complete === true) {
+            const snapshotKeys = data.generated_at
+                ? new Set(this.db.prepare(`
+                    SELECT projection_key FROM savana_product_projection
+                    WHERE tenant_id = ? AND source_updated_at = ?
+                `).all(tenantId, data.generated_at).map(row => row.projection_key))
+                : receivedKeys;
             const imported = this.db.prepare(`
                 SELECT id, savana_projection_key FROM bot_products
                 WHERE tenant_id = ? AND savana_projection_key IS NOT NULL
@@ -1635,7 +1643,7 @@ export class SavanaIntegrationService {
                 WHERE id = ? AND tenant_id = ?
             `);
             for (const product of imported) {
-                if (!receivedKeys.has(product.savana_projection_key)) {
+                if (!snapshotKeys.has(product.savana_projection_key)) {
                     hide.run(product.id, tenantId);
                 }
             }

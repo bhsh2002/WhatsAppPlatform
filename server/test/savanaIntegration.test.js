@@ -975,6 +975,49 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     database.close();
 });
 
+test('POS product snapshots keep prices and reconcile all pages together', async () => {
+    const database = createDatabase();
+    const { service } = await provision(database);
+    const generatedAt = new Date().toISOString();
+    const snapshotId = crypto.randomUUID();
+    const product = (sku, barcode, name, price) => ({
+        canonical_product_id: null,
+        local_product_id: sku,
+        sku,
+        barcodes: [barcode],
+        name,
+        online_price: price,
+        is_active: true,
+    });
+
+    deliver(service, envelope('savana.product_snapshot.v1', {
+        snapshot_id: snapshotId,
+        generated_at: generatedAt,
+        page_number: 1,
+        page_count: 2,
+        complete: false,
+        products: [product('POS-1', '100000000001', 'POS first page', '7.500')],
+    }, crypto.randomUUID(), 'pos:products:paged:1'));
+    deliver(service, envelope('savana.product_snapshot.v1', {
+        snapshot_id: snapshotId,
+        generated_at: generatedAt,
+        page_number: 2,
+        page_count: 2,
+        complete: true,
+        products: [product('POS-2', '100000000002', 'POS second page', '9.000')],
+    }, crypto.randomUUID(), 'pos:products:paged:2'));
+
+    const products = database.prepare(`
+        SELECT sku, price, is_active, availability FROM bot_products
+        WHERE tenant_id = 1 ORDER BY sku
+    `).all();
+    assert.deepEqual(products, [
+        { sku: 'POS-1', price: 7.5, is_active: 1, availability: 'available' },
+        { sku: 'POS-2', price: 9, is_active: 1, availability: 'available' },
+    ]);
+    database.close();
+});
+
 test('cross-platform Wa commands remain reviewable and idempotent', async () => {
     const database = createDatabase();
     const { service } = await provision(database);
