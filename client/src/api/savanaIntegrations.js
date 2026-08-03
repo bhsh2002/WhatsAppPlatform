@@ -73,6 +73,29 @@ export const savanaIntegrationMethods = {
         );
     },
 
+    async getPortalMessageRequests(limit = 20) {
+        return this.request(`/api/portal/integrations/message-requests?limit=${limit}`);
+    },
+
+    async acceptPortalMessageRequest(requestId) {
+        return this.request(`/api/portal/integrations/message-requests/${requestId}/accept`, {
+            method: 'POST',
+        });
+    },
+
+    async completePortalMessageRequest(requestId, channelMessageId = null) {
+        return this.request(`/api/portal/integrations/message-requests/${requestId}/complete`, {
+            method: 'POST',
+            body: JSON.stringify({ channel_message_id: channelMessageId }),
+        });
+    },
+
+    async dismissPortalMessageRequest(requestId) {
+        return this.request(`/api/portal/integrations/message-requests/${requestId}/dismiss`, {
+            method: 'POST',
+        });
+    },
+
     async getPortalPosIntegration() {
         return this.request('/api/portal/integrations/pos');
     },

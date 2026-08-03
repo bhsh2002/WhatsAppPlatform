@@ -11,6 +11,7 @@ import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
 import { PageTitle } from '../../components/Layout/PageTitle';
+import IntegrationRequestBar from '../../components/Inbox/IntegrationRequestBar';
 const TenantInbox = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -32,6 +33,9 @@ const TenantInbox = () => {
   const [syncing, setSyncing] = useState(false);
   const [utilityFallback, setUtilityFallback] = useState(null);
   const [botSession, setBotSession] = useState(null);
+  const [integrationRequests, setIntegrationRequests] = useState([]);
+  const [activeIntegrationRequest, setActiveIntegrationRequest] = useState(null);
+  const [integrationRequestBusyId, setIntegrationRequestBusyId] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const selectedChatRef = useRef(null);
@@ -62,6 +66,22 @@ const TenantInbox = () => {
     fetchConversations();
     api.getMediaToken();
   }, [fetchConversations]);
+  const fetchIntegrationRequests = useCallback(async () => {
+    try {
+      const response = await api.getPortalMessageRequests(20);
+      setIntegrationRequests(response?.data || []);
+    } catch (error) {
+      if (![404, 503].includes(error?.status)) {
+        console.error('Failed to fetch cross-platform message requests:', error);
+      }
+      setIntegrationRequests([]);
+    }
+  }, []);
+  useEffect(() => {
+    fetchIntegrationRequests();
+    const interval = setInterval(fetchIntegrationRequests, 15000);
+    return () => clearInterval(interval);
+  }, [fetchIntegrationRequests]);
   useEffect(() => {
     const channel = searchParams.get('channel');
     if (['whatsapp', 'messenger', 'sms'].includes(channel) && channelFilter !== channel) {
@@ -206,6 +226,64 @@ const TenantInbox = () => {
       clearContactQuery();
     }
   }, [clearContactQuery]);
+  const messageFromIntegrationRequest = useCallback(request => {
+    const payload = request?.payload || {};
+    if (payload.message) return payload.message;
+    const parameters = payload.parameters || {};
+    if (parameters.order_number) {
+      return `مرحباً ${parameters.customer_name || 'بك'}، تحديث الطلب #${parameters.order_number}: ${parameters.status || 'تم تحديث حالته'}.`;
+    }
+    return '';
+  }, []);
+  const handleOpenIntegrationRequest = useCallback(async request => {
+    const phone = request?.payload?.recipient?.phone_e164?.replace(/\D/g, '');
+    if (!phone) return;
+    try {
+      setIntegrationRequestBusyId(request.id);
+      const response = await api.acceptPortalMessageRequest(request.id);
+      const approvedRequest = response?.request || { ...request, status: 'approved' };
+      const nextChat = conversations.find(conv => (
+        conv.channel === 'whatsapp' && String(conv.contact_id) === phone
+      )) || {
+        channel: 'whatsapp',
+        contact_id: phone,
+        display_name: request?.payload?.parameters?.customer_name || phone,
+        avatar_url: null,
+      };
+      handleSelectChat(nextChat, { fromQuery: true });
+      setNewMessage(messageFromIntegrationRequest(approvedRequest));
+      setActiveIntegrationRequest(approvedRequest);
+      await fetchIntegrationRequests();
+    } catch (error) {
+      console.error('Failed to open cross-platform message request:', error);
+    } finally {
+      setIntegrationRequestBusyId(null);
+    }
+  }, [conversations, fetchIntegrationRequests, handleSelectChat, messageFromIntegrationRequest]);
+  const handleDismissIntegrationRequest = useCallback(async request => {
+    try {
+      setIntegrationRequestBusyId(request.id);
+      await api.dismissPortalMessageRequest(request.id);
+      if (activeIntegrationRequest?.id === request.id) setActiveIntegrationRequest(null);
+      await fetchIntegrationRequests();
+    } catch (error) {
+      console.error('Failed to dismiss cross-platform message request:', error);
+    } finally {
+      setIntegrationRequestBusyId(null);
+    }
+  }, [activeIntegrationRequest, fetchIntegrationRequests]);
+  const completeActiveIntegrationRequest = useCallback(async channelMessageId => {
+    if (!activeIntegrationRequest) return;
+    const completedId = activeIntegrationRequest.id;
+    setActiveIntegrationRequest(null);
+    try {
+      await api.completePortalMessageRequest(completedId, channelMessageId || null);
+      await fetchIntegrationRequests();
+    } catch (error) {
+      console.error('Message sent but cross-platform status could not be updated:', error);
+      setActiveIntegrationRequest(activeIntegrationRequest);
+    }
+  }, [activeIntegrationRequest, fetchIntegrationRequests]);
   useEffect(() => {
     const requestedChannel = searchParams.get('channel') || 'whatsapp';
     const requestedContact = searchParams.get('contact');
@@ -259,11 +337,12 @@ const TenantInbox = () => {
     if (!newMessage.trim() || !selectedChat || sending) return;
     try {
       setSending(true);
-      await api.sendPortalMessage({
+      const result = await api.sendPortalMessage({
         recipient: selectedChat.contact_id,
         type: 'text',
         message: newMessage.trim()
       });
+      await completeActiveIntegrationRequest(result?.message_id);
       setNewMessage('');
       await fetchMessages(selectedChat);
       fetchConversations();
@@ -273,17 +352,18 @@ const TenantInbox = () => {
     } finally {
       setSending(false);
     }
-  }, [newMessage, selectedChat, sending, fetchMessages, fetchConversations]);
+  }, [newMessage, selectedChat, sending, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
   const handleSendTemplate = useCallback(async templateData => {
     if (!selectedChat || sending) return;
     try {
       setSending(true);
-      await api.sendPortalMessage({
+      const result = await api.sendPortalMessage({
         recipient: selectedChat.contact_id,
         type: 'template',
         templateId: templateData.id,
         components: templateData.components
       });
+      await completeActiveIntegrationRequest(result?.message_id);
       await fetchMessages(selectedChat);
       fetchConversations();
       scrollToBottom();
@@ -293,7 +373,7 @@ const TenantInbox = () => {
     } finally {
       setSending(false);
     }
-  }, [selectedChat, sending, fetchMessages, fetchConversations]);
+  }, [selectedChat, sending, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
   const handleSendDocument = useCallback(async (file, caption) => {
     if (!file || !selectedChat) return;
     try {
@@ -611,9 +691,18 @@ const TenantInbox = () => {
       flex: 1,
       minWidth: 0,
       display: isMobile && !selectedChat ? 'none' : 'flex',
+      flexDirection: 'column',
       overflow: 'hidden'
     }}>
-                {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} />}
+                <IntegrationRequestBar
+                  requests={integrationRequests}
+                  busyId={integrationRequestBusyId}
+                  onOpen={handleOpenIntegrationRequest}
+                  onDismiss={handleDismissIntegrationRequest}
+                />
+                <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
+                  {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} />}
+                </Box>
             </Box>
         </Box>;
 };

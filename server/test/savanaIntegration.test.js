@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import express from 'express';
 
-import { createAdminSubscriptionsRouter } from '../routes/savanaIntegrations.js';
+import {
+    createAdminSubscriptionsRouter,
+    createTenantIntegrationsRouter,
+} from '../routes/savanaIntegrations.js';
 import {
     canonicalJson,
     SavanaIntegrationError,
@@ -973,6 +976,86 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     assert.equal(request.status, 'pending_review');
     assert.equal(service.diagnostics(service.get(1, 'catalog')).counts.pending_service_requests, 1);
     database.close();
+});
+
+test('tenant inbox accepts and completes contextual message requests', async (t) => {
+    const database = createDatabase();
+    const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
+    await service.provisionConnection({
+        connection: {
+            id: 'catalog-message-connection',
+            organization_id: organizationId,
+            source_tenant_id: 'catalog-tenant-id',
+            target_tenant_id: 'wa-savana-tenant-id',
+            source_platform: 'catalog',
+            target_platform: 'wa_savana',
+            source_external_tenant_id: 'catalog:shop:1',
+            target_external_tenant_id: 'wa_savana:tenant:1',
+            status: 'active',
+            scopes: ['wa_savana.notifications.send'],
+        },
+        webhook_secret: 'catalog-message-secret',
+    }, callbackToken);
+    const command = envelope('wa_savana.notification_send_requested.v1', {
+        request_id: 'catalog-message-1',
+        recipient: { phone_e164: '+218910000001' },
+        message: 'رسالة من الطلب للمراجعة.',
+        requires_review: true,
+        consent_asserted: false,
+    }, crypto.randomUUID(), 'catalog:message:1');
+    command.source = 'catalog';
+    deliver(service, command, {
+        connectionId: 'catalog-message-connection',
+        secret: 'catalog-message-secret',
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+        req.user = { id: 'tenant-user', tenant_id: 1 };
+        next();
+    });
+    app.use('/integrations', createTenantIntegrationsRouter({ database, service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    t.after(() => database.close());
+    const baseUrl = `http://127.0.0.1:${server.address().port}/integrations`;
+
+    const listResponse = await fetch(`${baseUrl}/message-requests`);
+    const list = await listResponse.json();
+    assert.equal(listResponse.status, 200);
+    assert.equal(list.data.length, 1);
+    assert.equal(list.data[0].platform_code, 'catalog');
+    assert.equal(list.data[0].payload.message, 'رسالة من الطلب للمراجعة.');
+
+    const requestId = list.data[0].id;
+    const acceptedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/accept`, {
+        method: 'POST',
+    });
+    assert.equal(acceptedResponse.status, 200);
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'approved',
+    );
+
+    const completedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_message_id: 'wamid.contextual-message' }),
+    });
+    assert.equal(completedResponse.status, 200);
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'sent',
+    );
+    assert.equal(
+        database.prepare(`
+            SELECT COUNT(*) count FROM savana_integration_outbox
+            WHERE event_type = 'wa_savana.notification_status_changed.v1'
+        `).get().count,
+        2,
+    );
 });
 
 test('POS product snapshots keep prices and reconcile all pages together', async () => {
