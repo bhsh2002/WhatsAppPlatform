@@ -12,6 +12,10 @@ import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
 import { PageTitle } from '../../components/Layout/PageTitle';
 import IntegrationRequestBar from '../../components/Inbox/IntegrationRequestBar';
+import {
+  integrationRequestMatchesConversation,
+  integrationRequestRecipient,
+} from './integrationRequestLifecycle';
 const TenantInbox = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -273,6 +277,9 @@ const TenantInbox = () => {
     isFirstLoad.current = true;
     setMessages([]);
     setSelectedChat(conv);
+    setActiveIntegrationRequest(current => (
+      integrationRequestMatchesConversation(current, conv) ? current : null
+    ));
     setNewMessage('');
     setUtilityFallback(null);
     if (!options.fromQuery) {
@@ -289,7 +296,7 @@ const TenantInbox = () => {
     return '';
   }, []);
   const handleOpenIntegrationRequest = useCallback(async request => {
-    const phone = request?.payload?.recipient?.phone_e164?.replace(/\D/g, '');
+    const phone = integrationRequestRecipient(request);
     if (!phone) return;
     try {
       setIntegrationRequestBusyId(request.id);
@@ -326,15 +333,24 @@ const TenantInbox = () => {
     }
   }, [activeIntegrationRequest, fetchIntegrationRequests]);
   const completeActiveIntegrationRequest = useCallback(async channelMessageId => {
-    if (!activeIntegrationRequest) return;
+    if (
+      !activeIntegrationRequest
+      || !channelMessageId
+      || !integrationRequestMatchesConversation(
+        activeIntegrationRequest,
+        selectedChatRef.current,
+      )
+    ) return false;
     const completedId = activeIntegrationRequest.id;
     setActiveIntegrationRequest(null);
     try {
       await api.completePortalMessageRequest(completedId, channelMessageId || null);
       await fetchIntegrationRequests();
+      return true;
     } catch (error) {
       console.error('Message sent but cross-platform status could not be updated:', error);
       setActiveIntegrationRequest(activeIntegrationRequest);
+      return false;
     }
   }, [activeIntegrationRequest, fetchIntegrationRequests]);
   useEffect(() => {
@@ -436,7 +452,8 @@ const TenantInbox = () => {
       formData.append('recipient', selectedChat.contact_id);
       formData.append('filename', file.name);
       if (caption) formData.append('caption', caption);
-      await api.sendPortalDocument(formData);
+      const result = await api.sendPortalDocument(formData);
+      await completeActiveIntegrationRequest(result?.message_id || result?.wamid);
       await fetchMessages(selectedChat);
       fetchConversations();
       scrollToBottom();
@@ -446,7 +463,7 @@ const TenantInbox = () => {
     } finally {
       setSendingDoc(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations]);
+  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
   const handleSendImage = useCallback(async (file, caption) => {
     if (!file || !selectedChat) return;
     try {
@@ -455,7 +472,8 @@ const TenantInbox = () => {
       formData.append('file', file);
       formData.append('recipient', selectedChat.contact_id);
       if (caption) formData.append('caption', caption);
-      await api.sendPortalImage(formData);
+      const result = await api.sendPortalImage(formData);
+      await completeActiveIntegrationRequest(result?.message_id || result?.wamid);
       await fetchMessages(selectedChat);
       fetchConversations();
       scrollToBottom();
@@ -465,15 +483,16 @@ const TenantInbox = () => {
     } finally {
       setSendingDoc(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations]);
+  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
   const handleSendInteractive = useCallback(async data => {
     if (!selectedChat) return;
     try {
       setSendingInteractive(true);
-      await api.sendPortalInteractiveMessage({
+      const result = await api.sendPortalInteractiveMessage({
         recipient: selectedChat.contact_id,
         ...data
       });
+      await completeActiveIntegrationRequest(result?.message_id || result?.wamid);
       await fetchMessages(selectedChat);
       fetchConversations();
       scrollToBottom();
@@ -483,7 +502,7 @@ const TenantInbox = () => {
     } finally {
       setSendingInteractive(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations]);
+  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
 
   // ============================================
   // Messenger Send Handler (Portal unified)

@@ -12,6 +12,23 @@ const respondError = (res, error) => {
 
 const boundedLimit = value => Math.min(100, Math.max(1, Number.parseInt(value || '25', 10) || 25));
 
+const normalizePhoneDigits = value => String(value || '').replace(/\D/g, '');
+
+const messageRequestRecipient = requestRecord => {
+    let payload;
+    try {
+        payload = JSON.parse(requestRecord.payload_json || '{}');
+    } catch {
+        payload = {};
+    }
+    return normalizePhoneDigits(
+        payload?.recipient?.phone_e164
+        || payload?.customer_phone
+        || payload?.recipient_phone_e164
+        || payload?.phone_e164,
+    );
+};
+
 const parseMessageRequest = row => ({
     ...row,
     payload: JSON.parse(row.payload_json || '{}'),
@@ -270,22 +287,25 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         `).get(requestId, tenantId, ...allowedStatuses);
     };
 
-    const publishMessageStatus = async (item, requestRecord, status, extra = {}) => {
-        try {
-            await service.publishNotificationStatus(item, {
+    const commitMessageStatus = async (
+        item,
+        requestRecord,
+        status,
+        extra,
+        updateLocalStatus,
+    ) => {
+        let queued;
+        database.transaction(() => {
+            queued = service.queueNotificationStatus(item, {
                 request_id: requestRecord.request_key,
                 status,
                 causation_id: requestRecord.event_id,
                 ...extra,
             });
-            return true;
-        } catch (error) {
-            console.warn(
-                `[SavanaIntegrations] Failed to publish ${status} request status:`,
-                error.message
-            );
-            return false;
-        }
+            updateLocalStatus();
+        }).immediate();
+        await service.dispatchQueuedNotificationStatus(queued);
+        return true;
     };
 
     router.post('/message-requests/:id/accept', async (req, res) => {
@@ -299,16 +319,21 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 );
             }
             const item = service.get(req.user.tenant_id, requestRecord.platform_code);
-            if (requestRecord.status === 'pending_review') {
-                database.prepare(`
-                    UPDATE savana_service_requests
-                    SET status = 'approved', updated_at = datetime('now', 'localtime')
-                    WHERE id = ? AND tenant_id = ? AND status = 'pending_review'
-                `).run(req.params.id, req.user.tenant_id);
-            }
-            const statusPublished = requestRecord.status === 'approved'
-                ? true
-                : await publishMessageStatus(item, requestRecord, 'accepted');
+            const statusPublished = await commitMessageStatus(
+                item,
+                requestRecord,
+                'accepted',
+                {},
+                () => {
+                    if (requestRecord.status === 'pending_review') {
+                        database.prepare(`
+                            UPDATE savana_service_requests
+                            SET status = 'approved', updated_at = datetime('now', 'localtime')
+                            WHERE id = ? AND tenant_id = ? AND status = 'pending_review'
+                        `).run(req.params.id, req.user.tenant_id);
+                    }
+                },
+            );
             return res.json({
                 accepted: true,
                 status_published: statusPublished,
@@ -334,20 +359,44 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                     'message_request_not_found',
                 );
             }
-            database.prepare(`
-                UPDATE savana_service_requests
-                SET status = 'sent', updated_at = datetime('now', 'localtime')
-                WHERE id = ? AND tenant_id = ? AND status = 'approved'
-            `).run(req.params.id, req.user.tenant_id);
             const item = service.get(req.user.tenant_id, requestRecord.platform_code);
             const channelMessageId = typeof req.body?.channel_message_id === 'string'
-                ? req.body.channel_message_id.slice(0, 255)
-                : null;
-            const statusPublished = await publishMessageStatus(
+                ? req.body.channel_message_id.trim().slice(0, 255)
+                : '';
+            if (!channelMessageId) {
+                throw new SavanaIntegrationError(
+                    'A sent channel message id is required',
+                    422,
+                    'channel_message_id_required',
+                );
+            }
+            const expectedRecipient = messageRequestRecipient(requestRecord);
+            const verifiedMessage = expectedRecipient && database.prepare(`
+                SELECT recipient
+                FROM messages
+                WHERE tenant_id = ? AND direction = 'outgoing' AND wamid = ?
+                  AND status IN ('sent', 'delivered', 'read')
+                ORDER BY id DESC
+            `).all(req.user.tenant_id, channelMessageId).find(message => (
+                normalizePhoneDigits(message.recipient) === expectedRecipient
+            ));
+            if (!verifiedMessage) {
+                throw new SavanaIntegrationError(
+                    'The channel message was not verified for this request recipient',
+                    422,
+                    'channel_message_not_verified',
+                );
+            }
+            const statusPublished = await commitMessageStatus(
                 item,
                 requestRecord,
                 'sent',
                 { channel_message_id: channelMessageId },
+                () => database.prepare(`
+                    UPDATE savana_service_requests
+                    SET status = 'sent', updated_at = datetime('now', 'localtime')
+                    WHERE id = ? AND tenant_id = ? AND status = 'approved'
+                `).run(req.params.id, req.user.tenant_id),
             );
             return res.json({ sent: true, status_published: statusPublished });
         } catch (error) {
@@ -365,15 +414,18 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                     'Message request was not found', 404, 'message_request_not_found'
                 );
             }
-            database.prepare(`
-                UPDATE savana_service_requests
-                SET status = 'dismissed', updated_at = datetime('now', 'localtime')
-                WHERE id = ? AND tenant_id = ?
-                  AND status IN ('pending_review', 'approved')
-            `).run(req.params.id, req.user.tenant_id);
             const item = service.get(req.user.tenant_id, requestRecord.platform_code);
-            const statusPublished = await publishMessageStatus(
-                item, requestRecord, 'rejected'
+            const statusPublished = await commitMessageStatus(
+                item,
+                requestRecord,
+                'rejected',
+                {},
+                () => database.prepare(`
+                    UPDATE savana_service_requests
+                    SET status = 'dismissed', updated_at = datetime('now', 'localtime')
+                    WHERE id = ? AND tenant_id = ?
+                      AND status IN ('pending_review', 'approved')
+                `).run(req.params.id, req.user.tenant_id),
             );
             return res.json({ dismissed: true, status_published: statusPublished });
         } catch (error) {
@@ -390,7 +442,8 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 );
             }
             const requestRecord = database.prepare(`
-                SELECT id, event_id, request_key FROM savana_service_requests
+                SELECT id, event_id, request_kind, request_key
+                FROM savana_service_requests
                 WHERE id = ? AND integration_id = ? AND tenant_id = ?
                   AND status = 'pending_review'
             `).get(req.params.id, item.id, req.user.tenant_id);
@@ -399,27 +452,26 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                     'Service request was not found', 404, 'service_request_not_found'
                 );
             }
-            database.prepare(`
-                UPDATE savana_service_requests
-                SET status = 'dismissed', updated_at = datetime('now', 'localtime')
-                WHERE id = ? AND integration_id = ? AND tenant_id = ?
-                  AND status = 'pending_review'
-            `).run(req.params.id, item.id, req.user.tenant_id);
-            let statusPublished = true;
-            try {
-                await service.publishNotificationStatus(item, {
-                    request_id: requestRecord.request_key,
-                    status: 'rejected',
-                    causation_id: requestRecord.event_id,
-                });
-            } catch (error) {
-                statusPublished = false;
-                console.warn(
-                    '[SavanaIntegrations] Failed to publish dismissed request status:',
-                    error.message
+            if (requestRecord.request_kind !== 'notification_request') {
+                throw new SavanaIntegrationError(
+                    'Only notification requests can be dismissed',
+                    409,
+                    'service_request_action_unsupported',
                 );
             }
-            return res.json({ dismissed: true, status_published: statusPublished });
+            await commitMessageStatus(
+                item,
+                requestRecord,
+                'rejected',
+                {},
+                () => database.prepare(`
+                    UPDATE savana_service_requests
+                    SET status = 'dismissed', updated_at = datetime('now', 'localtime')
+                    WHERE id = ? AND integration_id = ? AND tenant_id = ?
+                      AND status = 'pending_review'
+                `).run(req.params.id, item.id, req.user.tenant_id),
+            );
+            return res.json({ dismissed: true, status_published: true });
         } catch (error) {
             return respondError(res, error);
         }

@@ -886,6 +886,7 @@ export class SavanaIntegrationService {
                     last_error = NULL, updated_at = datetime('now', 'localtime')
                 WHERE id = ?
             `).run(organizationId, item.id);
+            this.reconcileIntegrationMembershipVisibility(item.id, tenant.id);
             item = await this.refreshEntitlement(this.get(tenant.id, platformCode));
             if (!this.hasEntitlement(item)) {
                 throw new SavanaIntegrationError(
@@ -926,12 +927,14 @@ export class SavanaIntegrationService {
                 nowIso(),
                 item.id,
             );
+            this.reconcileIntegrationMembershipVisibility(item.id, tenant.id);
             return this.get(tenant.id, platformCode);
         } catch (error) {
             this.db.prepare(`
                 UPDATE savana_integrations SET status = 'error', last_error = ?,
                     updated_at = datetime('now', 'localtime') WHERE id = ?
             `).run(String(error.message).slice(0, 4000), item.id);
+            this.reconcileIntegrationMembershipVisibility(item.id, tenant.id);
             throw error;
         }
     }
@@ -1018,6 +1021,7 @@ export class SavanaIntegrationService {
             nowIso(),
             item.id,
         );
+        this.reconcileIntegrationMembershipVisibility(item.id, tenantId);
         item = await this.refreshEntitlement(this.get(tenantId, remotePlatform));
         return item;
     }
@@ -1038,7 +1042,14 @@ export class SavanaIntegrationService {
             );
         }
         const status = String(payload?.action || connection.status || '');
-        if (!['active', 'paused', 'degraded', 'revoked'].includes(status)) {
+        if (![
+            'active',
+            'paused',
+            'degraded',
+            'revoked',
+            'error',
+            'disconnected',
+        ].includes(status)) {
             throw new SavanaIntegrationError(
                 'Unsupported lifecycle status', 422, 'invalid_connection_state'
             );
@@ -1055,6 +1066,7 @@ export class SavanaIntegrationService {
             status,
             item.id,
         );
+        this.reconcileIntegrationMembershipVisibility(item.id, item.tenant_id);
         return this.get(item.tenant_id, item.platform_code);
     }
 
@@ -1074,6 +1086,7 @@ export class SavanaIntegrationService {
                 webhook_secret_encrypted = CASE WHEN ? = 'revoke' THEN NULL ELSE webhook_secret_encrypted END,
                 updated_at = datetime('now', 'localtime') WHERE id = ?
         `).run(result.status, nowIso(), action, item.id);
+        this.reconcileIntegrationMembershipVisibility(item.id, item.tenant_id);
         return this.get(item.tenant_id, item.platform_code);
     }
 
@@ -1098,6 +1111,7 @@ export class SavanaIntegrationService {
             localStatus,
             item.id,
         );
+        this.reconcileIntegrationMembershipVisibility(item.id, item.tenant_id);
         return this.get(item.tenant_id, item.platform_code);
     }
 
@@ -1190,6 +1204,7 @@ export class SavanaIntegrationService {
             case 'catalog.product_snapshot.v1':
             case 'savana.product_snapshot.v1':
                 this.applyProductSnapshot(item.tenant_id, data, {
+                    integrationId: item.id,
                     source: envelope.source,
                     eventType: envelope.event_type,
                 });
@@ -1450,7 +1465,7 @@ export class SavanaIntegrationService {
         };
     }
 
-    async publishNotificationStatus(item, data) {
+    queueNotificationStatus(item, data) {
         if (!item?.connection_id || item.status !== 'active' || !item.webhook_secret_encrypted) {
             throw new SavanaIntegrationError('Platform connection is not active', 409, 'connection_inactive');
         }
@@ -1474,15 +1489,25 @@ export class SavanaIntegrationService {
             data,
         };
         const record = this.enqueueEvent(item, envelope);
+        return { event: envelope, record };
+    }
+
+    async dispatchQueuedNotificationStatus({ event, record }) {
         const dispatched = await this.dispatchOutbox({ limit: 1 });
         const result = dispatched.find(entry => entry.event_id === record.event_id);
         return {
-            event: envelope,
+            event,
             receipt: result?.receipt || {
                 queued: true,
                 status: result?.status || record.status,
             },
         };
+    }
+
+    async publishNotificationStatus(item, data) {
+        return this.dispatchQueuedNotificationStatus(
+            this.queueNotificationStatus(item, data),
+        );
     }
 
     productProjectionKey(row) {
@@ -1510,8 +1535,14 @@ export class SavanaIntegrationService {
                 price = COALESCE(excluded.price, price),
                 currency = COALESCE(excluded.currency, currency),
                 image_url = COALESCE(excluded.image_url, image_url),
-                quantity_on_hand = COALESCE(excluded.quantity_on_hand, quantity_on_hand),
-                quantity_available = COALESCE(excluded.quantity_available, quantity_available),
+                quantity_on_hand = CASE
+                    WHEN ? = 1 THEN excluded.quantity_on_hand
+                    ELSE quantity_on_hand
+                END,
+                quantity_available = CASE
+                    WHEN ? = 1 THEN excluded.quantity_available
+                    ELSE quantity_available
+                END,
                 unit_code = COALESCE(excluded.unit_code, unit_code),
                 source_updated_at = excluded.source_updated_at,
                 updated_at = datetime('now', 'localtime')
@@ -1523,6 +1554,8 @@ export class SavanaIntegrationService {
             row.currency || null, row.image_url || null,
             row.quantity_on_hand ?? null, row.quantity_available ?? null,
             row.unit_code || row.base_unit || null, sourceUpdatedAt || nowIso(),
+            Object.hasOwn(row, 'quantity_on_hand') ? 1 : 0,
+            Object.hasOwn(row, 'quantity_available') ? 1 : 0,
         );
         this.synchronizeBotProduct(tenantId, projectionKey, row);
     }
@@ -1545,11 +1578,10 @@ export class SavanaIntegrationService {
             `).get(tenantId, projection.sku);
         }
         const quantity = projection.quantity_available ?? projection.quantity_on_hand;
-        const numericQuantity = quantity === null || quantity === undefined
-            ? null
+        const numericQuantity = quantity === null || quantity === undefined || quantity === ''
+            ? Number.NaN
             : Number(quantity);
-        const availability = numericQuantity !== null
-            && Number.isFinite(numericQuantity)
+        const availability = Number.isFinite(numericQuantity)
             && numericQuantity <= 0
             ? 'out_of_stock'
             : 'available';
@@ -1608,7 +1640,449 @@ export class SavanaIntegrationService {
         );
     }
 
-    applyProductSnapshot(tenantId, data, { source = 'catalog', eventType = '' } = {}) {
+    snapshotProductKey(product) {
+        return this.productProjectionKey({
+            ...product,
+            barcode: product.barcode || product.barcodes?.[0] || null,
+        });
+    }
+
+    snapshotGeneratedTime(value) {
+        const timestamp = Date.parse(String(value || ''));
+        return Number.isFinite(timestamp) ? timestamp : null;
+    }
+
+    snapshotCandidateIsNewer(candidate, current) {
+        if (!current) return true;
+        const candidateTime = this.snapshotGeneratedTime(candidate.generatedAt);
+        const currentTime = this.snapshotGeneratedTime(current.generatedAt);
+        if (candidateTime !== null && currentTime !== null && candidateTime !== currentTime) {
+            return candidateTime > currentTime;
+        }
+        if (candidateTime !== null && currentTime === null) return true;
+        if (candidateTime === null && currentTime !== null) return false;
+        return candidate.lastEventId > current.lastEventId;
+    }
+
+    ensureSnapshotMembershipBackfill(tenantId) {
+        const initialized = this.db.prepare(`
+            SELECT 1
+            FROM savana_product_snapshot_streams streams
+            JOIN savana_integrations integrations
+              ON integrations.id = streams.integration_id
+            WHERE integrations.tenant_id = ?
+            LIMIT 1
+        `).get(tenantId);
+        if (initialized) return;
+
+        const rows = this.db.prepare(`
+            SELECT events.id, events.integration_id, events.event_type,
+                events.payload_json
+            FROM savana_integration_events events
+            JOIN savana_integrations integrations
+              ON integrations.id = events.integration_id
+            WHERE integrations.tenant_id = ?
+              AND events.event_type IN (
+                  'catalog.product_snapshot.v1',
+                  'savana.product_snapshot.v1'
+              )
+            ORDER BY events.id
+        `).all(tenantId);
+        const streams = new Map();
+        for (const row of rows) {
+            let data;
+            try {
+                data = JSON.parse(row.payload_json)?.data || {};
+            } catch {
+                continue;
+            }
+            const suppliedSnapshotId = String(data.snapshot_id || '').trim();
+            const legacy = !suppliedSnapshotId;
+            const snapshotId = suppliedSnapshotId
+                || `legacy:${String(data.generated_at || row.event_type)}`;
+            const pageNumber = legacy ? 1 : Number(data.page_number ?? 1);
+            const pageCount = legacy ? 1 : Number(data.page_count ?? 1);
+            if (
+                !Number.isInteger(pageNumber)
+                || pageNumber < 1
+                || !Number.isInteger(pageCount)
+                || pageCount < 1
+                || pageNumber > pageCount
+            ) {
+                continue;
+            }
+            const streamKey = `${row.integration_id}\u0000${row.event_type}`;
+            let stream = streams.get(streamKey);
+            if (!stream) {
+                stream = {
+                    integrationId: row.integration_id,
+                    eventType: row.event_type,
+                    snapshots: new Map(),
+                };
+                streams.set(streamKey, stream);
+            }
+            let snapshot = stream.snapshots.get(snapshotId);
+            if (!snapshot) {
+                snapshot = {
+                    snapshotId,
+                    generatedAt: data.generated_at || null,
+                    pageCount,
+                    pages: new Map(),
+                    completeSeen: false,
+                    valid: true,
+                    lastEventId: row.id,
+                };
+                stream.snapshots.set(snapshotId, snapshot);
+            }
+            if (snapshot.pageCount !== pageCount) snapshot.valid = false;
+            snapshot.generatedAt ||= data.generated_at || null;
+            snapshot.pages.set(
+                pageNumber,
+                Array.isArray(data.products) ? data.products : [],
+            );
+            snapshot.completeSeen ||= data.complete === true || (
+                !legacy
+                && data.complete === undefined
+                && data.page_number === undefined
+                && data.page_count === undefined
+            );
+            snapshot.lastEventId = Math.max(snapshot.lastEventId, row.id);
+        }
+
+        const insertStream = this.db.prepare(`
+            INSERT INTO savana_product_snapshot_streams (
+                integration_id, event_type, latest_snapshot_id,
+                latest_generated_at, applied_snapshot_id, applied_generated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(integration_id, event_type) DO NOTHING
+        `);
+        const insertMembership = this.db.prepare(`
+            INSERT INTO savana_product_snapshot_memberships (
+                integration_id, event_type, projection_key, snapshot_id, is_active
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(integration_id, event_type, projection_key) DO UPDATE SET
+                snapshot_id = excluded.snapshot_id,
+                is_active = excluded.is_active,
+                updated_at = datetime('now', 'localtime')
+        `);
+        const backfilledKeys = new Set();
+        for (const stream of streams.values()) {
+            const snapshots = [...stream.snapshots.values()];
+            const latest = snapshots.reduce((current, candidate) => (
+                this.snapshotCandidateIsNewer(candidate, current) ? candidate : current
+            ), null);
+            const complete = snapshots.filter(snapshot => (
+                snapshot.valid
+                && snapshot.completeSeen
+                && snapshot.pages.size === snapshot.pageCount
+                && Array.from(
+                    { length: snapshot.pageCount },
+                    (_unused, index) => index + 1,
+                ).every(pageNumber => snapshot.pages.has(pageNumber))
+            ));
+            const applied = complete.reduce((current, candidate) => (
+                this.snapshotCandidateIsNewer(candidate, current) ? candidate : current
+            ), null);
+            insertStream.run(
+                stream.integrationId,
+                stream.eventType,
+                latest?.snapshotId || null,
+                latest?.generatedAt || null,
+                applied?.snapshotId || null,
+                applied?.generatedAt || null,
+            );
+            if (!applied) continue;
+            const memberships = new Map();
+            for (const products of applied.pages.values()) {
+                for (const product of products) {
+                    memberships.set(
+                        this.snapshotProductKey(product),
+                        product.is_active === false ? 0 : 1,
+                    );
+                }
+            }
+            for (const [projectionKey, isActive] of memberships) {
+                backfilledKeys.add(projectionKey);
+                insertMembership.run(
+                    stream.integrationId,
+                    stream.eventType,
+                    projectionKey,
+                    applied.snapshotId,
+                    isActive,
+                );
+            }
+        }
+        this.reconcileSnapshotProductVisibility(tenantId, backfilledKeys);
+    }
+
+    recordSnapshotPage(integrationId, eventType, data) {
+        const snapshotId = String(data.snapshot_id || '').trim();
+        const products = Array.isArray(data.products) ? data.products : [];
+        if (!snapshotId) {
+            const legacySnapshotId = `legacy:${String(data.generated_at || eventType)}`;
+            this.db.prepare(`
+                INSERT INTO savana_product_snapshot_streams (
+                    integration_id, event_type, latest_snapshot_id, latest_generated_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(integration_id, event_type) DO UPDATE SET
+                    latest_snapshot_id = excluded.latest_snapshot_id,
+                    latest_generated_at = COALESCE(
+                        excluded.latest_generated_at,
+                        savana_product_snapshot_streams.latest_generated_at
+                    ),
+                    updated_at = datetime('now', 'localtime')
+            `).run(
+                integrationId,
+                eventType,
+                legacySnapshotId,
+                data.generated_at || null,
+            );
+            return {
+                accepted: true,
+                ready: data.complete === true,
+                snapshotId: legacySnapshotId,
+                generatedAt: data.generated_at || null,
+                products,
+            };
+        }
+
+        const pageNumber = Number(data.page_number ?? 1);
+        const pageCount = Number(data.page_count ?? 1);
+        const complete = data.complete === true || (
+            data.complete === undefined
+            && data.page_number === undefined
+            && data.page_count === undefined
+        );
+        if (
+            !Number.isInteger(pageNumber)
+            || pageNumber < 1
+            || !Number.isInteger(pageCount)
+            || pageCount < 1
+            || pageNumber > pageCount
+        ) {
+            return { accepted: false, ready: false, products: [] };
+        }
+        const generatedAt = data.generated_at || null;
+        const stream = this.db.prepare(`
+            SELECT * FROM savana_product_snapshot_streams
+            WHERE integration_id = ? AND event_type = ?
+        `).get(integrationId, eventType);
+        if (stream && stream.latest_snapshot_id !== snapshotId) {
+            const incomingTime = this.snapshotGeneratedTime(generatedAt);
+            const latestTime = this.snapshotGeneratedTime(stream.latest_generated_at);
+            if (
+                (latestTime !== null && incomingTime === null)
+                || (latestTime !== null && incomingTime !== null && incomingTime <= latestTime)
+            ) {
+                return { accepted: false, ready: false, products: [] };
+            }
+            this.db.prepare(`
+                DELETE FROM savana_product_snapshot_pages
+                WHERE integration_id = ? AND event_type = ?
+            `).run(integrationId, eventType);
+        }
+        this.db.prepare(`
+            INSERT INTO savana_product_snapshot_streams (
+                integration_id, event_type, latest_snapshot_id, latest_generated_at
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(integration_id, event_type) DO UPDATE SET
+                latest_snapshot_id = excluded.latest_snapshot_id,
+                latest_generated_at = COALESCE(
+                    excluded.latest_generated_at,
+                    savana_product_snapshot_streams.latest_generated_at
+                ),
+                updated_at = datetime('now', 'localtime')
+        `).run(integrationId, eventType, snapshotId, generatedAt);
+        this.db.prepare(`
+            INSERT INTO savana_product_snapshot_pages (
+                integration_id, event_type, snapshot_id, page_number,
+                page_count, generated_at, complete, products_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(integration_id, event_type, snapshot_id, page_number)
+            DO UPDATE SET
+                page_count = excluded.page_count,
+                generated_at = excluded.generated_at,
+                complete = excluded.complete,
+                products_json = excluded.products_json,
+                received_at = datetime('now', 'localtime')
+        `).run(
+            integrationId,
+            eventType,
+            snapshotId,
+            pageNumber,
+            pageCount,
+            generatedAt,
+            complete ? 1 : 0,
+            JSON.stringify(products),
+        );
+
+        const rows = this.db.prepare(`
+            SELECT page_number, page_count, generated_at, complete, products_json
+            FROM savana_product_snapshot_pages
+            WHERE integration_id = ? AND event_type = ? AND snapshot_id = ?
+            ORDER BY page_number
+        `).all(integrationId, eventType, snapshotId);
+        if (
+            rows.length !== pageCount
+            || rows.some(row => row.page_count !== pageCount)
+            || !rows.some(row => row.complete === 1)
+        ) {
+            return { accepted: true, ready: false, products: [] };
+        }
+        for (let expectedPage = 1; expectedPage <= pageCount; expectedPage += 1) {
+            if (rows[expectedPage - 1]?.page_number !== expectedPage) {
+                return { accepted: true, ready: false, products: [] };
+            }
+        }
+        return {
+            accepted: true,
+            ready: true,
+            snapshotId,
+            generatedAt,
+            products: rows.flatMap(row => {
+                try {
+                    const pageProducts = JSON.parse(row.products_json);
+                    return Array.isArray(pageProducts) ? pageProducts : [];
+                } catch {
+                    return [];
+                }
+            }),
+        };
+    }
+
+    projectionAvailability(projection) {
+        const quantity = projection?.quantity_available ?? projection?.quantity_on_hand;
+        const numericQuantity = quantity === null || quantity === undefined || quantity === ''
+            ? Number.NaN
+            : Number(quantity);
+        return Number.isFinite(numericQuantity) && numericQuantity <= 0
+            ? 'out_of_stock'
+            : 'available';
+    }
+
+    reconcileSnapshotProductVisibility(tenantId, projectionKeys) {
+        const activeMembership = this.db.prepare(`
+            SELECT 1
+            FROM savana_product_snapshot_memberships memberships
+            JOIN savana_integrations integrations
+              ON integrations.id = memberships.integration_id
+            WHERE integrations.tenant_id = ?
+              AND memberships.projection_key = ?
+              AND memberships.is_active = 1
+              AND integrations.status IN ('active', 'paused', 'degraded')
+            LIMIT 1
+        `);
+        const projection = this.db.prepare(`
+            SELECT quantity_on_hand, quantity_available
+            FROM savana_product_projection
+            WHERE tenant_id = ? AND projection_key = ?
+        `);
+        const show = this.db.prepare(`
+            UPDATE bot_products
+            SET is_active = 1, availability = ?,
+                updated_at = datetime('now', 'localtime')
+            WHERE tenant_id = ? AND savana_projection_key = ?
+        `);
+        const hide = this.db.prepare(`
+            UPDATE bot_products
+            SET is_active = 0, availability = 'hidden',
+                updated_at = datetime('now', 'localtime')
+            WHERE tenant_id = ? AND savana_projection_key = ?
+        `);
+        for (const projectionKey of projectionKeys) {
+            if (activeMembership.get(tenantId, projectionKey)) {
+                show.run(
+                    this.projectionAvailability(projection.get(tenantId, projectionKey)),
+                    tenantId,
+                    projectionKey,
+                );
+            } else {
+                hide.run(tenantId, projectionKey);
+            }
+        }
+    }
+
+    reconcileIntegrationMembershipVisibility(integrationId, tenantId = null) {
+        const item = tenantId === null
+            ? this.db.prepare(`
+                SELECT tenant_id FROM savana_integrations WHERE id = ?
+            `).get(integrationId)
+            : { tenant_id: tenantId };
+        if (!item) return;
+        this.ensureSnapshotMembershipBackfill(item.tenant_id);
+        const projectionKeys = new Set(this.db.prepare(`
+            SELECT projection_key
+            FROM savana_product_snapshot_memberships
+            WHERE integration_id = ?
+        `).all(integrationId).map(row => row.projection_key));
+        this.reconcileSnapshotProductVisibility(item.tenant_id, projectionKeys);
+    }
+
+    replaceSnapshotMembership(integrationId, eventType, snapshot) {
+        const item = this.db.prepare(`
+            SELECT tenant_id FROM savana_integrations WHERE id = ?
+        `).get(integrationId);
+        if (!item) return;
+        const oldKeys = new Set(this.db.prepare(`
+            SELECT projection_key FROM savana_product_snapshot_memberships
+            WHERE integration_id = ? AND event_type = ?
+        `).all(integrationId, eventType).map(row => row.projection_key));
+        const memberships = new Map();
+        for (const product of snapshot.products) {
+            memberships.set(
+                this.snapshotProductKey(product),
+                product.is_active === false ? 0 : 1,
+            );
+        }
+        this.db.prepare(`
+            DELETE FROM savana_product_snapshot_memberships
+            WHERE integration_id = ? AND event_type = ?
+        `).run(integrationId, eventType);
+        const insert = this.db.prepare(`
+            INSERT INTO savana_product_snapshot_memberships (
+                integration_id, event_type, projection_key, snapshot_id, is_active
+            ) VALUES (?, ?, ?, ?, ?)
+        `);
+        for (const [projectionKey, isActive] of memberships) {
+            insert.run(
+                integrationId,
+                eventType,
+                projectionKey,
+                snapshot.snapshotId,
+                isActive,
+            );
+        }
+        this.db.prepare(`
+            UPDATE savana_product_snapshot_streams
+            SET applied_snapshot_id = ?, applied_generated_at = ?,
+                updated_at = datetime('now', 'localtime')
+            WHERE integration_id = ? AND event_type = ?
+        `).run(
+            snapshot.snapshotId,
+            snapshot.generatedAt,
+            integrationId,
+            eventType,
+        );
+        this.reconcileSnapshotProductVisibility(
+            item.tenant_id,
+            new Set([...oldKeys, ...memberships.keys()]),
+        );
+    }
+
+    applyProductSnapshot(
+        tenantId,
+        data,
+        { integrationId = null, source = 'catalog', eventType = '' } = {},
+    ) {
+        if (integrationId !== null) this.ensureSnapshotMembershipBackfill(tenantId);
+        const snapshot = integrationId === null
+            ? {
+                accepted: true,
+                ready: data.complete === true,
+                products: Array.isArray(data.products) ? data.products : [],
+            }
+            : this.recordSnapshotPage(integrationId, eventType, data);
+        if (!snapshot.accepted) return;
         const receivedKeys = new Set();
         for (const product of data.products || []) {
             const barcodes = product.barcodes || [];
@@ -1623,16 +2097,27 @@ export class SavanaIntegrationService {
                 delete normalized.description;
                 delete normalized.image_url;
             }
-            receivedKeys.add(this.productProjectionKey(normalized));
-            this.upsertProduct(tenantId, normalized, data.generated_at);
+            const projectionKey = this.productProjectionKey(normalized);
+            receivedKeys.add(projectionKey);
+            this.upsertProduct(
+                tenantId,
+                integrationId === null
+                    ? normalized
+                    : { ...normalized, is_active: undefined },
+                data.generated_at,
+            );
         }
-        if (data.complete === true) {
-            const snapshotKeys = data.generated_at
-                ? new Set(this.db.prepare(`
-                    SELECT projection_key FROM savana_product_projection
-                    WHERE tenant_id = ? AND source_updated_at = ?
-                `).all(tenantId, data.generated_at).map(row => row.projection_key))
-                : receivedKeys;
+        if (integrationId !== null) {
+            // Visibility is derived from the last complete per-source snapshot.
+            // Page fragments may update projection details, but cannot activate
+            // or hide products until their full snapshot membership is durable.
+            this.reconcileSnapshotProductVisibility(tenantId, receivedKeys);
+        }
+        if (integrationId !== null && snapshot.ready) {
+            this.replaceSnapshotMembership(integrationId, eventType, snapshot);
+            return;
+        }
+        if (integrationId === null && snapshot.ready) {
             const imported = this.db.prepare(`
                 SELECT id, savana_projection_key FROM bot_products
                 WHERE tenant_id = ? AND savana_projection_key IS NOT NULL
@@ -1643,7 +2128,7 @@ export class SavanaIntegrationService {
                 WHERE id = ? AND tenant_id = ?
             `);
             for (const product of imported) {
-                if (!snapshotKeys.has(product.savana_projection_key)) {
+                if (!receivedKeys.has(product.savana_projection_key)) {
                     hide.run(product.id, tenantId);
                 }
             }

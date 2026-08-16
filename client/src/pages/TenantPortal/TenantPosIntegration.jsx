@@ -13,6 +13,10 @@ import api from '../../api';
 import Select from '../../components/Form/AccessibleSelect';
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { useLanguage } from '../../context/LanguageContext';
+import {
+    presentServiceRequest,
+    shouldLoadServiceRequests,
+} from './serviceRequestPresentation';
 
 const PLATFORMS = {
     pos: { ar: 'Savana POS', en: 'Savana POS', detailAr: 'المبيعات والإرجاعات والمخزون', detailEn: 'Sales, returns and inventory' },
@@ -75,7 +79,7 @@ const TenantPosIntegration = () => {
             setDiagnostics(selected?.connection_id
                 ? await api.getPortalPlatformDiagnostics(selectedPlatform)
                 : null);
-            if (selected?.connection_id && selectedPlatform === 'catalog') {
+            if (shouldLoadServiceRequests(selected)) {
                 const requests = await api.getPortalPlatformServiceRequests(
                     selectedPlatform
                 );
@@ -484,27 +488,46 @@ const TenantPosIntegration = () => {
                     <Alert severity="info" icon={<LinkIcon />} sx={{ mt: 2 }}>
                         {ar ? 'طلبات الإشعار الواردة لا تُرسل تلقائيًا؛ تُحفظ للمراجعة وتطبق سياسات القالب والموافقة.' : 'Incoming notification requests are never sent automatically; they await review and channel consent checks.'}
                     </Alert>
-                    {selectedPlatform === 'catalog' && serviceRequests.map((request) => (
-                        <Alert
-                            key={request.id}
-                            severity={request.status === 'pending_review' ? 'warning' : 'info'}
-                            sx={{ mt: 1 }}
-                            action={request.status === 'pending_review' ? (
-                                <Button
-                                    color="inherit"
-                                    size="small"
-                                    disabled={working}
-                                    onClick={() => dismissServiceRequest(request.id)}
-                                >
-                                    {ar ? 'تجاهل' : 'Dismiss'}
-                                </Button>
-                            ) : null}
-                        >
-                            {ar
-                                ? `طلب ${request.payload?.order_number || request.request_key}: الحالة ${request.payload?.status || request.status}`
-                                : `Request ${request.payload?.order_number || request.request_key}: ${request.payload?.status || request.status}`}
-                        </Alert>
-                    ))}
+                    {serviceRequests.map((request) => {
+                        const presentation = presentServiceRequest(request, language);
+                        return (
+                            <Alert
+                                key={request.id}
+                                severity={request.status === 'pending_review' ? 'warning' : 'info'}
+                                sx={{ mt: 1 }}
+                                action={presentation.dismissible ? (
+                                    <Button
+                                        color="inherit"
+                                        size="small"
+                                        disabled={working}
+                                        onClick={() => dismissServiceRequest(request.id)}
+                                    >
+                                        {ar ? 'تجاهل' : 'Dismiss'}
+                                    </Button>
+                                ) : null}
+                            >
+                                <Stack spacing={0.75}>
+                                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                                        <Chip size="small" label={presentation.kind} />
+                                        <Chip
+                                            size="small"
+                                            variant="outlined"
+                                            color={request.status === 'pending_review' ? 'warning' : 'default'}
+                                            label={presentation.status}
+                                        />
+                                    </Stack>
+                                    <Typography variant="body2">{presentation.summary}</Typography>
+                                    {request.status === 'pending_review' && !presentation.dismissible && (
+                                        <Typography variant="caption" color="text.secondary">
+                                            {ar
+                                                ? 'هذا النوع محفوظ للمراجعة؛ لا يتوفر تنفيذه أو إرساله من هذه الصفحة.'
+                                                : 'This request is retained for review; this page does not execute or send it.'}
+                                        </Typography>
+                                    )}
+                                </Stack>
+                            </Alert>
+                        );
+                    })}
                 </CardContent>
             </Card>
         </Box>

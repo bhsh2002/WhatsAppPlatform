@@ -235,6 +235,9 @@ test('migrations create isolated integration, projection and service request tab
         'savana_notification_candidates',
         'savana_service_requests',
         'savana_integration_outbox',
+        'savana_product_snapshot_streams',
+        'savana_product_snapshot_pages',
+        'savana_product_snapshot_memberships',
     ]));
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
@@ -423,6 +426,15 @@ test('authenticated one-click provisioning configures Wa Savana as the target', 
     assert.equal(item.platform_code, 'catalog');
     assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
     assert.equal(item.status, 'active');
+    const degraded = service.applyLifecycle({
+        connection: {
+            id: connectionId,
+            scopes: ['catalog.products.projection'],
+        },
+        action: 'degraded',
+    }, callbackToken);
+    assert.equal(degraded.status, 'degraded');
+    assert.notEqual(degraded.webhook_secret_encrypted, null);
     const revoked = service.applyLifecycle({
         connection: {
             id: connectionId,
@@ -978,7 +990,7 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     database.close();
 });
 
-test('tenant inbox accepts and completes contextual message requests', async (t) => {
+test('tenant inbox reviews and tracks contextual requests without sending automatically', async (t) => {
     const database = createDatabase();
     const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
     await service.provisionConnection({
@@ -1008,6 +1020,14 @@ test('tenant inbox accepts and completes contextual message requests', async (t)
         connectionId: 'catalog-message-connection',
         secret: 'catalog-message-secret',
     });
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
+        0,
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count,
+        0,
+    );
 
     const app = express();
     app.use(express.json());
@@ -1038,7 +1058,60 @@ test('tenant inbox accepts and completes contextual message requests', async (t)
         database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
         'approved',
     );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
+        0,
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count,
+        1,
+    );
 
+    const missingMessageResponse = await fetch(
+        `${baseUrl}/message-requests/${requestId}/complete`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        },
+    );
+    assert.equal(missingMessageResponse.status, 422);
+    assert.equal(
+        (await missingMessageResponse.json()).code,
+        'channel_message_id_required',
+    );
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'approved',
+    );
+
+    database.prepare(`
+        INSERT INTO messages (
+            tenant_id, direction, sender, recipient, message_type,
+            content, status, wamid
+        ) VALUES (1, 'outgoing', 'wa-number-1', '218910009999', 'text',
+            'رسالة إلى مستلم آخر.', 'sent', 'wamid.contextual-message')
+    `).run();
+    const unverifiedMessageResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_message_id: 'wamid.contextual-message' }),
+    });
+    assert.equal(unverifiedMessageResponse.status, 422);
+    assert.equal(
+        (await unverifiedMessageResponse.json()).code,
+        'channel_message_not_verified',
+    );
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'approved',
+    );
+
+    database.prepare(`
+        UPDATE messages SET recipient = '218910000001',
+            content = 'رسالة من الطلب للمراجعة.'
+        WHERE wamid = 'wamid.contextual-message'
+    `).run();
     const completedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1048,6 +1121,10 @@ test('tenant inbox accepts and completes contextual message requests', async (t)
     assert.equal(
         database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
         'sent',
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
+        1,
     );
     assert.equal(
         database.prepare(`
