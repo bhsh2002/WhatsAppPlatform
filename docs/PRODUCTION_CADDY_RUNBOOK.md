@@ -17,9 +17,25 @@ secret from the company or monitoring hosts.
 
 ## One-time host preparation
 
+Grant the deployment operator Docker access without making the socket public,
+then close and reopen the SSH session before continuing:
+
 ```bash
+sudo usermod -aG docker bahaa
+exit
+```
+
+In the new session, require both commands to succeed before creating data paths:
+
+```bash
+id -nG | tr ' ' '\n' | grep -x docker
+docker info >/dev/null
 sudo install -d -m 0755 /srv/wa-savana/releases
 sudo install -d -m 0700 -o bahaa -g bahaa /srv/wa-savana/shared
+sudo install -d -m 2770 -o 1000 -g bahaa \
+  /srv/wa-savana/shared/data \
+  /srv/wa-savana/shared/data/backups \
+  /srv/wa-savana/shared/uploads
 docker network inspect savana-control-plane-network
 ```
 
@@ -29,8 +45,9 @@ Generate every secret independently on the production host, set both files to
 mode `0600`, and leave `BOOTSTRAP_ADMIN_PASSWORD` present only for the first
 boot. The environment validator rejects missing, short, reused, insecure, or
 misrouted production values without printing their contents.
-The two private bind mounts use an SELinux `Z` relabel so the non-root server
-can access its fresh data and upload directories on enforcing AlmaLinux hosts.
+The two private bind mounts use an SELinux `Z` relabel. Their setgid mode keeps
+new backup files in the deployment operator's group while UID 1000 remains the
+owner required by the non-root server process on enforcing AlmaLinux hosts.
 
 Create a release checkout for the approved commit. From that checkout run:
 

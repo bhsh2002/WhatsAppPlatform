@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_ENV_FILE="${WA_COMPOSE_ENV_FILE:-/srv/wa-savana/shared/production-compose.env}"
@@ -22,14 +23,19 @@ data_dir="$(awk '
 }
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-install -d -m 0700 "$data_dir/backups"
+[[ -d "$data_dir/backups" && -r "$data_dir/backups" && -w "$data_dir/backups" ]] || {
+  printf 'Backup directory must exist and be readable/writable by the deployment operator\n' >&2
+  exit 2
+}
 
 docker exec wa-savana-server node --input-type=module -e '
   import Database from "better-sqlite3";
+  import { chmod } from "node:fs/promises";
   const destination = `/app/data/backups/platform-${process.argv[1]}.db`;
   const database = new Database(process.env.DATABASE_PATH, { readonly: true });
   await database.backup(destination);
   database.close();
+  await chmod(destination, 0o640);
 ' "$timestamp"
 
 gzip -f "$data_dir/backups/platform-${timestamp}.db"
