@@ -93,19 +93,59 @@ export const validateIntegrationConfig = (config, env = process.env) => {
     if (missing.length > 0) {
         throw new Error(`Missing Savana integration settings: ${missing.join(', ')}`);
     }
-    if (
-        String(config.connectPlatformToken).length < 32
-        || String(config.callbackToken).length < 32
-    ) {
+    const integrationSecrets = [
+        config.connectPlatformToken,
+        config.callbackToken,
+        config.subscriptionsPlatformToken,
+        config.subscriptionsSigningSecret,
+    ].map(value => String(value || ''));
+    if (integrationSecrets.some(value => value.length < 32)) {
         throw new Error(
-            'Savana Connect platform and callback tokens must be at least 32 characters'
+            'Savana integration tokens and signing secrets must be at least 32 characters'
         );
     }
-    if (safeCompare(config.connectPlatformToken, config.callbackToken)) {
+    if (new Set(integrationSecrets).size !== integrationSecrets.length) {
         throw new Error(
-            'SAVANA_CONNECT_PLATFORM_TOKEN must differ from SAVANA_CONNECT_CALLBACK_TOKEN'
+            'Savana integration tokens and signing secrets must be distinct'
         );
     }
+
+    if (!['local', 'central'].includes(config.subscriptionsMode)) {
+        throw new Error('SAVANA_SUBSCRIPTIONS_MODE must be local or central');
+    }
+    if (env.NODE_ENV === 'production' && config.subscriptionsMode !== 'central') {
+        throw new Error('SAVANA_SUBSCRIPTIONS_MODE must be central in production');
+    }
+
+    const validateServiceUrl = (value, name, privateHost, privatePort) => {
+        let url;
+        try {
+            url = new URL(value);
+        } catch {
+            throw new Error(`${name} must be a valid absolute URL`);
+        }
+        if (url.username || url.password || url.search || url.hash) {
+            throw new Error(`${name} must not contain credentials, a query, or a fragment`);
+        }
+        const isPrivateDockerService = (
+            url.protocol === 'http:'
+            && url.hostname === privateHost
+            && url.port === privatePort
+        );
+        if (env.NODE_ENV === 'production' && url.protocol !== 'https:' && !isPrivateDockerService) {
+            throw new Error(
+                `${name} must use HTTPS in production unless it targets `
+                + `the private ${privateHost}:${privatePort} Docker service`
+            );
+        }
+    };
+    validateServiceUrl(config.connectUrl, 'SAVANA_CONNECT_URL', 'savana-connect', '8010');
+    validateServiceUrl(
+        config.subscriptionsUrl,
+        'SAVANA_SUBSCRIPTIONS_URL',
+        'savana-subscriptions',
+        '8020',
+    );
 
     let callbackUrl;
     try {
@@ -118,6 +158,7 @@ export const validateIntegrationConfig = (config, env = process.env) => {
         callbackUrl.protocol === 'http:'
         && callbackUrl.hostname === 'wa-savana-server'
         && callbackUrl.port === '3031'
+        && callbackUrl.pathname === '/integrations/connect/events'
     );
     if (env.NODE_ENV === 'production' && callbackUrl.protocol !== 'https:' && !isPrivateDockerCallback) {
         throw new Error(

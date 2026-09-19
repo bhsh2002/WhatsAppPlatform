@@ -136,8 +136,9 @@ const config = {
     callbackUrl: 'https://wa.test/integrations/connect/events',
     callbackToken,
     subscriptionsUrl: 'https://subscriptions.test',
-    subscriptionsPlatformToken: 'platform-token',
+    subscriptionsPlatformToken: 'wa-savana-subscriptions-platform-token',
     subscriptionsSigningSecret: signingSecret,
+    subscriptionsMode: 'central',
     timeoutMs: 1000,
 };
 
@@ -160,6 +161,35 @@ test('production callback policy permits only HTTPS or the canonical private Doc
             callbackUrl: 'not-a-url',
         }, { NODE_ENV: 'production' }),
         /valid absolute URL/
+    );
+});
+
+test('production integration policy requires distinct secrets and trusted service URLs', () => {
+    assert.doesNotThrow(() => validateIntegrationConfig({
+        ...config,
+        connectUrl: 'http://savana-connect:8010',
+        subscriptionsUrl: 'http://savana-subscriptions:8020',
+    }, { NODE_ENV: 'production' }));
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            subscriptionsPlatformToken: config.callbackToken,
+        }, { NODE_ENV: 'production' }),
+        /must be distinct/,
+    );
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            connectUrl: 'http://connect.example.test:8010',
+        }, { NODE_ENV: 'production' }),
+        /must use HTTPS/,
+    );
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            subscriptionsMode: 'local',
+        }, { NODE_ENV: 'production' }),
+        /must be central/,
     );
 });
 

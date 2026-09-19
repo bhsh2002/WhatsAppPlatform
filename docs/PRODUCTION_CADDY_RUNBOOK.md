@@ -1,0 +1,98 @@
+# Wa Savana production runbook (Caddy)
+
+This path is for the production host only. It does not use the company-server
+Nginx Proxy Manager network or copy any database, upload, environment file, or
+secret from the company or monitoring hosts.
+
+## Release gate
+
+1. Require a green GitHub Actions run for the exact full commit SHA.
+2. Record the server and client GHCR digests produced from that same SHA.
+3. Verify the images' OCI revision labels match the SHA. Never deploy `latest`
+   or another mutable tag.
+4. Keep `SAVANA_INTEGRATIONS_ENABLED=false` for the first smoke test. Enable it
+   only after Connect and Subscriptions are healthy on
+   `savana-control-plane-network` and all four integration secrets have been
+   registered on both sides.
+
+## One-time host preparation
+
+```bash
+sudo install -d -m 0755 /srv/wa-savana/releases
+sudo install -d -m 0700 -o bahaa -g bahaa /srv/wa-savana/shared
+docker network inspect savana-control-plane-network
+```
+
+Copy `ops/production-compose.env.example` and
+`ops/production-runtime.env.example` to the paths documented in those files.
+Generate every secret independently on the production host, set both files to
+mode `0600`, and leave `BOOTSTRAP_ADMIN_PASSWORD` present only for the first
+boot. The environment validator rejects missing, short, reused, insecure, or
+misrouted production values without printing their contents.
+
+Create a release checkout for the approved commit. From that checkout run:
+
+```bash
+WA_COMPOSE_ENV_FILE=/srv/wa-savana/shared/production-compose.env \
+  ./tools/deploy_production.sh
+```
+
+The deploy command validates immutable image digests, the external Control
+Plane network, the runtime environment inside the release image, resource and
+security settings, loopback health, and authenticated metrics. Only the
+frontend is published, at `127.0.0.1:3133`; the API and Control Plane remain on
+private Docker networks.
+
+After the first login, rotate the administrator password, remove
+`BOOTSTRAP_ADMIN_PASSWORD` from the runtime file, and rerun the deploy command.
+
+## Caddy activation
+
+The production Caddy service must be healthy before WA is added. Resolve any
+existing reload error first and confirm its journal is writable. The supplied
+site logs to stdout/journald and therefore does not add a file-log ownership or
+rotation dependency.
+
+Install `ops/caddy/wa.savana.ly.caddy` in the host's imported Caddy directory,
+then validate the complete configuration before a reload:
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo systemctl reload caddy
+sudo systemctl is-active --quiet caddy
+curl --fail --silent --show-error https://wa.savana.ly/api/health
+```
+
+Keep a copy of the previous full Caddy configuration. If validation or reload
+fails, restore that copy and reload; do not leave a partially edited file. The
+public edge deliberately returns 404 for `/api/metrics`. Prometheus must scrape
+`http://127.0.0.1:3133/api/metrics` through the host/tunnel with the bearer token.
+
+## Functional checks before traffic
+
+- `/api/health` reports no pending migrations.
+- Anonymous `/api/auth/session` behaves as expected, login succeeds, and the
+  secure session cookie is returned only over HTTPS.
+- Meta verifies `https://wa.savana.ly/api/webhook`, a signed webhook is
+  accepted, and an invalid signature is rejected.
+- Facebook OAuth returns to `https://wa.savana.ly/auth/facebook/callback`.
+- SMS callbacks use
+  `https://wa.savana.ly/api/integrations/sms-gateway/events`.
+- Metrics require the dedicated bearer token and contain no tenant/message
+  labels or secret values.
+- After Control Plane activation, binding, entitlement refresh, callback
+  authentication, and outbox delivery all pass over the private network.
+
+## Rollback
+
+Before every later deployment the script creates a SQLite online backup when a
+database and running container already exist. To roll back code that applied no
+migration, restore the previous two image digests and release SHA in the
+Compose environment file and deploy again. To roll back a schema-changing
+release, stop WA, verify the selected backup checksum, restore its database to
+a separate file, then atomically replace `platform.db` while the container is
+stopped before deploying the previous images.
+
+Never run `docker compose down -v`, delete `/srv/wa-savana/shared`, or reuse the
+monitoring server's WA database. The monitoring copy and its data remain
+separate and untouched.
