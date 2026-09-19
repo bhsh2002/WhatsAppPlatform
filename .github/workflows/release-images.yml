@@ -57,8 +57,9 @@ jobs:
             --platform linux/amd64 \
             --provenance=mode=max \
             --sbom=true \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
-            --tag "${image_root}/whatsapp-platform-server:sha-${RELEASE_SHA}" \
+            --tag "${image_root}/wa-savana-server:sha-${RELEASE_SHA}" \
             --metadata-file /tmp/wa-server-metadata.json \
             --push \
             server
@@ -67,8 +68,9 @@ jobs:
             --platform linux/amd64 \
             --provenance=mode=max \
             --sbom=true \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
-            --tag "${image_root}/whatsapp-platform-client:sha-${RELEASE_SHA}" \
+            --tag "${image_root}/wa-savana-client:sha-${RELEASE_SHA}" \
             --metadata-file /tmp/wa-client-metadata.json \
             --push \
             client
@@ -79,8 +81,8 @@ jobs:
             printf '## Wa Savana immutable images\n\n'
             printf '| Component | Pull reference |\n'
             printf '| --- | --- |\n'
-            printf '| Server | `%s/whatsapp-platform-server@%s` |\n' "$image_root" "$server_digest"
-            printf '| Client | `%s/whatsapp-platform-client@%s` |\n' "$image_root" "$client_digest"
+            printf '| Server | `%s/wa-savana-server@%s` |\n' "$image_root" "$server_digest"
+            printf '| Client | `%s/wa-savana-client@%s` |\n' "$image_root" "$client_digest"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove Buildx builder

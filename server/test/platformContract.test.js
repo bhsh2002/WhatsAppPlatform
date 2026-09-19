@@ -407,6 +407,41 @@ test('Docker runs the backend in production mode and waits for health', () => {
     assert.doesNotMatch(dockerfile, /RUN npm install/);
 });
 
+test('production publishes and consumes the Wa Savana GHCR packages by digest', () => {
+    const release = read('.github/workflows/release-images.yml');
+    const productionCompose = read('docker-compose.production.yml');
+    const deploy = read('tools/deploy_production.sh');
+    const runbook = read('docs/PRODUCTION_CADDY_RUNBOOK.md');
+    const productionContract = [release, productionCompose, deploy, runbook].join('\n');
+
+    assert.ok(release.includes('--tag "${image_root}/wa-savana-server:sha-${RELEASE_SHA}"'));
+    assert.ok(release.includes('--tag "${image_root}/wa-savana-client:sha-${RELEASE_SHA}"'));
+    assert.match(
+        release,
+        /org\.opencontainers\.image\.source=https:\/\/github\.com\/\$\{GITHUB_REPOSITORY\}/,
+    );
+    assert.match(release, /%s\/wa-savana-server@%s/);
+    assert.match(release, /%s\/wa-savana-client@%s/);
+    assert.match(
+        productionCompose,
+        /ghcr\.io\/bhsh2002\/wa-savana-server@sha256:\$\{WA_SERVER_IMAGE_DIGEST/,
+    );
+    assert.match(
+        productionCompose,
+        /ghcr\.io\/bhsh2002\/wa-savana-client@sha256:\$\{WA_CLIENT_IMAGE_DIGEST/,
+    );
+    assert.ok(deploy.includes(
+        "server_digest_pattern='^ghcr\\.io/bhsh2002/wa-savana-server@sha256:[0-9a-f]{64}$'",
+    ));
+    assert.ok(deploy.includes(
+        "client_digest_pattern='^ghcr\\.io/bhsh2002/wa-savana-client@sha256:[0-9a-f]{64}$'",
+    ));
+    assert.match(runbook, /ghcr\.io\/bhsh2002\/wa-savana-server/);
+    assert.match(runbook, /ghcr\.io\/bhsh2002\/wa-savana-client/);
+    assert.doesNotMatch(productionContract, /whatsapp-platform-(server|client)/);
+    assert.doesNotMatch(productionCompose, /:(?:latest|sha-)/);
+});
+
 test('literal Meta template delete routes are registered before dynamic template ids', () => {
     const tenantTemplates = read('server/routes/tenantTemplates.js');
     const tenants = read('server/routes/tenants.js');

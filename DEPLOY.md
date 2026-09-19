@@ -42,6 +42,10 @@ only the frontend on host loopback, joins the server to the private Control
 Plane network, validates all production environment values before touching the
 database, and does not connect to Nginx Proxy Manager.
 
+Production pulls `ghcr.io/bhsh2002/wa-savana-server` and
+`ghcr.io/bhsh2002/wa-savana-client` by immutable `sha256` digest. Release tags
+identify the verified commit but are never used directly by Compose.
+
 `docker-compose.server.yml` and `tools/deploy_server.sh` remain the isolated
 company/test topology. They must not be used on the production host.
 
