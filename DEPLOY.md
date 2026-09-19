@@ -46,16 +46,13 @@ Production pulls the private `ghcr.io/bhsh2002/savana-wa-server` and
 `ghcr.io/bhsh2002/savana-wa-client` packages by immutable `sha256` digest. Release tags
 identify the verified commit but are never used directly by Compose.
 
-The first publication of these package names is a one-time bootstrap. Before
-merging the bootstrap release, create the repository secret
-`GHCR_BOOTSTRAP_PAT` from a short-lived GitHub personal access token (classic)
-with only `write:packages`; do not grant `repo` or `delete:packages`. The
-release authenticates as `bhsh2002`, deliberately omits the OCI source label,
-and fails unless GitHub reports both packages as private and unlinked and an
-anonymous manifest request is denied. After the successful bootstrap, grant
-this repository `Write` under each package's **Manage Actions access**, revoke
-the token, delete the secret, and replace the bootstrap authentication with a
-normal `GITHUB_TOKEN` release before the next commit reaches `main`.
+These package names were bootstrapped as private, unlinked, independently
+permissioned packages. Routine releases authenticate with the repository-scoped
+`GITHUB_TOKEN` and `packages: write`; no personal access token is stored in
+Actions. `bhsh2002/WhatsAppPlatform` must retain `Write` under each package's
+**Manage Actions access** without inheriting access from the public repository.
+The release verifies that both packages remain private and unlinked and that
+anonymous image access remains denied.
 
 `docker-compose.server.yml` and `tools/deploy_server.sh` remain the isolated
 company/test topology. They must not be used on the production host.

@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: release-images-${{ github.event.workflow_run.head_sha }}
@@ -37,22 +38,18 @@ jobs:
             --use
           docker buildx inspect --bootstrap
 
-      - name: Authenticate bootstrap publisher to GHCR
+      - name: Authenticate GitHub Actions to GHCR
         env:
-          GHCR_TOKEN: ${{ secrets.GHCR_BOOTSTRAP_PAT }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "$GHCR_TOKEN" ]]; then
-            echo "GHCR_BOOTSTRAP_PAT is required for the one-time private-package bootstrap" >&2
-            exit 1
-          fi
           printf '%s' "$GHCR_TOKEN" \
-            | docker login ghcr.io --username bhsh2002 --password-stdin
+            | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
 
       - name: Build and publish server and client
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-          GHCR_TOKEN: ${{ secrets.GHCR_BOOTSTRAP_PAT }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           image_root="ghcr.io/bhsh2002"
@@ -82,7 +79,6 @@ jobs:
               "https://api.github.com/user/packages/container/${package}")"
 
             case "$status" in
-              404) ;;
               200)
                 metadata_is_private_unlinked "$package" <"$metadata_file" || {
                   echo "Existing GHCR package ${package} is not private and unlinked" >&2
