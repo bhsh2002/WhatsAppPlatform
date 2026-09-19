@@ -71,8 +71,11 @@ WA_COMPOSE_ENV_FILE=/srv/wa-savana/shared/production-compose.env \
 The deploy command validates immutable image digests, the external Control
 Plane network, the runtime environment inside the release image, resource and
 security settings, loopback health, and authenticated metrics. Only the
-frontend is published, at `127.0.0.1:3133`; the API and Control Plane remain on
-private Docker networks.
+frontend is published, at `127.0.0.1:3133`. Its dedicated non-internal edge
+network is required for Docker Engine 29 to materialize that loopback binding;
+an explicit gateway priority keeps that network as the frontend's default
+gateway. The application network remains internal, and the API and Control
+Plane remain on private Docker networks.
 
 After the first login, rotate the administrator password, remove
 `BOOTSTRAP_ADMIN_PASSWORD` from the runtime file, and rerun the deploy command.
