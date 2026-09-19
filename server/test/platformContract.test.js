@@ -448,6 +448,18 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
         productionCompose,
         /ghcr\.io\/bhsh2002\/savana-wa-client@sha256:\$\{WA_CLIENT_IMAGE_DIGEST/,
     );
+    assert.match(
+        productionCompose,
+        /client:[\s\S]*?networks:\s*\n\s+edge:\s*\n\s+gw_priority: 1\s*\n\s+internal:\s*\n\s+gw_priority: 0/,
+    );
+    assert.match(
+        productionCompose,
+        /edge:\s*\n\s+name: wa-savana-production-edge\s*\n\s+driver: bridge/,
+    );
+    assert.match(
+        productionCompose,
+        /internal:\s*\n\s+name: wa-savana-production-internal\s*\n\s+driver: bridge\s*\n\s+internal: true/,
+    );
     assert.ok(deploy.includes(
         "server_digest_pattern='^ghcr\\.io/bhsh2002/savana-wa-server@sha256:[0-9a-f]{64}$'",
     ));

@@ -100,7 +100,10 @@ services:
       org.opencontainers.image.revision: ${WA_RELEASE_SHA:?Set WA_RELEASE_SHA to the full Git commit}
       savana.service: wa-savana-frontend
     networks:
-      - internal
+      edge:
+        gw_priority: 1
+      internal:
+        gw_priority: 0
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/health || exit 1"]
       interval: 30s
@@ -109,6 +112,12 @@ services:
       start_period: 15s
 
 networks:
+  # Docker Engine 29 does not materialize a published host port for a
+  # container attached exclusively to an internal network. This network stays
+  # non-internal while the published port remains restricted to loopback.
+  edge:
+    name: wa-savana-production-edge
+    driver: bridge
   internal:
     name: wa-savana-production-internal
     driver: bridge
