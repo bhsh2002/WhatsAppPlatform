@@ -28,9 +28,13 @@ services:
       - type: bind
         source: ${WA_DATA_DIR:?Set WA_DATA_DIR to the persistent data directory}
         target: /app/data
+        bind:
+          selinux: Z
       - type: bind
         source: ${WA_UPLOADS_DIR:?Set WA_UPLOADS_DIR to the persistent uploads directory}
         target: /app/uploads
+        bind:
+          selinux: Z
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777,size=64m

@@ -29,6 +29,8 @@ Generate every secret independently on the production host, set both files to
 mode `0600`, and leave `BOOTSTRAP_ADMIN_PASSWORD` present only for the first
 boot. The environment validator rejects missing, short, reused, insecure, or
 misrouted production values without printing their contents.
+The two private bind mounts use an SELinux `Z` relabel so the non-root server
+can access its fresh data and upload directories on enforcing AlmaLinux hosts.
 
 Create a release checkout for the approved commit. From that checkout run:
 
