@@ -46,13 +46,14 @@ Production pulls the private `ghcr.io/bhsh2002/savana-wa-server` and
 `ghcr.io/bhsh2002/savana-wa-client` packages by immutable `sha256` digest. Release tags
 identify the verified commit but are never used directly by Compose.
 
-These package names were bootstrapped as private, unlinked, independently
-permissioned packages. Routine releases authenticate with the repository-scoped
-`GITHUB_TOKEN` and `packages: write`; no personal access token is stored in
-Actions. `bhsh2002/WhatsAppPlatform` must retain `Write` under each package's
-**Manage Actions access** without inheriting access from the public repository.
-The release verifies that both packages remain private and unlinked and that
-anonymous image access remains denied.
+These package names were bootstrapped privately and are linked only to
+`bhsh2002/WhatsAppPlatform`, with package permissions managed independently
+from the public repository. Routine releases authenticate with the
+repository-scoped `GITHUB_TOKEN` and `packages: write`; no personal access
+token is stored in Actions. The repository must retain `Write` under each
+package's **Manage Actions access** without inheriting repository permissions.
+The release verifies the exact repository link, private visibility, and denial
+of anonymous image access.
 
 `docker-compose.server.yml` and `tools/deploy_server.sh` remain the isolated
 company/test topology. They must not be used on the production host.

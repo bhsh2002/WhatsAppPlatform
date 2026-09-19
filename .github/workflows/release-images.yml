@@ -55,13 +55,18 @@ jobs:
           image_root="ghcr.io/bhsh2002"
           server_package="savana-wa-server"
           client_package="savana-wa-client"
+          expected_repository="bhsh2002/WhatsAppPlatform"
 
-          metadata_is_private_unlinked() {
+          metadata_is_private_expected_repository() {
             local package="$1"
-            jq -e --arg package "$package" '
+            jq -e \
+              --arg package "$package" \
+              --arg repository "$expected_repository" \
+              --argjson repository_id "$GITHUB_REPOSITORY_ID" '
               .name == $package
               and .visibility == "private"
-              and ((.repository // null) == null)
+              and ((.repository.full_name // null) == $repository)
+              and ((.repository.id // null) == $repository_id)
             ' >/dev/null
           }
 
@@ -80,8 +85,8 @@ jobs:
 
             case "$status" in
               200)
-                metadata_is_private_unlinked "$package" <"$metadata_file" || {
-                  echo "Existing GHCR package ${package} is not private and unlinked" >&2
+                metadata_is_private_expected_repository "$package" <"$metadata_file" || {
+                  echo "Existing GHCR package ${package} is not private or is linked to an unexpected repository" >&2
                   exit 1
                 }
                 ;;
@@ -120,7 +125,7 @@ jobs:
           client_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' \
             /tmp/wa-client-metadata.json)"
 
-          verify_private_unlinked_package() {
+          verify_private_expected_repository() {
             local package="$1"
             local metadata
 
@@ -130,14 +135,14 @@ jobs:
               --header "X-GitHub-Api-Version: 2022-11-28" \
               "https://api.github.com/user/packages/container/${package}")"
 
-            metadata_is_private_unlinked "$package" <<<"$metadata" || {
-              echo "GHCR package ${package} is not private and unlinked; refusing release" >&2
+            metadata_is_private_expected_repository "$package" <<<"$metadata" || {
+              echo "GHCR package ${package} is not private or is linked to an unexpected repository; refusing release" >&2
               exit 1
             }
           }
 
-          verify_private_unlinked_package "$server_package"
-          verify_private_unlinked_package "$client_package"
+          verify_private_expected_repository "$server_package"
+          verify_private_expected_repository "$client_package"
 
           server_ref="${image_root}/${server_package}@${server_digest}"
           client_ref="${image_root}/${client_package}@${client_digest}"
