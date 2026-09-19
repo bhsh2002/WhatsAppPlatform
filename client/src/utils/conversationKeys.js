@@ -11,6 +11,15 @@ export const getUnifiedConversationKey = (conv) => {
         ].join(':');
     }
 
+    if (conv.channel === 'sms') {
+        return [
+            'sms',
+            conv.tenant_id || 'no-tenant',
+            conv.sms_account_id || 'no-account',
+            contact,
+        ].join(':');
+    }
+
     return ['whatsapp', conv.tenant_id || 'no-tenant', contact].join(':');
 };
 

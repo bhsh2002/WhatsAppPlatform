@@ -546,8 +546,10 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     assert.doesNotMatch(tenantMetaOnboarding, /setInterval\(/);
     assert.match(tenantMetaOnboarding, /session\.tenantId !== tenantId \|\| session\.kind !== kind/);
     assert.match(tenantMetaOnboarding, /WHERE id = \? AND tenant_id = \?/);
-    assert.match(tenantMetaOnboarding, /phone_numbers\?fields=id&limit=100/);
+    assert.match(tenantMetaOnboarding, /phone_numbers\?fields=id,display_phone_number,verified_name,quality_rating,status,name_status&limit=100/);
     assert.match(tenantMetaOnboarding, /authorizedPhoneIds\.has\(phoneNumberId\)/);
+    assert.match(tenantMetaOnboarding, /router\.get\('\/whatsapp\/numbers'/);
+    assert.match(tenantMetaOnboarding, /setDefaultTenantWhatsAppNumber/);
     assert.match(portal, /router\.use\('\/', tenantBroadcastsRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post)\('\/broadcast/);
     assert.match(tenantBroadcasts, /WHERE id = \? AND tenant_id = \?/);

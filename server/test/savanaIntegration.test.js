@@ -9,11 +9,15 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import express from 'express';
 
-import { createAdminSubscriptionsRouter } from '../routes/savanaIntegrations.js';
+import {
+    createAdminSubscriptionsRouter,
+    createTenantIntegrationsRouter,
+} from '../routes/savanaIntegrations.js';
 import {
     canonicalJson,
     SavanaIntegrationError,
     SavanaIntegrationService,
+    signWebhook,
     validateIntegrationConfig,
 } from '../services/savanaIntegration.js';
 
@@ -132,8 +136,9 @@ const config = {
     callbackUrl: 'https://wa.test/integrations/connect/events',
     callbackToken,
     subscriptionsUrl: 'https://subscriptions.test',
-    subscriptionsPlatformToken: 'platform-token',
+    subscriptionsPlatformToken: 'wa-savana-subscriptions-platform-token',
     subscriptionsSigningSecret: signingSecret,
+    subscriptionsMode: 'central',
     timeoutMs: 1000,
 };
 
@@ -156,6 +161,35 @@ test('production callback policy permits only HTTPS or the canonical private Doc
             callbackUrl: 'not-a-url',
         }, { NODE_ENV: 'production' }),
         /valid absolute URL/
+    );
+});
+
+test('production integration policy requires distinct secrets and trusted service URLs', () => {
+    assert.doesNotThrow(() => validateIntegrationConfig({
+        ...config,
+        connectUrl: 'http://savana-connect:8010',
+        subscriptionsUrl: 'http://savana-subscriptions:8020',
+    }, { NODE_ENV: 'production' }));
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            subscriptionsPlatformToken: config.callbackToken,
+        }, { NODE_ENV: 'production' }),
+        /must be distinct/,
+    );
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            connectUrl: 'http://connect.example.test:8010',
+        }, { NODE_ENV: 'production' }),
+        /must use HTTPS/,
+    );
+    assert.throws(
+        () => validateIntegrationConfig({
+            ...config,
+            subscriptionsMode: 'local',
+        }, { NODE_ENV: 'production' }),
+        /must be central/,
     );
 });
 
@@ -195,6 +229,29 @@ const envelope = (eventType, data, eventId, idempotencyKey) => ({
     data,
 });
 
+const deliver = (
+    service,
+    payload,
+    {
+        connectionId = 'connection-1',
+        callback = callbackToken,
+        secret = 'wa-savana-connection-secret',
+        signature = null,
+    } = {},
+) => {
+    const rawBody = Buffer.from(JSON.stringify(payload));
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const deliveryId = crypto.randomUUID();
+    return service.receiveEvent(
+        connectionId,
+        callback,
+        deliveryId,
+        timestamp,
+        signature || signWebhook(secret, timestamp, deliveryId, rawBody),
+        rawBody,
+    );
+};
+
 test('migrations create isolated integration, projection and service request tables', () => {
     const database = createDatabase();
     const tables = new Set(database.prepare(`
@@ -207,6 +264,10 @@ test('migrations create isolated integration, projection and service request tab
         'savana_pos_transactions',
         'savana_notification_candidates',
         'savana_service_requests',
+        'savana_integration_outbox',
+        'savana_product_snapshot_streams',
+        'savana_product_snapshot_pages',
+        'savana_product_snapshot_memberships',
     ]));
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
@@ -395,6 +456,15 @@ test('authenticated one-click provisioning configures Wa Savana as the target', 
     assert.equal(item.platform_code, 'catalog');
     assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
     assert.equal(item.status, 'active');
+    const degraded = service.applyLifecycle({
+        connection: {
+            id: connectionId,
+            scopes: ['catalog.products.projection'],
+        },
+        action: 'degraded',
+    }, callbackToken);
+    assert.equal(degraded.status, 'degraded');
+    assert.notEqual(degraded.webhook_secret_encrypted, null);
     const revoked = service.applyLifecycle({
         connection: {
             id: connectionId,
@@ -827,9 +897,8 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
         }],
         payments: [{ method: 'cash', amount: '25.000', reference: null }],
     }, '7f754f8c-c0c8-4a21-aedd-0cd7b8ab90ca', 'pos:sale:branch-1:1001');
-    const rawSale = Buffer.from(JSON.stringify(sale));
-    assert.equal(service.receiveEvent('connection-1', callbackToken, rawSale).duplicate, false);
-    assert.equal(service.receiveEvent('connection-1', callbackToken, rawSale).duplicate, true);
+    assert.equal(deliver(service, sale).duplicate, false);
+    assert.equal(deliver(service, sale).duplicate, true);
 
     const inventory = envelope('pos.inventory_snapshot.v1', {
         snapshot_id: '5499a20e-39b8-413e-9bb9-ac34c4aec37e',
@@ -848,7 +917,7 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
             unit_code: 'PCS',
         }],
     }, '004a2c66-5b9c-488a-a5fe-7e8e2a056f90', 'pos:inventory:snapshot:branch-1:one');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(inventory)));
+    deliver(service, inventory);
 
     const returned = envelope('pos.retail_sale_returned.v1', {
         local_return_id: '2001',
@@ -867,15 +936,20 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
             restock: true,
         }],
     }, '508ed5ca-16ad-43ad-baad-2b24530f2e9d', 'pos:return:branch-1:2001');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(returned)));
+    deliver(service, returned);
 
     assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_integration_events').get().count, 3);
     assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_pos_transactions').get().count, 2);
     assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_notification_candidates').get().count, 2);
     assert.equal(database.prepare('SELECT quantity_available FROM savana_product_projection').get().quantity_available, '18.000000');
     assert.throws(
-        () => service.receiveEvent('connection-1', 'wrong-token', rawSale),
+        () => deliver(service, sale, { callback: 'wrong-token' }),
         error => error instanceof SavanaIntegrationError && error.statusCode === 401,
+    );
+    assert.throws(
+        () => deliver(service, sale, { signature: 'v1=invalid' }),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'invalid_signature',
     );
     assert.deepEqual(service.diagnostics(service.get(1)).counts, {
         products: 1,
@@ -918,15 +992,17 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
             is_active: true,
         }],
     }, crypto.randomUUID(), 'catalog:products:direct-1');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(product)));
+    deliver(service, product);
 
-    const order = envelope('catalog.order_status_changed.v1', {
-        order_id: 'ORDER-1',
-        status: 'ready',
-        recipient_phone_e164: '+218910000001',
-        notification_consent: true,
+    const order = envelope('wa_savana.notification_send_requested.v1', {
+        request_id: 'ORDER-1-ready',
+        recipient: { phone_e164: '+218910000001' },
+        template_key: 'catalog_order_ready',
+        requires_review: true,
+        consent_asserted: false,
     }, crypto.randomUUID(), 'catalog:order:ORDER-1:ready');
-    service.receiveEvent('connection-1', callbackToken, Buffer.from(JSON.stringify(order)));
+    order.source = 'catalog';
+    deliver(service, order);
 
     assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_product_projection').get().count, 1);
     const sharedProduct = database.prepare(`
@@ -938,8 +1014,306 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
     assert.ok(sharedProduct.savana_projection_key);
     assert.equal(sharedProduct.is_active, 1);
     const request = database.prepare('SELECT * FROM savana_service_requests').get();
-    assert.equal(request.request_kind, 'order_notification');
+    assert.equal(request.request_kind, 'notification_request');
     assert.equal(request.status, 'pending_review');
     assert.equal(service.diagnostics(service.get(1, 'catalog')).counts.pending_service_requests, 1);
+    database.close();
+});
+
+test('tenant inbox reviews and tracks contextual requests without sending automatically', async (t) => {
+    const database = createDatabase();
+    const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
+    await service.provisionConnection({
+        connection: {
+            id: 'catalog-message-connection',
+            organization_id: organizationId,
+            source_tenant_id: 'catalog-tenant-id',
+            target_tenant_id: 'wa-savana-tenant-id',
+            source_platform: 'catalog',
+            target_platform: 'wa_savana',
+            source_external_tenant_id: 'catalog:shop:1',
+            target_external_tenant_id: 'wa_savana:tenant:1',
+            status: 'active',
+            scopes: ['wa_savana.notifications.send'],
+        },
+        webhook_secret: 'catalog-message-secret',
+    }, callbackToken);
+    const command = envelope('wa_savana.notification_send_requested.v1', {
+        request_id: 'catalog-message-1',
+        recipient: { phone_e164: '+218910000001' },
+        message: 'رسالة من الطلب للمراجعة.',
+        requires_review: true,
+        consent_asserted: false,
+    }, crypto.randomUUID(), 'catalog:message:1');
+    command.source = 'catalog';
+    deliver(service, command, {
+        connectionId: 'catalog-message-connection',
+        secret: 'catalog-message-secret',
+    });
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
+        0,
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count,
+        0,
+    );
+
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+        req.user = { id: 'tenant-user', tenant_id: 1 };
+        next();
+    });
+    app.use('/integrations', createTenantIntegrationsRouter({ database, service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    t.after(() => database.close());
+    const baseUrl = `http://127.0.0.1:${server.address().port}/integrations`;
+
+    const listResponse = await fetch(`${baseUrl}/message-requests`);
+    const list = await listResponse.json();
+    assert.equal(listResponse.status, 200);
+    assert.equal(list.data.length, 1);
+    assert.equal(list.data[0].platform_code, 'catalog');
+    assert.equal(list.data[0].payload.message, 'رسالة من الطلب للمراجعة.');
+
+    const requestId = list.data[0].id;
+    const acceptedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/accept`, {
+        method: 'POST',
+    });
+    assert.equal(acceptedResponse.status, 200);
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'approved',
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
+        0,
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count,
+        1,
+    );
+
+    const missingMessageResponse = await fetch(
+        `${baseUrl}/message-requests/${requestId}/complete`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        },
+    );
+    assert.equal(missingMessageResponse.status, 422);
+    assert.equal(
+        (await missingMessageResponse.json()).code,
+        'channel_message_id_required',
+    );
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'approved',
+    );
+
+    database.prepare(`
+        INSERT INTO messages (
+            tenant_id, direction, sender, recipient, message_type,
+            content, status, wamid
+        ) VALUES (1, 'outgoing', 'wa-number-1', '218910009999', 'text',
+            'رسالة إلى مستلم آخر.', 'sent', 'wamid.contextual-message')
+    `).run();
+    const unverifiedMessageResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_message_id: 'wamid.contextual-message' }),
+    });
+    assert.equal(unverifiedMessageResponse.status, 422);
+    assert.equal(
+        (await unverifiedMessageResponse.json()).code,
+        'channel_message_not_verified',
+    );
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'approved',
+    );
+
+    database.prepare(`
+        UPDATE messages SET recipient = '218910000001',
+            content = 'رسالة من الطلب للمراجعة.'
+        WHERE wamid = 'wamid.contextual-message'
+    `).run();
+    const completedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_message_id: 'wamid.contextual-message' }),
+    });
+    assert.equal(completedResponse.status, 200);
+    assert.equal(
+        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
+        'sent',
+    );
+    assert.equal(
+        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
+        1,
+    );
+    assert.equal(
+        database.prepare(`
+            SELECT COUNT(*) count FROM savana_integration_outbox
+            WHERE event_type = 'wa_savana.notification_status_changed.v1'
+        `).get().count,
+        2,
+    );
+});
+
+test('tenant inbox product picker exposes every integrated product with the POS compatibility alias', async (t) => {
+    const database = createDatabase();
+    const { service } = await provision(database);
+    deliver(service, envelope('savana.product_snapshot.v1', {
+        snapshot_id: crypto.randomUUID(),
+        generated_at: new Date().toISOString(),
+        page_number: 1,
+        page_count: 1,
+        complete: true,
+        products: [{
+            canonical_product_id: null,
+            local_product_id: 'POS-PICKER-1',
+            sku: 'PICKER-1',
+            barcodes: ['100000000901'],
+            name: 'Picker product',
+            online_price: '15.000',
+            is_active: true,
+        }],
+    }, crypto.randomUUID(), 'pos:products:picker'));
+    database.prepare(`
+        UPDATE savana_product_projection SET shelf_code = 'A-04'
+        WHERE tenant_id = 1 AND sku = 'PICKER-1'
+    `).run();
+
+    const app = express();
+    app.use((req, _res, next) => {
+        req.user = { id: 'tenant-user', tenant_id: 1 };
+        next();
+    });
+    app.use('/integrations', createTenantIntegrationsRouter({ database, service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    t.after(() => database.close());
+    const baseUrl = `http://127.0.0.1:${server.address().port}/integrations`;
+
+    const productsResponse = await fetch(`${baseUrl}/products`);
+    const products = await productsResponse.json();
+    assert.equal(productsResponse.status, 200);
+    assert.equal(products.data[0].name, 'Picker product');
+    assert.equal(products.data[0].shelf_code, 'A-04');
+
+    const compatibilityResponse = await fetch(`${baseUrl}/pos/products`);
+    const compatibility = await compatibilityResponse.json();
+    assert.deepEqual(compatibility.data, products.data);
+});
+
+test('POS product snapshots keep prices and reconcile all pages together', async () => {
+    const database = createDatabase();
+    const { service } = await provision(database);
+    const generatedAt = new Date().toISOString();
+    const snapshotId = crypto.randomUUID();
+    const product = (sku, barcode, name, price) => ({
+        canonical_product_id: null,
+        local_product_id: sku,
+        sku,
+        barcodes: [barcode],
+        name,
+        online_price: price,
+        is_active: true,
+    });
+
+    deliver(service, envelope('savana.product_snapshot.v1', {
+        snapshot_id: snapshotId,
+        generated_at: generatedAt,
+        page_number: 1,
+        page_count: 2,
+        complete: false,
+        products: [product('POS-1', '100000000001', 'POS first page', '7.500')],
+    }, crypto.randomUUID(), 'pos:products:paged:1'));
+    deliver(service, envelope('savana.product_snapshot.v1', {
+        snapshot_id: snapshotId,
+        generated_at: generatedAt,
+        page_number: 2,
+        page_count: 2,
+        complete: true,
+        products: [product('POS-2', '100000000002', 'POS second page', '9.000')],
+    }, crypto.randomUUID(), 'pos:products:paged:2'));
+
+    const products = database.prepare(`
+        SELECT sku, price, is_active, availability FROM bot_products
+        WHERE tenant_id = 1 ORDER BY sku
+    `).all();
+    assert.deepEqual(products, [
+        { sku: 'POS-1', price: 7.5, is_active: 1, availability: 'available' },
+        { sku: 'POS-2', price: 9, is_active: 1, availability: 'available' },
+    ]);
+    database.close();
+});
+
+test('cross-platform Wa commands remain reviewable and idempotent', async () => {
+    const database = createDatabase();
+    const { service } = await provision(database);
+    database.prepare("UPDATE savana_integrations SET status = 'active' WHERE tenant_id = 1").run();
+
+    const command = envelope('wa_savana.content_publish_requested.v1', {
+        request_id: 'content-request-1',
+        channels: ['facebook'],
+        content_type: 'post',
+        text: 'منشور منتج جاهز للمراجعة',
+        requires_review: true,
+    }, crypto.randomUUID(), 'pos:content:content-request-1');
+
+    assert.equal(deliver(service, command).duplicate, false);
+    assert.equal(deliver(service, command).duplicate, true);
+    const request = database.prepare('SELECT * FROM savana_service_requests').get();
+    assert.equal(request.request_kind, 'content_publication');
+    assert.equal(request.status, 'pending_review');
+    database.close();
+});
+
+test('notification status remains durable while Connect is unavailable', async () => {
+    const database = createDatabase();
+    const baseFetch = createFetch();
+    let failEvents = true;
+    const fetchImpl = async (url, options) => {
+        if (new URL(url).pathname === '/v1/events' && failEvents) {
+            return Response.json(
+                { error: { code: 'temporary_unavailable' } },
+                { status: 503 },
+            );
+        }
+        return baseFetch(url, options);
+    };
+    const { service, item } = await provision(database, fetchImpl);
+    const published = await service.publishNotificationStatus(item, {
+        request_id: 'notification-request-1',
+        status: 'delivered',
+    });
+    assert.equal(published.event.reply_to_platform, 'pos');
+    assert.equal(published.receipt.queued, true);
+    assert.equal(published.receipt.status, 'failed');
+    assert.equal(
+        database.prepare(`
+            SELECT status FROM savana_integration_outbox
+        `).get().status,
+        'failed',
+    );
+    assert.equal(service.diagnostics(item).outbox.counts.failed, 1);
+    assert.equal(service.diagnostics(item).outbox.recent_failures.length, 1);
+
+    failEvents = false;
+    const retried = await service.retryOutbox(item);
+    assert.deepEqual(retried, { queued: 1, published: 1, failed: 0 });
+    assert.equal(
+        database.prepare(`
+            SELECT status FROM savana_integration_outbox
+        `).get().status,
+        'published',
+    );
     database.close();
 });

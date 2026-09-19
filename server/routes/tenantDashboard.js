@@ -1,5 +1,9 @@
 import express from 'express';
 import db from '../db/database.js';
+import {
+    resolveTenantWhatsAppContext,
+    selectedWhatsAppPhoneNumberId,
+} from '../services/whatsappNumbers.js';
 
 const router = express.Router();
 
@@ -28,6 +32,24 @@ router.get('/', (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
+        const requestedPhoneNumberId = selectedWhatsAppPhoneNumberId(req);
+        let whatsappFilter = '';
+        let whatsappParams = [];
+        const context = resolveTenantWhatsAppContext({
+            database: db,
+            tenantId,
+            phoneNumberId: requestedPhoneNumberId,
+            requireToken: false,
+        });
+        if (context.error) {
+            if (context.code !== 'WHATSAPP_NUMBER_REQUIRED' || requestedPhoneNumberId) {
+                return res.status(context.status).json({ error: context.error, code: context.code });
+            }
+        } else {
+            whatsappFilter = "AND ((direction = 'incoming' AND recipient = ?) OR (direction = 'outgoing' AND sender = ?))";
+            whatsappParams = [context.phoneNumberId, context.phoneNumberId];
+        }
+
         const whatsapp = db.prepare(`
             SELECT
                 COUNT(DISTINCT CASE WHEN direction = 'incoming' THEN sender ELSE recipient END) AS conversations,
@@ -37,7 +59,8 @@ router.get('/', (req, res) => {
                 COALESCE(SUM(CASE WHEN direction = 'incoming' AND status = 'received' THEN 1 ELSE 0 END), 0) AS unread
             FROM messages
             WHERE tenant_id = ?
-        `).get(tenantId);
+              ${whatsappFilter}
+        `).get(tenantId, ...whatsappParams);
 
         const messengerConversations = db.prepare(`
             SELECT COUNT(*) AS conversations, COALESCE(SUM(unread_count), 0) AS unread

@@ -11,7 +11,8 @@ function createDatabase() {
         CREATE TABLE contacts (
             tenant_id INTEGER, phone TEXT, profile_name TEXT, profile_picture_url TEXT,
             last_ctwa_clid TEXT, last_ctwa_source_id TEXT, last_ctwa_source_type TEXT,
-            last_ctwa_source_url TEXT, last_ctwa_received_at DATETIME
+            last_ctwa_source_url TEXT, last_ctwa_received_at DATETIME,
+            last_customer_message_at DATETIME
         );
         CREATE TABLE messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, direction TEXT,
@@ -42,8 +43,9 @@ function createDatabase() {
             (2, 'Tenant B', 'phone-B', 'Active'),
             (3, 'Suspended', 'phone-C', 'Suspended');
         INSERT INTO contacts VALUES
-            (1, '218910000001', 'Contact A', NULL, NULL, NULL, NULL, NULL, NULL),
-            (2, '218910000002', 'Contact B', NULL, NULL, NULL, NULL, NULL, NULL);
+            (1, '218910000001', 'Contact A', NULL, NULL, NULL, NULL, NULL, NULL, datetime('now')),
+            (1, '218910000009', 'Contact New', NULL, NULL, NULL, NULL, NULL, NULL, datetime('now')),
+            (2, '218910000002', 'Contact B', NULL, NULL, NULL, NULL, NULL, NULL, datetime('now'));
         INSERT INTO messages (
             id, tenant_id, direction, recipient, sender, message_type, content, status, wamid, created_at
         ) VALUES

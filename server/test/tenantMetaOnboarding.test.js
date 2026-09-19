@@ -13,6 +13,7 @@ function createDatabase() {
             waba_id TEXT,
             phone_number_id TEXT,
             business_id TEXT,
+            dataset_id TEXT,
             access_token TEXT,
             access_token_encrypted TEXT,
             facebook_user_access_token_encrypted TEXT,
@@ -62,6 +63,32 @@ function createDatabase() {
         INSERT INTO tenants (id, name) VALUES (1, 'Tenant A'), (2, 'Tenant B');
     `);
     return db;
+}
+
+function enableMultipleWhatsAppNumbers(db) {
+    db.exec(`
+        CREATE TABLE tenant_whatsapp_numbers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            phone_number_id TEXT NOT NULL UNIQUE,
+            waba_id TEXT,
+            business_id TEXT,
+            dataset_id TEXT,
+            display_phone_number TEXT,
+            verified_name TEXT,
+            label TEXT,
+            quality_rating TEXT,
+            platform_status TEXT,
+            access_token_encrypted TEXT,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (tenant_id, phone_number_id)
+        );
+        CREATE UNIQUE INDEX one_tenant_whatsapp_default
+            ON tenant_whatsapp_numbers(tenant_id) WHERE is_default = 1;
+    `);
 }
 
 const config = {
@@ -427,4 +454,90 @@ test('WhatsApp onboarding verifies WABA phone ownership before encrypted tenant 
     });
     assert.equal(conflict.statusCode, 409);
     assert.equal(conflict.body.code, 'WHATSAPP_ALREADY_CONNECTED');
+});
+
+test('WhatsApp onboarding imports every authorized WABA number without replacing the existing registry', async (t) => {
+    const db = createDatabase();
+    enableMultipleWhatsAppNumbers(db);
+    t.after(() => db.close());
+    const requestMeta = async url => {
+        if (url.endsWith('/oauth/access_token')) {
+            return { ok: true, status: 200, data: { access_token: 'multi-token' } };
+        }
+        if (url.includes('/waba-multi/phone_numbers?')) {
+            return {
+                ok: true,
+                status: 200,
+                data: {
+                    data: [
+                        {
+                            id: 'phone-multi-1',
+                            display_phone_number: '+218 91 000 0001',
+                            verified_name: 'Sales',
+                            quality_rating: 'GREEN',
+                            status: 'CONNECTED',
+                        },
+                        {
+                            id: 'phone-multi-2',
+                            display_phone_number: '+218 92 000 0002',
+                            verified_name: 'Support',
+                            quality_rating: 'YELLOW',
+                            status: 'CONNECTED',
+                        },
+                    ],
+                },
+            };
+        }
+        if (url.endsWith('/waba-multi/subscribed_apps')) {
+            return { ok: true, status: 200, data: { success: true } };
+        }
+        return assert.fail(`Unexpected Meta request: ${url}`);
+    };
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({ requestMeta }),
+    });
+
+    const connected = await invokeRoute(router, 'post', '/whatsapp/connect', {
+        user: { tenant_id: 1 },
+        body: {
+            code: 'multi-code',
+            waba_id: 'waba-multi',
+            phone_number_id: 'phone-multi-2',
+            business_id: 'business-multi',
+        },
+    });
+    assert.equal(connected.statusCode, 200);
+    assert.equal(connected.body.imported_count, 2);
+    assert.equal(connected.body.status.number_count, 2);
+    assert.equal(connected.body.status.default_phone_number_id, 'phone-multi-2');
+    assert.deepEqual(
+        db.prepare(`
+            SELECT phone_number_id, display_phone_number, verified_name,
+                   quality_rating, platform_status, is_default
+            FROM tenant_whatsapp_numbers
+            WHERE tenant_id = 1
+            ORDER BY phone_number_id
+        `).all(),
+        [
+            {
+                phone_number_id: 'phone-multi-1',
+                display_phone_number: '+218 91 000 0001',
+                verified_name: 'Sales',
+                quality_rating: 'GREEN',
+                platform_status: 'CONNECTED',
+                is_default: 0,
+            },
+            {
+                phone_number_id: 'phone-multi-2',
+                display_phone_number: '+218 92 000 0002',
+                verified_name: 'Support',
+                quality_rating: 'YELLOW',
+                platform_status: 'CONNECTED',
+                is_default: 1,
+            },
+        ],
+    );
+    assert.equal(db.prepare('SELECT phone_number_id FROM tenants WHERE id = 1').get().phone_number_id, 'phone-multi-2');
+    assert.doesNotMatch(JSON.stringify(connected.body), /multi-token|encrypted:multi-token/);
 });

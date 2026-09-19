@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '044_link_savana_products_to_content_catalog.sql';
+    const latestMigration = '051_savana_product_snapshot_state.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -76,8 +76,16 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     }
 
     db.prepare(`
-        INSERT INTO tenants (id, name, phone, credits)
-        VALUES (41, 'upgrade tenant', '218910000041', 73)
+        INSERT INTO tenants (
+            id, name, phone, credits, phone_number_id, waba_id, dataset_id, access_token_encrypted
+        ) VALUES (
+            41, 'upgrade tenant', '218910000041', 73,
+            'phone-upgrade', 'waba-upgrade', 'dataset-upgrade', 'encrypted-token'
+        )
+    `).run();
+    db.prepare(`
+        INSERT INTO contacts (tenant_id, phone, profile_name, last_customer_message_at)
+        VALUES (41, '218910000099', 'Upgrade contact', '2026-07-14 12:00:00')
     `).run();
     db.prepare(`
         INSERT INTO tenant_pages (id, tenant_id, page_id, page_name)
@@ -101,6 +109,14 @@ test('latest migration upgrades a tracked production-like snapshot without data 
         INSERT INTO data_deletion_requests (
             id, confirmation_code_hash, subject_hash, status, records_deleted
         ) VALUES (93, 'confirmation-hash', 'subject-hash', 'completed', 4)
+    `).run();
+    db.prepare(`
+        INSERT INTO conversion_events (
+            tenant_id, dataset_id, phone_number_id, event_name, event_time, status
+        ) VALUES (
+            41, 'dataset-upgrade', 'phone-upgrade',
+            'Purchase', '2026-07-15 12:00:00', 'sent'
+        )
     `).run();
 
     const result = runMigrationsSync(db);
@@ -182,6 +198,49 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'savana_product_projection'), true);
     assert.equal(tableExists(db, 'savana_pos_transactions'), true);
     assert.equal(tableExists(db, 'savana_notification_candidates'), true);
+    assert.equal(tableExists(db, 'tenant_whatsapp_numbers'), true);
+    assert.equal(tableExists(db, 'tenant_whatsapp_contact_windows'), true);
+    assert.equal(tableExists(db, 'sms_gateway_accounts'), true);
+    assert.equal(tableExists(db, 'sms_messages'), true);
+    assert.equal(tableExists(db, 'sms_webhook_deliveries'), true);
+    assert.equal(tableExists(db, 'sms_ussd_requests'), true);
+    assert.deepEqual(
+        db.prepare(`
+            SELECT tenant_id, phone_number_id, waba_id, dataset_id, access_token_encrypted,
+                   is_default, is_active
+            FROM tenant_whatsapp_numbers
+            WHERE tenant_id = 41
+        `).get(),
+        {
+            tenant_id: 41,
+            phone_number_id: 'phone-upgrade',
+            waba_id: 'waba-upgrade',
+            dataset_id: 'dataset-upgrade',
+            access_token_encrypted: 'encrypted-token',
+            is_default: 1,
+            is_active: 1,
+        }
+    );
+    assert.deepEqual(
+        db.prepare(`
+            SELECT phone_number_id, contact_phone, last_customer_message_at
+            FROM tenant_whatsapp_contact_windows
+            WHERE tenant_id = 41
+        `).get(),
+        {
+            phone_number_id: 'phone-upgrade',
+            contact_phone: '218910000099',
+            last_customer_message_at: '2026-07-14 12:00:00',
+        }
+    );
+    assert.equal(
+        db.prepare(`
+            SELECT phone_number_id
+            FROM conversion_events
+            WHERE tenant_id = 41 AND event_name = 'Purchase'
+        `).get().phone_number_id,
+        'phone-upgrade'
+    );
     assert.equal(
         db.pragma('table_info(bot_products)')
             .some(column => column.name === 'approval_status'),
@@ -199,6 +258,14 @@ test('latest migration upgrades a tracked production-like snapshot without data 
             WHERE operation_key = 'facebook.ai_generation'
         `).get(),
         { channel: 'facebook', operation_type: 'ai_generation', unit_price_credits: 5 }
+    );
+    assert.deepEqual(
+        db.prepare(`
+            SELECT channel, operation_type, unit_price_credits
+            FROM billing_price_items
+            WHERE operation_key = 'sms.ussd'
+        `).get(),
+        { channel: 'sms', operation_type: 'ussd', unit_price_credits: 1 }
     );
     assert.equal(db.pragma('foreign_key_check').length, 0);
     assert.deepEqual(runMigrationsSync(db), {

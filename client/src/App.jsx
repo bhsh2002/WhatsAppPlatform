@@ -4,6 +4,7 @@ import { Box, CircularProgress } from '@mui/material';
 import MainLayout from './components/Layout/MainLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider } from './context/TenantContext';
+import { WhatsAppNumberProvider } from './context/WhatsAppNumberContext';
 import { useLanguage } from './context/LanguageContext';
 
 // Admin Pages
@@ -39,6 +40,8 @@ const TenantFbInsights = lazy(() => import('./pages/TenantPortal/TenantFbInsight
 const TenantMetaReview = lazy(() => import('./pages/TenantPortal/TenantMetaReview'));
 const TenantBilling = lazy(() => import('./pages/TenantPortal/TenantBilling'));
 const TenantPosIntegration = lazy(() => import('./pages/TenantPortal/TenantPosIntegration'));
+const TenantSmsAccounts = lazy(() => import('./pages/TenantPortal/TenantSmsAccounts'));
+const TenantUssd = lazy(() => import('./pages/TenantPortal/TenantUssd'));
 
 // Admin Feature Pages
 const BusinessManager = lazy(() => import('./pages/Settings/BusinessManager'));
@@ -320,6 +323,22 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/portal/integrations/sms"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantSmsAccounts /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portal/ussd"
+        element={
+          <ProtectedRoute requireTenant>
+            <MainLayout><TenantUssd /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/portal/integrations/pos"
         element={
           <ProtectedRoute requireTenant>
@@ -486,9 +505,11 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <TenantProvider>
-          <AppRoutes />
-        </TenantProvider>
+        <WhatsAppNumberProvider>
+          <TenantProvider>
+            <AppRoutes />
+          </TenantProvider>
+        </WhatsAppNumberProvider>
       </AuthProvider>
     </BrowserRouter>
   );

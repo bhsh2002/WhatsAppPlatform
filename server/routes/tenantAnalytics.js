@@ -1,4 +1,9 @@
 import express from 'express';
+import {
+    hasWhatsAppNumbersTable,
+    resolveTenantWhatsAppContext,
+    selectedWhatsAppPhoneNumberId,
+} from '../services/whatsappNumbers.js';
 
 export function createTenantAnalyticsRouter({ database } = {}) {
     if (!database) throw new TypeError('Tenant analytics router requires database');
@@ -7,6 +12,25 @@ export function createTenantAnalyticsRouter({ database } = {}) {
     router.get('/summary', (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
+            const requestedPhoneNumberId = selectedWhatsAppPhoneNumberId(req);
+            let numberFilter = '';
+            let numberParams = [];
+            if (requestedPhoneNumberId || hasWhatsAppNumbersTable(database)) {
+                const context = resolveTenantWhatsAppContext({
+                    database,
+                    tenantId,
+                    phoneNumberId: requestedPhoneNumberId,
+                    requireToken: false,
+                });
+                if (context.error) {
+                    if (context.code !== 'WHATSAPP_NUMBER_REQUIRED' || requestedPhoneNumberId) {
+                        return res.status(context.status).json({ error: context.error, code: context.code });
+                    }
+                } else {
+                    numberFilter = "AND ((direction = 'incoming' AND recipient = ?) OR (direction = 'outgoing' AND sender = ?))";
+                    numberParams = [context.phoneNumberId, context.phoneNumberId];
+                }
+            }
             const totals = database.prepare(`
                 SELECT COUNT(*) AS total_messages,
                        SUM(CASE WHEN direction = 'outgoing' THEN 1 ELSE 0 END) AS sent_messages,
@@ -14,7 +38,8 @@ export function createTenantAnalyticsRouter({ database } = {}) {
                        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_messages
                 FROM messages
                 WHERE tenant_id = ?
-            `).get(tenantId) || {};
+                ${numberFilter}
+            `).get(tenantId, ...numberParams) || {};
 
             return res.json({
                 totalMessages: Number(totals.total_messages) || 0,
@@ -28,17 +53,19 @@ export function createTenantAnalyticsRouter({ database } = {}) {
                            SUM(CASE WHEN direction = 'incoming' THEN 1 ELSE 0 END) AS received
                     FROM messages
                     WHERE tenant_id = ?
+                      ${numberFilter}
                       AND created_at >= datetime('now', '-30 days')
                     GROUP BY date(created_at)
                     ORDER BY date DESC
-                `).all(tenantId),
+                `).all(tenantId, ...numberParams),
                 typeDistribution: database.prepare(`
                     SELECT message_type, COUNT(*) AS count
                     FROM messages
                     WHERE tenant_id = ?
+                      ${numberFilter}
                     GROUP BY message_type
                     ORDER BY count DESC, message_type ASC
-                `).all(tenantId),
+                `).all(tenantId, ...numberParams),
             });
         } catch (error) {
             console.error('[TenantAnalytics] Summary error:', error);

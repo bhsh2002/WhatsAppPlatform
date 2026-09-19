@@ -1,0 +1,32 @@
+# Imported by the host Caddyfile after the loopback smoke tests pass.
+# Access logs go to journald/stdout so Caddy does not depend on a writable log directory.
+wa.savana.ly {
+    @public_metrics path /api/metrics /api/metrics/*
+    respond @public_metrics 404
+
+    request_body {
+        max_size 100MB
+    }
+
+    encode zstd gzip
+
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), geolocation=(), microphone=()"
+    }
+
+    reverse_proxy 127.0.0.1:3133 {
+        health_uri /api/health
+        health_interval 30s
+        health_timeout 5s
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}

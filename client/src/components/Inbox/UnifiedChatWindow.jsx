@@ -25,11 +25,14 @@ import {
     Send as SendIcon,
     WhatsApp as WhatsAppIcon,
     Facebook as FacebookIcon,
+    Sms as SmsIcon,
     ArrowBack as ArrowBackIcon,
     Label as LabelIcon,
     SmartToy as BotIcon,
+    Inventory2 as ProductIcon,
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';
+import IntegratedProductPicker from './IntegratedProductPicker';
 
 const formatTime = (dateStr, locale) => {
     if (!dateStr) return '';
@@ -43,17 +46,18 @@ const getDateKey = (dateStr) => {
 };
 
 // Messenger message bubble
-const MessengerBubble = ({ msg }) => {
+const ChannelBubble = ({ msg, channel }) => {
     const { locale, t } = useLanguage();
     const isOutgoing = msg?.direction === 'outgoing';
-    const content = msg?.message_text || '';
+    const content = msg?.message_text ?? msg?.content ?? '';
+    const outgoingColor = channel === 'sms' ? '#7c3aed' : '#0084ff';
 
     return (
         <Box sx={{ display: 'flex', justifyContent: isOutgoing ? 'flex-end' : 'flex-start', mb: 1 }}>
             <Paper sx={{
                 maxWidth: '70%',
                 p: 1.5,
-                bgcolor: isOutgoing ? '#0084ff' : '#f0f0f0',
+                bgcolor: isOutgoing ? outgoingColor : '#f0f0f0',
                 color: isOutgoing ? 'white' : 'text.primary',
                 borderRadius: 2,
             }}>
@@ -100,6 +104,7 @@ const UnifiedChatWindow = ({
     newMessage,
     setNewMessage,
     sending,
+    canSend = true,
     messagesEndRef,
     messagesContainerRef,
     // Utility message props
@@ -108,6 +113,8 @@ const UnifiedChatWindow = ({
     utilityFallback, // { text, timestamp } — set by parent on 24h error
     botSession,
     onBotStatusChange,
+    integrationProducts = [],
+    productCapability = null,
 }) => {
     const { locale, t } = useLanguage();
     // Utility dialog state
@@ -119,6 +126,7 @@ const UnifiedChatWindow = ({
     const [utilityError, setUtilityError] = useState('');
     const [utilityLoadingTags, setUtilityLoadingTags] = useState(false);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+    const [productPickerOpen, setProductPickerOpen] = useState(false);
 
     const openUtilityDialog = useCallback(async () => {
         if (!getMessageTags) return;
@@ -192,12 +200,13 @@ const UnifiedChatWindow = ({
     const fGetDateKey = getDateKey;
     const hasUtilitySupport = !!onSendUtilityMessage && !!getMessageTags;
     const isMessenger = selectedChat.channel === 'messenger';
+    const isSms = selectedChat.channel === 'sms';
     const botStatus = botSession?.status || 'active';
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            onSendMessage(newMessage);
+            if (canSend) onSendMessage(newMessage);
         }
     };
 
@@ -229,15 +238,15 @@ const UnifiedChatWindow = ({
                             {displayName}
                         </Typography>
                         <Chip
-                            icon={<FacebookIcon sx={{ fontSize: 14 }} />}
-                            label={t('inbox.messenger')}
+                            icon={isSms ? <SmsIcon sx={{ fontSize: 14 }} /> : <FacebookIcon sx={{ fontSize: 14 }} />}
+                            label={isSms ? `SMS • ${selectedChat.sms_account_name || selectedChat.sms_account_id}` : t('inbox.messenger')}
                             size="small"
                             sx={{
                                 height: 20,
                                 fontSize: 11,
-                                borderColor: '#0084ff',
-                                color: '#0084ff',
-                                '& .MuiChip-icon': { color: '#0084ff' },
+                                borderColor: isSms ? '#7c3aed' : '#0084ff',
+                                color: isSms ? '#7c3aed' : '#0084ff',
+                                '& .MuiChip-icon': { color: isSms ? '#7c3aed' : '#0084ff' },
                             }}
                             variant="outlined"
                         />
@@ -320,7 +329,7 @@ const UnifiedChatWindow = ({
                                         </Typography>
                                     </Box>
                                 )}
-                                <MessengerBubble msg={msg} />
+                                <ChannelBubble msg={msg} channel={selectedChat.channel} />
                             </React.Fragment>
                         );
                     })
@@ -330,7 +339,26 @@ const UnifiedChatWindow = ({
 
             {/* Input area */}
             <Paper sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }} elevation={0}>
+                {!canSend && (
+                    <Alert severity="info" sx={{ mb: 1 }}>
+                        لا يمكن الرد على مرسل SMS غير رقمي، لكن تبقى رسائله محفوظة في السجل.
+                    </Alert>
+                )}
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                    {productCapability && (
+                        <Tooltip title={productCapability.reason || ''} arrow>
+                            <span>
+                                <IconButton
+                                    aria-label="إدراج منتج مرتبط"
+                                    onClick={() => setProductPickerOpen(true)}
+                                    disabled={!productCapability.enabled}
+                                    sx={{ flexShrink: 0 }}
+                                >
+                                    <ProductIcon />
+                                </IconButton>
+                            </span>
+                        </Tooltip>
+                    )}
                     {hasUtilitySupport && (
                         <Tooltip title={t('inbox.taggedMessageTooltip')} arrow>
                             <IconButton
@@ -355,7 +383,7 @@ const UnifiedChatWindow = ({
                         value={newMessage}
                         onChange={e => setNewMessage(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        disabled={sending}
+                        disabled={sending || !canSend}
                         sx={{
                             minWidth: 0,
                             '& .MuiOutlinedInput-root': {
@@ -367,12 +395,12 @@ const UnifiedChatWindow = ({
                     <IconButton
                         aria-label={t('common.send')}
                         onClick={() => onSendMessage(newMessage)}
-                        disabled={sending || !newMessage?.trim()}
+                        disabled={sending || !canSend || !newMessage?.trim()}
                         sx={{
                             flexShrink: 0,
-                            bgcolor: '#0084ff',
+                            bgcolor: isSms ? '#7c3aed' : '#0084ff',
                             color: 'white',
-                            '&:hover': { bgcolor: '#006fdd' },
+                            '&:hover': { bgcolor: isSms ? '#6d28d9' : '#006fdd' },
                             '&:disabled': { bgcolor: 'action.disabled', color: 'white' }
                         }}
                     >
@@ -380,6 +408,13 @@ const UnifiedChatWindow = ({
                     </IconButton>
                 </Box>
             </Paper>
+
+            {productCapability && <IntegratedProductPicker
+                open={productPickerOpen}
+                onClose={() => setProductPickerOpen(false)}
+                products={integrationProducts}
+                onSelect={message => setNewMessage(message)}
+            />}
 
             {/* Utility Message Dialog */}
             {hasUtilitySupport && (

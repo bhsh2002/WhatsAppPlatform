@@ -2,6 +2,7 @@ import express from 'express';
 
 import { META_API_BASE } from '../config/index.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
+import { resolveTenantWhatsAppContext } from '../services/whatsappNumbers.js';
 
 const BUSINESS_PROFILE_FIELDS = [
     'about',
@@ -35,6 +36,19 @@ export function createTenantProfileRouter({
         throw new TypeError('Tenant profile router requires database and accessTokenForTenant');
     }
     const router = express.Router();
+    const resolveContext = (req, res) => {
+        const context = resolveTenantWhatsAppContext({
+            database,
+            tenantId: req.user?.tenant_id,
+            request: req,
+            accessTokenForTenant,
+        });
+        if (context.error) {
+            res.status(context.status).json({ error: context.error, code: context.code });
+            return null;
+        }
+        return context;
+    };
 
     router.get('/profile', (req, res) => {
         try {
@@ -54,19 +68,12 @@ export function createTenantProfileRouter({
     router.get('/business-profile', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
-            const tenant = database.prepare(`
-                SELECT id, phone_number_id
-                FROM tenants
-                WHERE id = ?
-            `).get(tenantId);
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!tenant?.phone_number_id || !accessToken) {
-                return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
-            }
+            const context = resolveContext(req, res);
+            if (!context) return;
 
             const result = await requestMeta(
-                `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_profile?fields=${BUSINESS_PROFILE_FIELDS}`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
+                `${META_API_BASE}/${encodeURIComponent(context.phoneNumberId)}/whatsapp_business_profile?fields=${BUSINESS_PROFILE_FIELDS}`,
+                { headers: { Authorization: `Bearer ${context.accessToken}` } }
             );
             if (!result.ok) return sendMetaFailure(res, result, 'فشل جلب ملف النشاط التجاري');
             return res.json(result.data?.data?.[0] || result.data);
@@ -79,22 +86,15 @@ export function createTenantProfileRouter({
     router.put('/business-profile', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
-            const tenant = database.prepare(`
-                SELECT id, name, phone_number_id
-                FROM tenants
-                WHERE id = ?
-            `).get(tenantId);
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!tenant?.phone_number_id || !accessToken) {
-                return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
-            }
+            const context = resolveContext(req, res);
+            if (!context) return;
 
             const result = await requestMeta(
-                `${META_API_BASE}/${tenant.phone_number_id}/whatsapp_business_profile`,
+                `${META_API_BASE}/${encodeURIComponent(context.phoneNumberId)}/whatsapp_business_profile`,
                 {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        Authorization: `Bearer ${context.accessToken}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify(buildProfileUpdate(req.body)),
@@ -105,7 +105,7 @@ export function createTenantProfileRouter({
             database.prepare(`
                 INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                 VALUES (?, ?, 'business_profile_updated', 'تم تحديث ملف النشاط التجاري', 'success')
-            `).run(tenantId, tenant.name);
+            `).run(tenantId, context.tenant.name);
             return res.json({ success: true, data: result.data || {} });
         } catch (error) {
             console.error('[TenantProfile] Business profile PUT error:', error);

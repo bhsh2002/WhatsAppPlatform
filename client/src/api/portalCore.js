@@ -54,6 +54,7 @@ export const portalCoreMethods = {
         const response = await fetch(`${this.baseUrl}/api/portal/media/upload-to-meta`, {
             method: 'POST',
             credentials: 'include',
+            headers: this.getWhatsAppRequestHeaders(),
             body: formData,
         });
 
@@ -93,6 +94,7 @@ export const portalCoreMethods = {
         const response = await fetch(`${this.baseUrl}/api/portal/messages/send-document`, {
             method: 'POST',
             credentials: 'include',
+            headers: this.getWhatsAppRequestHeaders(),
             body: formData
         });
 
@@ -141,6 +143,7 @@ export const portalCoreMethods = {
         const response = await fetch(`${this.baseUrl}/api/portal/messages/send-image`, {
             method: 'POST',
             credentials: 'include',
+            headers: this.getWhatsAppRequestHeaders(),
             body: formData
         });
 
@@ -154,6 +157,7 @@ export const portalCoreMethods = {
     getPortalMediaDownloadUrl(mediaId) {
         const params = new URLSearchParams();
         if (this._mediaToken) params.append('media_token', this._mediaToken);
+        if (this._whatsappPhoneNumberId) params.append('phone_number_id', this._whatsappPhoneNumberId);
         const queryString = params.toString() ? `?${params.toString()}` : '';
         return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
     },
@@ -162,6 +166,7 @@ export const portalCoreMethods = {
         const mediaToken = await this.getMediaToken();
         const params = new URLSearchParams();
         if (mediaToken) params.append('media_token', mediaToken);
+        if (this._whatsappPhoneNumberId) params.append('phone_number_id', this._whatsappPhoneNumberId);
         const queryString = params.toString() ? `?${params.toString()}` : '';
         return `${this.baseUrl}/api/portal/media/${mediaId}/download${queryString}`;
     },
@@ -247,6 +252,68 @@ export const portalCoreMethods = {
     async regeneratePortalWebhookSecret() {
         return this.request('/api/portal/settings/api/regenerate-webhook-secret', {
             method: 'POST',
+        });
+    },
+
+    async getSmsAccounts() {
+        return this.request('/api/portal/sms-gateway');
+    },
+
+    async createSmsAccount(data) {
+        return this.request('/api/portal/sms-gateway', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updateSmsAccount(accountId, data) {
+        return this.request(`/api/portal/sms-gateway/${accountId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async disableSmsAccount(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async checkSmsAccount(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/health`, {
+            method: 'POST',
+        });
+    },
+
+    async getSmsAccountDevices(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/devices`);
+    },
+
+    async getUssdRequests({ accountId, limit = 100 } = {}) {
+        const params = new URLSearchParams();
+        if (accountId) params.set('account_id', accountId);
+        params.set('limit', String(limit));
+        return this.request(`/api/portal/sms-gateway/ussd?${params.toString()}`);
+    },
+
+    async sendUssdRequest(accountId, data, idempotencyKey) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/ussd`, {
+            method: 'POST',
+            headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+            body: JSON.stringify(data),
+        });
+    },
+
+    async refreshUssdRequest(accountId, ussdId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/ussd/${ussdId}/refresh`, {
+            method: 'POST',
+        });
+    },
+
+    async testSmsAccount(accountId, data) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/test`, {
+            method: 'POST',
+            body: JSON.stringify(data),
         });
     },
 

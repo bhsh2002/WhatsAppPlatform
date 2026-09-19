@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import express from 'express';
 
 import { META_API_BASE } from '../config/index.js';
@@ -9,8 +10,14 @@ import {
 } from '../services/messengerMessages.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
+import { getWhatsAppConversationWindow } from '../services/whatsappConversationWindow.js';
+import { SmsGatewayError } from '../services/smsGateway.js';
+import {
+    resolveTenantWhatsAppContext,
+    selectedWhatsAppPhoneNumberId,
+} from '../services/whatsappNumbers.js';
 
-const VALID_CHANNELS = new Set(['whatsapp', 'messenger']);
+const VALID_CHANNELS = new Set(['whatsapp', 'messenger', 'sms']);
 
 const normalizeString = (value, maxLength) => {
     if (typeof value !== 'string') return null;
@@ -36,6 +43,7 @@ export function createTenantUnifiedInboxRouter({
     decryptToken,
     requestMeta = requestMetaJson,
     billing,
+    smsGateway = null,
     emitNewMessage = () => undefined,
     emitConversationUpdate = () => undefined,
     broadcast = () => undefined,
@@ -51,26 +59,34 @@ export function createTenantUnifiedInboxRouter({
     }
     const router = express.Router();
 
+    const resolveWhatsAppContext = (req, res, options = {}) => {
+        const context = resolveTenantWhatsAppContext({
+            database,
+            tenantId: req.user?.tenant_id,
+            request: req,
+            accessTokenForTenant,
+            ...options,
+        });
+        if (context.error) {
+            res.status(context.status).json({ error: context.error, code: context.code });
+            return null;
+        }
+        return context;
+    };
+
     router.post('/mark-read', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
             const messageId = normalizeString(req.body?.message_id, 512);
             if (!messageId) return res.status(400).json({ error: 'message_id is required' });
-            const tenant = database.prepare(`
-                SELECT id, phone_number_id, status FROM tenants WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            if (tenant.status === 'Suspended') return res.status(403).json({ error: 'الحساب موقوف' });
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!tenant.phone_number_id || !accessToken) {
-                return res.status(400).json({ error: 'بيانات الاعتماد غير مكتملة' });
-            }
+            const context = resolveWhatsAppContext(req, res);
+            if (!context) return;
             const result = await requestMeta(
-                `${META_API_BASE}/${encodeURIComponent(tenant.phone_number_id)}/messages`,
+                `${META_API_BASE}/${encodeURIComponent(context.phoneNumberId)}/messages`,
                 {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        Authorization: `Bearer ${context.accessToken}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
@@ -103,11 +119,36 @@ export function createTenantUnifiedInboxRouter({
             const sourceWindowSize = limit + offset;
             const whatsapp = [];
             if (!channel || channel === 'whatsapp') {
+                const context = resolveTenantWhatsAppContext({
+                    database,
+                    tenantId,
+                    request: req,
+                    accessTokenForTenant,
+                    requireToken: false,
+                });
+                const hasExplicitNumber = !!selectedWhatsAppPhoneNumberId(req);
+                const historicalOnly = context.code === 'WHATSAPP_NUMBER_REQUIRED' && !hasExplicitNumber;
+                if (context.error && !historicalOnly && channel === 'whatsapp') {
+                    return res.status(context.status).json({ error: context.error, code: context.code });
+                }
+                if (!context.error || historicalOnly) {
+                const phoneNumberId = historicalOnly ? null : context.phoneNumberId;
+                const numberFilter = phoneNumberId
+                    ? {
+                        unreadSql: ' AND unread.recipient = ?',
+                        messageSql: `
+                          AND ((direction = 'incoming' AND recipient = ?)
+                            OR (direction = 'outgoing' AND sender = ?))`,
+                        unreadArgs: [phoneNumberId],
+                        messageArgs: [phoneNumberId, phoneNumberId],
+                    }
+                    : { unreadSql: '', messageSql: '', unreadArgs: [], messageArgs: [] };
                 whatsapp.push(...enrichTemplateFallbackMessages(database.prepare(`
                     SELECT
                         'whatsapp' AS channel,
                         latest.contact AS contact_id,
                         latest.tenant_id,
+                        ? AS phone_number_id,
                         tenant.name AS tenant_name,
                         latest.created_at AS last_message_time,
                         latest.content AS last_message,
@@ -125,6 +166,7 @@ export function createTenantUnifiedInboxRouter({
                               AND unread.direction = 'incoming'
                               AND unread.status = 'received'
                               AND unread.tenant_id = ?
+                              ${numberFilter.unreadSql}
                         ) AS unread_count,
                         NULL AS linked_page_id,
                         NULL AS page_name
@@ -140,6 +182,7 @@ export function createTenantUnifiedInboxRouter({
                             ) AS row_number
                         FROM messages
                         WHERE tenant_id = ?
+                          ${numberFilter.messageSql}
                     ) latest
                     LEFT JOIN contacts contact
                       ON contact.phone = latest.contact AND contact.tenant_id = ?
@@ -147,7 +190,16 @@ export function createTenantUnifiedInboxRouter({
                     WHERE latest.row_number = 1
                     ORDER BY last_message_time DESC
                     LIMIT ?
-                `).all(tenantId, tenantId, tenantId, sourceWindowSize), 'last_message', database));
+                `).all(
+                    phoneNumberId,
+                    tenantId,
+                    ...numberFilter.unreadArgs,
+                    tenantId,
+                    ...numberFilter.messageArgs,
+                    tenantId,
+                    sourceWindowSize,
+                ), 'last_message', database));
+                }
             }
 
             const messenger = [];
@@ -182,7 +234,62 @@ export function createTenantUnifiedInboxRouter({
                 `).all(tenantId, sourceWindowSize));
             }
 
-            return res.json([...whatsapp, ...messenger]
+            const sms = [];
+            if (smsGateway && (!channel || channel === 'sms')) {
+                sms.push(...database.prepare(`
+                    SELECT
+                        'sms' AS channel,
+                        latest.contact AS contact_id,
+                        latest.tenant_id,
+                        latest.sms_account_id,
+                        account.name AS sms_account_name,
+                        NULL AS phone_number_id,
+                        tenant.name AS tenant_name,
+                        latest.event_time AS last_message_time,
+                        latest.content AS last_message,
+                        'text' AS last_message_type,
+                        contact.profile_name AS display_name,
+                        contact.profile_picture_url AS avatar_url,
+                        NULL AS last_ctwa_clid,
+                        NULL AS last_ctwa_source_id,
+                        NULL AS last_ctwa_source_type,
+                        NULL AS last_ctwa_source_url,
+                        NULL AS last_ctwa_received_at,
+                        (
+                            SELECT COUNT(*) FROM sms_messages unread
+                            WHERE unread.sender = latest.contact
+                              AND unread.sms_account_id = latest.sms_account_id
+                              AND unread.direction = 'incoming'
+                              AND unread.status = 'received'
+                              AND unread.tenant_id = ?
+                        ) AS unread_count,
+                        NULL AS linked_page_id,
+                        NULL AS page_name
+                    FROM (
+                        SELECT
+                            id, tenant_id, sms_account_id, content,
+                            COALESCE(sent_at, created_at) AS event_time,
+                            CASE WHEN direction = 'incoming' THEN sender ELSE recipient END AS contact,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY sms_account_id, CASE
+                                    WHEN direction = 'incoming' THEN sender ELSE recipient END
+                                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                            ) AS row_number
+                        FROM sms_messages
+                        WHERE tenant_id = ?
+                    ) latest
+                    LEFT JOIN contacts contact
+                      ON contact.phone = REPLACE(latest.contact, '+', '') AND contact.tenant_id = ?
+                    LEFT JOIN sms_gateway_accounts account
+                      ON account.id = latest.sms_account_id AND account.tenant_id = latest.tenant_id
+                    LEFT JOIN tenants tenant ON tenant.id = latest.tenant_id
+                    WHERE latest.row_number = 1
+                    ORDER BY last_message_time DESC
+                    LIMIT ?
+                `).all(tenantId, tenantId, tenantId, sourceWindowSize));
+            }
+
+            return res.json([...whatsapp, ...messenger, ...sms]
                 .sort((left, right) => (
                     new Date(right.last_message_time || 0) - new Date(left.last_message_time || 0)
                 ))
@@ -208,6 +315,8 @@ export function createTenantUnifiedInboxRouter({
             });
 
             if (channel === 'whatsapp') {
+                const context = resolveWhatsAppContext(req, res, { requireToken: false });
+                if (!context) return;
                 const messages = enrichTemplateFallbackMessages(database.prepare(`
                     SELECT * FROM (
                         SELECT
@@ -217,16 +326,55 @@ export function createTenantUnifiedInboxRouter({
                             referral_source_type, referral_source_url, created_at
                         FROM messages
                         WHERE (sender = ? OR recipient = ?) AND tenant_id = ?
+                          AND ((direction = 'incoming' AND recipient = ?)
+                            OR (direction = 'outgoing' AND sender = ?))
                         ORDER BY created_at DESC, id DESC
                         LIMIT ? OFFSET ?
                     ) page
                     ORDER BY created_at ASC, id ASC
-                `).all(contactId, contactId, tenantId, limit, offset), 'content', database);
+                `).all(
+                    contactId,
+                    contactId,
+                    tenantId,
+                    context.phoneNumberId,
+                    context.phoneNumberId,
+                    limit,
+                    offset,
+                ), 'content', database);
                 database.prepare(`
                     UPDATE messages SET status = 'read'
                     WHERE sender = ? AND direction = 'incoming'
-                      AND status = 'received' AND tenant_id = ?
-                `).run(contactId, tenantId);
+                      AND recipient = ? AND status = 'received' AND tenant_id = ?
+                `).run(contactId, context.phoneNumberId, tenantId);
+                return res.json(messages);
+            }
+
+            if (channel === 'sms') {
+                const smsAccountId = parsePositiveId(req.query?.sms_account_id);
+                if (!smsAccountId) return res.status(400).json({ error: 'sms_account_id غير صالح' });
+                const messages = database.prepare(`
+                    SELECT * FROM (
+                        SELECT
+                            id, tenant_id, direction, recipient, sender,
+                            'text' AS message_type, content, status,
+                            gateway_message_id AS wamid, error_message,
+                            NULL AS media_id, NULL AS media_url, NULL AS media_mime_type,
+                            COALESCE(sent_at, created_at) AS created_at,
+                            delivered_at, device_id, sim_slot, external_id, group_id
+                        FROM sms_messages
+                        WHERE tenant_id = ? AND sms_account_id = ?
+                          AND (sender = ? OR recipient = ?)
+                        ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                        LIMIT ? OFFSET ?
+                    ) page
+                    ORDER BY created_at ASC, id ASC
+                `).all(tenantId, smsAccountId, contactId, contactId, limit, offset);
+                database.prepare(`
+                    UPDATE sms_messages SET status = 'read',
+                        updated_at = datetime('now', 'localtime')
+                    WHERE tenant_id = ? AND sms_account_id = ? AND sender = ?
+                      AND direction = 'incoming' AND status = 'received'
+                `).run(tenantId, smsAccountId, contactId);
                 return res.json(messages);
             }
 
@@ -274,18 +422,28 @@ export function createTenantUnifiedInboxRouter({
                 return res.status(400).json({ error: 'القناة أو جهة الاتصال غير صالحة' });
             }
             if (!message) return res.status(400).json({ error: 'الرسالة مطلوبة' });
-            const tenant = database.prepare(`
-                SELECT id, name, phone_number_id, status FROM tenants WHERE id = ?
-            `).get(tenantId);
+            const tenant = database.prepare('SELECT id, name, status FROM tenants WHERE id = ?').get(tenantId);
             if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
             if (tenant.status === 'Suspended') return res.status(403).json({ error: 'حسابك معلّق' });
 
             if (channel === 'whatsapp') {
                 const recipient = normalizeWhatsAppRecipient(contactId);
-                const accessToken = accessTokenForTenant(tenantId);
                 if (!recipient) return res.status(400).json({ error: 'رقم WhatsApp غير صالح' });
-                if (!tenant.phone_number_id || !accessToken) {
-                    return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
+                const context = resolveWhatsAppContext(req, res);
+                if (!context) return;
+                const window = getWhatsAppConversationWindow(
+                    database,
+                    tenantId,
+                    recipient,
+                    Date.now(),
+                    context.phoneNumberId,
+                );
+                if (!window.isOpen) {
+                    return res.status(400).json({
+                        error: 'نافذة المحادثة (24 ساعة) مغلقة. استخدم قالباً معتمداً.',
+                        code: 'OUTSIDE_WINDOW',
+                        window_closed_at: window.closesAt,
+                    });
                 }
                 reservation = billing.reserve({
                     tenantId,
@@ -295,11 +453,11 @@ export function createTenantUnifiedInboxRouter({
                     metadata: { channel: 'whatsapp', recipient },
                 });
                 const result = await requestMeta(
-                    `${META_API_BASE}/${encodeURIComponent(tenant.phone_number_id)}/messages`,
+                    `${META_API_BASE}/${encodeURIComponent(context.phoneNumberId)}/messages`,
                     {
                         method: 'POST',
                         headers: {
-                            Authorization: `Bearer ${accessToken}`,
+                            Authorization: `Bearer ${context.accessToken}`,
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
@@ -324,18 +482,67 @@ export function createTenantUnifiedInboxRouter({
                         tenant_id, direction, sender, recipient,
                         message_type, content, status, wamid
                     ) VALUES (?, 'outgoing', ?, ?, 'text', ?, 'sent', ?)
-                `).run(tenantId, tenant.phone_number_id, recipient, message, messageId);
+                `).run(tenantId, context.phoneNumberId, recipient, message, messageId);
                 emitNewMessage({
                     tenant_id: tenantId,
                     tenant_name: tenant.name,
                     direction: 'outgoing',
-                    sender: tenant.phone_number_id,
+                    sender: context.phoneNumberId,
                     recipient,
                     content: message,
                     wamid: messageId,
                 });
                 emitConversationUpdate(tenantId);
                 return res.json({ success: true, message_id: messageId });
+            }
+
+            if (channel === 'sms') {
+                if (!smsGateway) {
+                    return res.status(503).json({ error: 'خدمة SMS غير متاحة', code: 'SMS_GATEWAY_UNAVAILABLE' });
+                }
+                const recipient = normalizeWhatsAppRecipient(contactId);
+                if (!recipient) return res.status(400).json({ error: 'رقم SMS غير صالح' });
+                const suppliedKey = normalizeString(
+                    req.get('Idempotency-Key') || req.body?.idempotency_key,
+                    128,
+                );
+                const idempotencyKey = suppliedKey || `wa-sms:${crypto.randomUUID()}`;
+                const smsAccountId = req.body?.sms_account_id == null
+                    ? null
+                    : parsePositiveId(req.body.sms_account_id);
+                if (req.body?.sms_account_id != null && !smsAccountId) {
+                    return res.status(400).json({ error: 'sms_account_id غير صالح' });
+                }
+                reservation = billing.reserve({
+                    tenantId,
+                    operationKey: billing.operations.SMS_TEXT,
+                    quantity: 1,
+                    referenceType: 'sms_message',
+                    idempotencyKey: `billing:${tenantId}:${idempotencyKey}`,
+                    metadata: { channel: 'sms', recipient, sms_account_id: smsAccountId },
+                });
+                const gatewayResult = await smsGateway.send(tenantId, {
+                    accountId: smsAccountId,
+                    recipient,
+                    message,
+                    idempotencyKey,
+                });
+                billing.commit(reservation, {
+                    referenceId: gatewayResult.message.message_id,
+                    description: 'خصم إرسال رسالة SMS من صندوق الوارد',
+                });
+                reservation = null;
+                const stored = smsGateway.storeMessage(gatewayResult.account, gatewayResult.message);
+                broadcast(`tenant:${tenantId}`, 'sms_message:new', stored);
+                broadcast('admin', 'sms_message:new', stored);
+                emitConversationUpdate(tenantId);
+                return res.status(202).json({
+                    success: true,
+                    message_id: stored.gateway_message_id,
+                    status: stored.status,
+                    sms_account_id: stored.sms_account_id,
+                    idempotency_key: idempotencyKey,
+                });
             }
 
             const linkedPageId = parsePositiveId(req.body?.linked_page_id);
@@ -440,6 +647,9 @@ export function createTenantUnifiedInboxRouter({
                 }
             }
             if (billing.handleError(res, error)) return undefined;
+            if (error instanceof SmsGatewayError) {
+                return res.status(error.status).json({ error: error.message, code: error.code });
+            }
             console.error('[TenantUnifiedInbox] Send error:', error);
             return res.status(500).json({ error: 'فشل إرسال الرسالة' });
         }

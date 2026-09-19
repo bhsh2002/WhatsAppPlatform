@@ -13,6 +13,10 @@ import api from '../../api';
 import Select from '../../components/Form/AccessibleSelect';
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { useLanguage } from '../../context/LanguageContext';
+import {
+    presentServiceRequest,
+    shouldLoadServiceRequests,
+} from './serviceRequestPresentation';
 
 const PLATFORMS = {
     pos: { ar: 'Savana POS', en: 'Savana POS', detailAr: 'المبيعات والإرجاعات والمخزون', detailEn: 'Sales, returns and inventory' },
@@ -75,7 +79,7 @@ const TenantPosIntegration = () => {
             setDiagnostics(selected?.connection_id
                 ? await api.getPortalPlatformDiagnostics(selectedPlatform)
                 : null);
-            if (selected?.connection_id && selectedPlatform === 'catalog') {
+            if (shouldLoadServiceRequests(selected)) {
                 const requests = await api.getPortalPlatformServiceRequests(
                     selectedPlatform
                 );
@@ -239,6 +243,7 @@ const TenantPosIntegration = () => {
     const status = integration.status || 'disconnected';
     const canConnect = !integration.connection_id || ['rejected', 'revoked', 'error', 'disconnected'].includes(status);
     const counts = diagnostics?.counts || {};
+    const outboxCounts = diagnostics?.outbox?.counts || {};
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: 'auto' }}>
@@ -463,32 +468,66 @@ const TenantPosIntegration = () => {
                             [ar ? 'نسخ المنتجات' : 'Product projections', counts.products || 0],
                             [ar ? 'طلبات خدمة للمراجعة' : 'Service requests pending review', counts.pending_service_requests || 0],
                             [ar ? 'إشعارات POS للمراجعة' : 'POS notifications pending review', counts.pending_notification_candidates || 0],
+                            [
+                                ar ? 'أحداث إرسال متعذرة' : 'Failed outbound events',
+                                (outboxCounts.failed || 0) + (outboxCounts.dead_letter || 0),
+                            ],
                         ].map(([label, value]) => <Box key={label} sx={{ flex: 1, p: 2, bgcolor: 'background.default', borderRadius: 2 }}><Typography variant="h5" fontWeight={800}>{value}</Typography><Typography variant="body2" color="text.secondary">{label}</Typography></Box>)}
                     </Stack>
+                    {(outboxCounts.failed || outboxCounts.dead_letter) > 0 && (
+                        <Button
+                            sx={{ mt: 2 }}
+                            variant="outlined"
+                            startIcon={<RefreshIcon />}
+                            disabled={working || status !== 'active'}
+                            onClick={() => action('retry-outbox')}
+                        >
+                            {ar ? 'إعادة إرسال الأحداث المتعذرة' : 'Retry failed outbound events'}
+                        </Button>
+                    )}
                     <Alert severity="info" icon={<LinkIcon />} sx={{ mt: 2 }}>
                         {ar ? 'طلبات الإشعار الواردة لا تُرسل تلقائيًا؛ تُحفظ للمراجعة وتطبق سياسات القالب والموافقة.' : 'Incoming notification requests are never sent automatically; they await review and channel consent checks.'}
                     </Alert>
-                    {selectedPlatform === 'catalog' && serviceRequests.map((request) => (
-                        <Alert
-                            key={request.id}
-                            severity={request.status === 'pending_review' ? 'warning' : 'info'}
-                            sx={{ mt: 1 }}
-                            action={request.status === 'pending_review' ? (
-                                <Button
-                                    color="inherit"
-                                    size="small"
-                                    disabled={working}
-                                    onClick={() => dismissServiceRequest(request.id)}
-                                >
-                                    {ar ? 'تجاهل' : 'Dismiss'}
-                                </Button>
-                            ) : null}
-                        >
-                            {ar
-                                ? `طلب ${request.payload?.order_number || request.request_key}: الحالة ${request.payload?.status || request.status}`
-                                : `Request ${request.payload?.order_number || request.request_key}: ${request.payload?.status || request.status}`}
-                        </Alert>
-                    ))}
+                    {serviceRequests.map((request) => {
+                        const presentation = presentServiceRequest(request, language);
+                        return (
+                            <Alert
+                                key={request.id}
+                                severity={request.status === 'pending_review' ? 'warning' : 'info'}
+                                sx={{ mt: 1 }}
+                                action={presentation.dismissible ? (
+                                    <Button
+                                        color="inherit"
+                                        size="small"
+                                        disabled={working}
+                                        onClick={() => dismissServiceRequest(request.id)}
+                                    >
+                                        {ar ? 'تجاهل' : 'Dismiss'}
+                                    </Button>
+                                ) : null}
+                            >
+                                <Stack spacing={0.75}>
+                                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                                        <Chip size="small" label={presentation.kind} />
+                                        <Chip
+                                            size="small"
+                                            variant="outlined"
+                                            color={request.status === 'pending_review' ? 'warning' : 'default'}
+                                            label={presentation.status}
+                                        />
+                                    </Stack>
+                                    <Typography variant="body2">{presentation.summary}</Typography>
+                                    {request.status === 'pending_review' && !presentation.dismissible && (
+                                        <Typography variant="caption" color="text.secondary">
+                                            {ar
+                                                ? 'هذا النوع محفوظ للمراجعة؛ لا يتوفر تنفيذه أو إرساله من هذه الصفحة.'
+                                                : 'This request is retained for review; this page does not execute or send it.'}
+                                        </Typography>
+                                    )}
+                                </Stack>
+                            </Alert>
+                        );
+                    })}
                 </CardContent>
             </Card>
         </Box>

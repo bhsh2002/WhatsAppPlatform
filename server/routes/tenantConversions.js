@@ -4,6 +4,10 @@ import { META_API_BASE } from '../config/index.js';
 import { requestMetaJson, sanitizeStoredMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
 import {
+    hasWhatsAppNumbersTable,
+    resolveTenantWhatsAppContext,
+} from '../services/whatsappNumbers.js';
+import {
     SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
     buildWhatsAppBusinessEvent,
     getLatestCtwaAttribution,
@@ -14,7 +18,7 @@ import {
 
 const PERMISSION_REQUIRED = 'whatsapp_business_manage_events';
 const EVENT_COLUMNS = `
-    id, tenant_id, dataset_id, event_name, event_time, phone, wamid,
+    id, tenant_id, phone_number_id, dataset_id, event_name, event_time, phone, wamid,
     custom_data, status, meta_response, ctwa_clid, created_at
 `;
 
@@ -37,6 +41,7 @@ const storedCustomData = (value) => {
 
 const insertConversionEvent = (database, {
     tenantId,
+    phoneNumberId,
     datasetId,
     eventName,
     eventTime,
@@ -48,11 +53,12 @@ const insertConversionEvent = (database, {
     ctwaClid = null,
 }) => database.prepare(`
     INSERT INTO conversion_events (
-        tenant_id, dataset_id, event_name, event_time, phone, wamid,
+        tenant_id, phone_number_id, dataset_id, event_name, event_time, phone, wamid,
         custom_data, status, meta_response, ctwa_clid
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `).run(
     tenantId,
+    phoneNumberId || null,
     datasetId,
     eventName,
     eventTime,
@@ -85,27 +91,63 @@ export function createTenantConversionsRouter({
     }
     const router = express.Router();
 
-    router.get('/conversions/datasets', async (req, res) => {
-        try {
-            const tenantId = req.user.tenant_id;
-            const tenant = database.prepare('SELECT id, waba_id FROM tenants WHERE id = ?').get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            if (!tenant.waba_id) {
-                return res.status(400).json({ error: 'WABA ID غير متوفر لهذا العميل' });
+    const resolveContext = (req, { requireToken = true } = {}) => {
+        const tenantId = req.user.tenant_id;
+        if (!hasWhatsAppNumbersTable(database)) {
+            const tenant = database.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+            if (!tenant) {
+                return { error: 'العميل غير موجود', status: 404, code: 'TENANT_NOT_FOUND' };
             }
             const accessToken = accessTokenForTenant(tenantId);
-            if (!accessToken) {
-                return res.status(400).json({ error: 'بيانات اعتماد WhatsApp/Meta مفقودة' });
+            if (requireToken && !accessToken) {
+                return {
+                    tenant,
+                    error: 'بيانات اعتماد WhatsApp/Meta مفقودة',
+                    status: 400,
+                    code: 'WHATSAPP_TOKEN_REQUIRED',
+                };
+            }
+            return {
+                tenantId,
+                tenant,
+                phoneNumberId: tenant.phone_number_id || null,
+                wabaId: tenant.waba_id || null,
+                datasetId: tenant.dataset_id || null,
+                accessToken: accessToken || null,
+                number: null,
+            };
+        }
+        return resolveTenantWhatsAppContext({
+            database,
+            tenantId,
+            request: req,
+            accessTokenForTenant,
+            requireToken,
+        });
+    };
+
+    const sendContextFailure = (res, context) => res.status(context.status || 400).json({
+        error: context.error,
+        code: context.code,
+    });
+
+    router.get('/conversions/datasets', async (req, res) => {
+        try {
+            const context = resolveContext(req);
+            if (context.error) return sendContextFailure(res, context);
+            if (!context.wabaId) {
+                return res.status(400).json({ error: 'WABA ID غير متوفر لهذا العميل' });
             }
 
             const result = await requestMeta(
-                `${META_API_BASE}/${encodeURIComponent(tenant.waba_id)}/dataset`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
+                `${META_API_BASE}/${encodeURIComponent(context.wabaId)}/dataset`,
+                { headers: { Authorization: `Bearer ${context.accessToken}` } }
             );
             if (!result.ok) return sendMetaFailure(res, result, 'فشل جلب Datasets من Meta');
             const data = result.data || {};
             return res.json({
-                waba_id: tenant.waba_id,
+                phone_number_id: context.phoneNumberId,
+                waba_id: context.wabaId,
                 datasets: Array.isArray(data.data) ? data.data : [data].filter((item) => item?.id),
             });
         } catch (error) {
@@ -116,7 +158,9 @@ export function createTenantConversionsRouter({
 
     router.patch('/meta-settings', (req, res) => {
         try {
-            const tenantId = req.user.tenant_id;
+            const context = resolveContext(req, { requireToken: false });
+            if (context.error) return sendContextFailure(res, context);
+            const tenantId = context.tenantId;
             const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
                 ? req.body
                 : {};
@@ -127,21 +171,33 @@ export function createTenantConversionsRouter({
             if (datasetId === undefined) {
                 return res.status(400).json({ error: 'dataset_id غير صالح' });
             }
-            const tenant = database.prepare('SELECT id, name FROM tenants WHERE id = ?').get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+            const tenant = context.tenant;
 
             database.transaction(() => {
-                database.prepare(`
-                    UPDATE tenants
-                    SET dataset_id = ?, updated_at = datetime('now', 'localtime')
-                    WHERE id = ?
-                `).run(datasetId, tenantId);
+                if (context.number) {
+                    database.prepare(`
+                        UPDATE tenant_whatsapp_numbers
+                        SET dataset_id = ?, updated_at = datetime('now', 'localtime')
+                        WHERE tenant_id = ? AND phone_number_id = ?
+                    `).run(datasetId, tenantId, context.phoneNumberId);
+                }
+                if (!context.number || context.number.is_default) {
+                    database.prepare(`
+                        UPDATE tenants
+                        SET dataset_id = ?, updated_at = datetime('now', 'localtime')
+                        WHERE id = ?
+                    `).run(datasetId, tenantId);
+                }
                 database.prepare(`
                     INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
                     VALUES (?, ?, 'meta_settings_updated', 'تحديث Dataset ID لأحداث WhatsApp', 'success')
                 `).run(tenantId, tenant.name);
             })();
-            return res.json({ success: true, dataset_id: datasetId });
+            return res.json({
+                success: true,
+                phone_number_id: context.phoneNumberId,
+                dataset_id: datasetId,
+            });
         } catch (error) {
             console.error('[TenantConversions] Settings error:', error);
             return res.status(500).json({ error: 'فشل تحديث إعدادات Meta' });
@@ -150,23 +206,21 @@ export function createTenantConversionsRouter({
 
     router.get('/conversions/history', (req, res) => {
         try {
-            const tenantId = req.user.tenant_id;
-            const tenant = database.prepare(`
-                SELECT dataset_id, waba_id,
-                       CASE WHEN access_token IS NOT NULL OR access_token_encrypted IS NOT NULL THEN 1 ELSE 0 END
-                           AS tenant_token_present
-                FROM tenants
-                WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+            const context = resolveContext(req, { requireToken: false });
+            if (context.error) return sendContextFailure(res, context);
+            const tenantId = context.tenantId;
+            const tenant = context.tenant;
+            const numberScoped = !!context.number;
+            const numberPredicate = numberScoped ? ' AND phone_number_id = ?' : '';
+            const scopeArgs = numberScoped ? [tenantId, context.phoneNumberId] : [tenantId];
             const { limit, offset } = parseListPagination(req.query, { defaultLimit: 50, maxLimit: 100 });
             const events = database.prepare(`
                 SELECT ${EVENT_COLUMNS}
                 FROM conversion_events
-                WHERE tenant_id = ?
+                WHERE tenant_id = ?${numberPredicate}
                 ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
-            `).all(tenantId, limit, offset).map(publicEvent);
+            `).all(...scopeArgs, limit, offset).map(publicEvent);
             const totals = database.prepare(`
                 SELECT COUNT(*) AS total_events,
                        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_events,
@@ -175,34 +229,39 @@ export function createTenantConversionsRouter({
                        MAX(CASE WHEN status = 'sent' THEN created_at END) AS last_success_at,
                        MAX(CASE WHEN status = 'failed' THEN created_at END) AS last_failure_at
                 FROM conversion_events
-                WHERE tenant_id = ?
-            `).get(tenantId) || {};
+                WHERE tenant_id = ?${numberPredicate}
+            `).get(...scopeArgs) || {};
             const eventBreakdown = database.prepare(`
                 SELECT event_name, COUNT(*) AS count
                 FROM conversion_events
-                WHERE tenant_id = ?
+                WHERE tenant_id = ?${numberPredicate}
                 GROUP BY event_name
                 ORDER BY count DESC, event_name ASC
-            `).all(tenantId);
+            `).all(...scopeArgs);
             const lastFailedEvent = database.prepare(`
                 SELECT id, event_name, meta_response, created_at
                 FROM conversion_events
-                WHERE tenant_id = ? AND status = 'failed'
+                WHERE tenant_id = ?${numberPredicate} AND status = 'failed'
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1
-            `).get(tenantId);
+            `).get(...scopeArgs);
             const lastSentEvent = database.prepare(`
                 SELECT id, event_name, meta_response, created_at
                 FROM conversion_events
-                WHERE tenant_id = ? AND status = 'sent'
+                WHERE tenant_id = ?${numberPredicate} AND status = 'sent'
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1
-            `).get(tenantId);
+            `).get(...scopeArgs);
             const lastFailedError = sanitizeStoredMetaResponse(lastFailedEvent?.meta_response)?.error || null;
             const lastSentMeta = sanitizeStoredMetaResponse(lastSentEvent?.meta_response, {
                 successFields: ['events_received', 'fbtrace_id'],
             });
-            const accessToken = accessTokenForTenant(tenantId);
+            const accessToken = context.accessToken;
+            const tenantTokenPresent = !!(
+                context.number?.access_token_encrypted
+                || tenant.access_token
+                || tenant.access_token_encrypted
+            );
 
             return res.json({
                 events,
@@ -218,11 +277,12 @@ export function createTenantConversionsRouter({
                     lastFailureAt: totals.last_failure_at || null,
                     eventBreakdown,
                 },
-                dataset_id: tenant.dataset_id || null,
-                waba_id: tenant.waba_id || null,
+                phone_number_id: context.phoneNumberId,
+                dataset_id: context.datasetId,
+                waba_id: context.wabaId,
                 whatsapp_token_present: !!accessToken,
-                tenant_whatsapp_token_present: !!tenant.tenant_token_present,
-                events_api_ready: !!tenant.dataset_id && !!accessToken,
+                tenant_whatsapp_token_present: tenantTokenPresent,
+                events_api_ready: !!context.datasetId && !!accessToken,
                 supported_events: SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
                 last_success: lastSentEvent ? {
                     id: lastSentEvent.id,
@@ -249,7 +309,9 @@ export function createTenantConversionsRouter({
     router.post('/conversions/log-event', async (req, res) => {
         let billingReservation = null;
         try {
-            const tenantId = req.user.tenant_id;
+            const context = resolveContext(req, { requireToken: false });
+            if (context.error) return sendContextFailure(res, context);
+            const tenantId = context.tenantId;
             const eventName = normalizeEventName(req.body?.event_name);
             if (!eventName) return res.status(400).json({ error: 'اسم الحدث مطلوب' });
             if (!SUPPORTED_WHATSAPP_BUSINESS_EVENTS.includes(eventName)) {
@@ -260,17 +322,13 @@ export function createTenantConversionsRouter({
                 });
             }
 
-            const tenant = database.prepare(`
-                SELECT id, name, dataset_id, waba_id
-                FROM tenants
-                WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
+            const tenant = context.tenant;
 
             const eventTime = new Date().toISOString();
-            if (!tenant.dataset_id) {
+            if (!context.datasetId) {
                 insertConversionEvent(database, {
                     tenantId,
+                    phoneNumberId: context.phoneNumberId,
                     datasetId: 'local',
                     eventName,
                     eventTime,
@@ -289,7 +347,7 @@ export function createTenantConversionsRouter({
                 });
             }
 
-            const accessToken = accessTokenForTenant(tenantId);
+            const accessToken = context.accessToken;
             if (!accessToken) {
                 return res.status(400).json({
                     error: 'بيانات اعتماد WhatsApp/Meta مفقودة',
@@ -297,7 +355,12 @@ export function createTenantConversionsRouter({
                 });
             }
             const normalizedPhone = normalizePhone(req.body?.phone);
-            const storedAttribution = getLatestCtwaAttribution(database, tenantId, normalizedPhone);
+            const storedAttribution = getLatestCtwaAttribution(
+                database,
+                tenantId,
+                normalizedPhone,
+                context.phoneNumberId,
+            );
             const resolvedCtwaClid = normalizeCtwaClid(req.body?.ctwa_clid)
                 || storedAttribution?.last_ctwa_clid
                 || '';
@@ -306,7 +369,7 @@ export function createTenantConversionsRouter({
             try {
                 formattedEvent = buildWhatsAppBusinessEvent({
                     eventName,
-                    wabaId: tenant.waba_id,
+                    wabaId: context.wabaId,
                     ctwaClid: resolvedCtwaClid,
                     customData,
                 });
@@ -321,7 +384,8 @@ export function createTenantConversionsRouter({
                 };
                 insertConversionEvent(database, {
                     tenantId,
-                    datasetId: tenant.dataset_id,
+                    phoneNumberId: context.phoneNumberId,
+                    datasetId: context.datasetId,
                     eventName,
                     eventTime,
                     phone: req.body?.phone,
@@ -335,7 +399,7 @@ export function createTenantConversionsRouter({
                     error: validationError.message,
                     details: validationResponse.error,
                     permission_required: PERMISSION_REQUIRED,
-                    dataset_id: tenant.dataset_id,
+                    dataset_id: context.datasetId,
                     supported_events: validationError.supportedEvents || SUPPORTED_WHATSAPP_BUSINESS_EVENTS,
                 });
             }
@@ -345,10 +409,14 @@ export function createTenantConversionsRouter({
                 operationKey: billing.operations.WHATSAPP_EVENT_CONVERSION,
                 quantity: 1,
                 referenceType: 'conversion_event',
-                metadata: { dataset_id: tenant.dataset_id, event_name: eventName },
+                metadata: {
+                    phone_number_id: context.phoneNumberId,
+                    dataset_id: context.datasetId,
+                    event_name: eventName,
+                },
             });
             const result = await requestMeta(
-                `${META_API_BASE}/${encodeURIComponent(tenant.dataset_id)}/events`,
+                `${META_API_BASE}/${encodeURIComponent(context.datasetId)}/events`,
                 {
                     method: 'POST',
                     headers: {
@@ -361,7 +429,8 @@ export function createTenantConversionsRouter({
             const data = result.data || {};
             insertConversionEvent(database, {
                 tenantId,
-                datasetId: tenant.dataset_id,
+                phoneNumberId: context.phoneNumberId,
+                datasetId: context.datasetId,
                 eventName,
                 eventTime,
                 phone: req.body?.phone,
@@ -376,7 +445,7 @@ export function createTenantConversionsRouter({
                 billing.release(billingReservation, result.error?.message || 'Meta conversion event failed');
                 return sendMetaFailure(res, result, 'فشل إرسال الحدث', {
                     permission_required: PERMISSION_REQUIRED,
-                    dataset_id: tenant.dataset_id,
+                    dataset_id: context.datasetId,
                 });
             }
 
@@ -392,7 +461,8 @@ export function createTenantConversionsRouter({
                 success: true,
                 sent_to_meta: true,
                 status: 'sent',
-                dataset_id: tenant.dataset_id,
+                phone_number_id: context.phoneNumberId,
+                dataset_id: context.datasetId,
                 events_received: data.events_received,
                 fbtrace_id: data.fbtrace_id,
                 data,

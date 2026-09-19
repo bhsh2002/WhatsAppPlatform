@@ -17,6 +17,7 @@ import {
     normalizeWhatsAppMediaId,
     normalizeWhatsAppRecipient,
 } from '../services/whatsappMessageValidation.js';
+import { resolveTenantWhatsAppContext } from '../services/whatsappNumbers.js';
 
 const defaultDocumentUpload = documentUpload.single('file');
 const defaultMediaUpload = mediaUpload.single('file');
@@ -56,31 +57,18 @@ export function createTenantWhatsAppMediaRouter({
     const router = express.Router();
 
     const resolveTenantContext = (req, { requirePhoneNumber = true } = {}) => {
-        const tenantId = Number(req.user?.tenant_id);
-        if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
-            return { error: 'جلسة المستأجر غير صالحة', status: 401 };
-        }
-        const tenant = database.prepare(`
-            SELECT id, name, phone_number_id, status
-            FROM tenants
-            WHERE id = ?
-        `).get(tenantId);
-        if (!tenant) return { error: 'العميل غير موجود', status: 404 };
-        if (tenant.status === 'Suspended') {
-            return { error: 'حسابك معلّق ولا يمكنك استخدام وسائط WhatsApp', status: 403 };
-        }
-        const accessToken = accessTokenForTenant(tenantId);
-        if (!accessToken || (requirePhoneNumber && !tenant.phone_number_id)) {
+        const context = resolveTenantWhatsAppContext({
+            database,
+            tenantId: req.user?.tenant_id,
+            request: req,
+            accessTokenForTenant,
+            requireToken: true,
+        });
+        if (context.error) return context;
+        if (requirePhoneNumber && !context.phoneNumberId) {
             return { error: 'إعدادات WhatsApp API غير مكتملة', status: 400 };
         }
-        return {
-            tenantId,
-            tenant,
-            phoneNumberId: tenant.phone_number_id == null
-                ? null
-                : String(tenant.phone_number_id),
-            accessToken: String(accessToken),
-        };
+        return context;
     };
 
     const rejectClosedWindow = (res, context, recipient) => {
@@ -89,6 +77,7 @@ export function createTenantWhatsAppMediaRouter({
             context.tenantId,
             recipient,
             now(),
+            context.phoneNumberId,
         );
         if (window.isOpen) return false;
         res.status(400).json({

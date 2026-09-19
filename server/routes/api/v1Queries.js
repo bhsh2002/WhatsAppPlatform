@@ -6,6 +6,11 @@ import {
     InvalidWhatsAppMessageError,
     normalizeWhatsAppRecipient,
 } from '../../services/whatsappMessageValidation.js';
+import {
+    listTenantWhatsAppNumbers,
+    resolveTenantWhatsAppContext,
+    selectedWhatsAppPhoneNumberId,
+} from '../../services/whatsappNumbers.js';
 
 const TEMPLATE_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected']);
 
@@ -57,10 +62,37 @@ export function createApiV1QueriesRouter({ database = db, logger = console } = {
         return res.status(500).json({ error: fallback });
     };
 
+    const resolveOptionalNumber = (req, res, tenantId) => {
+        const context = resolveTenantWhatsAppContext({
+            database,
+            tenantId,
+            request: req,
+            requireToken: false,
+        });
+        if (!context.error) return context;
+        if (context.code === 'WHATSAPP_NUMBER_REQUIRED' && !selectedWhatsAppPhoneNumberId(req)) {
+            return { phoneNumberId: null };
+        }
+        res.status(context.status).json({ error: context.error, code: context.code });
+        return null;
+    };
+
     router.get('/conversations', (req, res) => {
         try {
             const tenantId = tenantContext(req, res);
             if (!tenantId) return undefined;
+            const context = resolveOptionalNumber(req, res, tenantId);
+            if (!context) return undefined;
+            const numberFilter = context.phoneNumberId
+                ? {
+                    unreadSql: ' AND unread.recipient = ?',
+                    messageSql: `
+                      AND ((direction = 'incoming' AND recipient = ?)
+                        OR (direction = 'outgoing' AND sender = ?))`,
+                    unreadArgs: [context.phoneNumberId],
+                    messageArgs: [context.phoneNumberId, context.phoneNumberId],
+                }
+                : { unreadSql: '', messageSql: '', unreadArgs: [], messageArgs: [] };
             const { limit, offset } = parseListPagination(req.query, {
                 defaultLimit: 100,
                 maxLimit: 200,
@@ -79,6 +111,7 @@ export function createApiV1QueriesRouter({ database = db, logger = console } = {
                           AND unread.direction = 'incoming'
                           AND unread.status = 'received'
                           AND unread.tenant_id = latest.tenant_id
+                          ${numberFilter.unreadSql}
                     ) AS unread_count
                 FROM (
                     SELECT
@@ -94,6 +127,7 @@ export function createApiV1QueriesRouter({ database = db, logger = console } = {
                         ) AS row_number
                     FROM messages
                     WHERE tenant_id = ?
+                      ${numberFilter.messageSql}
                 ) latest
                 LEFT JOIN contacts contact
                   ON contact.tenant_id = latest.tenant_id
@@ -101,7 +135,13 @@ export function createApiV1QueriesRouter({ database = db, logger = console } = {
                 WHERE latest.row_number = 1
                 ORDER BY latest.created_at DESC, latest.id DESC
                 LIMIT ? OFFSET ?
-            `).all(tenantId, limit, offset);
+            `).all(
+                ...numberFilter.unreadArgs,
+                tenantId,
+                ...numberFilter.messageArgs,
+                limit,
+                offset,
+            );
             return res.json(conversations);
         } catch (error) {
             return fail(res, error, 'Get conversations error', 'Failed to get conversations');
@@ -112,6 +152,15 @@ export function createApiV1QueriesRouter({ database = db, logger = console } = {
         try {
             const tenantId = tenantContext(req, res);
             if (!tenantId) return undefined;
+            const context = resolveOptionalNumber(req, res, tenantId);
+            if (!context) return undefined;
+            const numberPredicate = context.phoneNumberId
+                ? `AND ((direction = 'incoming' AND recipient = ?)
+                    OR (direction = 'outgoing' AND sender = ?))`
+                : '';
+            const numberArgs = context.phoneNumberId
+                ? [context.phoneNumberId, context.phoneNumberId]
+                : [];
             const phone = normalizeWhatsAppRecipient(req.params.phone);
             const { limit, offset } = parseListPagination(req.query, {
                 defaultLimit: 100,
@@ -124,12 +173,30 @@ export function createApiV1QueriesRouter({ database = db, logger = console } = {
                        referral_source_type, referral_source_url, created_at
                 FROM messages
                 WHERE tenant_id = ? AND (sender = ? OR recipient = ?)
+                  ${numberPredicate}
                 ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
-            `).all(tenantId, phone, phone, limit, offset);
+            `).all(
+                tenantId,
+                phone,
+                phone,
+                ...numberArgs,
+                limit,
+                offset,
+            );
             return res.json(messages.reverse());
         } catch (error) {
             return fail(res, error, 'Get messages error', 'Failed to get messages');
+        }
+    });
+
+    router.get('/whatsapp/numbers', (req, res) => {
+        try {
+            const tenantId = tenantContext(req, res);
+            if (!tenantId) return undefined;
+            return res.json({ numbers: listTenantWhatsAppNumbers(database, tenantId) });
+        } catch (error) {
+            return fail(res, error, 'Get WhatsApp numbers error', 'Failed to get WhatsApp numbers');
         }
     });
 

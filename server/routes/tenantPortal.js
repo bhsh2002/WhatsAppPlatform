@@ -24,6 +24,7 @@ import {
     summarizeMetaRecipientCountries,
 } from '../services/billing.js';
 import { markBotHandoffForConversation } from '../services/messengerBot.js';
+import { SmsGatewayService } from '../services/smsGateway.js';
 import tenantApiSettingsRouter from './tenantApiSettings.js';
 import { createTenantAnalyticsRouter } from './tenantAnalytics.js';
 import tenantAutomationRouter from './tenantAutomation.js';
@@ -40,8 +41,20 @@ import { createTenantQrCodesRouter } from './tenantQrCodes.js';
 import { createTenantTemplatesRouter } from './tenantTemplates.js';
 import { createTenantUnifiedInboxRouter } from './tenantUnifiedInbox.js';
 import { createTenantWhatsAppMessagingRouter } from './tenantWhatsAppMessaging.js';
+import { createTenantSmsGatewayRouter } from './tenantSmsGateway.js';
 
 const router = express.Router();
+const smsGatewayService = new SmsGatewayService({ database: db });
+const tenantSmsGatewayRouter = createTenantSmsGatewayRouter({
+    service: smsGatewayService,
+    billing: {
+        operations: BILLING_OPERATIONS,
+        reserve: reserveBilling,
+        commit: commitBilling,
+        release: releaseBilling,
+        handleError: handleBillingError,
+    },
+});
 const tenantAnalyticsRouter = createTenantAnalyticsRouter({ database: db });
 const tenantProfileRouter = createTenantProfileRouter({
     database: db,
@@ -136,6 +149,7 @@ const tenantUnifiedInboxRouter = createTenantUnifiedInboxRouter({
         release: releaseBilling,
         handleError: handleBillingError,
     },
+    smsGateway: smsGatewayService,
     emitNewMessage: message => eventBus.emitNewMessage(message),
     emitConversationUpdate: tenantId => eventBus.emitConversationUpdate(tenantId),
     broadcast: (channel, event, data) => eventBus.broadcast(channel, event, data),
@@ -176,6 +190,9 @@ router.use('/', tenantTemplatesRouter);
 
 // Tenant API credentials and callback policy are isolated under the existing contract.
 router.use('/settings/api', tenantApiSettingsRouter);
+
+// Tenant-isolated Android SMS gateway credentials and health checks.
+router.use('/sms-gateway', tenantSmsGatewayRouter);
 
 // Tenant account and WhatsApp business profile retain the existing /portal paths.
 router.use('/', tenantProfileRouter);

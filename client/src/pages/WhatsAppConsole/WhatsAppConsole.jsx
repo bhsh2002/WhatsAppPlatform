@@ -20,12 +20,15 @@ const WhatsAppConsole = () => {
     templateName: 'delivery_confirmation',
     templateLanguage: 'ar',
     templateParams: [],
-    tenantId: ''
+    tenantId: '',
+    phoneNumberId: ''
   });
+  const [tenantNumbers, setTenantNumbers] = useState([]);
   const [status, setStatus] = useState('idle');
   const [logs, setLogs] = useState([]);
   const [serverOnline, setServerOnline] = useState(null);
   const selectedTenant = useMemo(() => tenants.find(t => String(t.id) === String(messageForm.tenantId)), [tenants, messageForm.tenantId]);
+  const selectedNumber = useMemo(() => tenantNumbers.find(number => String(number.phone_number_id) === String(messageForm.phoneNumberId)), [tenantNumbers, messageForm.phoneNumberId]);
   useEffect(() => {
     const tenantWithWhatsapp = tenants.find(t => t.phone_number_id && t.waba_id);
     if (!messageForm.tenantId && tenantWithWhatsapp) {
@@ -35,6 +38,25 @@ const WhatsAppConsole = () => {
       }));
     }
   }, [tenants, messageForm.tenantId]);
+  useEffect(() => {
+    if (!messageForm.tenantId) {
+      setTenantNumbers([]);
+      return;
+    }
+    api.getTenantWhatsAppNumbers(messageForm.tenantId).then(data => {
+      const numbers = data?.numbers || [];
+      setTenantNumbers(numbers);
+      setMessageForm(current => ({
+        ...current,
+        phoneNumberId: numbers.some(number => String(number.phone_number_id) === String(current.phoneNumberId))
+          ? current.phoneNumberId
+          : String(numbers.find(number => number.is_default)?.phone_number_id || numbers[0]?.phone_number_id || '')
+      }));
+    }).catch(() => {
+      setTenantNumbers([]);
+      setMessageForm(current => ({ ...current, phoneNumberId: '' }));
+    });
+  }, [messageForm.tenantId]);
   const checkServer = async () => {
     try {
       await api.checkHealth();
@@ -114,7 +136,8 @@ const WhatsAppConsole = () => {
         templateName: messageForm.templateName,
         templateLanguage: messageForm.templateLanguage,
         templateParams: messageForm.templateParams,
-        tenant_id: selectedTenant.id
+        tenant_id: selectedTenant.id,
+        phone_number_id: messageForm.phoneNumberId
       };
       const result = await api.sendMessage(payload);
       setStatus('success');
@@ -125,8 +148,8 @@ const WhatsAppConsole = () => {
     }
   };
   const readiness = {
-    phone: !!selectedTenant?.phone_number_id,
-    waba: !!selectedTenant?.waba_id,
+    phone: !!selectedNumber?.phone_number_id,
+    waba: !!selectedNumber?.waba_id,
     token: selectedTenant?.token_status === 'valid' || selectedTenant?.token_status === 'unchecked' || !selectedTenant?.token_status
   };
   const readyToSend = selectedTenant && readiness.phone && readiness.waba && serverOnline;
@@ -191,7 +214,7 @@ const WhatsAppConsole = () => {
                                 <Grid container spacing={2}>
                                     <Grid size={{
                   xs: 12,
-                  md: 5
+                  md: 4
                 }}>
                                         <FormControl fullWidth size="small">
                                             <InputLabel>{tx("auto.k_8adba91e1d87")}</InputLabel>
@@ -208,7 +231,23 @@ const WhatsAppConsole = () => {
                                     </Grid>
                                     <Grid size={{
                   xs: 12,
-                  md: 7
+                  md: 4
+                }}>
+                                        <FormControl fullWidth size="small">
+                                            <InputLabel>رقم WhatsApp</InputLabel>
+                                            <Select value={messageForm.phoneNumberId} label="رقم WhatsApp" onChange={e => setMessageForm({
+                      ...messageForm,
+                      phoneNumberId: e.target.value
+                    })} disabled={!messageForm.tenantId || tenantNumbers.length === 0}>
+                                                {tenantNumbers.map(number => <MenuItem key={number.phone_number_id} value={String(number.phone_number_id)}>
+                                                    {number.label || number.display_phone_number || number.verified_name || number.phone_number_id}
+                                                </MenuItem>)}
+                                            </Select>
+                                        </FormControl>
+                                    </Grid>
+                                    <Grid size={{
+                  xs: 12,
+                  md: 4
                 }}>
                                         <Box sx={{
                     display: 'flex',

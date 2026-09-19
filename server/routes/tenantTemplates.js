@@ -3,6 +3,7 @@ import express from 'express';
 import { META_API_BASE } from '../config/index.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
+import { resolveTenantWhatsAppContext } from '../services/whatsappNumbers.js';
 
 const TEMPLATE_COLUMNS = `
     id, tenant_id, name, language, category, header_type, header_content,
@@ -94,6 +95,20 @@ export function createTenantTemplatesRouter({
         throw new TypeError('Tenant templates router requires database and credentials');
     }
     const router = express.Router();
+
+    const resolveContext = (req, res) => {
+        const context = resolveTenantWhatsAppContext({
+            database,
+            tenantId: req.user?.tenant_id,
+            request: req,
+            accessTokenForTenant,
+        });
+        if (context.error) {
+            res.status(context.status).json({ error: context.error, code: context.code });
+            return null;
+        }
+        return context;
+    };
 
     const selectTemplate = (id, tenantId) => database.prepare(`
         SELECT ${TEMPLATE_COLUMNS}
@@ -251,17 +266,14 @@ export function createTenantTemplatesRouter({
             const tenantId = req.user.tenant_id;
             const name = normalizeString(req.query?.name, 512);
             if (!name) return res.status(400).json({ error: 'اسم القالب مطلوب' });
-            const tenant = database.prepare(`
-                SELECT id, name, waba_id FROM tenants WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!accessToken || !tenant.waba_id) {
+            const context = resolveContext(req, res);
+            if (!context) return;
+            if (!context.wabaId) {
                 return res.status(400).json({ error: 'إعدادات WhatsApp API غير مكتملة' });
             }
             const result = await requestMeta(
-                `${apiBase}/${encodeURIComponent(tenant.waba_id)}/message_templates?name=${encodeURIComponent(name)}`,
-                { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+                `${apiBase}/${encodeURIComponent(context.wabaId)}/message_templates?name=${encodeURIComponent(name)}`,
+                { method: 'DELETE', headers: { Authorization: `Bearer ${context.accessToken}` } }
             );
             if (!result.ok) return sendMetaFailure(res, result, 'فشل حذف القالب من Meta');
             database.transaction(() => {
@@ -271,7 +283,7 @@ export function createTenantTemplatesRouter({
                     INSERT INTO activity_logs (
                         tenant_id, tenant_name, event_type, description, status
                     ) VALUES (?, ?, 'template_deleted_meta', ?, 'success')
-                `).run(tenantId, tenant.name, `حذف قالب من Meta: ${name}`);
+                `).run(tenantId, context.tenant.name, `حذف قالب من Meta: ${name}`);
             })();
             return res.json({ success: true });
         } catch (error) {
@@ -300,21 +312,14 @@ export function createTenantTemplatesRouter({
     router.post('/templates/sync', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
-            const tenant = database.prepare(`
-                SELECT id, name, waba_id, phone_number_id FROM tenants WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!accessToken) {
-                return res.status(400).json({
-                    error: 'إعدادات WhatsApp API غير مكتملة. تواصل مع المدير لإضافة Access Token.',
-                });
-            }
+            const context = resolveContext(req, res);
+            if (!context) return;
+            const { accessToken } = context;
 
-            let wabaId = tenant.waba_id;
-            if (!wabaId && tenant.phone_number_id) {
+            let wabaId = context.wabaId;
+            if (!wabaId && context.phoneNumberId) {
                 const wabaResult = await requestMeta(
-                    `${apiBase}/${encodeURIComponent(tenant.phone_number_id)}/whatsapp_business_account`,
+                    `${apiBase}/${encodeURIComponent(context.phoneNumberId)}/whatsapp_business_account`,
                     { headers: { Authorization: `Bearer ${accessToken}` } }
                 );
                 if (wabaResult.ok && wabaResult.data?.id) {
@@ -496,12 +501,9 @@ export function createTenantTemplatesRouter({
     router.post('/templates/create-meta', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
-            const tenant = database.prepare(`
-                SELECT id, name, waba_id FROM tenants WHERE id = ?
-            `).get(tenantId);
-            if (!tenant) return res.status(404).json({ error: 'العميل غير موجود' });
-            const accessToken = accessTokenForTenant(tenantId);
-            if (!accessToken || !tenant.waba_id) {
+            const context = resolveContext(req, res);
+            if (!context) return;
+            if (!context.wabaId) {
                 return res.status(400).json({
                     error: 'إعدادات WhatsApp API غير مكتملة (يجب توفر Access Token و WABA ID)',
                 });
@@ -518,11 +520,11 @@ export function createTenantTemplatesRouter({
                 return res.status(400).json({ error: 'name, category, and valid components are required' });
             }
             const result = await requestMeta(
-                `${apiBase}/${encodeURIComponent(tenant.waba_id)}/message_templates`,
+                `${apiBase}/${encodeURIComponent(context.wabaId)}/message_templates`,
                 {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        Authorization: `Bearer ${context.accessToken}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
@@ -539,7 +541,7 @@ export function createTenantTemplatesRouter({
                 INSERT INTO activity_logs (
                     tenant_id, tenant_name, event_type, description, status
                 ) VALUES (?, ?, 'template_created_meta', ?, 'success')
-            `).run(tenantId, tenant.name, `إنشاء قالب في Meta: ${name}`);
+            `).run(tenantId, context.tenant.name, `إنشاء قالب في Meta: ${name}`);
             return res.json({ success: true, data: result.data || {} });
         } catch (error) {
             console.error('[TenantTemplates] Create Meta error:', error);

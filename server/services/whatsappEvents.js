@@ -22,9 +22,28 @@ export function parseCustomData(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-export function getLatestCtwaAttribution(db, tenantId, phone) {
+export function getLatestCtwaAttribution(db, tenantId, phone, phoneNumberId = null) {
     const normalizedPhone = normalizePhone(phone);
     if (!tenantId || !normalizedPhone) return null;
+
+    const messagesAvailable = phoneNumberId && db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'messages'
+    `).get();
+    if (messagesAvailable) {
+        const messageAttribution = db.prepare(`
+            SELECT referral_ctwa_clid AS last_ctwa_clid,
+                   referral_source_id AS last_ctwa_source_id,
+                   referral_source_type AS last_ctwa_source_type,
+                   referral_source_url AS last_ctwa_source_url,
+                   created_at AS last_ctwa_received_at
+            FROM messages
+            WHERE tenant_id = ? AND sender = ? AND recipient = ?
+              AND referral_ctwa_clid IS NOT NULL
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        `).get(tenantId, normalizedPhone, phoneNumberId);
+        if (messageAttribution) return messageAttribution;
+    }
 
     return db.prepare(`
         SELECT last_ctwa_clid, last_ctwa_source_id, last_ctwa_source_type,

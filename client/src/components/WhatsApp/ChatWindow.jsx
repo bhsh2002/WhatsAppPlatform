@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, TextField, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Button, Alert, Chip, Menu, MenuItem, ListItemIcon, ListItemText, useMediaQuery, useTheme, Tooltip } from '@mui/material';
-import { ArrowBack as ArrowBackIcon, MoreVert as MoreVertIcon, Search as SearchIcon, Send as SendIcon, Description as TemplateIcon, AttachFile as AttachFileIcon, Image as ImageIcon, Close as CloseIcon, PictureAsPdf as PdfIcon, InsertDriveFile as FileIcon, SmartButton as InteractiveIcon, AddCircleOutline as MoreActionsIcon } from '@mui/icons-material';
+import { ArrowBack as ArrowBackIcon, MoreVert as MoreVertIcon, Search as SearchIcon, Send as SendIcon, Description as TemplateIcon, AttachFile as AttachFileIcon, Image as ImageIcon, Close as CloseIcon, PictureAsPdf as PdfIcon, InsertDriveFile as FileIcon, SmartButton as InteractiveIcon, AddCircleOutline as MoreActionsIcon, Inventory2 as ProductIcon } from '@mui/icons-material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TemplatePicker from './TemplatePicker';
 import MessageBubble from './MessageBubble';
 import InteractiveMessageDialog from './InteractiveMessageDialog';
+import IntegratedProductPicker from '../Inbox/IntegratedProductPicker';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
 const ChatWindow = ({
@@ -30,11 +31,14 @@ const ChatWindow = ({
   getMediaDownloadUrl,
   getDateKey,
   templates = [],
-  windowStatus = null
+  windowStatus = null,
+  integrationProducts = [],
+  productCapability = null
 }) => {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showInteractiveDialog, setShowInteractiveDialog] = useState(false);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState(null);
+  const [showProductPicker, setShowProductPicker] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -145,6 +149,10 @@ const ChatWindow = ({
   };
   const handleOpenInteractiveDialog = () => {
     setShowInteractiveDialog(true);
+    setAttachMenuAnchor(null);
+  };
+  const handleOpenProductPicker = () => {
+    if (productCapability?.enabled) setShowProductPicker(true);
     setAttachMenuAnchor(null);
   };
   const hasCtwa = !!selectedChat.last_ctwa_clid;
@@ -348,6 +356,12 @@ const ChatWindow = ({
                                 <ListItemIcon><TemplateIcon fontSize="small" /></ListItemIcon>
                                 <ListItemText>{tx("auto.k_1efe52278509")}</ListItemText>
                             </MenuItem>
+                            {productCapability && <Tooltip title={productCapability.reason || ''} arrow placement="left">
+                                <span><MenuItem onClick={handleOpenProductPicker} disabled={!productCapability.enabled}>
+                                    <ListItemIcon><ProductIcon fontSize="small" /></ListItemIcon>
+                                    <ListItemText>إدراج منتج مرتبط</ListItemText>
+                                </MenuItem></span>
+                            </Tooltip>}
                             <MenuItem onClick={handleOpenFilePicker}>
                                 <ListItemIcon><AttachFileIcon fontSize="small" sx={{
                 transform: 'rotate(45deg)'
@@ -371,6 +385,11 @@ const ChatWindow = ({
                         <IconButton size="small" onClick={() => setShowTemplatePicker(true)} title={tx("auto.k_1efe52278509")}>
                             <TemplateIcon />
                         </IconButton>
+                        {productCapability && <Tooltip title={productCapability.reason || ''} arrow>
+                            <span><IconButton size="small" onClick={() => setShowProductPicker(true)} disabled={!productCapability.enabled} aria-label="إدراج منتج مرتبط">
+                                <ProductIcon />
+                            </IconButton></span>
+                        </Tooltip>}
                         <IconButton size="small" onClick={() => fileInputRef.current?.click()} title={tx("auto.k_ae09d61d9c93")}>
                             <AttachFileIcon sx={{
             transform: 'rotate(45deg)'
@@ -490,6 +509,12 @@ const ChatWindow = ({
 
             {/* Interactive Message Dialog */}
             <InteractiveMessageDialog open={showInteractiveDialog} onClose={() => setShowInteractiveDialog(false)} onSend={handleSendInteractive} sending={sendingInteractive} />
+            {productCapability && <IntegratedProductPicker
+                open={showProductPicker}
+                onClose={() => setShowProductPicker(false)}
+                products={integrationProducts}
+                onSelect={message => setNewMessage(message)}
+            />}
 
         </Box>;
 };

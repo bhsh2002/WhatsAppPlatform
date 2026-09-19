@@ -5,6 +5,7 @@ export function getWhatsAppConversationWindow(
     tenantId,
     recipient,
     nowMs = Date.now(),
+    phoneNumberId = null,
 ) {
     if (!tenantId) {
         return {
@@ -13,11 +14,21 @@ export function getWhatsAppConversationWindow(
             closesAt: null,
         };
     }
-    const contact = database.prepare(`
-        SELECT last_customer_message_at
-        FROM contacts
-        WHERE tenant_id = ? AND phone = ?
-    `).get(tenantId, recipient);
+    const windowTableExists = phoneNumberId && database.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type = 'table' AND name = 'tenant_whatsapp_contact_windows'
+    `).get();
+    const contact = windowTableExists
+        ? database.prepare(`
+            SELECT last_customer_message_at
+            FROM tenant_whatsapp_contact_windows
+            WHERE tenant_id = ? AND phone_number_id = ? AND contact_phone = ?
+        `).get(tenantId, phoneNumberId, recipient)
+        : database.prepare(`
+            SELECT last_customer_message_at
+            FROM contacts
+            WHERE tenant_id = ? AND phone = ?
+        `).get(tenantId, recipient);
     const timestamp = Date.parse(contact?.last_customer_message_at || '');
     if (!Number.isFinite(timestamp)) {
         return {

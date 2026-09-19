@@ -1,12 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    createPinnedLookup,
     UnsafeOutboundUrlError,
     isPublicIpAddress,
     parseOutboundUrl,
     resolveSafeOutboundTarget,
     validateOutboundUrl,
 } from '../security/outboundUrl.js';
+
+test('pinned DNS lookup supports scalar and all-address Node callback shapes', async () => {
+    const lookup = createPinnedLookup('192.168.188.136', 4);
+    const scalar = await new Promise((resolve, reject) => lookup(
+        'sms.dev.brmajat.net',
+        {},
+        (error, address, family) => error ? reject(error) : resolve({ address, family })
+    ));
+    const multiple = await new Promise((resolve, reject) => lookup(
+        'sms.dev.brmajat.net',
+        { all: true },
+        (error, addresses) => error ? reject(error) : resolve(addresses)
+    ));
+
+    assert.deepEqual(scalar, { address: '192.168.188.136', family: 4 });
+    assert.deepEqual(multiple, [{ address: '192.168.188.136', family: 4 }]);
+});
 
 test('outbound URL policy accepts only HTTPS without embedded credentials', () => {
     assert.equal(parseOutboundUrl('https://hooks.example.com/path').hostname, 'hooks.example.com');
@@ -47,5 +65,22 @@ test('validated targets retain the public address selected for pinned connection
     assert.equal(
         await validateOutboundUrl('https://hooks.example.com/callback', { lookup }),
         'https://hooks.example.com/callback'
+    );
+});
+
+test('an operator allowlist permits only the exact private gateway hostname', async () => {
+    const lookup = async () => [{ address: '192.168.188.136', family: 4 }];
+    const options = {
+        lookup,
+        allowedPrivateHostnames: ['sms.dev.brmajat.net'],
+    };
+
+    assert.equal(
+        await validateOutboundUrl('https://sms.dev.brmajat.net/services/v1/health.php', options),
+        'https://sms.dev.brmajat.net/services/v1/health.php'
+    );
+    await assert.rejects(
+        validateOutboundUrl('https://other.dev.brmajat.net/services/v1/health.php', options),
+        UnsafeOutboundUrlError
     );
 });

@@ -42,7 +42,9 @@ import {
     FactCheck as FactCheckIcon,
     AccountBalanceWallet as BillingIcon,
     Language as LanguageIcon,
-    PointOfSale as PosIcon
+    PointOfSale as PosIcon,
+    Sms as SmsIcon,
+    Dialpad as UssdIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -111,6 +113,8 @@ const Sidebar = () => {
                 { label: t('nav.inbox'), path: '/portal/inbox', icon: <InboxIcon /> },
                 { label: t('nav.tenantBilling'), path: '/portal/billing', icon: <BillingIcon /> },
                 { label: t('nav.posIntegration'), path: '/portal/integrations', icon: <PosIcon /> },
+                { label: 'حسابات SMS', path: '/portal/integrations/sms', icon: <SmsIcon /> },
+                { label: 'USSD', path: '/portal/ussd', icon: <UssdIcon /> },
             ],
         },
         {

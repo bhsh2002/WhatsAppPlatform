@@ -36,27 +36,14 @@ local-operability goal.
 
 ## Production deployment
 
-1. Navigate to the `platform` directory:
-   ```bash
-   cd platform
-   ```
+Use the dedicated Caddy topology and immutable GHCR images described in
+[docs/PRODUCTION_CADDY_RUNBOOK.md](docs/PRODUCTION_CADDY_RUNBOOK.md). It publishes
+only the frontend on host loopback, joins the server to the private Control
+Plane network, validates all production environment values before touching the
+database, and does not connect to Nginx Proxy Manager.
 
-2. Build and start the containers:
-   ```bash
-   docker compose up --build -d
-   ```
-
-   The compose file expects an external Docker network named `proxy`. Create it
-   once when it is not already managed by your reverse proxy stack:
-
-   ```bash
-   docker network create proxy
-   ```
-
-3. Access the application through the HTTPS URL configured in the reverse
-   proxy. Ports 3133 and 3031 are exposed for the proxy and operational probes;
-   production browser traffic must not use plain HTTP because its session
-   cookie is `Secure`.
+`docker-compose.server.yml` and `tools/deploy_server.sh` remain the isolated
+company/test topology. They must not be used on the production host.
 
 ## Notes
 - The database is persisted on the host at `./server/db/platform.db` and is
@@ -78,9 +65,11 @@ local-operability goal.
   `CORS_ORIGINS`. Cross-origin state-changing browser requests outside that
   allowlist are rejected.
 - Set `PUBLIC_APP_URL` to the canonical HTTPS origin used for Meta data-deletion status links.
-- To enable Prometheus, set a separate random `METRICS_TOKEN` of at least 32
-  characters and scrape `/api/metrics` with an Authorization bearer header.
-- To stop the application: `docker compose down`.
+- Production requires a separate random `METRICS_TOKEN` of at least 32
+  characters. Scrape the loopback `/api/metrics` path with an Authorization
+  bearer header; Caddy blocks that route publicly.
+- Stop production with the same Compose file and Compose environment used to
+  start it. Never add `-v` and never delete the shared data directory.
 
 ## Supported topology
 

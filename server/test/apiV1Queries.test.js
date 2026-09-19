@@ -7,6 +7,9 @@ import { createApiV1QueriesRouter } from '../routes/api/v1Queries.js';
 function createDatabase() {
     const database = new Database(':memory:');
     database.exec(`
+        CREATE TABLE tenants (
+            id INTEGER PRIMARY KEY, name TEXT, phone_number_id TEXT, status TEXT
+        );
         CREATE TABLE contacts (
             id INTEGER PRIMARY KEY, tenant_id INTEGER, phone TEXT, profile_name TEXT
         );
@@ -24,15 +27,18 @@ function createDatabase() {
             meta_template_id TEXT, quality_score TEXT, parameter_format TEXT,
             created_at DATETIME, updated_at DATETIME
         );
+        INSERT INTO tenants VALUES
+            (1, 'Tenant A', 'phone-A', 'Active'),
+            (2, 'Tenant B', 'phone-B', 'Active');
         INSERT INTO contacts VALUES
             (1, 1, '218910000001', 'Tenant A Contact'),
             (2, 2, '218910000001', 'Tenant B Contact'),
             (3, 1, '218910000002', 'Second Contact');
         INSERT INTO messages VALUES
-            (1, 1, 'incoming', NULL, '218910000001', 'text', 'A incoming', 'received', 'a-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 10:00:00'),
+            (1, 1, 'incoming', 'phone-A', '218910000001', 'text', 'A incoming', 'received', 'a-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 10:00:00'),
             (2, 1, 'outgoing', '218910000001', 'phone-A', 'text', 'A latest', 'sent', 'a-2', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 11:00:00'),
-            (3, 1, 'incoming', NULL, '218910000002', 'text', 'A second', 'received', 'a-3', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 09:00:00'),
-            (4, 2, 'incoming', NULL, '218910000001', 'text', 'B newest', 'received', 'b-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 12:00:00');
+            (3, 1, 'incoming', 'phone-A', '218910000002', 'text', 'A second', 'received', 'a-3', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 09:00:00'),
+            (4, 2, 'incoming', 'phone-B', '218910000001', 'text', 'B newest', 'received', 'b-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-07-14 12:00:00');
         INSERT INTO templates VALUES
             (1, 1, 'approved_a', 'en', 'utility', 'none', NULL, 'Approved A', NULL, NULL, NULL, 'approved', 'meta-a', 'GREEN', 'positional', '2026-07-14 10:00:00', '2026-07-14 10:00:00'),
             (2, 1, 'pending_a', 'en', 'utility', 'none', NULL, 'Pending A', NULL, NULL, NULL, 'pending', NULL, 'UNKNOWN', 'positional', '2026-07-14 11:00:00', '2026-07-14 11:00:00'),

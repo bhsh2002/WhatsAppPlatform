@@ -153,6 +153,8 @@ export async function createVerifiedBackup({
         if (source?.open) source.close();
         await Promise.all([
             fs.promises.rm(temporaryDatabase, { force: true }),
+            fs.promises.rm(`${temporaryDatabase}-wal`, { force: true }),
+            fs.promises.rm(`${temporaryDatabase}-shm`, { force: true }),
             fs.promises.rm(temporaryArchive, { force: true }),
         ]);
     }

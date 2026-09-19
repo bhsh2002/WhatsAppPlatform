@@ -11,6 +11,11 @@ import {
 } from '../config/index.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
+import {
+    hasWhatsAppNumbersTable,
+    listTenantWhatsAppNumbers,
+    setDefaultTenantWhatsAppNumber,
+} from '../services/whatsappNumbers.js';
 
 const DEFAULT_SESSION_TTL_MS = 10 * 60 * 1000;
 
@@ -40,6 +45,19 @@ const buildFormRequest = values => ({
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(values).toString(),
 });
+
+const normalizeMetaNextUrl = (value, apiBase) => {
+    if (!value) return null;
+    try {
+        const next = new URL(value);
+        const base = new URL(apiBase);
+        return next.protocol === 'https:' && next.origin === base.origin
+            ? next.toString()
+            : null;
+    } catch {
+        return null;
+    }
+};
 
 export function createTenantMetaOnboardingRouter({
     database,
@@ -116,18 +134,38 @@ export function createTenantMetaOnboardingRouter({
             LIMIT 1
         `).get(tenantId);
         const tokenPresent = !!(tenant?.access_token || tenant?.access_token_encrypted);
+        const numbers = listTenantWhatsAppNumbers(database, tenantId);
+        const defaultNumber = numbers.find(number => number.is_default) || numbers[0] || null;
+        const numberTokenPresent = hasWhatsAppNumbersTable(database) && !!database.prepare(`
+            SELECT 1 FROM tenant_whatsapp_numbers
+            WHERE tenant_id = ? AND phone_number_id = ?
+              AND is_active = 1 AND access_token_encrypted IS NOT NULL
+            LIMIT 1
+        `).get(tenantId, defaultNumber?.phone_number_id || '');
         return {
-            connected: !!(tenant?.waba_id && tenant?.phone_number_id && tokenPresent),
-            waba_id: tenant?.waba_id || null,
-            phone_number_id: tenant?.phone_number_id || null,
-            business_id: tenant?.business_id || null,
-            token_present: tokenPresent,
+            connected: numbers.length > 0 && (tokenPresent || numberTokenPresent),
+            waba_id: defaultNumber?.waba_id || tenant?.waba_id || null,
+            phone_number_id: defaultNumber?.phone_number_id || tenant?.phone_number_id || null,
+            default_phone_number_id: defaultNumber?.phone_number_id || null,
+            business_id: defaultNumber?.business_id || tenant?.business_id || null,
+            token_present: tokenPresent || numberTokenPresent,
+            number_count: numbers.length,
+            numbers,
             connected_at: lastConnected?.created_at || null,
             updated_at: tenant?.updated_at || null,
         };
     };
 
     const router = express.Router();
+
+    const logWhatsAppActivity = (tenantId, eventType, description) => {
+        const tenant = database.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+        database.prepare(`
+            INSERT INTO activity_logs (
+                tenant_id, tenant_name, event_type, description, status
+            ) VALUES (?, ?, ?, ?, 'success')
+        `).run(tenantId, tenant?.name || null, eventType, description);
+    };
 
     router.get('/meta/config', (_req, res) => res.json({
         app_id: meta.appId,
@@ -623,6 +661,111 @@ export function createTenantMetaOnboardingRouter({
         }
     });
 
+    router.get('/whatsapp/numbers', (req, res) => {
+        try {
+            const numbers = listTenantWhatsAppNumbers(database, req.user.tenant_id);
+            return res.json({
+                numbers,
+                default_phone_number_id: numbers.find(number => number.is_default)?.phone_number_id
+                    || numbers[0]?.phone_number_id
+                    || null,
+            });
+        } catch (error) {
+            console.error('[TenantMetaOnboarding] WhatsApp numbers error:', error);
+            return res.status(500).json({ error: 'فشل جلب أرقام WhatsApp' });
+        }
+    });
+
+    router.patch('/whatsapp/numbers/:phoneNumberId', (req, res) => {
+        try {
+            if (!hasWhatsAppNumbersTable(database)) {
+                return res.status(409).json({ error: 'ترحيل تعدد الأرقام غير مطبق' });
+            }
+            const tenantId = req.user.tenant_id;
+            const phoneNumberId = normalizeString(req.params.phoneNumberId, 256);
+            const label = req.body?.label == null
+                ? null
+                : normalizeString(req.body.label, 100);
+            if (!phoneNumberId || (req.body?.label != null && !label)) {
+                return res.status(400).json({ error: 'بيانات الرقم غير صالحة' });
+            }
+            const result = database.prepare(`
+                UPDATE tenant_whatsapp_numbers
+                SET label = ?, updated_at = datetime('now', 'localtime')
+                WHERE tenant_id = ? AND phone_number_id = ?
+            `).run(label, tenantId, phoneNumberId);
+            if (!result.changes) return res.status(404).json({ error: 'رقم WhatsApp غير موجود' });
+            logWhatsAppActivity(tenantId, 'whatsapp_number_updated', `تحديث اسم رقم WhatsApp: ${phoneNumberId}`);
+            const number = listTenantWhatsAppNumbers(database, tenantId, { includeInactive: true })
+                .find(item => item.phone_number_id === phoneNumberId);
+            return res.json(number);
+        } catch (error) {
+            console.error('[TenantMetaOnboarding] WhatsApp number update error:', error);
+            return res.status(500).json({ error: 'فشل تحديث رقم WhatsApp' });
+        }
+    });
+
+    router.post('/whatsapp/numbers/:phoneNumberId/default', (req, res) => {
+        try {
+            if (!hasWhatsAppNumbersTable(database)) {
+                return res.status(409).json({ error: 'ترحيل تعدد الأرقام غير مطبق' });
+            }
+            const phoneNumberId = normalizeString(req.params.phoneNumberId, 256);
+            const number = phoneNumberId
+                ? setDefaultTenantWhatsAppNumber(database, req.user.tenant_id, phoneNumberId)
+                : null;
+            if (!number) return res.status(404).json({ error: 'رقم WhatsApp النشط غير موجود' });
+            logWhatsAppActivity(req.user.tenant_id, 'whatsapp_default_changed', `تعيين رقم WhatsApp الافتراضي: ${phoneNumberId}`);
+            return res.json({ success: true, number });
+        } catch (error) {
+            console.error('[TenantMetaOnboarding] WhatsApp default number error:', error);
+            return res.status(500).json({ error: 'فشل تعيين رقم WhatsApp الافتراضي' });
+        }
+    });
+
+    router.delete('/whatsapp/numbers/:phoneNumberId', (req, res) => {
+        try {
+            if (!hasWhatsAppNumbersTable(database)) {
+                return res.status(409).json({ error: 'ترحيل تعدد الأرقام غير مطبق' });
+            }
+            const tenantId = req.user.tenant_id;
+            const phoneNumberId = normalizeString(req.params.phoneNumberId, 256);
+            const existing = phoneNumberId ? database.prepare(`
+                SELECT id, is_default FROM tenant_whatsapp_numbers
+                WHERE tenant_id = ? AND phone_number_id = ?
+            `).get(tenantId, phoneNumberId) : null;
+            if (!existing) return res.status(404).json({ error: 'رقم WhatsApp غير موجود' });
+
+            database.transaction(() => {
+                database.prepare(`
+                    DELETE FROM tenant_whatsapp_numbers WHERE id = ? AND tenant_id = ?
+                `).run(existing.id, tenantId);
+                const remaining = listTenantWhatsAppNumbers(database, tenantId);
+                if (remaining.length === 0) {
+                    database.prepare(`
+                        UPDATE tenants
+                        SET phone_number_id = NULL, waba_id = NULL, business_id = NULL,
+                            dataset_id = NULL,
+                            access_token = NULL, access_token_encrypted = NULL,
+                            updated_at = datetime('now', 'localtime')
+                        WHERE id = ?
+                    `).run(tenantId);
+                } else if (existing.is_default || !remaining.some(number => number.is_default)) {
+                    setDefaultTenantWhatsAppNumber(database, tenantId, remaining[0].phone_number_id);
+                }
+                logWhatsAppActivity(tenantId, 'whatsapp_number_disconnected', `فصل رقم WhatsApp: ${phoneNumberId}`);
+            })();
+            const current = listTenantWhatsAppNumbers(database, tenantId);
+            return res.json({
+                success: true,
+                default_phone_number_id: current.find(number => number.is_default)?.phone_number_id || null,
+            });
+        } catch (error) {
+            console.error('[TenantMetaOnboarding] WhatsApp number delete error:', error);
+            return res.status(500).json({ error: 'فشل حذف رقم WhatsApp' });
+        }
+    });
+
     router.post('/whatsapp/connect', async (req, res) => {
         try {
             const tenantId = req.user.tenant_id;
@@ -633,6 +776,7 @@ export function createTenantMetaOnboardingRouter({
                 ? null
                 : normalizeString(req.body.business_id, 256);
             const forceReconnect = req.body?.force_reconnect === true;
+            const makeDefault = req.body?.set_default === true;
             if (!code || !phoneNumberId || !wabaId || (req.body?.business_id != null && !businessId)) {
                 return res.status(400).json({
                     error: 'code, phone_number_id, and waba_id are required',
@@ -640,13 +784,14 @@ export function createTenantMetaOnboardingRouter({
             }
 
             const existingStatus = getTenantWhatsAppStatus(tenantId);
-            if (existingStatus.connected && !forceReconnect) {
+            if (!hasWhatsAppNumbersTable(database) && existingStatus.connected && !forceReconnect) {
                 return res.status(409).json({
                     error: 'حساب WhatsApp مربوط بالفعل',
                     code: 'WHATSAPP_ALREADY_CONNECTED',
                     status: existingStatus,
                 });
             }
+
             if (!meta.appId || !meta.appSecret) {
                 return res.status(400).json({ error: 'Meta app not configured' });
             }
@@ -659,17 +804,29 @@ export function createTenantMetaOnboardingRouter({
             const accessToken = normalizeString(tokenResult.data?.access_token, 8192);
             if (!accessToken) return res.status(502).json({ error: 'Token exchange returned no access token' });
 
-            const phoneNumbersResult = await requestMeta(
-                `${meta.apiBase}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id&limit=100`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-            if (!phoneNumbersResult.ok) {
-                return sendMetaFailure(res, phoneNumbersResult, 'Failed to verify WhatsApp account');
+            const authorizedPhones = [];
+            let phoneNumbersUrl = `${meta.apiBase}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,status,name_status&limit=100`;
+            for (let page = 0; phoneNumbersUrl && page < 10; page += 1) {
+                const phoneNumbersResult = await requestMeta(
+                    phoneNumbersUrl,
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+                if (!phoneNumbersResult.ok) {
+                    return sendMetaFailure(res, phoneNumbersResult, 'Failed to verify WhatsApp account');
+                }
+                const pageRows = Array.isArray(phoneNumbersResult.data?.data)
+                    ? phoneNumbersResult.data.data
+                    : [];
+                authorizedPhones.push(...pageRows.slice(0, Math.max(0, 1000 - authorizedPhones.length)));
+                if (authorizedPhones.length >= 1000) break;
+                const nextValue = phoneNumbersResult.data?.paging?.next;
+                const next = normalizeMetaNextUrl(nextValue, meta.apiBase);
+                if (nextValue && !next) {
+                    return res.status(502).json({ error: 'Meta returned an invalid pagination URL' });
+                }
+                phoneNumbersUrl = next;
             }
-            const authorizedPhoneIds = new Set(
-                (Array.isArray(phoneNumbersResult.data?.data) ? phoneNumbersResult.data.data : [])
-                    .map(phone => String(phone.id))
-            );
+            const authorizedPhoneIds = new Set(authorizedPhones.map(phone => String(phone.id)));
             if (!authorizedPhoneIds.has(phoneNumberId)) {
                 return res.status(400).json({
                     error: 'phone_number_id does not belong to the authorized WhatsApp account',
@@ -678,7 +835,60 @@ export function createTenantMetaOnboardingRouter({
 
             const encryptedToken = encryptToken(accessToken);
             const tenant = database.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
-            database.transaction(() => {
+            let importedCount = 1;
+            if (hasWhatsAppNumbersTable(database)) {
+                const conflicting = database.prepare(`
+                    SELECT tenant_id, phone_number_id
+                    FROM tenant_whatsapp_numbers
+                    WHERE phone_number_id IN (${authorizedPhones.map(() => '?').join(',') || "''"})
+                      AND tenant_id != ?
+                    LIMIT 1
+                `).get(...authorizedPhones.map(phone => String(phone.id)), tenantId);
+                if (conflicting) {
+                    return res.status(409).json({
+                        error: 'أحد أرقام WhatsApp مرتبط بحساب آخر على المنصة',
+                        code: 'WHATSAPP_NUMBER_ALREADY_ASSIGNED',
+                    });
+                }
+                database.transaction(() => {
+                    const upsert = database.prepare(`
+                        INSERT INTO tenant_whatsapp_numbers (
+                            tenant_id, phone_number_id, waba_id, business_id,
+                            display_phone_number, verified_name, quality_rating,
+                            platform_status, access_token_encrypted, is_default, is_active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+                        ON CONFLICT(tenant_id, phone_number_id) DO UPDATE SET
+                            waba_id = excluded.waba_id,
+                            business_id = COALESCE(excluded.business_id, tenant_whatsapp_numbers.business_id),
+                            display_phone_number = COALESCE(excluded.display_phone_number, tenant_whatsapp_numbers.display_phone_number),
+                            verified_name = COALESCE(excluded.verified_name, tenant_whatsapp_numbers.verified_name),
+                            quality_rating = COALESCE(excluded.quality_rating, tenant_whatsapp_numbers.quality_rating),
+                            platform_status = COALESCE(excluded.platform_status, tenant_whatsapp_numbers.platform_status),
+                            access_token_encrypted = excluded.access_token_encrypted,
+                            is_active = 1,
+                            updated_at = datetime('now', 'localtime')
+                    `);
+                    for (const phone of authorizedPhones) {
+                        upsert.run(
+                            tenantId,
+                            String(phone.id),
+                            wabaId,
+                            businessId,
+                            phone.display_phone_number || null,
+                            phone.verified_name || null,
+                            phone.quality_rating || null,
+                            phone.status || phone.name_status || null,
+                            encryptedToken,
+                        );
+                    }
+                })();
+                importedCount = authorizedPhones.length;
+                const currentDefault = listTenantWhatsAppNumbers(database, tenantId)
+                    .find(number => number.is_default);
+                if (!currentDefault || makeDefault) {
+                    setDefaultTenantWhatsAppNumber(database, tenantId, phoneNumberId);
+                }
+            } else {
                 database.prepare(`
                     UPDATE tenants
                     SET waba_id = ?, phone_number_id = ?, business_id = ?,
@@ -686,11 +896,14 @@ export function createTenantMetaOnboardingRouter({
                         updated_at = datetime('now', 'localtime')
                     WHERE id = ?
                 `).run(wabaId, phoneNumberId, businessId, encryptedToken, tenantId);
+            }
+
+            database.transaction(() => {
                 database.prepare(`
                     INSERT INTO activity_logs (
                         tenant_id, tenant_name, event_type, description, status
                     ) VALUES (?, ?, 'whatsapp_connected', ?, 'success')
-                `).run(tenantId, tenant?.name, `ربط حساب WhatsApp: ${phoneNumberId}`);
+                `).run(tenantId, tenant?.name, `ربط حساب WhatsApp: ${phoneNumberId} (${importedCount} رقم)`);
             })();
 
             try {
@@ -712,6 +925,7 @@ export function createTenantMetaOnboardingRouter({
                 success: true,
                 waba_id: wabaId,
                 phone_number_id: phoneNumberId,
+                imported_count: importedCount,
                 status: getTenantWhatsAppStatus(tenantId),
             });
         } catch (error) {
