@@ -1,0 +1,88 @@
+name: Release images
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-images-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish immutable GHCR images
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Create isolated Buildx builder
+        run: |
+          set -euo pipefail
+          docker buildx create \
+            --driver docker-container \
+            --name "wa-savana-${GITHUB_RUN_ID}" \
+            --use
+          docker buildx inspect --bootstrap
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" \
+            | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Build and publish server and client
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          image_root="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
+            --tag "${image_root}/whatsapp-platform-server:sha-${RELEASE_SHA}" \
+            --metadata-file /tmp/wa-server-metadata.json \
+            --push \
+            server
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
+            --tag "${image_root}/whatsapp-platform-client:sha-${RELEASE_SHA}" \
+            --metadata-file /tmp/wa-client-metadata.json \
+            --push \
+            client
+
+          server_digest="$(jq -r '."containerimage.digest"' /tmp/wa-server-metadata.json)"
+          client_digest="$(jq -r '."containerimage.digest"' /tmp/wa-client-metadata.json)"
+          {
+            printf '## Wa Savana immutable images\n\n'
+            printf '| Component | Pull reference |\n'
+            printf '| --- | --- |\n'
+            printf '| Server | `%s/whatsapp-platform-server@%s` |\n' "$image_root" "$server_digest"
+            printf '| Client | `%s/whatsapp-platform-client@%s` |\n' "$image_root" "$client_digest"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove Buildx builder
+        if: always()
+        run: docker buildx rm "wa-savana-${GITHUB_RUN_ID}" || true
