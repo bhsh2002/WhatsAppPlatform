@@ -51,7 +51,7 @@ router.get('/system-status', (req, res) => {
         urls: {
             privacy_policy: '/privacy',
             terms: '/terms',
-            data_deletion: '/data-deletion',
+            data_deletion: '/api/data-deletion',
         },
         cors_origins_configured: present(process.env.CORS_ORIGINS),
         checked_at: new Date().toISOString(),

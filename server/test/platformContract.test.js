@@ -474,6 +474,31 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
     assert.doesNotMatch(productionCompose, /:(?:latest|sha-)/);
 });
 
+test('production edge omits query credentials and exposes data-deletion routes through /api', () => {
+    const caddy = read('ops/caddy/wa.savana.ly.caddy');
+    const caddyRuntimeLog = read('ops/caddy/wa-sensitive-runtime-log.global-options.caddy');
+    const nginx = read('client/nginx.conf');
+    const dataDeletion = read('server/routes/dataDeletion.js');
+    const settings = read('server/routes/settings.js');
+
+    assert.match(caddy, /format filter/);
+    assert.match(caddy, /request>uri regexp "\[\?\]\.\*\$" ""/);
+    assert.match(caddy, /request>headers>Referer delete/);
+    assert.match(caddy, /Referrer-Policy "no-referrer"/);
+    assert.match(caddyRuntimeLog, /log default/);
+    assert.match(caddyRuntimeLog, /request>uri regexp "\[\?\]\.\*\$" ""/);
+    assert.match(caddyRuntimeLog, /request>headers>Referer delete/);
+    assert.match(nginx, /log_format safe_access/);
+    assert.match(nginx, /"\$request_method \$uri \$server_protocol"/);
+    assert.match(nginx, /access_log \/dev\/stdout safe_access/);
+    assert.match(nginx, /error_log \/dev\/null/);
+    assert.doesNotMatch(nginx.match(/log_format safe_access[\s\S]*?;/)?.[0] || '', /\$(?:request|request_uri|args|http_referer)\b/);
+    assert.match(caddy, /@public_metrics path \/api\/metrics \/api\/metrics\/\*/);
+    assert.match(caddy, /respond @public_metrics 404/);
+    assert.match(dataDeletion, /\$\{publicBaseUrl\}\/api\/deletion-status\?code=/);
+    assert.match(settings, /data_deletion: '\/api\/data-deletion'/);
+});
+
 test('literal Meta template delete routes are registered before dynamic template ids', () => {
     const tenantTemplates = read('server/routes/tenantTemplates.js');
     const tenants = read('server/routes/tenants.js');

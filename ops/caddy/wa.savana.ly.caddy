@@ -15,7 +15,7 @@ wa.savana.ly {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
-        Referrer-Policy "strict-origin-when-cross-origin"
+        Referrer-Policy "no-referrer"
         Permissions-Policy "camera=(), geolocation=(), microphone=()"
     }
 
@@ -27,6 +27,14 @@ wa.savana.ly {
 
     log {
         output stdout
-        format json
+        # Preserve path/status observability without persisting any query
+        # values or same-origin Referer URLs that may carry credentials.
+        format filter {
+            wrap json
+            fields {
+                request>uri regexp "[?].*$" ""
+                request>headers>Referer delete
+            }
+        }
     }
 }
