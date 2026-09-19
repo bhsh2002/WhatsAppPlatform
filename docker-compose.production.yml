@@ -8,7 +8,7 @@ x-json-logging: &json-logging
 
 services:
   server:
-    image: ghcr.io/bhsh2002/whatsapp-platform-server@sha256:${WA_SERVER_IMAGE_DIGEST:?Set the 64-character server image digest}
+    image: ghcr.io/bhsh2002/wa-savana-server@sha256:${WA_SERVER_IMAGE_DIGEST:?Set the 64-character server image digest}
     pull_policy: always
     container_name: wa-savana-server
     restart: unless-stopped
@@ -70,7 +70,7 @@ services:
       start_period: 30s
 
   client:
-    image: ghcr.io/bhsh2002/whatsapp-platform-client@sha256:${WA_CLIENT_IMAGE_DIGEST:?Set the 64-character client image digest}
+    image: ghcr.io/bhsh2002/wa-savana-client@sha256:${WA_CLIENT_IMAGE_DIGEST:?Set the 64-character client image digest}
     pull_policy: always
     container_name: wa-savana-frontend
     restart: unless-stopped

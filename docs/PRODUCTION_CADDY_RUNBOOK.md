@@ -7,7 +7,9 @@ secret from the company or monitoring hosts.
 ## Release gate
 
 1. Require a green GitHub Actions run for the exact full commit SHA.
-2. Record the server and client GHCR digests produced from that same SHA.
+2. Record the digests produced from that same SHA for
+   `ghcr.io/bhsh2002/wa-savana-server` and
+   `ghcr.io/bhsh2002/wa-savana-client`.
 3. Verify the images' OCI revision labels match the SHA. Never deploy `latest`
    or another mutable tag.
 4. Keep `SAVANA_INTEGRATIONS_ENABLED=false` for the first smoke test. Enable it
