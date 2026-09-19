@@ -19,7 +19,7 @@ router.post('/data-deletion', (req, res) => {
 
         const publicBaseUrl = (process.env.PUBLIC_APP_URL || 'https://wa.savana.ly').replace(/\/$/, '');
         return res.json({
-            url: `${publicBaseUrl}/deletion-status?code=${encodeURIComponent(confirmationCode)}`,
+            url: `${publicBaseUrl}/api/deletion-status?code=${encodeURIComponent(confirmationCode)}`,
             confirmation_code: confirmationCode,
         });
     } catch (error) {

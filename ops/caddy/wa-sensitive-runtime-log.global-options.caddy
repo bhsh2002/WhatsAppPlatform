@@ -1,0 +1,11 @@
+# Merge this block inside the main Caddyfile's first global options block.
+# It filters runtime/error logs; the site log block filters access logs.
+log default {
+    format filter {
+        wrap json
+        fields {
+            request>uri regexp "[?].*$" ""
+            request>headers>Referer delete
+        }
+    }
+}

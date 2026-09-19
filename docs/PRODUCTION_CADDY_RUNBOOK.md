@@ -87,8 +87,12 @@ existing reload error first and confirm its journal is writable. The supplied
 site logs to stdout/journald and therefore does not add a file-log ownership or
 rotation dependency.
 
-Install `ops/caddy/wa.savana.ly.caddy` in the host's imported Caddy directory,
-then validate the complete configuration before a reload:
+Install `ops/caddy/wa.savana.ly.caddy` in the host's imported Caddy directory.
+Also merge `ops/caddy/wa-sensitive-runtime-log.global-options.caddy` inside the
+main Caddyfile's first global options block. The latter is deliberately not an
+importable site file: it filters Caddy runtime/error logs as well as the site
+access encoder filters access logs. Then validate the complete configuration
+before a reload:
 
 ```bash
 sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
@@ -101,6 +105,14 @@ Keep a copy of the previous full Caddy configuration. If validation or reload
 fails, restore that copy and reload; do not leave a partially edited file. The
 public edge deliberately returns 404 for `/api/metrics`. Prometheus must scrape
 `http://127.0.0.1:3133/api/metrics` through the host/tunnel with the bearer token.
+The Caddy access and runtime/error encoders retain path/status and upstream
+failure observability but strip all query strings and omit Referer URLs. Nginx
+keeps a path-only access log and disables its unformattable error log; the
+filtered Caddy runtime log and Docker/Caddy health checks retain proxy-failure
+visibility. The public response also sets `Referrer-Policy: no-referrer`. This
+keeps Meta verification tokens, OAuth codes and state, one-time SSE tokens,
+media download tokens, deletion codes, and future query credentials out of
+journald and container logs.
 
 ## Functional checks before traffic
 
@@ -110,6 +122,8 @@ public edge deliberately returns 404 for `/api/metrics`. Prometheus must scrape
 - Meta verifies `https://wa.savana.ly/api/webhook`, a signed webhook is
   accepted, and an invalid signature is rejected.
 - Facebook OAuth returns to `https://wa.savana.ly/auth/facebook/callback`.
+- Meta's data-deletion callback uses `https://wa.savana.ly/api/data-deletion`,
+  and returned status links remain under `https://wa.savana.ly/api/deletion-status`.
 - SMS callbacks use
   `https://wa.savana.ly/api/integrations/sms-gateway/events`.
 - Metrics require the dedicated bearer token and contain no tenant/message
