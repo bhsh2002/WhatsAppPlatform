@@ -448,6 +448,7 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
         productionCompose,
         /ghcr\.io\/bhsh2002\/savana-wa-client@sha256:\$\{WA_CLIENT_IMAGE_DIGEST/,
     );
+    assert.match(productionCompose, /"127\.0\.0\.1:3133:8080"/);
     assert.match(
         productionCompose,
         /client:[\s\S]*?networks:\s*\n\s+edge:\s*\n\s+gw_priority: 1\s*\n\s+internal:\s*\n\s+gw_priority: 0/,
