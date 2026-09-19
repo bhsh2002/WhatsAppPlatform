@@ -10,8 +10,9 @@ secret from the company or monitoring hosts.
 2. Record the digests produced from that same SHA for
    `ghcr.io/bhsh2002/savana-wa-server` and
    `ghcr.io/bhsh2002/savana-wa-client`.
-3. Confirm GitHub reports both packages as `private`, unlinked, independently
-   permissioned packages, and confirm an anonymous manifest request is denied.
+3. Confirm GitHub reports both packages as `private`, linked only to
+   `bhsh2002/WhatsAppPlatform`, and independently permissioned; confirm an
+   anonymous manifest request is denied.
 4. Verify the images' OCI revision labels match the SHA. Never deploy `latest`
    or another mutable tag.
 5. Keep `SAVANA_INTEGRATIONS_ENABLED=false` for the first smoke test. Enable it
@@ -20,11 +21,11 @@ secret from the company or monitoring hosts.
    registered on both sides.
 
 The one-time private-package bootstrap is complete. Both packages remain
-private and unlinked and grant `bhsh2002/WhatsAppPlatform` role `Write` under
-**Manage Actions access** without selecting **Inherit access from repository**.
-The release workflow uses its repository-scoped `GITHUB_TOKEN` with
-`packages: write`; do not create or store a package-publishing personal access
-token in Actions.
+private, are linked only to `bhsh2002/WhatsAppPlatform`, and grant that
+repository role `Write` under **Manage Actions access** without selecting
+**Inherit access from repository**. The release workflow uses its
+repository-scoped `GITHUB_TOKEN` with `packages: write`; do not create or store
+a package-publishing personal access token in Actions.
 
 ## One-time host preparation
 

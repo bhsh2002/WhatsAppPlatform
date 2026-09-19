@@ -425,9 +425,15 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
     assert.doesNotMatch(release, /org\.opencontainers\.image\.source/);
     assert.match(release, /preflight_package "\$server_package"/);
     assert.match(release, /preflight_package "\$client_package"/);
-    assert.match(release, /Existing GHCR package \$\{package\} is not private and unlinked/);
+    assert.ok(release.includes('expected_repository="bhsh2002/WhatsAppPlatform"'));
+    assert.match(
+        release,
+        /Existing GHCR package \$\{package\} is not private or is linked to an unexpected repository/,
+    );
     assert.match(release, /\.visibility == "private"/);
-    assert.match(release, /\(\(\.repository \/\/ null\) == null\)/);
+    assert.match(release, /\(\(\.repository\.full_name \/\/ null\) == \$repository\)/);
+    assert.match(release, /--argjson repository_id "\$GITHUB_REPOSITORY_ID"/);
+    assert.match(release, /\(\(\.repository\.id \/\/ null\) == \$repository_id\)/);
     assert.match(release, /DOCKER_CONFIG="\$anonymous_config"[\s\\]+docker manifest inspect/);
     assert.match(release, /Private GHCR image is anonymously readable/);
     assert.match(release, /denied\|unauthorized\|authentication required/);
