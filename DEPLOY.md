@@ -42,9 +42,20 @@ only the frontend on host loopback, joins the server to the private Control
 Plane network, validates all production environment values before touching the
 database, and does not connect to Nginx Proxy Manager.
 
-Production pulls `ghcr.io/bhsh2002/wa-savana-server` and
-`ghcr.io/bhsh2002/wa-savana-client` by immutable `sha256` digest. Release tags
+Production pulls the private `ghcr.io/bhsh2002/savana-wa-server` and
+`ghcr.io/bhsh2002/savana-wa-client` packages by immutable `sha256` digest. Release tags
 identify the verified commit but are never used directly by Compose.
+
+The first publication of these package names is a one-time bootstrap. Before
+merging the bootstrap release, create the repository secret
+`GHCR_BOOTSTRAP_PAT` from a short-lived GitHub personal access token (classic)
+with only `write:packages`; do not grant `repo` or `delete:packages`. The
+release authenticates as `bhsh2002`, deliberately omits the OCI source label,
+and fails unless GitHub reports both packages as private and unlinked and an
+anonymous manifest request is denied. After the successful bootstrap, grant
+this repository `Write` under each package's **Manage Actions access**, revoke
+the token, delete the secret, and replace the bootstrap authentication with a
+normal `GITHUB_TOKEN` release before the next commit reaches `main`.
 
 `docker-compose.server.yml` and `tools/deploy_server.sh` remain the isolated
 company/test topology. They must not be used on the production host.

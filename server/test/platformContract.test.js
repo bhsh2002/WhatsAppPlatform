@@ -414,30 +414,42 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
     const runbook = read('docs/PRODUCTION_CADDY_RUNBOOK.md');
     const productionContract = [release, productionCompose, deploy, runbook].join('\n');
 
-    assert.ok(release.includes('--tag "${image_root}/wa-savana-server:sha-${RELEASE_SHA}"'));
-    assert.ok(release.includes('--tag "${image_root}/wa-savana-client:sha-${RELEASE_SHA}"'));
-    assert.match(
-        release,
-        /org\.opencontainers\.image\.source=https:\/\/github\.com\/\$\{GITHUB_REPOSITORY\}/,
-    );
-    assert.match(release, /%s\/wa-savana-server@%s/);
-    assert.match(release, /%s\/wa-savana-client@%s/);
+    assert.ok(release.includes('server_package="savana-wa-server"'));
+    assert.ok(release.includes('client_package="savana-wa-client"'));
+    assert.ok(release.includes('--tag "${image_root}/${server_package}:sha-${RELEASE_SHA}"'));
+    assert.ok(release.includes('--tag "${image_root}/${client_package}:sha-${RELEASE_SHA}"'));
+    assert.match(release, /GHCR_TOKEN: \$\{\{ secrets\.GHCR_BOOTSTRAP_PAT \}\}/);
+    assert.match(release, /docker login ghcr\.io --username bhsh2002 --password-stdin/);
+    assert.doesNotMatch(release, /packages:\s*write/);
+    assert.doesNotMatch(release, /org\.opencontainers\.image\.source/);
+    assert.match(release, /preflight_package "\$server_package"/);
+    assert.match(release, /preflight_package "\$client_package"/);
+    assert.match(release, /Existing GHCR package \$\{package\} is not private and unlinked/);
+    assert.match(release, /\.visibility == "private"/);
+    assert.match(release, /\(\(\.repository \/\/ null\) == null\)/);
+    assert.match(release, /DOCKER_CONFIG="\$anonymous_config"[\s\\]+docker manifest inspect/);
+    assert.match(release, /Private GHCR image is anonymously readable/);
+    assert.match(release, /denied\|unauthorized\|authentication required/);
+    assert.match(release, /Anonymous access failed for an unverified reason/);
+    assert.match(release, /printf '\| Server \| `%s` \|/);
+    assert.match(release, /printf '\| Client \| `%s` \|/);
     assert.match(
         productionCompose,
-        /ghcr\.io\/bhsh2002\/wa-savana-server@sha256:\$\{WA_SERVER_IMAGE_DIGEST/,
+        /ghcr\.io\/bhsh2002\/savana-wa-server@sha256:\$\{WA_SERVER_IMAGE_DIGEST/,
     );
     assert.match(
         productionCompose,
-        /ghcr\.io\/bhsh2002\/wa-savana-client@sha256:\$\{WA_CLIENT_IMAGE_DIGEST/,
+        /ghcr\.io\/bhsh2002\/savana-wa-client@sha256:\$\{WA_CLIENT_IMAGE_DIGEST/,
     );
     assert.ok(deploy.includes(
-        "server_digest_pattern='^ghcr\\.io/bhsh2002/wa-savana-server@sha256:[0-9a-f]{64}$'",
+        "server_digest_pattern='^ghcr\\.io/bhsh2002/savana-wa-server@sha256:[0-9a-f]{64}$'",
     ));
     assert.ok(deploy.includes(
-        "client_digest_pattern='^ghcr\\.io/bhsh2002/wa-savana-client@sha256:[0-9a-f]{64}$'",
+        "client_digest_pattern='^ghcr\\.io/bhsh2002/savana-wa-client@sha256:[0-9a-f]{64}$'",
     ));
-    assert.match(runbook, /ghcr\.io\/bhsh2002\/wa-savana-server/);
-    assert.match(runbook, /ghcr\.io\/bhsh2002\/wa-savana-client/);
+    assert.match(runbook, /ghcr\.io\/bhsh2002\/savana-wa-server/);
+    assert.match(runbook, /ghcr\.io\/bhsh2002\/savana-wa-client/);
+    assert.doesNotMatch(productionContract, /ghcr\.io\/bhsh2002\/wa-savana-(server|client)/);
     assert.doesNotMatch(productionContract, /whatsapp-platform-(server|client)/);
     assert.doesNotMatch(productionCompose, /:(?:latest|sha-)/);
 });

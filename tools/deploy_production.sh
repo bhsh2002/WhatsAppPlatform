@@ -83,12 +83,12 @@ server_image="$("${compose[@]}" config --format json \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["server"]["image"])')"
 client_image="$("${compose[@]}" config --format json \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["client"]["image"])')"
-server_digest_pattern='^ghcr\.io/bhsh2002/wa-savana-server@sha256:[0-9a-f]{64}$'
-client_digest_pattern='^ghcr\.io/bhsh2002/wa-savana-client@sha256:[0-9a-f]{64}$'
+server_digest_pattern='^ghcr\.io/bhsh2002/savana-wa-server@sha256:[0-9a-f]{64}$'
+client_digest_pattern='^ghcr\.io/bhsh2002/savana-wa-client@sha256:[0-9a-f]{64}$'
 [[ "$server_image" =~ $server_digest_pattern ]] \
-  || fail "WA_SERVER_IMAGE_DIGEST must resolve to the immutable wa-savana-server GHCR image"
+  || fail "WA_SERVER_IMAGE_DIGEST must resolve to the immutable savana-wa-server GHCR image"
 [[ "$client_image" =~ $client_digest_pattern ]] \
-  || fail "WA_CLIENT_IMAGE_DIGEST must resolve to the immutable wa-savana-client GHCR image"
+  || fail "WA_CLIENT_IMAGE_DIGEST must resolve to the immutable savana-wa-client GHCR image"
 [[ "$server_image" != *"sha256:0000000000000000000000000000000000000000000000000000000000000000" ]] \
   || fail "WA_SERVER_IMAGE_DIGEST still contains the example digest"
 [[ "$client_image" != *"sha256:0000000000000000000000000000000000000000000000000000000000000000" ]] \
