@@ -8,14 +8,30 @@ secret from the company or monitoring hosts.
 
 1. Require a green GitHub Actions run for the exact full commit SHA.
 2. Record the digests produced from that same SHA for
-   `ghcr.io/bhsh2002/wa-savana-server` and
-   `ghcr.io/bhsh2002/wa-savana-client`.
-3. Verify the images' OCI revision labels match the SHA. Never deploy `latest`
+   `ghcr.io/bhsh2002/savana-wa-server` and
+   `ghcr.io/bhsh2002/savana-wa-client`.
+3. Confirm GitHub reports both packages as `private`, and confirm an anonymous
+   manifest request is denied. The one-time bootstrap also requires both
+   packages to be unlinked so the public source repository cannot supply their
+   visibility.
+4. Verify the images' OCI revision labels match the SHA. Never deploy `latest`
    or another mutable tag.
-4. Keep `SAVANA_INTEGRATIONS_ENABLED=false` for the first smoke test. Enable it
+5. Keep `SAVANA_INTEGRATIONS_ENABLED=false` for the first smoke test. Enable it
    only after Connect and Subscriptions are healthy on
    `savana-control-plane-network` and all four integration secrets have been
    registered on both sides.
+
+Before merging the one-time package-bootstrap release, install
+`GHCR_BOOTSTRAP_PAT` as a repository Actions secret. It must be a short-lived
+personal access token (classic) owned by `bhsh2002` with only
+`write:packages`; GitHub must not add `repo` or `delete:packages`. The secret
+must exist before the merge-triggered `main` CI completes, because the release
+workflow starts automatically from that successful run. After both packages
+pass the private/unlinked and anonymous-access gates, add
+`bhsh2002/WhatsAppPlatform` with role `Write` under **Manage Actions access**
+for each package. Do not select **Inherit access from repository**. Revoke the
+bootstrap token and remove the secret immediately; a follow-up release change
+must use `GITHUB_TOKEN` before any later commit reaches `main`.
 
 ## One-time host preparation
 
