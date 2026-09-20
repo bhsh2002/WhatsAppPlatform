@@ -28,6 +28,11 @@ import {
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 import { MetricValue, PageTitle, SectionTitle } from '../../components/Layout/PageTitle';
+import {
+    formatPortalInvoiceValue,
+    portalInvoiceColumnKey,
+    presentPortalInvoices,
+} from './billingInvoicePresentation';
 
 const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
     <Card elevation={1} sx={{ height: '100%' }}>
@@ -80,15 +85,11 @@ const TenantBilling = () => {
             setSummary(summaryData);
             setLedger(ledgerData.ledger || []);
             setCentralSubscription(centralData);
-            setInvoices(
-                centralData?.managed_centrally
-                    ? (centralData.invoices || []).map(invoice => ({
-                        ...invoice,
-                        invoice_number: invoice.number,
-                        subtotal_credits: invoice.total_minor,
-                    }))
-                    : (invoicesData.invoices || [])
-            );
+            setInvoices(presentPortalInvoices({
+                managedCentrally: centralData?.managed_centrally,
+                centralInvoices: centralData?.invoices,
+                legacyInvoices: invoicesData.invoices,
+            }));
         } catch (err) {
             setError(err.message || t('billing.fetchFailed'));
         } finally {
@@ -464,7 +465,7 @@ const TenantBilling = () => {
                                         <TableRow>
                                             <TableCell>{t('billing.invoiceNumber')}</TableCell>
                                             <TableCell>{t('common.status')}</TableCell>
-                                            <TableCell>{t('common.credit')}</TableCell>
+                                            <TableCell>{t(portalInvoiceColumnKey(centralSubscription?.managed_centrally))}</TableCell>
                                             <TableCell>{t('common.createdAt')}</TableCell>
                                         </TableRow>
                                     </TableHead>
@@ -473,7 +474,7 @@ const TenantBilling = () => {
                                             <TableRow key={invoice.id}>
                                                 <TableCell><InvoiceIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 1 }} />{invoice.invoice_number}</TableCell>
                                                 <TableCell><Chip size="small" label={invoice.status} /></TableCell>
-                                                <TableCell>{number(invoice.subtotal_credits)}</TableCell>
+                                                <TableCell>{formatPortalInvoiceValue(invoice, centralSubscription?.managed_centrally, locale)}</TableCell>
                                                 <TableCell>{invoice.created_at}</TableCell>
                                             </TableRow>
                                         ))}
