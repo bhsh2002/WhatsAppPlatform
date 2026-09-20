@@ -270,8 +270,38 @@ export class SavanaIntegrationService {
         `).all(tenantId);
     }
 
-    availablePlatforms() {
+    knownPlatforms() {
         return Object.keys(INTEGRATION_PROFILES);
+    }
+
+    async availablePlatforms() {
+        if (!this.config.enabled) return [];
+        try {
+            const targets = await this.requestJson(
+                'connect',
+                'GET',
+                '/v1/platform-targets'
+            );
+            if (!Array.isArray(targets)) {
+                throw new SavanaIntegrationError(
+                    'connect returned an invalid platform target list',
+                    502,
+                    'invalid_control_plane_response'
+                );
+            }
+            const available = new Set(
+                targets.map(target => String(target?.code || '').trim())
+            );
+            return this.knownPlatforms().filter(
+                platformCode => available.has(platformCode)
+            );
+        } catch (error) {
+            console.error(
+                '[SavanaIntegrations] Platform target discovery failed closed:',
+                error.message
+            );
+            return [];
+        }
     }
 
     async bindingContext(tenantId) {
