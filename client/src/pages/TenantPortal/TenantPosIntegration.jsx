@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert, Box, Button, Card, CardActionArea, CardContent, Chip,
     CircularProgress, Divider, FormControl, InputLabel, MenuItem,
@@ -17,6 +17,13 @@ import {
     presentServiceRequest,
     shouldLoadServiceRequests,
 } from './serviceRequestPresentation';
+import {
+    integrationCandidatesForPlatform,
+    integrationIsConnectable,
+    integrationLoadIsCurrent,
+    resolveAvailablePlatform,
+    shouldRequestIntegrationCandidates,
+} from './integrationPlatformAvailability';
 
 const PLATFORMS = {
     pos: { ar: 'Savana POS', en: 'Savana POS', detailAr: 'المبيعات والإرجاعات والمخزون', detailEn: 'Sales, returns and inventory' },
@@ -38,7 +45,7 @@ const TenantPosIntegration = () => {
     const { language } = useLanguage();
     const ar = language === 'ar';
     const [integrations, setIntegrations] = useState([]);
-    const [selectedPlatform, setSelectedPlatform] = useState('catalog');
+    const [selectedPlatform, setSelectedPlatform] = useState(null);
     const [diagnostics, setDiagnostics] = useState(null);
     const [serviceRequests, setServiceRequests] = useState([]);
     const [candidateDocument, setCandidateDocument] = useState(null);
@@ -51,53 +58,90 @@ const TenantPosIntegration = () => {
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const loadRevision = useRef(0);
+    const selectedPlatformRef = useRef(selectedPlatform);
+    selectedPlatformRef.current = selectedPlatform;
     const authorizationStateKey = 'savana-binding-state:wa-savana';
 
     const integration = useMemo(
         () => integrations.find(item => item.platform_code === selectedPlatform)
-            || { platform_code: selectedPlatform, status: 'disconnected', scopes: [] },
+            || {
+                platform_code: selectedPlatform,
+                status: 'disconnected',
+                scopes: [],
+                available: false,
+            },
         [integrations, selectedPlatform],
     );
-    const profile = PLATFORMS[selectedPlatform];
+    const profile = PLATFORMS[selectedPlatform] || {
+        ar: 'منصات سافانا',
+        en: 'Savana platforms',
+    };
 
     const load = useCallback(async () => {
+        const requestedPlatform = selectedPlatformRef.current;
+        const revision = loadRevision.current + 1;
+        loadRevision.current = revision;
+        const isCurrent = () => integrationLoadIsCurrent({
+            currentPlatform: selectedPlatformRef.current,
+            currentRevision: loadRevision.current,
+            requestedPlatform,
+            revision,
+        });
         setLoading(true);
         setError('');
+        setDiagnostics(null);
+        setServiceRequests([]);
+        setCandidateDocument(null);
+        setSelectedTarget('');
         try {
             const bindingDocument = await api.getPortalPlatformBinding();
+            if (!isCurrent()) return;
             setBinding(bindingDocument);
             const incomingDocument = bindingDocument?.bound
                 ? await api.getPortalIncomingConnections()
                 : { data: [] };
+            if (!isCurrent()) return;
             setIncoming(incomingDocument?.data || incomingDocument || []);
             const response = await api.getPortalPlatformIntegrations();
+            if (!isCurrent()) return;
             const rows = response?.data || response || [];
             setIntegrations(rows);
-            const selected = rows.find(item => item.platform_code === selectedPlatform);
-            const isConnectable = !selected?.connection_id
-                || ['revoked', 'error', 'disconnected'].includes(selected?.status);
-            setDiagnostics(selected?.connection_id
-                ? await api.getPortalPlatformDiagnostics(selectedPlatform)
-                : null);
+            const resolvedPlatform = resolveAvailablePlatform(rows, requestedPlatform);
+            if (resolvedPlatform !== requestedPlatform) {
+                setSelectedPlatform(resolvedPlatform);
+                return;
+            }
+            if (!resolvedPlatform) return;
+            const selected = rows.find(item => item.platform_code === resolvedPlatform);
+            const nextDiagnostics = selected?.connection_id
+                ? await api.getPortalPlatformDiagnostics(resolvedPlatform)
+                : null;
+            if (!isCurrent()) return;
+            setDiagnostics(nextDiagnostics);
             if (shouldLoadServiceRequests(selected)) {
                 const requests = await api.getPortalPlatformServiceRequests(
-                    selectedPlatform
+                    resolvedPlatform
                 );
+                if (!isCurrent()) return;
                 setServiceRequests(requests?.data || requests || []);
-            } else {
-                setServiceRequests([]);
             }
-            setCandidateDocument(isConnectable && bindingDocument?.bound
-                ? await api.getPortalPlatformCandidates(selectedPlatform)
-                : null);
+            const nextCandidateDocument = shouldRequestIntegrationCandidates({
+                binding: bindingDocument,
+                integration: selected,
+            })
+                ? await api.getPortalPlatformCandidates(resolvedPlatform)
+                : null;
+            if (!isCurrent()) return;
+            setCandidateDocument(nextCandidateDocument);
         } catch (requestError) {
-            setError(requestError.message);
+            if (isCurrent()) setError(requestError.message);
         } finally {
-            setLoading(false);
+            if (isCurrent()) setLoading(false);
         }
-    }, [selectedPlatform]);
+    }, []);
 
-    useEffect(() => { load(); }, [load]);
+    useEffect(() => { load(); }, [load, selectedPlatform]);
     useEffect(() => {
         const parameters = new URLSearchParams(window.location.search);
         const result = parameters.get('savana_binding');
@@ -130,15 +174,8 @@ const TenantPosIntegration = () => {
         }
     }, [ar, authorizationStateKey]);
     const candidates = useMemo(
-        () => (candidateDocument?.organizations || []).flatMap((organization) => (
-            (organization.candidates || []).map((target) => ({
-                source: organization.source_tenant,
-                organization: organization.organization,
-                target,
-                key: `${organization.source_tenant.id}:${target.id}`,
-            }))
-        )),
-        [candidateDocument],
+        () => integrationCandidatesForPlatform(candidateDocument, selectedPlatform),
+        [candidateDocument, selectedPlatform],
     );
     useEffect(() => {
         const connectable = candidates.filter(
@@ -241,7 +278,8 @@ const TenantPosIntegration = () => {
     }
 
     const status = integration.status || 'disconnected';
-    const canConnect = !integration.connection_id || ['rejected', 'revoked', 'error', 'disconnected'].includes(status);
+    const platformAvailable = integration.available === true;
+    const canConnect = integrationIsConnectable(integration);
     const counts = diagnostics?.counts || {};
     const outboxCounts = diagnostics?.outbox?.counts || {};
 
@@ -347,13 +385,23 @@ const TenantPosIntegration = () => {
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
                 {Object.entries(PLATFORMS).map(([code, item]) => {
                     const row = integrations.find(value => value.platform_code === code);
+                    const available = row?.available === true;
                     return (
                         <Card key={code} variant={selectedPlatform === code ? 'elevation' : 'outlined'} sx={{ flex: 1 }}>
-                            <CardActionArea onClick={() => setSelectedPlatform(code)}>
+                            <CardActionArea
+                                disabled={!available || loading || working}
+                                onClick={() => setSelectedPlatform(code)}
+                            >
                                 <CardContent>
                                     <Stack direction="row" justifyContent="space-between" gap={1}>
                                         <Typography fontWeight={800}>{ar ? item.ar : item.en}</Typography>
-                                        <Chip size="small" label={ar ? STATUS_AR[row?.status || 'disconnected'] : row?.status || 'disconnected'} color={STATUS_COLORS[row?.status] || 'default'} />
+                                        <Chip
+                                            size="small"
+                                            label={available
+                                                ? (ar ? STATUS_AR[row?.status || 'disconnected'] : row?.status || 'disconnected')
+                                                : (ar ? 'غير مفعّلة حاليًا' : 'Currently unavailable')}
+                                            color={available ? STATUS_COLORS[row?.status] || 'default' : 'default'}
+                                        />
                                     </Stack>
                                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{ar ? item.detailAr : item.detailEn}</Typography>
                                 </CardContent>
@@ -379,7 +427,17 @@ const TenantPosIntegration = () => {
                         </Stack>
                     </Stack>
 
-                    {canConnect ? (
+                    {!platformAvailable ? (
+                        <Alert severity="warning" sx={{ mt: 3 }}>
+                            {selectedPlatform
+                                ? (ar
+                                    ? `منصة ${profile.ar} غير مفعّلة في هذه البيئة حاليًا.`
+                                    : `${profile.en} is not enabled in this environment.`)
+                                : (ar
+                                    ? 'لا توجد منصة ربط مفعّلة في هذه البيئة حاليًا.'
+                                    : 'No integration platform is enabled in this environment.')}
+                        </Alert>
+                    ) : canConnect ? (
                         <Stack spacing={2} sx={{ mt: 3 }}>
                             <Alert severity="info">
                                 {ar
@@ -427,7 +485,7 @@ const TenantPosIntegration = () => {
                             <Button
                                 variant="contained"
                                 startIcon={working ? <CircularProgress size={18} color="inherit" /> : <LinkIcon />}
-                                disabled={working || !selectedCandidate}
+                                disabled={loading || working || !selectedCandidate}
                                 onClick={connect}
                                 sx={{ alignSelf: 'flex-start' }}
                             >

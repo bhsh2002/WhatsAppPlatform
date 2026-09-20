@@ -193,6 +193,78 @@ test('production integration policy requires distinct secrets and trusted servic
     );
 });
 
+test('tenant platform list reflects the targets enabled by Savana Connect', async (t) => {
+    const database = createDatabase();
+    let targetRequest;
+    const service = new SavanaIntegrationService({
+        database,
+        config,
+        fetchImpl: async (url, options) => {
+            targetRequest = { url: new URL(url), options };
+            return Response.json([
+                { code: 'sawemly', display_name: 'Sawemly' },
+                { code: 'wa_savana', display_name: 'Wa Savana' },
+                { code: 'future_platform', display_name: 'Future platform' },
+            ]);
+        },
+    });
+    const app = express();
+    app.use((req, _res, next) => {
+        req.user = { id: 'tenant-user', tenant_id: 1 };
+        next();
+    });
+    app.use('/integrations', createTenantIntegrationsRouter({ database, service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    t.after(() => database.close());
+
+    const response = await fetch(
+        `http://127.0.0.1:${server.address().port}/integrations/platforms`
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(targetRequest.url.pathname, '/v1/platform-targets');
+    assert.equal(targetRequest.options.method, 'GET');
+    assert.equal(
+        targetRequest.options.headers['X-Savana-Platform-Code'],
+        'wa_savana'
+    );
+    assert.equal(
+        targetRequest.options.headers['X-Savana-Platform-Token'],
+        config.connectPlatformToken
+    );
+    assert.deepEqual(
+        body.data.map(item => [item.platform_code, item.available]),
+        [
+            ['pos', false],
+            ['catalog', false],
+            ['sawemly', true],
+        ]
+    );
+});
+
+test('malformed platform target discovery preserves the local list as unavailable', async () => {
+    const database = createDatabase();
+    const service = new SavanaIntegrationService({
+        database,
+        config,
+        fetchImpl: async () => Response.json({ data: [] }),
+    });
+    const originalConsoleError = console.error;
+    const logged = [];
+    console.error = (...values) => logged.push(values.join(' '));
+
+    try {
+        assert.deepEqual(await service.availablePlatforms(), []);
+        assert.match(logged.join('\n'), /discovery failed closed/);
+    } finally {
+        console.error = originalConsoleError;
+        database.close();
+    }
+});
+
 const provision = async (database, fetchImpl = createFetch()) => {
     const service = new SavanaIntegrationService({ database, fetchImpl, config });
     const item = await service.provisionConnection({

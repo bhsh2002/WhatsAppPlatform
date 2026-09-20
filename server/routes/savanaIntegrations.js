@@ -127,15 +127,17 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
-    router.get('/platforms', (req, res) => {
+    router.get('/platforms', async (req, res) => {
         try {
             const existing = new Map(
                 service.list(req.user.tenant_id).map(item => [item.platform_code, item])
             );
+            const available = new Set(await service.availablePlatforms());
             return res.json({
-                data: service.availablePlatforms().map(platformCode => service.serialize(
-                    existing.get(platformCode), platformCode
-                )),
+                data: service.knownPlatforms().map(platformCode => ({
+                    ...service.serialize(existing.get(platformCode), platformCode),
+                    available: available.has(platformCode),
+                })),
             });
         } catch (error) {
             return respondError(res, error);
