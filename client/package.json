@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/pages/TenantPortal/serviceRequestPresentation.test.js src/pages/TenantPortal/integrationRequestLifecycle.test.js",
+    "test": "node --test src/pages/TenantPortal/serviceRequestPresentation.test.js src/pages/TenantPortal/integrationRequestLifecycle.test.js src/pages/TenantPortal/billingInvoicePresentation.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
