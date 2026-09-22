@@ -1,14 +1,18 @@
 import crypto from 'node:crypto';
 import express from 'express';
 
-import { SmsGatewayError } from '../services/smsGateway.js';
+import {
+    presentTenantSmsGatewayError,
+    SmsGatewayError,
+} from '../services/smsGateway.js';
 
 const respondError = (res, error) => {
     if (error instanceof SmsGatewayError) {
+        const presented = presentTenantSmsGatewayError(error);
         return res.status(error.status).json({
-            error: error.message,
-            code: error.code,
             ...error.details,
+            error: presented.message,
+            code: presented.code,
             ...(error.deliveryUncertain ? { retry_same_request: true } : {}),
         });
     }
@@ -149,14 +153,6 @@ export const createTenantSmsGatewayRouter = ({
         }
     });
 
-    router.get('/:accountId/devices', async (req, res) => {
-        try {
-            return res.json({ data: await service.devices(req.user.tenant_id, req.params.accountId) });
-        } catch (error) {
-            return respondError(res, error);
-        }
-    });
-
     router.post('/:accountId/ussd', async (req, res) => {
         let reservation = null;
         let gatewayAccepted = false;
@@ -175,8 +171,6 @@ export const createTenantSmsGatewayRouter = ({
             const result = await service.sendUssd(req.user.tenant_id, {
                 accountId: req.params.accountId,
                 request: req.body?.request,
-                deviceId: req.body?.device_id,
-                simSlot: req.body?.sim_slot,
                 idempotencyKey,
             });
             gatewayAccepted = true;

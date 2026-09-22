@@ -31,7 +31,7 @@ const parseJson = (value, fallback = null) => {
 const normalizedPhone = value => {
     const phone = String(value || '').trim().replace(/[\s()-]/g, '');
     if (!PHONE_PATTERN.test(phone)) {
-        throw new SmsGatewayError('رقم الهاتف غير صالح', 422, 'INVALID_SMS_RECIPIENT');
+        throw new SmsGatewayError('رقم المستلم غير صالح', 422, 'INVALID_SMS_RECIPIENT');
     }
     return phone.replace(/^\+/, '');
 };
@@ -95,6 +95,30 @@ const shouldMarkAccountError = error => Boolean(
 const cleanDisplayText = (value, maxLength = 120) => {
     const text = String(value ?? '').trim().replace(/[\u0000-\u001f\u007f]/g, ' ');
     return text ? text.slice(0, maxLength) : null;
+};
+
+const ENGLISH_ROUTING_DETAIL_PATTERN = /(?:^|[^a-z0-9])(?:android|devices?|sims?|phones?|models?|handsets?|mobiles?)(?:$|[^a-z0-9])/i;
+const ARABIC_ROUTING_DETAIL_PATTERN = /هاتف|هواتف|جهاز|أجهزة|شريحة|شرائح|موديل/;
+const containsRoutingDetail = value => (
+    ENGLISH_ROUTING_DETAIL_PATTERN.test(String(value))
+    || ARABIC_ROUTING_DETAIL_PATTERN.test(String(value))
+);
+
+const tenantSafeCode = (value, fallback) => {
+    if (value === null || value === undefined) return value;
+    return containsRoutingDetail(value) ? fallback : value;
+};
+
+export const presentTenantSmsGatewayError = error => {
+    const rawCode = String(error?.code || 'SMS_GATEWAY_ERROR');
+    const rawMessage = String(error?.message || 'تعذر تنفيذ طلب SMS');
+    if (!containsRoutingDetail(`${rawCode} ${rawMessage}`)) {
+        return { code: rawCode, message: rawMessage };
+    }
+    const ussd = /ussd/i.test(`${rawCode} ${rawMessage}`);
+    return ussd
+        ? { code: 'USSD_EXECUTION_FAILED', message: 'تعذر تنفيذ طلب USSD؛ تواصل مع الدعم.' }
+        : { code: 'SMS_REQUEST_FAILED', message: 'تعذر تنفيذ طلب SMS؛ تواصل مع الدعم.' };
 };
 
 const normalizeManagedResources = value => {
@@ -331,9 +355,6 @@ export class SmsGatewayService {
 
     presentAccount(account, { includeTechnical = true } = {}) {
         const managed = account.management_mode === 'managed';
-        const managedResources = normalizeManagedResources(
-            parseJson(account.managed_resources_json, {}),
-        );
         return {
             id: account.id,
             name: account.name,
@@ -341,56 +362,69 @@ export class SmsGatewayService {
             is_default: Boolean(account.is_default),
             status: account.status,
             ...(!managed && includeTechnical ? { base_url: account.base_url } : {}),
-            ...(!managed && includeTechnical ? {
-                default_devices: parseJson(account.default_devices_json, []),
-                default_sim_slot: account.default_sim_slot,
-            } : {}),
             management_mode: managed ? 'managed' : 'manual',
             managed,
-            managed_resources: managed ? {
-                devices: managedResources.devices.map(({ name, model }) => ({ name, model })),
-                sim: managedResources.sim ? {
-                    name: managedResources.sim.name,
-                    carrier: managedResources.sim.carrier,
-                    number: managedResources.sim.number,
-                } : null,
-            } : {},
             provisioned_at: managed ? account.provisioned_at : null,
             history_sync: {
                 last_at: account.last_history_sync_at || null,
                 complete: Boolean(account.history_backfill_complete),
                 error: account.last_history_error
-                    ? (managed ? 'SMS_HISTORY_SYNC_FAILED' : account.last_history_error)
+                    ? 'SMS_HISTORY_SYNC_FAILED'
                     : null,
             },
             last_health_at: account.last_health_at,
             last_error: account.last_error
-                ? (managed ? 'SMS_ACCOUNT_REQUIRES_SUPPORT' : account.last_error)
+                ? 'SMS_ACCOUNT_REQUIRES_SUPPORT'
                 : null,
             created_at: account.created_at,
             updated_at: account.updated_at,
         };
     }
 
-    presentMessage(message, { account = null, includeTechnical = false } = {}) {
-        const sourceAccount = account || this.getAccount(message.tenant_id, message.sms_account_id);
+    presentMessage(message, { includeTechnical = false } = {}) {
         const { sms_account_management_mode: _managementMode, ...presented } = message;
-        if (!includeTechnical && sourceAccount?.management_mode === 'managed') {
+        if (!includeTechnical) {
             delete presented.device_id;
             delete presented.sim_slot;
+            if (presented.error_code !== null && presented.error_code !== undefined) {
+                presented.error_code = tenantSafeCode(
+                    presented.error_code,
+                    'SMS_DELIVERY_FAILED',
+                );
+            }
+            if (presented.result_code !== null && presented.result_code !== undefined) {
+                presented.result_code = tenantSafeCode(
+                    presented.result_code,
+                    'SMS_DELIVERY_STATUS',
+                );
+            }
             if (presented.error_message) {
-                presented.error_message = 'تعذر تنفيذ الرسالة عبر خدمة SMS المُدارة';
+                presented.error_message = 'تعذر تنفيذ الرسالة عبر خدمة SMS';
             }
         }
         return presented;
     }
 
-    presentUssd(request, { account = null, includeTechnical = false } = {}) {
-        const sourceAccount = account || this.getAccount(request.tenant_id, request.sms_account_id);
+    presentUssd(request, { includeTechnical = false } = {}) {
         const { sms_account_management_mode: _managementMode, ...presented } = request;
-        if (!includeTechnical && sourceAccount?.management_mode === 'managed') {
+        if (!includeTechnical) {
             delete presented.device_id;
             delete presented.sim_slot;
+            if (presented.error_code !== null && presented.error_code !== undefined) {
+                presented.error_code = tenantSafeCode(
+                    presented.error_code,
+                    'USSD_EXECUTION_FAILED',
+                );
+            }
+            if (presented.result_code !== null && presented.result_code !== undefined) {
+                presented.result_code = tenantSafeCode(
+                    presented.result_code,
+                    'USSD_EXECUTION_STATUS',
+                );
+            }
+            if (presented.error_message) {
+                presented.error_message = 'تعذر تنفيذ طلب USSD';
+            }
         }
         return presented;
     }
@@ -451,11 +485,11 @@ export class SmsGatewayService {
             .digest('hex');
         const defaultDevices = payload.default_devices ?? parseJson(existing?.default_devices_json, []);
         if (!Array.isArray(defaultDevices) || defaultDevices.length > 20) {
-            throw new SmsGatewayError('قائمة أجهزة SMS غير صالحة', 400, 'INVALID_SMS_DEVICES');
+            throw new SmsGatewayError('إعدادات توجيه SMS غير صالحة', 400, 'INVALID_SMS_DEVICES');
         }
         const normalizedDevices = [...new Set(defaultDevices.map(value => String(value).trim()).filter(Boolean))];
         if (normalizedDevices.some(value => !/^\d+$/.test(value))) {
-            throw new SmsGatewayError('معرّفات أجهزة SMS يجب أن تكون أرقامًا', 400, 'INVALID_SMS_DEVICES');
+            throw new SmsGatewayError('إعدادات توجيه SMS غير صالحة', 400, 'INVALID_SMS_DEVICES');
         }
         const defaultSimSlot = payload.default_sim_slot === undefined
             ? (existing?.default_sim_slot ?? null)
@@ -463,11 +497,11 @@ export class SmsGatewayService {
                 ? null
                 : Number(payload.default_sim_slot));
         if (defaultSimSlot !== null && (!Number.isInteger(defaultSimSlot) || defaultSimSlot < 0)) {
-            throw new SmsGatewayError('رقم شريحة SIM غير صالح', 400, 'INVALID_SMS_SIM_SLOT');
+            throw new SmsGatewayError('إعدادات توجيه SMS غير صالحة', 400, 'INVALID_SMS_SIM_SLOT');
         }
         if (defaultSimSlot !== null && normalizedDevices.length !== 1) {
             throw new SmsGatewayError(
-                'اختيار شريحة SIM يتطلب جهازًا افتراضيًا واحدًا',
+                'إعدادات توجيه SMS غير صالحة',
                 400,
                 'INVALID_SMS_SIM_SLOT',
             );
@@ -917,17 +951,17 @@ export class SmsGatewayService {
         }
         const rawDevices = devices ?? parseJson(account.default_devices_json, []);
         if (!Array.isArray(rawDevices) || rawDevices.length > 20) {
-            throw new SmsGatewayError('قائمة أجهزة SMS غير صالحة', 422, 'INVALID_SMS_DEVICES');
+            throw new SmsGatewayError('تعذر إرسال الرسالة بإعدادات الحساب الحالية؛ تواصل مع الدعم.', 422, 'INVALID_SMS_DEVICES');
         }
         const selectedDevices = [...new Set(rawDevices.map(value => String(value).trim()).filter(Boolean))];
         if (selectedDevices.some(value => !/^\d+$/.test(value))) {
-            throw new SmsGatewayError('معرّفات أجهزة SMS يجب أن تكون أرقامًا', 422, 'INVALID_SMS_DEVICES');
+            throw new SmsGatewayError('تعذر إرسال الرسالة بإعدادات الحساب الحالية؛ تواصل مع الدعم.', 422, 'INVALID_SMS_DEVICES');
         }
         const selectedSim = simSlot ?? account.default_sim_slot;
         if (selectedSim !== null && selectedSim !== undefined
             && (!Number.isInteger(Number(selectedSim)) || Number(selectedSim) < 0 || selectedDevices.length !== 1)) {
             throw new SmsGatewayError(
-                'اختيار شريحة SIM يتطلب جهازًا واحدًا ومنفذًا صالحًا',
+                'تعذر إرسال الرسالة بإعدادات الحساب الحالية؛ تواصل مع الدعم.',
                 422,
                 'INVALID_SMS_SIM_SLOT',
             );
@@ -993,12 +1027,12 @@ export class SmsGatewayService {
         const defaults = parseJson(account.default_devices_json, []);
         const selectedDevice = deviceId ?? (defaults.length === 1 ? defaults[0] : null);
         if (!/^\d+$/.test(String(selectedDevice || ''))) {
-            throw new SmsGatewayError('يجب اختيار جهاز واحد لتنفيذ USSD', 422, 'INVALID_USSD_DEVICE');
+            throw new SmsGatewayError('تعذر تنفيذ طلب USSD بإعدادات الحساب الحالية؛ تواصل مع الدعم.', 422, 'INVALID_USSD_DEVICE');
         }
         const selectedSim = simSlot ?? account.default_sim_slot;
         if (selectedSim !== null && selectedSim !== undefined
             && (!Number.isInteger(Number(selectedSim)) || Number(selectedSim) < 0)) {
-            throw new SmsGatewayError('منفذ SIM غير صالح', 422, 'INVALID_USSD_SIM_SLOT');
+            throw new SmsGatewayError('تعذر تنفيذ طلب USSD بإعدادات الحساب الحالية؛ تواصل مع الدعم.', 422, 'INVALID_USSD_SIM_SLOT');
         }
 
         let result;

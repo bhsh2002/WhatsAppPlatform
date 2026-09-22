@@ -121,8 +121,8 @@ test('WA API sends SMS through a logical account without exposing routing contro
         presentMessage(message, { account }) {
             return {
                 ...message,
-                error_message: account.management_mode === 'managed' && message.error_message
-                    ? 'تعذر تنفيذ الرسالة عبر خدمة SMS المُدارة'
+                error_message: account && message.error_message
+                    ? 'تعذر تنفيذ الرسالة عبر خدمة SMS'
                     : message.error_message,
             };
         },
@@ -254,7 +254,7 @@ test('WA API sends SMS through a logical account without exposing routing contro
     });
     assert.equal(status.body.data.status, 'delivered');
     assert.equal(status.body.data.sms_account_name, 'Managed SMS');
-    assert.equal(status.body.data.error_message, 'تعذر تنفيذ الرسالة عبر خدمة SMS المُدارة');
+    assert.equal(status.body.data.error_message, 'تعذر تنفيذ الرسالة عبر خدمة SMS');
     const crossTenant = await invoke(router, 'get', '/sms/messages/:messageId', {
         tenantId: 3,
         params: { messageId: '101' },
@@ -272,7 +272,11 @@ test('WA SMS API releases billing when the Gateway rejects before acceptance', a
         async send(_tenantId, input) {
             attempts += 1;
             if (attempts === 1) {
-                throw new SmsGatewayError('Gateway offline', 502, 'SMS_GATEWAY_UNAVAILABLE');
+                throw new SmsGatewayError(
+                    'Android device is offline',
+                    502,
+                    'SMS_DEVICE_OFFLINE',
+                );
             }
             return {
                 account: { id: 9, tenant_id: 1 },
@@ -307,7 +311,8 @@ test('WA SMS API releases billing when the Gateway rejects before acceptance', a
         body: { recipient: '218910000001', message: 'Hello' },
     });
     assert.equal(response.statusCode, 502);
-    assert.equal(response.body.code, 'SMS_GATEWAY_UNAVAILABLE');
+    assert.equal(response.body.code, 'SMS_REQUEST_FAILED');
+    assert.doesNotMatch(response.body.error, /android|device|sim|phone|model/i);
     assert.equal(billing.calls.commit.length, 0);
     assert.equal(billing.calls.release.length, 1);
 

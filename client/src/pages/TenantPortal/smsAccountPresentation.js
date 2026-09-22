@@ -33,39 +33,6 @@ export const isManagedSmsAccount = account => (
     account?.managed === true || cleanText(account?.management_mode).toLowerCase() === MANAGED_MODE
 );
 
-export const managedSmsResources = account => {
-    const resources = account?.managed_resources || {};
-    const rawDevices = Array.isArray(resources.devices) ? resources.devices : [];
-    const fallbackStatus = resources.device_status || account?.device_status || null;
-    const devices = rawDevices.map(device => {
-        const name = cleanText(device?.name || device?.display_name);
-        const model = cleanText(device?.model);
-        const rawStatus = device?.status ?? device?.state ?? device?.online ?? fallbackStatus;
-        const status = rawStatus == null
-            ? { label: 'مُعيّن للحساب', color: 'default' }
-            : smsStatusPresentation(rawStatus);
-        return {
-            name: name || model || 'جهاز SMS مُدار',
-            model: name && model && model !== name ? model : '',
-            status,
-        };
-    });
-
-    const rawSim = resources.sim || null;
-    if (!rawSim) return { devices, sim: null };
-    const name = cleanText(rawSim.name || rawSim.display_name);
-    const carrier = cleanText(rawSim.carrier || rawSim.operator);
-    const number = cleanText(rawSim.number || rawSim.phone_number);
-    return {
-        devices,
-        sim: {
-            name: name || carrier || 'شريحة SMS',
-            carrier: name && carrier && carrier !== name ? carrier : '',
-            number,
-        },
-    };
-};
-
 export const normalizeSmsSummary = summary => Object.fromEntries(
     ['pending', 'sent', 'delivered', 'failed', 'canceled', 'received', 'total_outgoing']
         .map(key => {

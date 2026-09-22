@@ -302,10 +302,6 @@ export const portalCoreMethods = {
         });
     },
 
-    async getSmsAccountDevices(accountId) {
-        return this.request(`/api/portal/sms-gateway/${accountId}/devices`);
-    },
-
     async getUssdRequests({ accountId, limit = 100 } = {}) {
         const params = new URLSearchParams();
         if (accountId) params.set('account_id', accountId);

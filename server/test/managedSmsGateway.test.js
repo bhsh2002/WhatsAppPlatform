@@ -77,10 +77,8 @@ test('managed provisioning is idempotent, tenant-scoped and hides technical cred
     assert.equal(first.account.managed, true);
     assert.equal(first.account.base_url, undefined);
     assert.equal(first.account.default_devices, undefined);
-    assert.deepEqual(first.account.managed_resources, {
-        devices: [{ name: 'Office phone', model: 'SM-A065F' }],
-        sim: { name: 'SIM 1', carrier: 'ALMADAR', number: '0910000000' },
-    });
+    assert.equal(first.account.default_sim_slot, undefined);
+    assert.equal(first.account.managed_resources, undefined);
     assert.equal(requests.filter(item => item.path.endsWith('webhook.php')).length, 1);
     assert.equal(requests.filter(item => item.path.endsWith('health.php')).length, 1);
     assert.equal(database.prepare('SELECT COUNT(*) count FROM sms_gateway_accounts').get().count, 1);
@@ -443,7 +441,7 @@ test('case-insensitive duplicate tenant emails are rejected as ambiguous', (t) =
     );
 });
 
-test('managed routing cannot be overridden and tenant presenters hide technical ids', async (t) => {
+test('managed routing cannot be overridden and tenant presenters hide routing details', async (t) => {
     const database = createDatabase();
     t.after(() => database.close());
     const service = new SmsGatewayService({
@@ -475,17 +473,68 @@ test('managed routing cannot be overridden and tenant presenters hide technical 
         }),
         error => error.code === 'SMS_MANAGED_ROUTING_OVERRIDE',
     );
-    assert.deepEqual(service.presentMessage({
+    const sensitiveMessage = {
         tenant_id: 1,
         sms_account_id: account.id,
         device_id: '91',
         sim_slot: 0,
-        status: 'sent',
-    }, { account }), {
+        status: 'failed',
+        error_code: 'ANDROID_DEVICE_OFFLINE',
+        result_code: 'SIM_SLOT_UNAVAILABLE',
+        error_message: 'Android device 91 cannot use SIM slot 0',
+    };
+    assert.deepEqual(service.presentMessage(sensitiveMessage, { account }), {
         tenant_id: 1,
         sms_account_id: account.id,
-        status: 'sent',
+        status: 'failed',
+        error_code: 'SMS_DELIVERY_FAILED',
+        result_code: 'SMS_DELIVERY_STATUS',
+        error_message: 'تعذر تنفيذ الرسالة عبر خدمة SMS',
     });
+    assert.deepEqual(
+        service.presentMessage(sensitiveMessage, { account, includeTechnical: true }),
+        sensitiveMessage,
+    );
+
+    const sensitiveUssd = {
+        tenant_id: 1,
+        sms_account_id: account.id,
+        device_id: '91',
+        sim_slot: 0,
+        status: 'failed',
+        error_code: 'PHONE_NOT_CONNECTED',
+        result_code: 'DEVICE_MODEL_UNSUPPORTED',
+        error_message: 'Phone model is unavailable',
+    };
+    assert.deepEqual(service.presentUssd(sensitiveUssd, { account }), {
+        tenant_id: 1,
+        sms_account_id: account.id,
+        status: 'failed',
+        error_code: 'USSD_EXECUTION_FAILED',
+        result_code: 'USSD_EXECUTION_STATUS',
+        error_message: 'تعذر تنفيذ طلب USSD',
+    });
+    assert.deepEqual(
+        service.presentUssd(sensitiveUssd, { account, includeTechnical: true }),
+        sensitiveUssd,
+    );
+
+    const manualPresentation = service.presentAccount({
+        ...account,
+        management_mode: 'manual',
+        base_url: 'https://sms.example.test',
+        default_devices_json: '["91"]',
+        default_sim_slot: 0,
+        managed_resources_json: JSON.stringify(managedPayload().account.managed_resources),
+        last_error: 'Android device is offline',
+        last_history_error: 'SIM history sync failed',
+    });
+    assert.equal(manualPresentation.base_url, 'https://sms.example.test');
+    assert.equal(manualPresentation.default_devices, undefined);
+    assert.equal(manualPresentation.default_sim_slot, undefined);
+    assert.equal(manualPresentation.managed_resources, undefined);
+    assert.equal(manualPresentation.last_error, 'SMS_ACCOUNT_REQUIRES_SUPPORT');
+    assert.equal(manualPresentation.history_sync.error, 'SMS_HISTORY_SYNC_FAILED');
 });
 
 test('SMS status storage is monotonic when Gateway deliveries arrive out of order', async (t) => {

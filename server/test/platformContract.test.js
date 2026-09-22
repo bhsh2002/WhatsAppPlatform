@@ -939,6 +939,25 @@ test('conversion history presents sanitized Meta failures only', () => {
     assert.doesNotMatch(conversionsPage, /lastFailure\?\.fbtrace_id/);
 });
 
+test('tenant SMS and USSD surfaces hide implementation hardware details', () => {
+    const tenantFiles = [
+        'client/src/pages/TenantPortal/TenantSmsAccounts.jsx',
+        'client/src/pages/TenantPortal/TenantUssd.jsx',
+        'client/src/pages/TenantPortal/smsAccountPresentation.js',
+        'client/src/components/Inbox/UnifiedSidebar.jsx',
+    ];
+    const hardwareDetail = /android|device_id|sim_slot|managed_resources|default_devices|default_sim_slot|\bphone\b|\bmodel\b|\bsim\b|الهاتف|الجهاز|الأجهزة|الموديل|الشريحة|الشرائح/i;
+
+    for (const file of tenantFiles) {
+        assert.doesNotMatch(read(file), hardwareDetail, `${file} exposes SMS implementation details`);
+    }
+
+    const smsAccounts = read('client/src/pages/TenantPortal/TenantSmsAccounts.jsx');
+    assert.match(smsAccounts, /display:\s*['"]grid['"]/);
+    assert.match(smsAccounts, /repeat\(7, minmax\(0, 1fr\)\)/);
+    assert.doesNotMatch(smsAccounts, /<Grid\s+item\b/);
+});
+
 test('tenant writing-assistant surfaces never disclose provider identities', () => {
     const translations = read('client/src/i18n/translations.js');
     const workspace = read(
