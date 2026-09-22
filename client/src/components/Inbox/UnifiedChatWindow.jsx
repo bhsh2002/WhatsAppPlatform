@@ -45,6 +45,16 @@ const getDateKey = (dateStr) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const smsStatusLabel = value => ({
+    scheduled: 'مجدولة',
+    pending: 'قيد الإرسال',
+    queued: 'في قائمة الإرسال',
+    sent: 'أُرسلت',
+    delivered: 'تم التسليم',
+    failed: 'فشل الإرسال',
+    canceled: 'ملغاة',
+}[String(value || '').toLowerCase()] || String(value || ''));
+
 // Messenger message bubble
 const ChannelBubble = ({ msg, channel }) => {
     const { locale, t } = useLanguage();
@@ -89,7 +99,15 @@ const ChannelBubble = ({ msg, channel }) => {
                     fontSize: 10,
                 }}>
                     {formatTime(msg?.created_at || '', locale)}
+                    {channel === 'sms' && isOutgoing && msg?.status
+                        ? ` • ${smsStatusLabel(msg.status)}`
+                        : ''}
                 </Typography>
+                {channel === 'sms' && isOutgoing && msg?.status === 'failed' && msg?.error_message && (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.25, opacity: 0.85 }}>
+                        {msg.error_message}
+                    </Typography>
+                )}
             </Paper>
         </Box>
     );

@@ -3,6 +3,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import { createTenantUnifiedInboxRouter } from '../routes/tenantUnifiedInbox.js';
+import { SmsGatewayError } from '../services/smsGateway.js';
 
 function createDatabase() {
     const db = new Database(':memory:');
@@ -72,7 +73,11 @@ function createBilling() {
     const calls = { reserves: [], commits: [], releases: [] };
     return {
         calls,
-        operations: { WHATSAPP_TEXT: 'whatsapp.text', MESSENGER_REPLY: 'messenger.reply' },
+        operations: {
+            WHATSAPP_TEXT: 'whatsapp.text',
+            MESSENGER_REPLY: 'messenger.reply',
+            SMS_TEXT: 'sms.text',
+        },
         reserve(options) {
             const value = { id: calls.reserves.length + 1, ...options };
             calls.reserves.push(value);
@@ -91,7 +96,15 @@ const findHandlers = (router, method, path) => {
 };
 
 const invoke = (router, method, path, request = {}) => new Promise((resolve, reject) => {
-    const req = { user: { tenant_id: 1 }, body: {}, query: {}, params: {}, ...request };
+    const req = {
+        user: { tenant_id: 1 },
+        body: {},
+        query: {},
+        params: {},
+        headers: {},
+        ...request,
+    };
+    req.get = name => req.headers[String(name).toLowerCase()] || undefined;
     const res = {
         statusCode: 200,
         body: undefined,
@@ -249,4 +262,88 @@ test('Messenger unified send enforces page ownership and releases billing outsid
     assert.equal(outsideWindow.body.error_code, 'OUTSIDE_WINDOW');
     assert.equal(billing.calls.releases.length, 1);
     assert.equal(db.prepare("SELECT COUNT(*) count FROM fb_messages WHERE mid = 'fb-new'").get().count, 1);
+});
+
+test('SMS unified send preserves billing and idempotency after Gateway acceptance', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    let sends = 0;
+    const smsGateway = {
+        requireActiveAccount() { return { id: 7, tenant_id: 1, status: 'active' }; },
+        async send(_tenantId, payload) {
+            sends += 1;
+            assert.equal(payload.idempotencyKey, 'wa-ui-post-accept-0001');
+            return {
+                account: { id: 7 },
+                message: { message_id: 'gateway-message-1', status: 'pending' },
+            };
+        },
+        storeMessage() {
+            throw new Error('simulated local persistence failure');
+        },
+    };
+    const { router, billing } = createRouter(db, { smsGateway });
+    const request = {
+        params: { channel: 'sms', id: '+218 910000009' },
+        body: { message: 'SMS accepted upstream', sms_account_id: 7 },
+        headers: { 'idempotency-key': 'wa-ui-post-accept-0001' },
+    };
+
+    const first = await invoke(router, 'post', '/unified/:channel/:id/send', request);
+    assert.equal(first.statusCode, 503);
+    assert.equal(first.body.code, 'SMS_POST_ACCEPT_RECOVERY_REQUIRED');
+    assert.equal(first.body.retry_same_request, true);
+    assert.equal(billing.calls.commits.length, 1);
+    assert.equal(billing.calls.releases.length, 0);
+
+    const retry = await invoke(router, 'post', '/unified/:channel/:id/send', request);
+    assert.equal(retry.statusCode, 503);
+    assert.equal(retry.body.code, 'SMS_POST_ACCEPT_RECOVERY_REQUIRED');
+    assert.equal(retry.body.retry_same_request, true);
+    assert.equal(sends, 2);
+    assert.equal(billing.calls.releases.length, 0);
+});
+
+test('SMS unified retry checks account health before reusing an uncertain billing reservation', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    let healthChecks = 0;
+    let sends = 0;
+    const smsGateway = {
+        requireActiveAccount() {
+            healthChecks += 1;
+            if (healthChecks > 1) {
+                throw new SmsGatewayError(
+                    'حساب SMS ليس في حالة تشغيل',
+                    503,
+                    'SMS_ACCOUNT_INACTIVE',
+                );
+            }
+            return { id: 7, tenant_id: 1, status: 'active' };
+        },
+        async send() {
+            sends += 1;
+            const error = new SmsGatewayError('Gateway timeout', 502, 'SMS_GATEWAY_UNAVAILABLE');
+            error.deliveryUncertain = true;
+            throw error;
+        },
+    };
+    const { router, billing } = createRouter(db, { smsGateway });
+    const request = {
+        params: { channel: 'sms', id: '+218 910000009' },
+        body: { message: 'SMS uncertain upstream', sms_account_id: 7 },
+        headers: { 'idempotency-key': 'wa-ui-inactive-retry-0001' },
+    };
+
+    const uncertain = await invoke(router, 'post', '/unified/:channel/:id/send', request);
+    assert.equal(uncertain.statusCode, 502);
+    assert.equal(uncertain.body.retry_same_request, true);
+
+    const inactive = await invoke(router, 'post', '/unified/:channel/:id/send', request);
+    assert.equal(inactive.statusCode, 503);
+    assert.equal(inactive.body.code, 'SMS_ACCOUNT_INACTIVE');
+    assert.equal(healthChecks, 2);
+    assert.equal(sends, 1);
+    assert.equal(billing.calls.reserves.length, 1);
+    assert.equal(billing.calls.releases.length, 0);
 });

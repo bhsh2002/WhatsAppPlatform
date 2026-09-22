@@ -47,6 +47,7 @@ const TenantInbox = () => {
   const selectedChatRef = useRef(null);
   const isFirstLoad = useRef(true);
   const shouldStickToBottomRef = useRef(true);
+  const pendingSmsRequestRef = useRef(null);
   useEffect(() => {
     selectedChatRef.current = selectedChat;
   }, [selectedChat]);
@@ -536,18 +537,32 @@ const TenantInbox = () => {
 
   const handleSendSmsMessage = useCallback(async text => {
     if (!text?.trim() || !selectedChat?.sms_account_id) return;
+    const normalizedText = text.trim();
+    const fingerprint = [
+      selectedChat.sms_account_id,
+      selectedChat.contact_id,
+      normalizedText,
+    ].join('\u0000');
+    if (pendingSmsRequestRef.current?.fingerprint !== fingerprint) {
+      pendingSmsRequestRef.current = {
+        fingerprint,
+        key: `wa-ui:${crypto.randomUUID()}`,
+      };
+    }
     try {
       setSending(true);
       await api.sendPortalUnifiedMessage('sms', selectedChat.contact_id, {
-        message: text.trim(),
+        message: normalizedText,
         sms_account_id: selectedChat.sms_account_id,
-        idempotency_key: `wa-ui:${crypto.randomUUID()}`
+        idempotency_key: pendingSmsRequestRef.current.key
       });
+      pendingSmsRequestRef.current = null;
       setNewMessage('');
       await fetchMessages(selectedChat);
       fetchConversations();
       scrollToBottom();
     } catch (err) {
+      if (!err.data?.retry_same_request) pendingSmsRequestRef.current = null;
       console.error('Failed to send SMS:', err);
     } finally {
       setSending(false);

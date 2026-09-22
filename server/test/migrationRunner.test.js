@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '051_savana_product_snapshot_state.sql';
+    const latestMigration = '052_managed_sms_gateway.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -204,6 +204,9 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'sms_messages'), true);
     assert.equal(tableExists(db, 'sms_webhook_deliveries'), true);
     assert.equal(tableExists(db, 'sms_ussd_requests'), true);
+    assert.equal(tableExists(db, 'sms_gateway_provision_deliveries'), true);
+    assert.equal(tableExists(db, 'sms_gateway_management_audit'), true);
+    assert.equal(tableExists(db, 'tenant_api_callback_outbox'), true);
     assert.deepEqual(
         db.prepare(`
             SELECT tenant_id, phone_number_id, waba_id, dataset_id, access_token_encrypted,

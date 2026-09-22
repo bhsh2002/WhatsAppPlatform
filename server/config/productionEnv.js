@@ -20,6 +20,7 @@ const REQUIRED_PRODUCTION_VALUES = [
     'PUBLIC_APP_URL',
     'CORS_ORIGINS',
     'SMS_GATEWAY_CALLBACK_BASE_URL',
+    'SMS_GATEWAY_PROVISIONING_SECRET',
 ];
 
 const normalized = value => String(value || '').trim();
@@ -80,6 +81,12 @@ export function validateProductionEnv(env = process.env) {
     if (normalized(env.META_APP_SECRET).length < 32 || isPlaceholder(env.META_APP_SECRET)) {
         errors.push('META_APP_SECRET must be at least 32 non-placeholder characters');
     }
+    if (
+        normalized(env.SMS_GATEWAY_PROVISIONING_SECRET).length < 32
+        || isPlaceholder(env.SMS_GATEWAY_PROVISIONING_SECRET)
+    ) {
+        errors.push('SMS_GATEWAY_PROVISIONING_SECRET must be at least 32 non-placeholder characters');
+    }
     if (!/^\d{5,}$/.test(normalized(env.META_APP_ID))) {
         errors.push('META_APP_ID must be a numeric Meta application ID');
     }
@@ -93,6 +100,7 @@ export function validateProductionEnv(env = process.env) {
         env.METRICS_TOKEN,
         env.WEBHOOK_VERIFY_TOKEN,
         env.META_APP_SECRET,
+        env.SMS_GATEWAY_PROVISIONING_SECRET,
     ].map(normalized).filter(Boolean);
     if (new Set(sensitiveValues).size !== sensitiveValues.length) {
         errors.push('production secrets and tokens must be distinct');

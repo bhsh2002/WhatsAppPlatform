@@ -123,6 +123,16 @@ const TenantApiSettings = () => {
   const storedCredentialText = isArabic ? 'محفوظ بأمان — أعد التدوير لعرض قيمة جديدة' : 'Stored securely — rotate to reveal a new value';
   const apiKeyAvailable = Boolean(settings?.api_key);
   const webhookSecretAvailable = Boolean(settings?.webhook_secret);
+  const smsRequestExample = `POST ${apiBaseUrl}/api/v1/sms/messages
+Content-Type: application/json
+X-API-Key: YOUR_WA_SAVANA_API_KEY
+Idempotency-Key: order-2026-000123
+
+{
+  "recipient": "218912345678",
+  "message": "Your order is ready",
+  "sms_account_id": 12
+}`;
   return <Box sx={{
     p: {
       xs: 1.5,
@@ -283,6 +293,48 @@ const TenantApiSettings = () => {
         }}>{tx("auto.k_ab5b9bf9bb9b")}
             <code>X-API-Key</code>{tx("auto.k_7ab59166aede")}
           </Typography>
+
+                    <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={500}>
+                                {isArabic ? 'إرسال رسالة SMS' : 'Send an SMS message'}
+                            </Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                                <strong>POST</strong> {apiBaseUrl}/api/v1/sms/messages
+                            </Typography>
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                {isArabic
+                                  ? 'استخدم مفتاح Wa Savana API الخاص بحسابك في X-API-Key. لا تستخدم أو تكشف مفتاح بوابة SMS.'
+                                  : 'Use your Wa Savana account API key in X-API-Key. Never use or expose the SMS gateway key.'}
+                            </Alert>
+                            <Paper sx={{
+              p: 2,
+              bgcolor: 'grey.900',
+              color: 'grey.100',
+              overflow: 'auto'
+            }}>
+                                <pre style={{
+                margin: 0,
+                fontFamily: 'monospace',
+                fontSize: '0.85rem'
+              }}>
+                                    {smsRequestExample}
+                                </pre>
+                            </Paper>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                                {isArabic
+                                  ? 'أرسل Idempotency-Key فريدًا لكل رسالة لمنع التكرار. الحقل sms_account_id اختياري؛ احذفه لاستخدام حساب SMS الافتراضي.'
+                                  : 'Send a unique Idempotency-Key for each message to prevent duplicates. sms_account_id is optional; omit it to use the default SMS account.'}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                {isArabic
+                                  ? `تابع الحالة عبر GET ${apiBaseUrl}/api/v1/sms/messages/{message_id}. وعند ضبط Callback URL تصلك أحداث sms_message_received وsms_message_status_changed موقّعة بسر Webhook.`
+                                  : `Read status with GET ${apiBaseUrl}/api/v1/sms/messages/{message_id}. When Callback URL is configured, signed sms_message_received and sms_message_status_changed events are delivered with your webhook secret.`}
+                            </Typography>
+                        </AccordionDetails>
+                    </Accordion>
 
                     <Accordion>
                         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -492,6 +544,7 @@ const TenantApiSettings = () => {
   Content-Type: application/json
   X-Signature: sha256=abc123...
   X-Tenant-Id: 6
+  X-Savana-Delivery-Id: 86039d25-7ba1-4ad5-9f5b-2d192af64855
 
 Body:
 {
