@@ -11,7 +11,10 @@ import messagesRouter from './routes/messages.js';
 import webhooksRouter from './routes/webhooks.js';
 import authRouter from './routes/auth.js';
 import tenantPortalRouter from './routes/tenantPortal.js';
-import apiV1Router from './routes/api/v1.js';
+import apiV1Router, {
+    callbackOutbox as tenantCallbackOutbox,
+    sendCallback as sendApiCallback,
+} from './routes/api/v1.js';
 import businessProfileRouter from './routes/businessProfile.js';
 import phoneNumbersRouter from './routes/phoneNumbers.js';
 import qrCodesRouter from './routes/qrCodes.js';
@@ -39,6 +42,7 @@ import {
     createTenantIntegrationsRouter,
 } from './routes/savanaIntegrations.js';
 import { createSmsGatewayWebhookRouter } from './routes/smsGatewayWebhook.js';
+import { createSmsGatewayProvisioningRouter } from './routes/smsGatewayProvisioning.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -68,6 +72,14 @@ import {
     validateIntegrationConfig,
 } from './services/savanaIntegration.js';
 import { SmsGatewayService } from './services/smsGateway.js';
+import { commit as commitBilling } from './services/billing.js';
+import {
+    createSmsHistoryMessageHandler,
+    reconcileSmsMessageBilling,
+    reconcileSmsUssdBilling,
+    smsCallbackDedupeKey,
+    SmsApiRequestStore,
+} from './services/smsApiRequests.js';
 
 // ===========================================
 // Startup validation — fail fast on missing/insecure secrets
@@ -154,7 +166,39 @@ const savanaIntegrationService = new SavanaIntegrationService({
     database: db,
     config: savanaIntegrationConfig,
 });
-const smsGatewayService = new SmsGatewayService({ database: db });
+const smsApiRequestStore = new SmsApiRequestStore({ database: db });
+let smsGatewayService;
+smsGatewayService = new SmsGatewayService({
+    database: db,
+    webhookCallbackEnqueuer: ({ tenantId, event, message }) => (
+        sendApiCallback(tenantId, event, message, {
+            dedupeKey: smsCallbackDedupeKey(event, message),
+        })
+    ),
+    messageBillingReconciler: message => reconcileSmsMessageBilling({
+        database: db,
+        billing: { commit: commitBilling },
+        requestStore: smsApiRequestStore,
+        message,
+    }),
+    ussdBillingReconciler: request => reconcileSmsUssdBilling({
+        database: db,
+        billing: { commit: commitBilling },
+        request,
+    }),
+    historyMessageHandler: createSmsHistoryMessageHandler({
+        reconcileMessage: message => reconcileSmsMessageBilling({
+            database: db,
+            billing: { commit: commitBilling },
+            requestStore: smsApiRequestStore,
+            message,
+        }),
+        presentMessage: (message, options) => smsGatewayService.presentMessage(message, options),
+        broadcast: (channel, event, data) => eventBus.broadcast(channel, event, data),
+        emitConversationUpdate: tenantId => eventBus.emitConversationUpdate(tenantId),
+        callbackSender: sendApiCallback,
+    }),
+});
 if (process.env.NODE_ENV === 'production') {
     const enabledSmsAccounts = db.prepare(
         'SELECT COUNT(*) AS count FROM sms_gateway_accounts WHERE enabled = 1'
@@ -202,15 +246,51 @@ if (
 }
 
 if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+    let callbackOutboxRunning = false;
+    const dispatchTenantCallbacks = async () => {
+        if (callbackOutboxRunning) return;
+        callbackOutboxRunning = true;
+        try {
+            const results = await tenantCallbackOutbox.dispatch({ limit: 100 });
+            const deadLetters = results.filter(result => result.status === 'dead_letter');
+            if (deadLetters.length > 0) {
+                console.error('[TenantCallbacks] Deliveries moved to dead letter:', {
+                    delivery_ids: deadLetters.map(result => result.delivery_id),
+                    ...tenantCallbackOutbox.diagnostics(),
+                });
+            }
+        } catch (error) {
+            console.error('[TenantCallbacks] Outbox dispatch failed:', error.message);
+        } finally {
+            callbackOutboxRunning = false;
+        }
+    };
+    dispatchTenantCallbacks();
+    const callbackOutboxInterval = Math.min(
+        Math.max(Number(process.env.TENANT_CALLBACK_OUTBOX_INTERVAL_MS) || 30_000, 5_000),
+        3_600_000,
+    );
+    const callbackOutboxTimer = setInterval(dispatchTenantCallbacks, callbackOutboxInterval);
+    callbackOutboxTimer.unref();
+}
+
+if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+    let smsHealthRunning = false;
     const refreshSmsAccountHealth = async () => {
-        const accounts = db.prepare(`
-            SELECT id, tenant_id FROM sms_gateway_accounts
-            WHERE enabled = 1 ORDER BY last_health_at ASC NULLS FIRST, id ASC LIMIT 100
-        `).all();
-        for (let index = 0; index < accounts.length; index += 5) {
-            await Promise.allSettled(accounts.slice(index, index + 5).map(account => (
-                smsGatewayService.health(account.tenant_id, account.id)
-            )));
+        if (smsHealthRunning) return;
+        smsHealthRunning = true;
+        try {
+            const accounts = db.prepare(`
+                SELECT id, tenant_id FROM sms_gateway_accounts
+                WHERE enabled = 1 ORDER BY last_health_at ASC NULLS FIRST, id ASC LIMIT 100
+            `).all();
+            for (let index = 0; index < accounts.length; index += 5) {
+                await Promise.allSettled(accounts.slice(index, index + 5).map(account => (
+                    smsGatewayService.health(account.tenant_id, account.id)
+                )));
+            }
+        } finally {
+            smsHealthRunning = false;
         }
     };
     const smsHealthInterval = Math.min(
@@ -229,6 +309,47 @@ if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').to
         });
     }, smsHealthInterval);
     smsHealthTimer.unref();
+
+    let smsHistorySyncRunning = false;
+    const synchronizeSmsHistory = async () => {
+        if (smsHistorySyncRunning) return;
+        smsHistorySyncRunning = true;
+        try {
+            const accounts = db.prepare(`
+                SELECT id, tenant_id FROM sms_gateway_accounts
+                WHERE enabled = 1
+                ORDER BY last_history_sync_attempt_at ASC NULLS FIRST, id ASC
+                LIMIT 100
+            `).all();
+            for (let index = 0; index < accounts.length; index += 2) {
+                await Promise.allSettled(accounts.slice(index, index + 2).map(account => (
+                    smsGatewayService.syncHistory(account.tenant_id, account.id, {
+                        incrementalPages: 10,
+                        backfillPages: 1,
+                        limit: 100,
+                    })
+                )));
+            }
+        } finally {
+            smsHistorySyncRunning = false;
+        }
+    };
+    const smsHistoryInterval = Math.min(
+        Math.max(Number(process.env.SMS_HISTORY_SYNC_INTERVAL_MS) || 120_000, 60_000),
+        3_600_000,
+    );
+    const initialSmsHistoryTimer = setTimeout(() => {
+        synchronizeSmsHistory().catch(error => {
+            console.error('[SmsGateway] Background history sync failed:', error.message);
+        });
+    }, 45_000);
+    initialSmsHistoryTimer.unref();
+    const smsHistoryTimer = setInterval(() => {
+        synchronizeSmsHistory().catch(error => {
+            console.error('[SmsGateway] Background history sync failed:', error.message);
+        });
+    }, smsHistoryInterval);
+    smsHistoryTimer.unref();
 }
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
@@ -311,13 +432,25 @@ const apiLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => req.path.startsWith('/webhook')
-        || req.path.startsWith('/integrations/sms-gateway/events'),
+        || req.path.startsWith('/integrations/sms-gateway/events')
+        || req.path.startsWith('/integrations/sms-gateway/provision'),
 });
 
 const smsWebhookLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: Math.min(Math.max(Number(process.env.SMS_WEBHOOK_RATE_LIMIT_PER_MINUTE) || 1200, 120), 10_000),
     message: { error: 'SMS webhook rate limit exceeded' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const smsProvisioningLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: Math.min(
+        Math.max(Number(process.env.SMS_PROVISION_RATE_LIMIT_PER_MINUTE) || 60, 10),
+        600,
+    ),
+    message: { error: 'SMS provisioning rate limit exceeded' },
     standardHeaders: true,
     legacyHeaders: false,
 });
@@ -496,7 +629,13 @@ app.use(
     createSmsGatewayWebhookRouter({
         service: smsGatewayService,
         eventBus,
+        callbackSender: sendApiCallback,
     }),
+);
+app.use(
+    '/integrations/sms-gateway/provision',
+    smsProvisioningLimiter,
+    createSmsGatewayProvisioningRouter({ service: smsGatewayService }),
 );
 
 // Auth routes (stricter rate limit only on credential-entry endpoints)

@@ -11,32 +11,54 @@ import { startTokenHealthScheduler } from './tokenMonitor.js';
  * Clean up expired data across all tables with retention policies.
  * Should be run on startup and periodically (every 24h).
  */
-export function cleanupExpiredData() {
+export function cleanupExpiredData(database = db) {
     let cleaned = 0;
 
     // 1. Webhook logs older than 90 days
-    const webhookResult = db.prepare(
+    const webhookResult = database.prepare(
         "DELETE FROM webhook_logs WHERE created_at < datetime('now', '-90 days')"
     ).run();
     cleaned += webhookResult.changes;
 
     // 2. Activity logs older than 180 days
-    const activityResult = db.prepare(
+    const activityResult = database.prepare(
         "DELETE FROM activity_logs WHERE created_at < datetime('now', '-180 days')"
     ).run();
     cleaned += activityResult.changes;
 
     // 3. Meta review evidence snapshots older than 180 days
-    const metaReviewResult = db.prepare(
+    const metaReviewResult = database.prepare(
         "DELETE FROM meta_review_checks WHERE created_at < datetime('now', '-180 days')"
     ).run();
     cleaned += metaReviewResult.changes;
 
     // 4. Expired revoked tokens (no longer needed after JWT expiry)
-    const tokenResult = db.prepare(
+    const tokenResult = database.prepare(
         "DELETE FROM revoked_tokens WHERE expires_at < datetime('now', 'localtime')"
     ).run();
     cleaned += tokenResult.changes;
+
+    // 5. Keep a finite replay window without removing in-flight API requests.
+    const smsApiResult = database.prepare(`
+        DELETE FROM sms_api_requests
+        WHERE status IN ('accepted', 'failed')
+          AND datetime(updated_at) < datetime('now', '-90 days')
+    `).run();
+    cleaned += smsApiResult.changes;
+
+    // 6. Callback bodies may contain message content. Keep active deliveries,
+    // successful diagnostics for 30 days, and dead letters for 180 days.
+    const callbackResult = database.prepare(`
+        DELETE FROM tenant_api_callback_outbox
+        WHERE (
+            status = 'delivered'
+            AND datetime(delivered_at) < datetime('now', '-30 days')
+        ) OR (
+            status = 'dead_letter'
+            AND datetime(updated_at) < datetime('now', '-180 days')
+        )
+    `).run();
+    cleaned += callbackResult.changes;
 
     if (cleaned > 0) {
         console.log(`[Maintenance] Cleaned up ${cleaned} expired records`);

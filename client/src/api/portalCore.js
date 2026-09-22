@@ -259,6 +259,23 @@ export const portalCoreMethods = {
         return this.request('/api/portal/sms-gateway');
     },
 
+    async getSmsStats({
+        accountId = 'all',
+        range = '7d',
+        from,
+        to,
+        groupBy = 'day',
+    } = {}) {
+        const params = new URLSearchParams({
+            account_id: String(accountId || 'all'),
+            range: String(range || '7d'),
+            group_by: String(groupBy || 'day'),
+        });
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+        return this.request(`/api/portal/sms-gateway/stats?${params.toString()}`);
+    },
+
     async createSmsAccount(data) {
         return this.request('/api/portal/sms-gateway', {
             method: 'POST',
@@ -310,9 +327,10 @@ export const portalCoreMethods = {
         });
     },
 
-    async testSmsAccount(accountId, data) {
+    async testSmsAccount(accountId, data, idempotencyKey) {
         return this.request(`/api/portal/sms-gateway/${accountId}/test`, {
             method: 'POST',
+            headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
             body: JSON.stringify(data),
         });
     },

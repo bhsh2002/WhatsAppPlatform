@@ -17,6 +17,7 @@ const validEnvironment = () => ({
     PUBLIC_APP_URL: 'https://wa.savana.ly',
     CORS_ORIGINS: 'https://wa.savana.ly',
     SMS_GATEWAY_CALLBACK_BASE_URL: 'https://wa.savana.ly/api/integrations/sms-gateway/events',
+    SMS_GATEWAY_PROVISIONING_SECRET: 'g'.repeat(48),
     SAVANA_INTEGRATIONS_ENABLED: 'false',
 });
 

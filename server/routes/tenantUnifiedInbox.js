@@ -37,6 +37,28 @@ const normalizeWhatsAppRecipient = value => {
     return normalized && /^\d{5,20}$/.test(normalized) ? normalized : null;
 };
 
+const rejectReleasedSmsIdempotency = reservation => {
+    if (!reservation || !['released', 'failed'].includes(String(reservation.status))) return;
+    throw new SmsGatewayError(
+        'انتهت المحاولة السابقة؛ أعد الإرسال بمعرف طلب جديد',
+        409,
+        'SMS_IDEMPOTENCY_RETRY_REQUIRED',
+        { new_idempotency_key_required: true },
+    );
+};
+
+const postAcceptanceSmsError = error => {
+    if (error?.deliveryUncertain) return error;
+    const wrapped = new SmsGatewayError(
+        'قُبلت رسالة SMS لكن لم يكتمل حفظ التأكيد؛ أعد الطلب نفسه بنفس المعرف',
+        503,
+        'SMS_POST_ACCEPT_RECOVERY_REQUIRED',
+    );
+    wrapped.deliveryUncertain = true;
+    wrapped.cause = error;
+    return wrapped;
+};
+
 export function createTenantUnifiedInboxRouter({
     database,
     accessTokenForTenant,
@@ -375,7 +397,11 @@ export function createTenantUnifiedInboxRouter({
                     WHERE tenant_id = ? AND sms_account_id = ? AND sender = ?
                       AND direction = 'incoming' AND status = 'received'
                 `).run(tenantId, smsAccountId, contactId);
-                return res.json(messages);
+                const account = smsGateway?.getAccount(tenantId, smsAccountId);
+                const presented = typeof smsGateway?.presentMessage === 'function'
+                    ? messages.map(message => smsGateway.presentMessage(message, { account }))
+                    : messages;
+                return res.json(presented);
             }
 
             const conversationId = parsePositiveId(req.query?.conversation_id);
@@ -413,6 +439,7 @@ export function createTenantUnifiedInboxRouter({
 
     router.post('/unified/:channel/:id/send', async (req, res) => {
         let reservation = null;
+        let smsGatewayAccepted = false;
         try {
             const tenantId = req.user.tenant_id;
             const channel = normalizeString(req.params.channel, 32);
@@ -513,6 +540,7 @@ export function createTenantUnifiedInboxRouter({
                 if (req.body?.sms_account_id != null && !smsAccountId) {
                     return res.status(400).json({ error: 'sms_account_id غير صالح' });
                 }
+                smsGateway.requireActiveAccount(tenantId, smsAccountId);
                 reservation = billing.reserve({
                     tenantId,
                     operationKey: billing.operations.SMS_TEXT,
@@ -521,19 +549,24 @@ export function createTenantUnifiedInboxRouter({
                     idempotencyKey: `billing:${tenantId}:${idempotencyKey}`,
                     metadata: { channel: 'sms', recipient, sms_account_id: smsAccountId },
                 });
+                rejectReleasedSmsIdempotency(reservation);
                 const gatewayResult = await smsGateway.send(tenantId, {
                     accountId: smsAccountId,
                     recipient,
                     message,
                     idempotencyKey,
                 });
+                smsGatewayAccepted = true;
                 billing.commit(reservation, {
                     referenceId: gatewayResult.message.message_id,
                     description: 'خصم إرسال رسالة SMS من صندوق الوارد',
                 });
                 reservation = null;
                 const stored = smsGateway.storeMessage(gatewayResult.account, gatewayResult.message);
-                broadcast(`tenant:${tenantId}`, 'sms_message:new', stored);
+                const tenantMessage = typeof smsGateway.presentMessage === 'function'
+                    ? smsGateway.presentMessage(stored, { account: gatewayResult.account })
+                    : stored;
+                broadcast(`tenant:${tenantId}`, 'sms_message:new', tenantMessage);
                 broadcast('admin', 'sms_message:new', stored);
                 emitConversationUpdate(tenantId);
                 return res.status(202).json({
@@ -639,18 +672,26 @@ export function createTenantUnifiedInboxRouter({
             }
             return res.json({ success: true, message_id: messageId });
         } catch (error) {
-            if (reservation) {
+            const responseError = smsGatewayAccepted ? postAcceptanceSmsError(error) : error;
+            if (smsGatewayAccepted) {
+                console.error('[TenantUnifiedInbox] SMS post-acceptance recovery required:', error);
+            }
+            if (reservation && !responseError.deliveryUncertain) {
                 try {
-                    billing.release(reservation, error.message);
+                    billing.release(reservation, responseError.message);
                 } catch (releaseError) {
                     console.error('[TenantUnifiedInbox] Billing release error:', releaseError);
                 }
             }
-            if (billing.handleError(res, error)) return undefined;
-            if (error instanceof SmsGatewayError) {
-                return res.status(error.status).json({ error: error.message, code: error.code });
+            if (billing.handleError(res, responseError)) return undefined;
+            if (responseError instanceof SmsGatewayError) {
+                return res.status(responseError.status).json({
+                    error: responseError.message,
+                    code: responseError.code,
+                    ...(responseError.deliveryUncertain ? { retry_same_request: true } : {}),
+                });
             }
-            console.error('[TenantUnifiedInbox] Send error:', error);
+            console.error('[TenantUnifiedInbox] Send error:', responseError);
             return res.status(500).json({ error: 'فشل إرسال الرسالة' });
         }
     });

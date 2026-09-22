@@ -6,7 +6,11 @@ import Database from 'better-sqlite3';
 
 import { runMigrationsSync } from '../db/migrator.js';
 import { encrypt, initEncryption } from '../services/encryption.js';
-import { SmsGatewayError, SmsGatewayService } from '../services/smsGateway.js';
+import {
+    parseGatewayJsonResponse,
+    SmsGatewayError,
+    SmsGatewayService,
+} from '../services/smsGateway.js';
 
 const createDatabase = () => {
     const database = new Database(':memory:');
@@ -46,6 +50,103 @@ const insertAccount = (database, {
 
 process.env.CRYPTO_KEY = process.env.CRYPTO_KEY || 'b'.repeat(64);
 initEncryption();
+
+test('Gateway mutation responses distinguish uncertain delivery from a confirmed send failure', () => {
+    const account = {
+        base_url: 'https://sms.example.test',
+        management_mode: 'managed',
+    };
+    assert.throws(
+        () => parseGatewayJsonResponse(account, {
+            ok: true,
+            status: 200,
+            body: '<html>not json</html>',
+        }, 'POST'),
+        error => error instanceof SmsGatewayError
+            && error.code === 'SMS_GATEWAY_INVALID_RESPONSE'
+            && error.deliveryUncertain === true,
+    );
+    assert.throws(
+        () => parseGatewayJsonResponse(account, {
+            ok: true,
+            status: 200,
+            body: JSON.stringify({ success: true }),
+        }, 'POST'),
+        error => error instanceof SmsGatewayError
+            && error.code === 'SMS_GATEWAY_INVALID_RESPONSE'
+            && error.deliveryUncertain === true,
+    );
+    assert.throws(
+        () => parseGatewayJsonResponse(account, {
+            ok: false,
+            status: 500,
+            body: JSON.stringify({
+                success: false,
+                error: { code: 'send_failed', message: 'Message was not accepted' },
+            }),
+        }, 'POST'),
+        error => error instanceof SmsGatewayError
+            && error.code === 'send_failed'
+            && error.deliveryUncertain === false,
+    );
+});
+
+test('deterministic send failures do not disable an otherwise active SMS account', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    insertAccount(database, {
+        id: 24,
+        name: 'Deterministic failure gateway',
+        key: '24444444-4444-4444-8444-444444444444',
+        secret: 'deterministic-failure-secret',
+        isDefault: true,
+    });
+    database.prepare(`
+        UPDATE sms_gateway_accounts SET default_devices_json = '["301"]' WHERE id = 24
+    `).run();
+    let gatewayError = new SmsGatewayError('Message was not accepted', 502, 'send_failed');
+    gatewayError.deliveryUncertain = false;
+    const service = new SmsGatewayService({
+        database,
+        gatewayRequest: async () => { throw gatewayError; },
+    });
+
+    await assert.rejects(
+        service.send(1, {
+            accountId: 24,
+            recipient: '218910000024',
+            message: 'Deterministic rejection',
+            idempotencyKey: 'deterministic-send-0001',
+        }),
+        error => error.code === 'send_failed',
+    );
+    assert.equal(service.getAccount(1, 24).status, 'active');
+    assert.equal(service.getAccount(1, 24).last_error, null);
+
+    await assert.rejects(
+        service.sendUssd(1, {
+            accountId: 24,
+            request: '*100#',
+            idempotencyKey: 'deterministic-ussd-0001',
+        }),
+        error => error.code === 'send_failed',
+    );
+    assert.equal(service.getAccount(1, 24).status, 'active');
+    assert.equal(service.getAccount(1, 24).last_error, null);
+
+    gatewayError = new SmsGatewayError('Gateway unavailable', 502, 'SMS_GATEWAY_UNAVAILABLE');
+    gatewayError.deliveryUncertain = true;
+    await assert.rejects(
+        service.send(1, {
+            accountId: 24,
+            recipient: '218910000024',
+            message: 'Uncertain delivery',
+            idempotencyKey: 'uncertain-send-0001',
+        }),
+        error => error.code === 'SMS_GATEWAY_UNAVAILABLE',
+    );
+    assert.equal(service.getAccount(1, 24).status, 'error');
+});
 
 test('one Wa tenant keeps multiple SMS accounts and identical gateway ids isolated', (t) => {
     const database = createDatabase();
@@ -130,6 +231,41 @@ test('one Wa tenant keeps multiple SMS accounts and identical gateway ids isolat
     );
 });
 
+test('disabling the default SMS account promotes a healthy account before a pending one', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    insertAccount(database, {
+        id: 21,
+        name: 'Current default',
+        key: '21111111-1111-4111-8111-111111111111',
+        secret: 'current-default-secret',
+        isDefault: true,
+    });
+    insertAccount(database, {
+        id: 22,
+        name: 'Pending account',
+        key: '22222222-1111-4111-8111-111111111111',
+        secret: 'pending-account-secret',
+    });
+    insertAccount(database, {
+        id: 23,
+        name: 'Healthy account',
+        key: '23333333-1111-4111-8111-111111111111',
+        secret: 'healthy-account-secret',
+    });
+    database.prepare("UPDATE sms_gateway_accounts SET status = 'pending' WHERE id = 22").run();
+    const service = new SmsGatewayService({
+        database,
+        gatewayRequest: async () => ({ success: true, data: {} }),
+    });
+
+    await service.disable(1, 21);
+
+    assert.equal(service.getAccount(1, 21).is_default, 0);
+    assert.equal(service.getAccount(1, 22).is_default, 0);
+    assert.equal(service.getAccount(1, 23).is_default, 1);
+});
+
 test('signed SMS webhooks are deduplicated and cannot cross account boundaries', (t) => {
     const database = createDatabase();
     t.after(() => database.close());
@@ -186,6 +322,58 @@ test('signed SMS webhooks are deduplicated and cannot cross account boundaries',
         ),
         error => error instanceof SmsGatewayError && error.code === 'SMS_WEBHOOK_SIGNATURE_INVALID',
     );
+});
+
+test('SMS webhook storage, billing reconciliation and callback enqueue are atomic', (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const webhookKey = 'a3333333-3333-4333-8333-333333333333';
+    const deliveryId = 'a4444444-4444-4444-8444-444444444444';
+    const secret = 'atomic-webhook-secret';
+    insertAccount(database, { id: 17, name: 'Atomic gateway', key: webhookKey, secret, isDefault: true });
+    const envelope = {
+        delivery_id: deliveryId,
+        event: 'sms.message.status_changed.v1',
+        data: {
+            message_id: 'outgoing-atomic-1',
+            external_id: 'wa-api-atomic-1',
+            direction: 'outgoing',
+            recipient: '218910000017',
+            message: 'Atomic event',
+            status: 'delivered',
+        },
+    };
+    const rawBody = Buffer.from(JSON.stringify(envelope));
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = `v1=${crypto.createHmac('sha256', secret)
+        .update(`${timestamp}.${deliveryId}.`)
+        .update(rawBody)
+        .digest('hex')}`;
+    let reconciled = 0;
+    const service = new SmsGatewayService({
+        database,
+        messageBillingReconciler: () => { reconciled += 1; },
+        webhookCallbackEnqueuer: () => { throw new Error('outbox unavailable'); },
+    });
+
+    assert.throws(
+        () => service.acceptWebhook(webhookKey, { timestamp, deliveryId, signature }, rawBody),
+        /outbox unavailable/,
+    );
+    assert.equal(reconciled, 1);
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sms_messages').get().count, 0);
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sms_webhook_deliveries').get().count, 0);
+
+    service.webhookCallbackEnqueuer = () => ({ queued: true });
+    const accepted = service.acceptWebhook(
+        webhookKey,
+        { timestamp, deliveryId, signature },
+        rawBody,
+    );
+    assert.equal(accepted.duplicate, false);
+    assert.equal(reconciled, 2);
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sms_messages').get().count, 1);
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sms_webhook_deliveries').get().count, 1);
 });
 
 test('signed USSD response webhooks update only their linked SMS account', (t) => {
