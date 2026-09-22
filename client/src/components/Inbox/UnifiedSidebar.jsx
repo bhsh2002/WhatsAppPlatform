@@ -75,7 +75,7 @@ const UnifiedSidebar = ({
         {
             value: 'sms',
             title: 'SMS',
-            subtitle: 'رسائل الشرائح والأجهزة المرتبطة',
+            subtitle: 'رسائل SMS الواردة والصادرة',
             icon: <SmsIcon sx={{ fontSize: 18, color: '#7c3aed' }} />,
         },
         {

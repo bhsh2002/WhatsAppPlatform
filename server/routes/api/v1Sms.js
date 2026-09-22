@@ -9,7 +9,11 @@ import {
     reserve as reserveBilling,
 } from '../../services/billing.js';
 import { SmsApiRequestStore, smsApiRequestHash } from '../../services/smsApiRequests.js';
-import { SmsGatewayError, SmsGatewayService } from '../../services/smsGateway.js';
+import {
+    presentTenantSmsGatewayError,
+    SmsGatewayError,
+    SmsGatewayService,
+} from '../../services/smsGateway.js';
 
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
@@ -24,11 +28,12 @@ const defaultBilling = {
 const respondError = (res, error, billing, logger) => {
     if (billing.handleError(res, error)) return undefined;
     if (error instanceof SmsGatewayError) {
+        const presented = presentTenantSmsGatewayError(error);
         return res.status(error.status).json({
             success: false,
-            error: error.message,
-            code: error.code,
             ...error.details,
+            error: presented.message,
+            code: presented.code,
             ...(error.deliveryUncertain ? { retry_same_request: true } : {}),
         });
     }

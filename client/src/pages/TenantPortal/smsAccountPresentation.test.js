@@ -4,7 +4,6 @@ import test from 'node:test';
 import {
     canRequestSmsStats,
     isManagedSmsAccount,
-    managedSmsResources,
     normalizeSmsSummary,
 } from './smsAccountPresentation.js';
 
@@ -13,29 +12,6 @@ test('managed SMS accounts are detected without changing legacy manual accounts'
     assert.equal(isManagedSmsAccount({ managed: true }), true);
     assert.equal(isManagedSmsAccount({ management_mode: 'manual' }), false);
     assert.equal(isManagedSmsAccount({}), false);
-});
-
-test('managed resource presentation uses friendly names without exposing device ids', () => {
-    const presentation = managedSmsResources({
-        status: 'active',
-        managed_resources: {
-            devices: [{ id: 'technical-device-42', name: 'جهاز المتجر', model: 'Pixel 8' }],
-            sim: { slot: 0, name: 'شريحة المبيعات', carrier: 'Libyana', number: '218910000000' },
-        },
-    });
-
-    assert.deepEqual(presentation.devices, [{
-        name: 'جهاز المتجر',
-        model: 'Pixel 8',
-        status: { label: 'مُعيّن للحساب', color: 'default' },
-    }]);
-    assert.equal(JSON.stringify(presentation).includes('technical-device-42'), false);
-    assert.deepEqual(presentation.sim, {
-        name: 'شريحة المبيعات',
-        carrier: 'Libyana',
-        number: '218910000000',
-    });
-    assert.equal(JSON.stringify(presentation).includes('slot'), false);
 });
 
 test('SMS statistics helpers normalize missing values and validate custom ranges', () => {

@@ -5,9 +5,8 @@ import {
     FormControlLabel, Grid, MenuItem, Paper, Stack, Switch, TextField, Typography,
 } from '@mui/material';
 import {
-    Add as AddIcon, CheckCircle as CheckIcon, Devices as DevicesIcon,
-    HealthAndSafety as HealthIcon, QueryStats as StatsIcon,
-    SimCard as SimCardIcon, Sms as SmsIcon,
+    Add as AddIcon, CheckCircle as CheckIcon,
+    HealthAndSafety as HealthIcon, QueryStats as StatsIcon, Sms as SmsIcon,
 } from '@mui/icons-material';
 
 import api from '../../api';
@@ -15,7 +14,6 @@ import { PageTitle } from '../../components/Layout/PageTitle';
 import {
     canRequestSmsStats,
     isManagedSmsAccount,
-    managedSmsResources,
     normalizeSmsSummary,
     smsStatusPresentation,
 } from './smsAccountPresentation';
@@ -24,8 +22,6 @@ const emptyForm = {
     name: '',
     base_url: '',
     api_key: '',
-    default_devices: '',
-    default_sim_slot: '',
     enabled: true,
     is_default: false,
 };
@@ -44,13 +40,13 @@ const RANGE_OPTIONS = [
 ];
 
 const STAT_CARDS = [
-    ['total_outgoing', 'الرسائل الصادرة', 'primary.main'],
-    ['delivered', 'تم التسليم', 'success.main'],
-    ['sent', 'أُرسلت', 'info.main'],
-    ['pending', 'قيد الإرسال', 'warning.main'],
-    ['failed', 'فشلت', 'error.main'],
-    ['canceled', 'ملغاة', 'text.secondary'],
-    ['received', 'الرسائل الواردة', 'secondary.main'],
+    { key: 'total_outgoing', label: 'الرسائل الصادرة', accent: 'primary.main' },
+    { key: 'received', label: 'الرسائل الواردة', accent: 'secondary.main' },
+    { key: 'delivered', label: 'تم التسليم', accent: 'success.main' },
+    { key: 'sent', label: 'أُرسلت', accent: 'info.main' },
+    { key: 'pending', label: 'قيد الإرسال', accent: 'warning.main' },
+    { key: 'failed', label: 'فشلت', accent: 'error.main' },
+    { key: 'canceled', label: 'ملغاة', accent: 'text.secondary' },
 ];
 
 const formatDateTime = value => {
@@ -58,45 +54,11 @@ const formatDateTime = value => {
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ar-LY');
 };
 
-const ManagedAccountDetails = ({ account }) => {
-    const resources = managedSmsResources(account);
-    return (
-        <Stack spacing={1.5} mt={2}>
-            <Alert severity="info" icon={false}>
-                تدير Savana إعدادات الاتصال لهذا الحساب. يمكنك متابعة حالته واستخدامه دون التعامل مع مفاتيح أو معرّفات تقنية.
-            </Alert>
-            {resources.devices.length > 0 ? resources.devices.map((device, index) => (
-                <Paper key={`${device.name}-${index}`} variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
-                        <Stack direction="row" alignItems="center" gap={1} minWidth={0}>
-                            <DevicesIcon color="action" />
-                            <Box minWidth={0}>
-                                <Typography fontWeight={700} noWrap>{device.name}</Typography>
-                                {device.model && <Typography variant="caption" color="text.secondary">{device.model}</Typography>}
-                            </Box>
-                        </Stack>
-                        <Chip size="small" label={device.status.label} color={device.status.color} variant="outlined" />
-                    </Stack>
-                </Paper>
-            )) : (
-                <Typography variant="body2" color="text.secondary">جهاز SMS المُدار قيد التجهيز.</Typography>
-            )}
-            {resources.sim && (
-                <Paper variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack direction="row" alignItems="center" gap={1}>
-                        <SimCardIcon color="action" />
-                        <Box>
-                            <Typography fontWeight={700}>{resources.sim.name}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                                {[resources.sim.carrier, resources.sim.number].filter(Boolean).join(' • ')}
-                            </Typography>
-                        </Box>
-                    </Stack>
-                </Paper>
-            )}
-        </Stack>
-    );
-};
+const ManagedAccountDetails = () => (
+    <Alert severity="info" icon={false} sx={{ mt: 2 }}>
+        تتولى Savana إعداد الاتصال والتوجيه لهذا الحساب. يمكنك استخدام الخدمة ومتابعة حالتها دون إعدادات تقنية.
+    </Alert>
+);
 
 const TenantSmsAccounts = () => {
     const [accounts, setAccounts] = useState([]);
@@ -182,8 +144,6 @@ const TenantSmsAccounts = () => {
             name: account.name,
             base_url: account.base_url,
             api_key: '',
-            default_devices: (account.default_devices || []).join(', '),
-            default_sim_slot: account.default_sim_slot ?? '',
             enabled: account.enabled,
             is_default: account.is_default,
         });
@@ -195,11 +155,7 @@ const TenantSmsAccounts = () => {
         try {
             setSaving(true);
             setError('');
-            const payload = {
-                ...form,
-                default_devices: form.default_devices.split(',').map(value => value.trim()).filter(Boolean),
-                default_sim_slot: form.default_sim_slot === '' ? null : Number(form.default_sim_slot),
-            };
+            const payload = { ...form };
             if (!payload.api_key) delete payload.api_key;
             if (editing) await api.updateSmsAccount(editing.id, payload);
             else await api.createSmsAccount(payload);
@@ -272,7 +228,7 @@ const TenantSmsAccounts = () => {
                 <Box>
                     <PageTitle fontWeight={800}>حسابات SMS</PageTitle>
                     <Typography color="text.secondary">
-                        تابع الحسابات والأجهزة والإرسال من مكان واحد. تتولى Savana إعداد الحسابات المُدارة وحمايتها.
+                        تابع حسابات SMS والإرسال والاستقبال من مكان واحد. تتولى Savana إعداد الحسابات المُدارة وحمايتها.
                     </Typography>
                 </Box>
                 {manualConfigurationAllowed && (
@@ -290,23 +246,23 @@ const TenantSmsAccounts = () => {
                         <Typography component="h2" variant="h6" fontWeight={800}>إحصاءات SMS</Typography>
                     </Stack>
                     <Grid container spacing={1.5} alignItems="center">
-                        <Grid item xs={12} md={4}>
+                        <Grid size={{ xs: 12, md: 4 }}>
                             <TextField select fullWidth size="small" label="الحساب" value={accountFilter} onChange={event => setAccountFilter(event.target.value)}>
                                 <MenuItem value="all">كل الحسابات</MenuItem>
                                 {accounts.map(account => <MenuItem key={account.id} value={String(account.id)}>{account.name}</MenuItem>)}
                             </TextField>
                         </Grid>
-                        <Grid item xs={12} md={4}>
+                        <Grid size={{ xs: 12, md: 4 }}>
                             <TextField select fullWidth size="small" label="الفترة" value={range} onChange={event => setRange(event.target.value)}>
                                 {RANGE_OPTIONS.map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
                             </TextField>
                         </Grid>
                         {range === 'custom' && (
                             <>
-                                <Grid item xs={12} sm={6} md={2}>
+                                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                                     <TextField fullWidth size="small" type="date" label="من" value={customFrom} onChange={event => setCustomFrom(event.target.value)} InputLabelProps={{ shrink: true }} />
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={2}>
+                                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                                     <TextField fullWidth size="small" type="date" label="إلى" value={customTo} onChange={event => setCustomTo(event.target.value)} InputLabelProps={{ shrink: true }} />
                                 </Grid>
                             </>
@@ -319,21 +275,60 @@ const TenantSmsAccounts = () => {
                     ) : stats && (
                         <>
                             {stats.range?.from && stats.range?.to && (
-                                <Typography variant="caption" color="text.secondary" display="block" mt={2}>
-                                    الفترة: {stats.range.from} — {stats.range.to}{stats.range.timezone ? ` (${stats.range.timezone})` : ''}
-                                </Typography>
+                                <Stack direction="row" alignItems="center" flexWrap="wrap" gap={0.75} mt={2} useFlexGap>
+                                    <Typography variant="caption" color="text.secondary">الفترة:</Typography>
+                                    <Typography variant="caption" color="text.secondary" component="span" dir="ltr">
+                                        {stats.range.from} — {stats.range.to}
+                                    </Typography>
+                                    {stats.range.timezone && (
+                                        <Chip size="small" variant="outlined" label={stats.range.timezone} />
+                                    )}
+                                </Stack>
                             )}
                             {stats.summary ? (
-                                <Grid container spacing={1.5} mt={0.5}>
-                                    {STAT_CARDS.map(([key, label, color]) => (
-                                        <Grid item xs={6} sm={4} lg key={key}>
-                                            <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
-                                                <Typography variant="h5" fontWeight={800} color={color}>{summary[key].toLocaleString('ar-LY')}</Typography>
-                                                <Typography variant="caption" color="text.secondary">{label}</Typography>
-                                            </Paper>
-                                        </Grid>
+                                <Box sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: {
+                                        xs: 'repeat(2, minmax(0, 1fr))',
+                                        sm: 'repeat(3, minmax(0, 1fr))',
+                                        md: 'repeat(4, minmax(0, 1fr))',
+                                        lg: 'repeat(7, minmax(0, 1fr))',
+                                    },
+                                    '@media (max-width: 359px)': { gridTemplateColumns: '1fr' },
+                                    gap: 1.5,
+                                    mt: 2,
+                                }}>
+                                    {STAT_CARDS.map(({ key, label, accent }) => (
+                                        <Paper key={key} variant="outlined" sx={{
+                                            p: 2,
+                                            minWidth: 0,
+                                            minHeight: 116,
+                                            height: '100%',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 0.5,
+                                            textAlign: 'center',
+                                            borderRadius: 2,
+                                            borderTop: '3px solid',
+                                            borderTopColor: accent,
+                                        }}>
+                                            <Typography variant="h4" lineHeight={1} fontWeight={800} color={accent}>
+                                                {summary[key].toLocaleString('ar-LY')}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary" sx={{
+                                                minHeight: '3em',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                lineHeight: 1.5,
+                                            }}>
+                                                {label}
+                                            </Typography>
+                                        </Paper>
                                     ))}
-                                </Grid>
+                                </Box>
                             ) : (
                                 <Alert severity="info" sx={{ mt: 2 }}>
                                     لا تتوفر إحصاءات من أي حساب في الفترة المختارة حاليًا.
@@ -346,7 +341,7 @@ const TenantSmsAccounts = () => {
                                         {stats.accounts.map(accountStats => {
                                             const accountSummary = normalizeSmsSummary(accountStats.summary);
                                             return (
-                                                <Grid item xs={12} md={6} key={accountStats.account_id || accountStats.name}>
+                                                <Grid size={{ xs: 12, md: 6 }} key={accountStats.account_id || accountStats.name}>
                                                     <Paper variant="outlined" sx={{ p: 1.5 }}>
                                                         <Typography fontWeight={750}>{accountStats.name || 'حساب SMS'}</Typography>
                                                         {accountStats.error ? (
@@ -378,7 +373,7 @@ const TenantSmsAccounts = () => {
                     <SmsIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
                     <Typography variant="h6" mt={1}>لا توجد حسابات SMS مرتبطة</Typography>
                     <Typography color="text.secondary" mb={manualConfigurationAllowed ? 2 : 0}>
-                        ستظهر الحسابات هنا تلقائيًا بعد أن تربط الإدارة جهاز SMS بحسابك.
+                        ستظهر الحسابات هنا تلقائيًا بعد أن تجهز الإدارة حساب SMS لك.
                     </Typography>
                     {manualConfigurationAllowed && <Button variant="contained" onClick={openCreate}>إضافة بوابة يدوية</Button>}
                 </CardContent></Card>
@@ -388,7 +383,7 @@ const TenantSmsAccounts = () => {
                         const managed = isManagedSmsAccount(account);
                         const status = smsStatusPresentation(account.status);
                         return (
-                            <Grid item xs={12} md={6} key={account.id}>
+                            <Grid size={{ xs: 12, md: 6 }} key={account.id}>
                                 <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                     <CardContent sx={{ flex: 1 }}>
                                         <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}>
@@ -406,17 +401,13 @@ const TenantSmsAccounts = () => {
                                                 <Chip label={status.label} color={status.color} size="small" />
                                             </Stack>
                                         </Stack>
-                                        {managed ? <ManagedAccountDetails account={account} /> : manualConfigurationAllowed ? (
+                                        {managed ? <ManagedAccountDetails /> : manualConfigurationAllowed ? (
                                             <>
                                                 <Typography variant="body2" color="text.secondary" mt={2} sx={{ wordBreak: 'break-all' }}>{account.base_url}</Typography>
-                                                <Typography variant="body2" mt={1}>
-                                                    الأجهزة: {(account.default_devices || []).join(', ') || 'الجهاز الأساسي'}
-                                                    {account.default_sim_slot != null ? ` • SIM ${account.default_sim_slot}` : ''}
-                                                </Typography>
                                             </>
                                         ) : (
                                             <Alert severity="info" icon={false} sx={{ mt: 2 }}>
-                                                تتولى Savana إعداد الاتصال والتوجيه لهذا الحساب؛ لا تحتاج إلى مفاتيح أو معرّفات أجهزة.
+                                                تتولى Savana إعداد الاتصال والتوجيه لهذا الحساب؛ لا تحتاج إلى مفاتيح أو إعدادات تقنية.
                                             </Alert>
                                         )}
                                         {account.last_health_at && <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>آخر فحص: {formatDateTime(account.last_health_at)}</Typography>}
@@ -444,8 +435,6 @@ const TenantSmsAccounts = () => {
                         <TextField label="اسم الحساب" value={form.name} onChange={event => setForm(previous => ({ ...previous, name: event.target.value }))} required />
                         <TextField label="رابط بوابة SMS (HTTPS)" value={form.base_url} onChange={event => setForm(previous => ({ ...previous, base_url: event.target.value }))} placeholder="https://sms.example.com" required />
                         <TextField label={editing ? 'مفتاح API جديد (اتركه فارغًا للإبقاء على الحالي)' : 'مفتاح API'} type="password" value={form.api_key} onChange={event => setForm(previous => ({ ...previous, api_key: event.target.value }))} required={!editing} />
-                        <TextField label="معرّفات الأجهزة الافتراضية" helperText="افصل بين الأجهزة بفاصلة، أو اتركها فارغة لاستخدام الجهاز الأساسي." value={form.default_devices} onChange={event => setForm(previous => ({ ...previous, default_devices: event.target.value }))} />
-                        <TextField label="منفذ SIM الافتراضي" type="number" inputProps={{ min: 0 }} value={form.default_sim_slot} onChange={event => setForm(previous => ({ ...previous, default_sim_slot: event.target.value }))} />
                         <FormControlLabel control={<Switch checked={form.enabled} onChange={event => setForm(previous => ({ ...previous, enabled: event.target.checked, is_default: event.target.checked ? previous.is_default : false }))} />} label="مفعّل" />
                         <FormControlLabel control={<Switch checked={form.is_default} disabled={!form.enabled} onChange={event => setForm(previous => ({ ...previous, is_default: event.target.checked }))} />} label="الحساب الافتراضي للإرسال" />
                     </Stack>

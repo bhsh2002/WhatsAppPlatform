@@ -30,10 +30,9 @@ import { Link as RouterLink } from 'react-router-dom';
 import api from '../../api';
 import Select from '../../components/Form/AccessibleSelect';
 import { PageTitle } from '../../components/Layout/PageTitle';
-import { isManagedSmsAccount, managedSmsResources } from './smsAccountPresentation';
 
 const statusPresentation = {
-    pending: { label: 'بانتظار الهاتف', color: 'warning' },
+    pending: { label: 'قيد التنفيذ', color: 'warning' },
     completed: { label: 'مكتمل', color: 'success' },
     failed: { label: 'فشل', color: 'error' },
 };
@@ -52,13 +51,9 @@ const requestKey = () => {
 const TenantUssd = () => {
     const [accounts, setAccounts] = useState([]);
     const [accountId, setAccountId] = useState('');
-    const [devices, setDevices] = useState([]);
-    const [deviceId, setDeviceId] = useState('');
-    const [simSlot, setSimSlot] = useState('');
     const [request, setRequest] = useState('');
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [devicesLoading, setDevicesLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const [refreshingId, setRefreshingId] = useState(null);
     const [error, setError] = useState('');
@@ -68,19 +63,6 @@ const TenantUssd = () => {
     const activeAccounts = useMemo(
         () => accounts.filter(account => account.enabled && account.status === 'active'),
         [accounts]
-    );
-    const selectedAccount = useMemo(
-        () => accounts.find(account => String(account.id) === String(accountId)),
-        [accounts, accountId]
-    );
-    const selectedDevice = useMemo(
-        () => devices.find(device => String(device.id) === String(deviceId)),
-        [devices, deviceId]
-    );
-    const managedRouting = isManagedSmsAccount(selectedAccount);
-    const assignedResources = useMemo(
-        () => managedSmsResources(selectedAccount),
-        [selectedAccount],
     );
 
     const loadHistory = useCallback(async ({ silent = false, selectedAccountId = '' } = {}) => {
@@ -127,45 +109,6 @@ const TenantUssd = () => {
     }, []);
 
     useEffect(() => {
-        if (!accountId) {
-            setDevices([]);
-            setDeviceId('');
-            setSimSlot('');
-            return undefined;
-        }
-        if (isManagedSmsAccount(selectedAccount)) {
-            setDevices([]);
-            setDeviceId('');
-            setSimSlot('');
-            setDevicesLoading(false);
-            return undefined;
-        }
-        let active = true;
-        const loadDevices = async () => {
-            try {
-                setDevicesLoading(true);
-                setError('');
-                const result = await api.getSmsAccountDevices(accountId);
-                if (!active) return;
-                const loaded = (result.data || []).filter(device => device.enabled);
-                setDevices(loaded);
-                const configured = selectedAccount?.default_devices?.find(id =>
-                    loaded.some(device => String(device.id) === String(id))
-                );
-                const preferred = configured || loaded[0]?.id || '';
-                setDeviceId(String(preferred));
-                setSimSlot(selectedAccount?.default_sim_slot ?? '');
-            } catch (loadError) {
-                if (active) setError(loadError.message || 'تعذر تحميل أجهزة حساب SMS');
-            } finally {
-                if (active) setDevicesLoading(false);
-            }
-        };
-        loadDevices();
-        return () => { active = false; };
-    }, [accountId, selectedAccount]);
-
-    useEffect(() => {
         const timer = window.setInterval(() => {
             loadHistory({ silent: true, selectedAccountId: accountId });
         }, 5000);
@@ -179,8 +122,7 @@ const TenantUssd = () => {
 
     const send = async () => {
         const normalizedRequest = request.trim();
-        const fingerprint = [accountId, managedRouting ? 'managed' : deviceId, simSlot, normalizedRequest]
-            .join('\u0000');
+        const fingerprint = [accountId, normalizedRequest].join('\u0000');
         if (pendingRequestRef.current?.fingerprint !== fingerprint) {
             pendingRequestRef.current = { fingerprint, key: requestKey() };
         }
@@ -190,14 +132,10 @@ const TenantUssd = () => {
             setNotice('');
             const result = await api.sendUssdRequest(accountId, {
                 request: normalizedRequest,
-                ...(managedRouting ? {} : {
-                    device_id: Number(deviceId),
-                    ...(simSlot === '' ? {} : { sim_slot: Number(simSlot) }),
-                }),
             }, pendingRequestRef.current.key);
             pendingRequestRef.current = null;
             setRequest('');
-            setNotice(`تم إرسال ${result.data?.request_code || 'طلب USSD'} إلى الهاتف.`);
+            setNotice(`تم قبول ${result.data?.request_code || 'طلب USSD'} للتنفيذ.`);
             await loadHistory({ selectedAccountId: accountId });
         } catch (sendError) {
             if (!sendError.data?.retry_same_request) pendingRequestRef.current = null;
@@ -232,7 +170,7 @@ const TenantUssd = () => {
                 <Typography variant="h5" fontWeight={800}>تنفيذ ومتابعة طلبات USSD</Typography>
             </Stack>
             <Typography color="text.secondary" mb={3}>
-                اختر حساب SMS وأرسل رمز USSD. تظهر النتيجة تلقائيًا عند استجابة هاتف Android.
+                اختر حساب SMS وأرسل رمز USSD. تظهر النتيجة تلقائيًا عند اكتمال التنفيذ.
             </Typography>
 
             {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
@@ -250,58 +188,19 @@ const TenantUssd = () => {
                 <Card variant="outlined" sx={{ mb: 3 }}>
                     <CardContent>
                         <Stack spacing={2}>
-                            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                                <FormControl fullWidth>
-                                    <InputLabel id="ussd-account-label">حساب SMS</InputLabel>
-                                    <Select
-                                        labelId="ussd-account-label"
-                                        label="حساب SMS"
-                                        value={accountId}
-                                        onChange={event => changeAccount(event.target.value)}
-                                    >
-                                        {activeAccounts.map(account => (
-                                            <MenuItem key={account.id} value={String(account.id)}>{account.name}</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                {!managedRouting && <FormControl fullWidth disabled={devicesLoading || devices.length === 0}>
-                                    <InputLabel id="ussd-device-label">الجهاز</InputLabel>
-                                    <Select
-                                        labelId="ussd-device-label"
-                                        label="الجهاز"
-                                        value={deviceId}
-                                        onChange={event => {
-                                            setDeviceId(event.target.value);
-                                            setSimSlot('');
-                                        }}
-                                    >
-                                        {devices.map(device => (
-                                            <MenuItem key={device.id} value={String(device.id)}>{device.name}</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>}
-                                {!managedRouting && <FormControl fullWidth disabled={!selectedDevice}>
-                                    <InputLabel id="ussd-sim-label">الشريحة</InputLabel>
-                                    <Select
-                                        labelId="ussd-sim-label"
-                                        label="الشريحة"
-                                        value={simSlot}
-                                        onChange={event => setSimSlot(event.target.value)}
-                                    >
-                                        <MenuItem value="">الافتراضية</MenuItem>
-                                        {(selectedDevice?.sims || []).map(sim => (
-                                            <MenuItem key={sim.slot} value={sim.slot}>{sim.name || `SIM ${sim.slot}`}</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>}
-                            </Stack>
-                            {managedRouting && (
-                                <Alert severity="info" icon={false}>
-                                    تستخدم Savana التوجيه الذي حدّدته الإدارة لهذا الحساب
-                                    {assignedResources.devices[0]?.name ? ` عبر ${assignedResources.devices[0].name}` : ''}
-                                    {assignedResources.sim?.name ? ` و${assignedResources.sim.name}` : ''}.
-                                </Alert>
-                            )}
+                            <FormControl fullWidth>
+                                <InputLabel id="ussd-account-label">حساب SMS</InputLabel>
+                                <Select
+                                    labelId="ussd-account-label"
+                                    label="حساب SMS"
+                                    value={accountId}
+                                    onChange={event => changeAccount(event.target.value)}
+                                >
+                                    {activeAccounts.map(account => (
+                                        <MenuItem key={account.id} value={String(account.id)}>{account.name}</MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                                 <TextField
                                     fullWidth
@@ -316,7 +215,7 @@ const TenantUssd = () => {
                                     variant="contained"
                                     startIcon={sending ? <CircularProgress size={18} color="inherit" /> : <SendIcon />}
                                     onClick={send}
-                                    disabled={sending || !accountId || (!managedRouting && !deviceId) || !/^[*#][0-9*#+]{0,180}#$/.test(request.trim())}
+                                    disabled={sending || !accountId || !/^[*#][0-9*#+]{0,180}#$/.test(request.trim())}
                                     sx={{ minWidth: 170 }}
                                 >
                                     تنفيذ الطلب
@@ -341,28 +240,21 @@ const TenantUssd = () => {
                             <TableCell>الحساب</TableCell>
                             <TableCell>الطلب</TableCell>
                             <TableCell>النتيجة</TableCell>
-                            <TableCell>الجهاز / SIM</TableCell>
                             <TableCell>وقت الإرسال</TableCell>
                             <TableCell align="center">إجراء</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {history.length === 0 ? (
-                            <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6 }}>لا توجد طلبات USSD بعد.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={6} align="center" sx={{ py: 6 }}>لا توجد طلبات USSD بعد.</TableCell></TableRow>
                         ) : history.map(item => {
                             const presentation = statusPresentation[item.status] || { label: item.status, color: 'default' };
-                            const itemAccount = accounts.find(account => String(account.id) === String(item.sms_account_id));
-                            const itemResources = managedSmsResources(itemAccount);
-                            const routeLabel = isManagedSmsAccount(itemAccount)
-                                ? [itemResources.devices[0]?.name, itemResources.sim?.name].filter(Boolean).join(' / ') || 'توجيه مُدار'
-                                : `${item.device_id || '—'}${item.sim_slot != null ? ` / ${item.sim_slot}` : ''}`;
                             return (
                                 <TableRow key={item.id} hover>
                                     <TableCell><Chip size="small" label={presentation.label} color={presentation.color} /></TableCell>
                                     <TableCell>{item.sms_account_name}</TableCell>
                                     <TableCell sx={{ direction: 'ltr', fontFamily: 'monospace', fontWeight: 700 }}>{item.request_code}</TableCell>
                                     <TableCell sx={{ whiteSpace: 'pre-wrap', minWidth: 220 }}>{item.response_text || '—'}</TableCell>
-                                    <TableCell>{routeLabel}</TableCell>
                                     <TableCell>{formatDate(item.sent_at || item.created_at)}</TableCell>
                                     <TableCell align="center">
                                         <Button

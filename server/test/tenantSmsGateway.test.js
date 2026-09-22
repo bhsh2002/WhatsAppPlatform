@@ -68,6 +68,15 @@ test('tenant SMS account listing uses only the authenticated tenant', async () =
     assert.deepEqual(response.body.data, [{ id: 91, name: 'Gateway' }]);
 });
 
+test('tenant SMS router does not expose a device inventory endpoint', () => {
+    const router = createTenantSmsGatewayRouter({ service: {}, billing: createBilling() });
+    const exposed = router.stack.some(item => (
+        item.route?.path === '/:accountId/devices' && item.route.methods?.get
+    ));
+
+    assert.equal(exposed, false);
+});
+
 test('SMS statistics stay tenant-scoped and preserve dashboard filters', async () => {
     const calls = [];
     const service = {
@@ -270,6 +279,8 @@ test('USSD history and execution remain tenant-scoped and settle billing once', 
         async sendUssd(tenantId, input) {
             assert.equal(tenantId, 7);
             assert.equal(input.accountId, '91');
+            assert.equal(input.deviceId, undefined);
+            assert.equal(input.simSlot, undefined);
             assert.match(input.idempotencyKey, /^wa-ussd-request-000[12]$/);
             if (shouldFail) throw new SmsGatewayError('Gateway unavailable', 502, 'SMS_GATEWAY_UNAVAILABLE');
             return {
@@ -278,7 +289,6 @@ test('USSD history and execution remain tenant-scoped and settle billing once', 
                     ussd_id: 'gateway-ussd-1',
                     external_id: input.idempotencyKey,
                     request: input.request,
-                    device_id: input.deviceId,
                 },
             };
         },
@@ -321,6 +331,29 @@ test('USSD history and execution remain tenant-scoped and settle billing once', 
     assert.equal(rejected.statusCode, 502);
     assert.equal(rejected.body.code, 'SMS_GATEWAY_UNAVAILABLE');
     assert.equal(billing.calls.releases.length, 1);
+});
+
+test('tenant SMS errors do not expose routing details or hardware-specific codes', async () => {
+    const service = {
+        requireActiveAccount() { return { id: 91, tenant_id: 7, status: 'active' }; },
+        async sendUssd() {
+            throw new SmsGatewayError(
+                'Android device 301 cannot use SIM slot 0',
+                422,
+                'INVALID_USSD_DEVICE',
+            );
+        },
+    };
+    const router = createTenantSmsGatewayRouter({ service, billing: createBilling() });
+    const response = await invoke(router, 'post', '/:accountId/ussd', {
+        params: { accountId: '91' },
+        headers: { 'idempotency-key': 'wa-ussd-private-error-0001' },
+        body: { request: '*100#', device_id: '301', sim_slot: 0 },
+    });
+
+    assert.equal(response.statusCode, 422);
+    assert.equal(response.body.code, 'USSD_EXECUTION_FAILED');
+    assert.doesNotMatch(response.body.error, /android|device|sim|phone|model/i);
 });
 
 test('USSD preserves the request after acceptance when local storage fails', async () => {
