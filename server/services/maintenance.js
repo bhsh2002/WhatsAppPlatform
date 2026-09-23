@@ -60,6 +60,70 @@ export function cleanupExpiredData(database = db) {
     `).run();
     cleaned += callbackResult.changes;
 
+    // 7. Browser-push event payloads are metadata-only, but source hashes and
+    // delivery history still have a finite diagnostic lifetime. Active events
+    // remain intact so an outage cannot silently discard queued work.
+    const pushEventResult = database.prepare(`
+        DELETE FROM web_push_events
+        WHERE status IN ('delivered', 'no_recipients', 'partial', 'failed')
+          AND datetime(COALESCE(completed_at, created_at)) < datetime('now', '-90 days')
+    `).run();
+    cleaned += pushEventResult.changes;
+
+    // 8. A subscription cannot be used after its authenticating session has
+    // expired. Cascading its remaining deliveries is safe because dispatch
+    // would reject the same subscription as ineligible.
+    const pushSubscriptionResult = database.prepare(`
+        DELETE FROM web_push_subscriptions
+        WHERE session_expires_at <= CAST(strftime('%s', 'now') AS INTEGER)
+    `).run();
+    cleaned += pushSubscriptionResult.changes;
+
+    // Cascading subscription deletion can remove one or all deliveries. Close
+    // every event that no longer has active work, including mixed sets of
+    // delivered/skipped/dead-letter rows, so retention can eventually prune it.
+    database.prepare(`
+        UPDATE web_push_events
+        SET status = CASE
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM web_push_deliveries
+                    WHERE web_push_deliveries.event_id = web_push_events.id
+                ) THEN 'no_recipients'
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM web_push_deliveries
+                    WHERE web_push_deliveries.event_id = web_push_events.id
+                      AND status IN ('delivered', 'dead_letter')
+                ) THEN 'no_recipients'
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM web_push_deliveries
+                    WHERE web_push_deliveries.event_id = web_push_events.id
+                      AND status != 'delivered'
+                ) THEN 'delivered'
+                WHEN EXISTS (
+                    SELECT 1 FROM web_push_deliveries
+                    WHERE web_push_deliveries.event_id = web_push_events.id
+                      AND status = 'delivered'
+                ) THEN 'partial'
+                ELSE 'failed'
+            END,
+            completed_at = datetime('now')
+        WHERE status = 'pending'
+          AND NOT EXISTS (
+              SELECT 1 FROM web_push_deliveries
+              WHERE web_push_deliveries.event_id = web_push_events.id
+                AND status IN ('pending', 'processing', 'failed')
+          )
+    `).run();
+
+    // 9. Resolved operational-alert state only prevents duplicate transitions
+    // for a bounded period. Never remove a currently firing state.
+    const alertStateResult = database.prepare(`
+        DELETE FROM web_push_alert_states
+        WHERE is_active = 0
+          AND datetime(updated_at) < datetime('now', '-90 days')
+    `).run();
+    cleaned += alertStateResult.changes;
+
     if (cleaned > 0) {
         console.log(`[Maintenance] Cleaned up ${cleaned} expired records`);
     }

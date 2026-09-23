@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider } from './context/TenantContext';
 import { WhatsAppNumberProvider } from './context/WhatsAppNumberContext';
 import { useLanguage } from './context/LanguageContext';
+import { PwaProvider } from './pwa/PwaContext';
 
 // Admin Pages
 const Login = lazy(() => import('./pages/Login/Login'));
@@ -20,6 +21,7 @@ const AdminTemplates = lazy(() => import('./pages/Templates/AdminTemplates'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy/PrivacyPolicy'));
 const LandingPage = lazy(() => import('./pages/Landing/LandingPage'));
 const FacebookOAuthCallback = lazy(() => import('./pages/Auth/FacebookOAuthCallback'));
+const AppSettings = lazy(() => import('./pages/AppSettings/AppSettings'));
 
 // Tenant Portal Pages
 const TenantDashboard = lazy(() => import('./pages/TenantPortal/TenantDashboard'));
@@ -114,6 +116,15 @@ function AppRoutes() {
       />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/auth/facebook/callback" element={<FacebookOAuthCallback />} />
+
+      <Route
+        path="/app-settings"
+        element={
+          <ProtectedRoute>
+            <MainLayout><AppSettings /></MainLayout>
+          </ProtectedRoute>
+        }
+      />
 
       {/* ============================================ */}
       {/* Admin Routes */}
@@ -505,11 +516,13 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <WhatsAppNumberProvider>
-          <TenantProvider>
-            <AppRoutes />
-          </TenantProvider>
-        </WhatsAppNumberProvider>
+        <PwaProvider>
+          <WhatsAppNumberProvider>
+            <TenantProvider>
+              <AppRoutes />
+            </TenantProvider>
+          </WhatsAppNumberProvider>
+        </PwaProvider>
       </AuthProvider>
     </BrowserRouter>
   );

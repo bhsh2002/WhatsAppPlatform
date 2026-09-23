@@ -25,6 +25,16 @@ const REQUIRED_PRODUCTION_VALUES = [
 
 const normalized = value => String(value || '').trim();
 
+const isBase64UrlBytes = (value, byteLength) => {
+    const encoded = normalized(value);
+    if (!/^[A-Za-z0-9_-]+$/.test(encoded)) return false;
+    try {
+        return Buffer.from(encoded, 'base64url').length === byteLength;
+    } catch {
+        return false;
+    }
+};
+
 const isPlaceholder = value => PLACEHOLDER_MARKERS.some(marker => (
     normalized(value).toLowerCase().includes(marker)
 ));
@@ -101,6 +111,7 @@ export function validateProductionEnv(env = process.env) {
         env.WEBHOOK_VERIFY_TOKEN,
         env.META_APP_SECRET,
         env.SMS_GATEWAY_PROVISIONING_SECRET,
+        env.WEB_PUSH_VAPID_PRIVATE_KEY,
     ].map(normalized).filter(Boolean);
     if (new Set(sensitiveValues).size !== sensitiveValues.length) {
         errors.push('production secrets and tokens must be distinct');
@@ -176,6 +187,57 @@ export function validateProductionEnv(env = process.env) {
     const integrationFlag = normalized(env.SAVANA_INTEGRATIONS_ENABLED).toLowerCase();
     if (integrationFlag && !['0', '1', 'false', 'true'].includes(integrationFlag)) {
         errors.push('SAVANA_INTEGRATIONS_ENABLED must be true, false, 1, or 0');
+    }
+
+    const webPushFlag = normalized(env.WEB_PUSH_ENABLED).toLowerCase();
+    if (webPushFlag && !['0', '1', 'false', 'true'].includes(webPushFlag)) {
+        errors.push('WEB_PUSH_ENABLED must be true, false, 1, or 0');
+    }
+    if (['1', 'true'].includes(webPushFlag)) {
+        const webPushRequired = [
+            'WEB_PUSH_VAPID_PUBLIC_KEY',
+            'WEB_PUSH_VAPID_PRIVATE_KEY',
+            'WEB_PUSH_VAPID_SUBJECT',
+        ];
+        const missingWebPush = webPushRequired.filter(name => !normalized(env[name]));
+        if (missingWebPush.length > 0) {
+            errors.push(`missing required Web Push values: ${missingWebPush.join(', ')}`);
+        }
+        if (
+            normalized(env.WEB_PUSH_VAPID_PUBLIC_KEY)
+            && !isBase64UrlBytes(env.WEB_PUSH_VAPID_PUBLIC_KEY, 65)
+        ) {
+            errors.push('WEB_PUSH_VAPID_PUBLIC_KEY must be a 65-byte base64url value');
+        }
+        if (
+            normalized(env.WEB_PUSH_VAPID_PRIVATE_KEY)
+            && (!isBase64UrlBytes(env.WEB_PUSH_VAPID_PRIVATE_KEY, 32)
+                || isPlaceholder(env.WEB_PUSH_VAPID_PRIVATE_KEY))
+        ) {
+            errors.push('WEB_PUSH_VAPID_PRIVATE_KEY must be a 32-byte non-placeholder base64url value');
+        }
+        const subject = normalized(env.WEB_PUSH_VAPID_SUBJECT);
+        let validSubject = /^mailto:[^@\s]+@[^@\s]+$/i.test(subject);
+        if (!validSubject) {
+            try {
+                const subjectUrl = new URL(subject);
+                validSubject = subjectUrl.protocol === 'https:'
+                    && !subjectUrl.username && !subjectUrl.password;
+            } catch {
+                validSubject = false;
+            }
+        }
+        if (subject && !validSubject) {
+            errors.push('WEB_PUSH_VAPID_SUBJECT must be a mailto: address or HTTPS URL');
+        }
+    }
+    if (
+        normalized(env.WEB_PUSH_TIMEOUT_MS)
+        && (!/^\d+$/.test(normalized(env.WEB_PUSH_TIMEOUT_MS))
+            || Number(env.WEB_PUSH_TIMEOUT_MS) < 1_000
+            || Number(env.WEB_PUSH_TIMEOUT_MS) > 60_000)
+    ) {
+        errors.push('WEB_PUSH_TIMEOUT_MS must be an integer from 1000 to 60000');
     }
 
     if (errors.length > 0) {

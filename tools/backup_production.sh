@@ -22,23 +22,48 @@ data_dir="$(awk '
   exit 2
 }
 
-timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 [[ -d "$data_dir/backups" && -r "$data_dir/backups" && -w "$data_dir/backups" ]] || {
   printf 'Backup directory must exist and be readable/writable by the deployment operator\n' >&2
   exit 2
 }
 
-docker exec wa-savana-server node --input-type=module -e '
-  import Database from "better-sqlite3";
-  import { chmod } from "node:fs/promises";
-  const destination = `/app/data/backups/platform-${process.argv[1]}.db`;
-  const database = new Database(process.env.DATABASE_PATH, { readonly: true });
-  await database.backup(destination);
-  database.close();
-  await chmod(destination, 0o640);
-' "$timestamp"
+# The application backup utility performs SQLite online backup, quick_check,
+# foreign_key_check, compression, a full decompression restore drill, and
+# retention pruning. Parse only its stable result lines and independently
+# confirm the archive checksum from the host-visible bind mount.
+backup_output="$(docker exec wa-savana-server node scripts/backup-database.js)"
+container_archive="$(awk -F': ' '/^Backup verified: / { print $2 }' <<<"$backup_output")"
+reported_sha="$(awk -F': ' '/^SHA-256: / { print $2 }' <<<"$backup_output")"
 
-gzip -f "$data_dir/backups/platform-${timestamp}.db"
-sha256sum "$data_dir/backups/platform-${timestamp}.db.gz" \
-  > "$data_dir/backups/platform-${timestamp}.db.gz.sha256"
-printf 'Verified backup artifact created: %s\n' "$data_dir/backups/platform-${timestamp}.db.gz"
+case "$container_archive" in
+  /app/data/backups/*.db.gz) ;;
+  *)
+    printf 'Backup utility returned an unexpected archive path\n' >&2
+    exit 3
+    ;;
+esac
+[[ "$reported_sha" =~ ^[0-9a-f]{64}$ ]] || {
+  printf 'Backup utility returned an invalid SHA-256 digest\n' >&2
+  exit 3
+}
+
+backup_archive="$data_dir/backups/${container_archive##*/}"
+[[ -f "$backup_archive" && ! -L "$backup_archive" && -s "$backup_archive" ]] || {
+  printf 'Verified backup archive is not available on the host bind mount\n' >&2
+  exit 3
+}
+actual_sha="$(sha256sum "$backup_archive" | awk '{ print $1 }')"
+[[ "$actual_sha" == "$reported_sha" ]] || {
+  printf 'Verified backup archive checksum changed after creation\n' >&2
+  exit 3
+}
+
+checksum_file="${backup_archive}.sha256"
+printf '%s  %s\n' "$reported_sha" "$(basename "$backup_archive")" >"$checksum_file"
+chmod 0640 "$backup_archive" "$checksum_file"
+(
+  cd "$data_dir/backups"
+  sha256sum --check --status "$(basename "$checksum_file")"
+)
+
+printf 'WA_BACKUP_VERIFIED path=%s checksum=%s\n' "$backup_archive" "$checksum_file"

@@ -43,6 +43,7 @@ import {
 } from './routes/savanaIntegrations.js';
 import { createSmsGatewayWebhookRouter } from './routes/smsGatewayWebhook.js';
 import { createSmsGatewayProvisioningRouter } from './routes/smsGatewayProvisioning.js';
+import { createBrowserNotificationsRouter } from './routes/browserNotifications.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -61,7 +62,8 @@ import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initEncryption } from './services/encryption.js';
 import { installGlobalFetchTimeout } from './runtime/fetchTimeout.js';
-import { requestObservability } from './services/observability.js';
+import { getMetricsSnapshot, requestObservability } from './services/observability.js';
+import { getOperationalSignals } from './services/operationalHealth.js';
 import { createOriginGuard } from './middleware/originGuard.js';
 import { createMetricsAuth } from './middleware/metricsAuth.js';
 import { ensureBootstrapAdmin } from './services/bootstrapAdmin.js';
@@ -72,6 +74,7 @@ import {
     validateIntegrationConfig,
 } from './services/savanaIntegration.js';
 import { SmsGatewayService } from './services/smsGateway.js';
+import { createWebPushService, webPushConfigFromEnv } from './services/webPush.js';
 import { commit as commitBilling } from './services/billing.js';
 import {
     createSmsHistoryMessageHandler,
@@ -153,6 +156,20 @@ try {
     process.exit(1);
 }
 
+let webPushService;
+try {
+    webPushService = createWebPushService({
+        database: db,
+        config: webPushConfigFromEnv(),
+    });
+    eventBus.setNotificationPublisher(
+        webPushService.getPublicConfig().enabled ? webPushService : null
+    );
+} catch (error) {
+    console.error(`❌ FATAL: Browser notification setup failed: ${error.message}`);
+    process.exit(1);
+}
+
 // Every external fetch gets a bounded timeout unless the caller supplied a stricter signal.
 installGlobalFetchTimeout();
 
@@ -196,6 +213,8 @@ smsGatewayService = new SmsGatewayService({
         presentMessage: (message, options) => smsGatewayService.presentMessage(message, options),
         broadcast: (channel, event, data) => eventBus.broadcast(channel, event, data),
         emitConversationUpdate: tenantId => eventBus.emitConversationUpdate(tenantId),
+        emitBrowserMessage: payload => eventBus.emitBrowserMessage(payload),
+        emitBrowserAlert: payload => eventBus.emitBrowserAlert(payload),
         callbackSender: sendApiCallback,
     }),
 });
@@ -350,6 +369,50 @@ if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').to
         });
     }, smsHistoryInterval);
     smsHistoryTimer.unref();
+}
+
+if (
+    webPushService.getPublicConfig().enabled
+    && !['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())
+) {
+    let pushDispatchRunning = false;
+    const dispatchBrowserNotifications = async () => {
+        if (pushDispatchRunning) return;
+        pushDispatchRunning = true;
+        try {
+            await webPushService.dispatchDue({ limit: 100 });
+        } catch (error) {
+            console.error('[BrowserNotifications] Outbox dispatch failed:', error.message);
+        } finally {
+            pushDispatchRunning = false;
+        }
+    };
+
+    const initialPushDispatchTimer = setTimeout(dispatchBrowserNotifications, 1_000);
+    initialPushDispatchTimer.unref();
+    const pushDispatchTimer = setInterval(dispatchBrowserNotifications, 10_000);
+    pushDispatchTimer.unref();
+
+    let operationalAlertSyncRunning = false;
+    const synchronizeOperationalAlerts = async () => {
+        if (operationalAlertSyncRunning) return;
+        operationalAlertSyncRunning = true;
+        try {
+            await webPushService.syncOperationalAlerts(
+                getOperationalSignals(db, getMetricsSnapshot())
+            );
+            await dispatchBrowserNotifications();
+        } catch (error) {
+            console.error('[BrowserNotifications] Operational alert sync failed:', error.message);
+        } finally {
+            operationalAlertSyncRunning = false;
+        }
+    };
+
+    const initialOperationalAlertTimer = setTimeout(synchronizeOperationalAlerts, 10_000);
+    initialOperationalAlertTimer.unref();
+    const operationalAlertTimer = setInterval(synchronizeOperationalAlerts, 60_000);
+    operationalAlertTimer.unref();
 }
 
 // Bootstrap is explicit and completes before the listener starts. Credentials
@@ -643,6 +706,11 @@ app.use('/auth/login', authLimiter);
 app.use('/auth/register', authLimiter);
 app.use('/auth/register-tenant', authLimiter);
 app.use('/auth', authRouter);
+app.use(
+    '/notifications',
+    authMiddleware,
+    createBrowserNotificationsRouter({ service: webPushService }),
+);
 
 // SSE endpoints (use one-time token auth, not session auth)
 // These must be mounted BEFORE the authMiddleware-protected routes

@@ -31,6 +31,9 @@ test('auth lifecycle and role policies use isolated persistent state', () => {
         assert.deepEqual(JSON.parse(lastLine), {
             logoutRevocation: true,
             passwordRotation: true,
+            sameSecondGenerationRevocation: true,
+            resetRevokesDerivedCredentials: true,
+            reactivationKeepsOldSessionsRevoked: true,
             httpOnlySession: true,
             legacySessionUpgrade: true,
             oneTimeSseToken: true,

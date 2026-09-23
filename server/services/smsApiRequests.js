@@ -227,6 +227,16 @@ export const smsCallbackDedupeKey = (event, message) => [
     message.status,
 ].join(':');
 
+// Gateway message identifiers are unique only inside one SMS account. Include
+// the account in browser-notification sources so two accounts owned by the
+// same tenant can never collapse each other's outbox event.
+export const smsBrowserNotificationSource = (message, accountId = null) => [
+    'sms-account',
+    message?.sms_account_id ?? accountId,
+    'message',
+    message?.gateway_message_id || message?.id,
+].join(':');
+
 export const reconcileSmsMessageBilling = ({
     database,
     billing,
@@ -281,6 +291,8 @@ export const createSmsHistoryMessageHandler = ({
     presentMessage,
     broadcast,
     emitConversationUpdate,
+    emitBrowserMessage = () => undefined,
+    emitBrowserAlert = () => undefined,
     callbackSender,
     callbackDedupeKey = smsCallbackDedupeKey,
 }) => async ({ account, message, phase, changed }) => {
@@ -305,6 +317,26 @@ export const createSmsHistoryMessageHandler = ({
         if (message.direction === 'incoming') {
             emitConversationUpdate(message.tenant_id);
         }
+    }
+
+    // The push outbox uses a stable source-based dedupe key. Re-enqueue on an
+    // unchanged incremental replay to repair a crash between SMS storage and
+    // the original projection without repeating SSE or conversation updates.
+    if (message.direction === 'incoming') {
+        emitBrowserMessage({
+            tenantId: message.tenant_id,
+            channel: 'sms',
+            sourceId: smsBrowserNotificationSource(message, account?.id),
+        });
+    } else if (['failed', 'rejected', 'canceled', 'cancelled'].includes(
+        String(message.status || '').toLowerCase()
+    )) {
+        emitBrowserAlert({
+            tenantId: message.tenant_id,
+            code: 'SMS_MESSAGE_FAILED',
+            sourceId: smsBrowserNotificationSource(message, account?.id),
+            severity: 'warning',
+        });
     }
 
     // Storage is committed before this handler runs. Re-enqueue even when a

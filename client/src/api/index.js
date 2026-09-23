@@ -4,6 +4,7 @@ import { portalCoreMethods } from './portalCore';
 import { tenantFacebookMethods } from './tenantFacebook';
 import { tenantMetaMethods } from './tenantMeta';
 import { savanaIntegrationMethods } from './savanaIntegrations';
+import { notificationMethods } from './notifications';
 
 // Keep browser traffic same-origin by default. In development Vite proxies
 // /api/* to Express; in production Nginx does the same. VITE_API_URL remains
@@ -157,6 +158,7 @@ class ApiService {
     async logout() {
         return this.request('/api/auth/logout', {
             method: 'POST',
+            keepalive: true,
         });
     }
 
@@ -317,6 +319,7 @@ Object.assign(
     tenantFacebookMethods,
     tenantMetaMethods,
     savanaIntegrationMethods,
+    notificationMethods,
 );
 
 const api = new ApiService();

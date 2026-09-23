@@ -1320,7 +1320,31 @@ export class SmsGatewayService {
             const duplicate = this.db.prepare(`
                 SELECT delivery_id FROM sms_webhook_deliveries WHERE delivery_id = ?
             `).get(deliveryId);
-            if (duplicate) return { duplicate: true, message: null };
+            if (duplicate) {
+                const gatewayMessageId = String(envelope.data?.message_id || '').trim();
+                const message = envelope.event === 'ussd.response.v1' || !gatewayMessageId
+                    ? null
+                    : this.db.prepare(`
+                        SELECT message.*, account.name AS sms_account_name
+                        FROM sms_messages message
+                        LEFT JOIN sms_gateway_accounts account
+                          ON account.id = message.sms_account_id
+                        WHERE message.sms_account_id = ?
+                          AND message.gateway_message_id = ?
+                    `).get(account.id, gatewayMessageId) || null;
+                // Storage committed before the first response. Returning the
+                // stored row lets idempotent downstream projections repair a
+                // crash that happened after commit but before enqueue.
+                return {
+                    duplicate: true,
+                    tenantId: account.tenant_id,
+                    accountId: account.id,
+                    event: envelope.event,
+                    message,
+                    ussd: null,
+                    callbackHandled: true,
+                };
+            }
             this.db.prepare(`
                 INSERT INTO sms_webhook_deliveries (
                     delivery_id, tenant_id, sms_account_id, event_type

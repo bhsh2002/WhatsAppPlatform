@@ -20,9 +20,10 @@ COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
 
 RUN sed -i '/^user /d' /etc/nginx/nginx.conf \
     && rm -f /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh \
-    && mkdir -p /var/cache/nginx /var/run \
-    && touch /var/run/nginx.pid \
-    && chown -R nginx:nginx /var/cache/nginx /var/run /etc/nginx/conf.d
+    && mkdir -p /var/cache/nginx /run \
+    && touch /run/nginx.pid \
+    && chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d \
+    && chown nginx:nginx /run/nginx.pid
 
 USER nginx
 

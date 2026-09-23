@@ -17,8 +17,15 @@ const router = express.Router();
 
 // Helper: sign a JWT with a unique jti for revocation support
 function signToken(payload) {
+    const authVersion = payload.auth_version;
+    if (typeof authVersion !== 'number'
+        || !Number.isSafeInteger(authVersion) || authVersion < 0) {
+        throw new TypeError('A valid authentication version is required');
+    }
     const jti = crypto.randomUUID();
-    const token = jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    const token = jwt.sign({ ...payload, auth_version: authVersion, jti }, JWT_SECRET, {
+        expiresIn: JWT_EXPIRES_IN,
+    });
     return { token, jti };
 }
 
@@ -32,9 +39,15 @@ function revokeToken(jti, userId) {
 
 // Helper: revoke ALL tokens for a user
 function revokeAllUserTokens(userId) {
-    // Set tokens_revoked_at to current time
-    // All tokens issued before this time will be considered invalid
-    db.prepare("UPDATE users SET tokens_revoked_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime') WHERE id = ?")
+    // The timestamp remains useful for legacy audit/revocation behavior, while
+    // auth_version makes invalidation deterministic within the same second.
+    db.prepare(`
+        UPDATE users
+        SET auth_version = auth_version + 1,
+            tokens_revoked_at = datetime('now', 'localtime'),
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+    `)
         .run(userId);
 }
 
@@ -84,11 +97,19 @@ router.post('/register', authMiddleware, adminMiddleware, async (req, res) => {
         const result = stmt.run(username, email || null, password_hash, name || username);
 
         // Get created user (without password)
-        const user = db.prepare('SELECT id, username, email, name, role, created_at FROM users WHERE id = ?')
+        const user = db.prepare(`
+            SELECT id, username, email, name, role, auth_version, created_at
+            FROM users WHERE id = ?
+        `)
             .get(result.lastInsertRowid);
 
         // Generate token with jti for revocation support
-        const { token } = signToken({ id: user.id, username: user.username, role: user.role });
+        const { token } = signToken({
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            auth_version: user.auth_version,
+        });
         setSessionCookie(res, token);
 
         res.status(201).json({
@@ -135,7 +156,8 @@ router.post('/login', async (req, res) => {
         const tokenPayload = {
             id: user.id,
             username: user.username,
-            role: user.role
+            role: user.role,
+            auth_version: user.auth_version,
         };
 
         if (user.tenant_id) {
@@ -226,6 +248,7 @@ router.post('/session', authMiddleware, (req, res) => {
         id: req.user.id,
         username: req.user.username,
         role: req.user.role,
+        auth_version: req.user.auth_version,
         ...(req.user.tenant_id ? { tenant_id: req.user.tenant_id } : {}),
     });
     setSessionCookie(res, token);
@@ -255,8 +278,18 @@ router.post('/change-password', authMiddleware, async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(newPassword, salt);
 
-        db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
-            .run(password_hash, req.user.id);
+        const rotated = db.prepare(`
+            UPDATE users
+            SET password_hash = ?,
+                auth_version = auth_version + 1,
+                tokens_revoked_at = datetime('now', 'localtime'),
+                updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+            RETURNING auth_version
+        `).get(password_hash, req.user.id);
+        if (!rotated) {
+            return res.status(401).json({ error: 'المستخدم غير موجود' });
+        }
 
         // Revoke the current token (user must re-login)
         if (req.user.jti) {
@@ -269,6 +302,7 @@ router.post('/change-password', authMiddleware, async (req, res) => {
             username: req.user.username,
             role: req.user.role,
             tenant_id: req.user.tenant_id,
+            auth_version: rotated.auth_version,
         });
         setSessionCookie(res, newToken);
 
@@ -357,7 +391,12 @@ router.post('/register-tenant', async (req, res) => {
 // This avoids exposing the full JWT in URLs.
 
 router.post('/media-token', authMiddleware, (req, res) => {
-    const mediaToken = generateMediaToken(req.user.id, req.user.tenant_id || null, req.user.role || null);
+    const mediaToken = generateMediaToken(
+        req.user.id,
+        req.user.tenant_id || null,
+        req.user.role || null,
+        req.user.auth_version,
+    );
     res.json({ media_token: mediaToken, expires_in: 300 });
 });
 
@@ -392,6 +431,7 @@ router.post('/sse-token', authMiddleware, (req, res) => {
         username: req.user.username,
         role: req.user.role,
         tenantId: req.user.tenant_id,
+        authVersion: req.user.auth_version,
         expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
     });
     
@@ -420,15 +460,30 @@ export function sseAuth(req, res, next) {
             return res.status(401).json({ error: 'SSE token expired' });
         }
         
+        const currentUser = db.prepare(`
+            SELECT id, username, role, tenant_id, is_active, auth_version
+            FROM users WHERE id = ?
+        `).get(tokenData.userId);
+        const currentVersion = currentUser?.auth_version;
+        const tokenVersion = tokenData.authVersion ?? 0;
+        if (!currentUser?.is_active || typeof currentVersion !== 'number'
+            || !Number.isSafeInteger(currentVersion)
+            || typeof tokenVersion !== 'number' || !Number.isSafeInteger(tokenVersion)
+            || currentVersion !== tokenVersion) {
+            sseTokens.delete(token);
+            return res.status(401).json({ error: 'SSE token expired' });
+        }
+
         // Token is valid - consume it (one-time use)
         sseTokens.delete(token);
         
         // Attach user info to request
         req.user = {
             id: tokenData.userId,
-            username: tokenData.username,
-            role: tokenData.role,
-            tenant_id: tokenData.tenantId,
+            username: currentUser.username,
+            role: currentUser.role,
+            tenant_id: currentUser.tenant_id,
+            auth_version: currentVersion,
         };
         
         return next();

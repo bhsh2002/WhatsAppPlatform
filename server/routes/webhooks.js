@@ -19,6 +19,7 @@ import {
 import { safeOutboundFetch } from '../security/outboundUrl.js';
 import { readMetaResponse } from '../services/metaHttp.js';
 import { hasWhatsAppNumbersTable } from '../services/whatsappNumbers.js';
+import { metaWebhookNotificationSource } from '../services/metaWebhookNotifications.js';
 
 const router = express.Router();
 
@@ -187,6 +188,318 @@ const sendStatusCallback = async (tenantId, data) => {
     }
 };
 
+const persistIncomingWhatsAppMessage = ({ entry, value, tenant, phoneNumberId, message }) => {
+    const mediaInfo = extractMediaInfo(message);
+    const referralInfo = extractReferralInfo(message);
+    const tenantId = tenant?.id || null;
+    const content = extractMessageContent(message);
+    const notificationSource = String(message.id || '').trim()
+        || metaWebhookNotificationSource({
+            kind: 'whatsapp-message',
+            wabaId: entry.id || null,
+            message,
+        });
+
+    return db.transaction(() => {
+        const existingMessage = message.id ? db.prepare(`
+            SELECT id FROM messages
+            WHERE wamid = ?
+              AND (tenant_id = ? OR (tenant_id IS NULL AND ? IS NULL))
+            LIMIT 1
+        `).get(message.id, tenantId, tenantId) : null;
+
+        if (existingMessage) {
+            if (tenantId) {
+                eventBus.persistBrowserMessage({
+                    tenantId,
+                    channel: 'whatsapp',
+                    sourceId: notificationSource,
+                });
+            }
+            return { inserted: false, content, referralInfo };
+        }
+
+        db.prepare(`
+            INSERT INTO messages (
+                tenant_id, direction, sender, recipient, message_type, content, status, wamid,
+                media_id, media_mime_type, referral_ctwa_clid, referral_source_id,
+                referral_source_type, referral_source_url
+            )
+            VALUES (?, 'incoming', ?, ?, ?, ?, 'received', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            tenantId,
+            message.from,
+            phoneNumberId,
+            message.type,
+            content,
+            message.id,
+            mediaInfo.id,
+            mediaInfo.mimeType,
+            referralInfo.ctwa_clid,
+            referralInfo.source_id,
+            referralInfo.source_type,
+            referralInfo.source_url
+        );
+
+        if (tenantId && phoneNumberId && message.from && hasWhatsAppNumbersTable(db)) {
+            db.prepare(`
+                INSERT INTO tenant_whatsapp_contact_windows (
+                    tenant_id, phone_number_id, contact_phone,
+                    last_customer_message_at, updated_at
+                ) VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+                ON CONFLICT(tenant_id, phone_number_id, contact_phone)
+                DO UPDATE SET
+                    last_customer_message_at = datetime('now', 'localtime'),
+                    updated_at = datetime('now', 'localtime')
+            `).run(tenantId, phoneNumberId, message.from);
+        }
+
+        if (tenantId && message.from && referralInfo.ctwa_clid) {
+            db.prepare(`
+                INSERT INTO contacts (
+                    tenant_id, phone, profile_name, last_customer_message_at, updated_at,
+                    last_ctwa_clid, last_ctwa_source_id, last_ctwa_source_type,
+                    last_ctwa_source_url, last_ctwa_received_at
+                )
+                VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), ?, ?, ?, ?, datetime('now', 'localtime'))
+                ON CONFLICT(tenant_id, phone) DO UPDATE SET
+                    profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
+                    last_customer_message_at = datetime('now', 'localtime'),
+                    updated_at = datetime('now', 'localtime'),
+                    last_ctwa_clid = excluded.last_ctwa_clid,
+                    last_ctwa_source_id = excluded.last_ctwa_source_id,
+                    last_ctwa_source_type = excluded.last_ctwa_source_type,
+                    last_ctwa_source_url = excluded.last_ctwa_source_url,
+                    last_ctwa_received_at = datetime('now', 'localtime')
+            `).run(
+                tenantId,
+                message.from,
+                value.contacts?.[0]?.profile?.name || null,
+                referralInfo.ctwa_clid,
+                referralInfo.source_id,
+                referralInfo.source_type,
+                referralInfo.source_url
+            );
+        }
+
+        if (tenant) {
+            db.prepare(`
+                INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+                VALUES (?, ?, 'message_received', ?, 'success')
+            `).run(tenant.id, tenant.name, `رسالة واردة من ${message.from}`);
+
+            eventBus.persistBrowserMessage({
+                tenantId: tenant.id,
+                channel: 'whatsapp',
+                sourceId: notificationSource,
+            });
+        }
+
+        return { inserted: true, content, referralInfo };
+    }).immediate();
+};
+
+const refreshMessengerProfile = ({
+    conversationId,
+    tenantId,
+    senderId,
+    pageToken,
+    context = 'message',
+}) => {
+    if (!conversationId || !senderId || !pageToken) return;
+
+    void fetch(
+        `${META_API_BASE}/${encodeURIComponent(senderId)}?fields=name,profile_pic&access_token=${encodeURIComponent(pageToken)}`
+    )
+        .then(readMetaResponse)
+        .then(result => {
+            if (!result.ok) return;
+            const userName = result.data?.name || null;
+            const userPic = result.data?.profile_pic || null;
+            if (!userName && !userPic) return;
+            db.prepare(`
+                UPDATE fb_conversations
+                SET user_name = COALESCE(?, user_name),
+                    user_profile_pic = COALESCE(?, user_profile_pic),
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ? AND tenant_id = ? AND user_psid = ?
+            `).run(userName, userPic, conversationId, tenantId, senderId);
+        })
+        .catch(error => {
+            console.warn(`[Webhook/FB] Failed to fetch user profile for ${context}:`, error.message);
+        });
+};
+
+const persistMessengerPostback = ({
+    linkedPage,
+    pageId,
+    senderId,
+    postback,
+    timestamp,
+    title,
+    createdAt,
+}) => {
+    const notificationSource = metaWebhookNotificationSource({
+        kind: 'messenger-postback',
+        pageId,
+        senderId,
+        timestamp: timestamp || null,
+        postback,
+    });
+    const messageMid = `fb_postback_${notificationSource.slice('meta:'.length)}`;
+
+    return db.transaction(() => {
+        const existing = db.prepare('SELECT id FROM fb_messages WHERE mid = ? LIMIT 1')
+            .get(messageMid);
+        if (existing) {
+            eventBus.persistBrowserMessage({
+                tenantId: linkedPage.tenant_id,
+                channel: 'messenger',
+                sourceId: notificationSource,
+            });
+            return { inserted: false, conversation: null, conversationWasCreated: false };
+        }
+
+        let conversation = db.prepare(`
+            SELECT * FROM fb_conversations
+            WHERE linked_page_id = ? AND user_psid = ?
+        `).get(linkedPage.id, senderId);
+        const conversationWasCreated = !conversation;
+
+        if (!conversation) {
+            db.prepare(`
+                INSERT INTO fb_conversations (
+                    tenant_id, linked_page_id, page_id, user_psid,
+                    user_name, user_profile_pic, last_message,
+                    last_message_time, unread_count
+                ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 1)
+            `).run(
+                linkedPage.tenant_id,
+                linkedPage.id,
+                pageId,
+                senderId,
+                title.substring(0, 100),
+                createdAt,
+            );
+            conversation = db.prepare(`
+                SELECT * FROM fb_conversations
+                WHERE linked_page_id = ? AND user_psid = ?
+            `).get(linkedPage.id, senderId);
+        } else {
+            db.prepare(`
+                UPDATE fb_conversations
+                SET last_message = ?, last_message_time = ?,
+                    unread_count = unread_count + 1,
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ?
+            `).run(title.substring(0, 100), createdAt, conversation.id);
+        }
+
+        if (!conversation) throw new Error('Messenger conversation could not be stored');
+        const stored = insertMessengerMessage(db, {
+            conversationId: conversation.id,
+            tenantId: linkedPage.tenant_id,
+            mid: messageMid,
+            direction: 'incoming',
+            senderId,
+            senderName: conversation.user_name,
+            messageText: title,
+            createdAt,
+        });
+        if (!stored.inserted) {
+            throw new Error('Messenger postback deduplication changed during projection');
+        }
+
+        eventBus.persistBrowserMessage({
+            tenantId: linkedPage.tenant_id,
+            channel: 'messenger',
+            sourceId: notificationSource,
+        });
+
+        return { inserted: true, conversation, conversationWasCreated };
+    }).immediate();
+};
+
+// Page-feed automations and customer callbacks keep their historical
+// best-effort semantics. They start only after every durable message projection
+// in the envelope, and their rejected promises are isolated from Meta's ACK.
+const processPageFeedJob = async ({ pageId, linkedPage, change }) => {
+    const value = change.value || {};
+    const item = value.item;
+    const verb = value.verb;
+    const eventType = `fb_${item}_${verb}`;
+
+    console.log(`[Webhook/FB] Page ${pageId} | ${item} ${verb}`);
+    const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?')
+        .get(linkedPage.tenant_id);
+    const fbEventData = {
+        tenant_id: linkedPage.tenant_id,
+        page_id: pageId,
+        item,
+        verb,
+        post_id: value.post_id,
+        comment_id: value.comment_id,
+        from: value.from,
+        message: value.message,
+        created_time: value.created_time,
+    };
+
+    eventBus.broadcast('admin', 'fb_page_event', fbEventData);
+    eventBus.broadcast(`tenant:${linkedPage.tenant_id}`, 'fb_page_event', fbEventData);
+
+    const work = [];
+    if (item === 'comment' && verb === 'add') {
+        db.prepare(`
+            INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
+            VALUES (?, ?, 'fb_new_comment', ?, 'info')
+        `).run(
+            linkedPage.tenant_id,
+            tenant?.name || 'Unknown',
+            `تعليق جديد على صفحة ${linkedPage.page_name || pageId}: "${(value.message || '').substring(0, 50)}"`
+        );
+
+        if (!value.comment_id) {
+            console.warn(`[Webhook/FB] Skipping comment automation for page ${pageId}: missing comment_id`);
+        } else if (value.from?.id === pageId) {
+            console.log(`[Webhook/FB] Skipping comment automation for page ${pageId}: comment is from the page itself`);
+        } else {
+            const fallbackCommenterId = `comment:${value.comment_id}`;
+            const commenterId = value.from?.id || fallbackCommenterId;
+            if (!value.from?.id) {
+                console.warn(`[Webhook/FB] Comment ${value.comment_id} has no from.id; using fallback cooldown key ${fallbackCommenterId}`);
+            }
+            work.push(processIncomingComment({
+                tenant_id: linkedPage.tenant_id,
+                page_id: pageId,
+                linked_page_id: linkedPage.id,
+                post_id: value.post_id,
+                comment_id: value.comment_id,
+                commenter_id: commenterId,
+                commenter_name: value.from?.name || null,
+                comment_text: value.message || '',
+            }).then(result => {
+                console.log(`[AutoResponder] Comment ${value.comment_id} result: ${result.reason || (result.replied ? 'sent' : 'not_sent')}`);
+            }));
+        }
+    }
+
+    if ((item === 'reaction' || item === 'like') && verb === 'add'
+        && value.from?.id && value.from.id !== pageId) {
+        work.push(processIncomingReaction({
+            tenant_id: linkedPage.tenant_id,
+            page_id: pageId,
+            linked_page_id: linkedPage.id,
+            post_id: value.post_id,
+            reactor_id: value.from.id,
+            reactor_name: value.from.name,
+            reaction_type: value.reaction_type || 'like',
+        }));
+    }
+
+    work.push(forwardToTenantWebhook(linkedPage.tenant_id, eventType, value));
+    await Promise.all(work);
+};
+
 // Webhook verification (GET request from Meta)
 router.get('/', (req, res) => {
     const mode = req.query['hub.mode'];
@@ -252,16 +565,17 @@ router.post('/', async (req, res) => {
         }
     }
 
-    // Always respond 200 OK quickly to Meta
-    res.sendStatus(200);
-
+    let webhookLogId;
+    const pageFeedJobs = [];
     try {
-        // Log the raw webhook (tenant_id will be updated after resolution)
+        // Meta is acknowledged only after the application projection and its
+        // browser-notification outbox rows are durable. A failure returns 500
+        // so Meta retries the original signed delivery.
         const logResult = db.prepare(`
-      INSERT INTO webhook_logs (event_type, payload)
-      VALUES (?, ?)
-    `).run(body.object || 'unknown', JSON.stringify(body));
-        const webhookLogId = logResult.lastInsertRowid;
+            INSERT INTO webhook_logs (event_type, payload)
+            VALUES (?, ?)
+        `).run(body.object || 'unknown', JSON.stringify(body));
+        webhookLogId = logResult.lastInsertRowid;
 
         // Process WhatsApp Business Account Events
         if (body.object === 'whatsapp_business_account') {
@@ -287,17 +601,24 @@ router.post('/', async (req, res) => {
                               AND tenant_whatsapp_numbers.is_active = 1
                             LIMIT 1
                         `).get(phoneNumberId) : db.prepare(`
+                            WITH owner AS (
+                                SELECT MIN(tenant_id) AS tenant_id
+                                FROM tenant_whatsapp_numbers
+                                WHERE waba_id = ? AND is_active = 1
+                                HAVING COUNT(DISTINCT tenant_id) = 1
+                            )
                             SELECT tenants.*,
-                                   tenant_whatsapp_numbers.id AS whatsapp_number_record_id,
-                                   tenant_whatsapp_numbers.waba_id AS webhook_waba_id
-                            FROM tenant_whatsapp_numbers
-                            JOIN tenants ON tenants.id = tenant_whatsapp_numbers.tenant_id
-                            WHERE tenant_whatsapp_numbers.waba_id = ?
-                              AND tenant_whatsapp_numbers.is_active = 1
-                            ORDER BY tenant_whatsapp_numbers.is_default DESC,
-                                     tenant_whatsapp_numbers.id ASC
+                                   number.id AS whatsapp_number_record_id,
+                                   number.waba_id AS webhook_waba_id
+                            FROM owner
+                            JOIN tenant_whatsapp_numbers AS number
+                              ON number.tenant_id = owner.tenant_id
+                             AND number.waba_id = ?
+                             AND number.is_active = 1
+                            JOIN tenants ON tenants.id = number.tenant_id
+                            ORDER BY number.is_default DESC, number.id ASC
                             LIMIT 1
-                        `).get(String(entry.id || '')))
+                        `).get(String(entry.id || ''), String(entry.id || '')))
                         : db.prepare('SELECT * FROM tenants WHERE phone_number_id = ?').get(phoneNumberId);
 
                     // Associate webhook log with resolved tenant
@@ -329,100 +650,22 @@ router.post('/', async (req, res) => {
                     // Handle incoming messages
                     if (value.messages) {
                         value.messages.forEach(message => {
-                            // Extract media info if present
-                            const mediaInfo = extractMediaInfo(message);
-                            const referralInfo = extractReferralInfo(message);
+                            const persisted = persistIncomingWhatsAppMessage({
+                                entry,
+                                value,
+                                tenant,
+                                phoneNumberId,
+                                message,
+                            });
 
-                            const messageData = {
-                                tenant_id: tenant?.id || null,
-                                direction: 'incoming',
-                                sender: message.from,
-                                recipient: phoneNumberId,
-                                message_type: message.type,
-                                content: extractMessageContent(message),
-                                status: 'received',
-                                wamid: message.id,
-                                media_id: mediaInfo.id,
-                                media_mime_type: mediaInfo.mimeType,
-                                referral_ctwa_clid: referralInfo.ctwa_clid,
-                                referral_source_id: referralInfo.source_id,
-                                referral_source_type: referralInfo.source_type,
-                                referral_source_url: referralInfo.source_url,
-                            };
+                            // Meta may retry after a later event in the same
+                            // envelope failed. The transaction above repairs a
+                            // missing outbox intent, while downstream effects
+                            // remain exactly-once for a stored message.
+                            if (!persisted.inserted) return;
 
-                            db.prepare(`
-                INSERT INTO messages (
-                    tenant_id, direction, sender, recipient, message_type, content, status, wamid,
-                    media_id, media_mime_type, referral_ctwa_clid, referral_source_id,
-                    referral_source_type, referral_source_url
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).run(
-                                messageData.tenant_id,
-                                messageData.direction,
-                                messageData.sender,
-                                messageData.recipient,
-                                messageData.message_type,
-                                messageData.content,
-                                messageData.status,
-                                messageData.wamid,
-                                messageData.media_id,
-                                messageData.media_mime_type,
-                                messageData.referral_ctwa_clid,
-                                messageData.referral_source_id,
-                                messageData.referral_source_type,
-                                messageData.referral_source_url
-                            );
-
-                            if (tenant?.id && phoneNumberId && message.from
-                                && hasWhatsAppNumbersTable(db)) {
-                                db.prepare(`
-                                    INSERT INTO tenant_whatsapp_contact_windows (
-                                        tenant_id, phone_number_id, contact_phone,
-                                        last_customer_message_at, updated_at
-                                    ) VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
-                                    ON CONFLICT(tenant_id, phone_number_id, contact_phone)
-                                    DO UPDATE SET
-                                        last_customer_message_at = datetime('now', 'localtime'),
-                                        updated_at = datetime('now', 'localtime')
-                                `).run(tenant.id, phoneNumberId, message.from);
-                            }
-
-                            if (tenant?.id && message.from && referralInfo.ctwa_clid) {
-                                db.prepare(`
-                                    INSERT INTO contacts (
-                                        tenant_id, phone, profile_name, last_customer_message_at, updated_at,
-                                        last_ctwa_clid, last_ctwa_source_id, last_ctwa_source_type,
-                                        last_ctwa_source_url, last_ctwa_received_at
-                                    )
-                                    VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), ?, ?, ?, ?, datetime('now', 'localtime'))
-                                    ON CONFLICT(tenant_id, phone) DO UPDATE SET
-                                        profile_name = COALESCE(excluded.profile_name, contacts.profile_name),
-                                        last_customer_message_at = datetime('now', 'localtime'),
-                                        updated_at = datetime('now', 'localtime'),
-                                        last_ctwa_clid = excluded.last_ctwa_clid,
-                                        last_ctwa_source_id = excluded.last_ctwa_source_id,
-                                        last_ctwa_source_type = excluded.last_ctwa_source_type,
-                                        last_ctwa_source_url = excluded.last_ctwa_source_url,
-                                        last_ctwa_received_at = datetime('now', 'localtime')
-                                `).run(
-                                    tenant.id,
-                                    message.from,
-                                    value.contacts?.[0]?.profile?.name || null,
-                                    referralInfo.ctwa_clid,
-                                    referralInfo.source_id,
-                                    referralInfo.source_type,
-                                    referralInfo.source_url
-                                );
+                            if (persisted.referralInfo.ctwa_clid) {
                                 console.log('[Webhook] Stored WhatsApp CTWA attribution for contact:', message.from);
-                            }
-
-// Log activity
-                            if (tenant) {
-                                db.prepare(`
-                   INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                   VALUES (?, ?, 'message_received', ?, 'success')
-                 `).run(tenant.id, tenant.name, `رسالة واردة من ${message.from}`);
                             }
 
                             // Forward to tenant's webhook URL
@@ -432,9 +675,11 @@ router.post('/', async (req, res) => {
                                     phone_number_id: phoneNumberId,
                                     message_id: message.id,
                                     type: message.type,
-                                    content: extractMessageContent(message),
+                                    content: persisted.content,
                                     profile_name: value.contacts?.[0]?.profile?.name || null,
-                                    referral: referralInfo.ctwa_clid ? referralInfo : undefined,
+                                    referral: persisted.referralInfo.ctwa_clid
+                                        ? persisted.referralInfo
+                                        : undefined,
                                     timestamp: new Date().toISOString()
                                 });
                             }
@@ -448,7 +693,7 @@ router.post('/', async (req, res) => {
                                 sender: message.from,
                                 recipient: phoneNumberId,
                                 message_type: message.type,
-                                content: extractMessageContent(message),
+                                content: persisted.content,
                                 wamid: message.id,
                                 profile_name: value.contacts?.[0]?.profile?.name || null,
                                 created_at: new Date().toISOString(),
@@ -465,7 +710,7 @@ router.post('/', async (req, res) => {
                                 channel: 'whatsapp',
                                 tenant_id: tenant?.id || null,
                                 contact_id: message.from,
-                                message_text: extractMessageContent(message),
+                                message_text: persisted.content,
                                 message_type: message.type,
                                 is_new_contact: isFirstMessage,
                                 phone_number_id: phoneNumberId,
@@ -474,15 +719,37 @@ router.post('/', async (req, res) => {
                         });
                     }
 
-// Handle message status updates
+                    // Handle message status updates
                     if (value.statuses) {
                         value.statuses.forEach(status => {
-                            db.prepare(`
-                UPDATE messages
-                SET status = ?
-                WHERE wamid = ?
-                  AND (? IS NULL OR tenant_id = ?)
-              `).run(status.status, status.id, tenant?.id || null, tenant?.id || null);
+                            db.transaction(() => {
+                                db.prepare(`
+                                    UPDATE messages
+                                    SET status = ?
+                                    WHERE wamid = ?
+                                      AND (? IS NULL OR tenant_id = ?)
+                                `).run(
+                                    status.status,
+                                    status.id,
+                                    tenant?.id || null,
+                                    tenant?.id || null
+                                );
+
+                                if (String(status.status || '').toLowerCase() === 'failed'
+                                    && tenant?.id) {
+                                    eventBus.persistBrowserAlert({
+                                        tenantId: tenant.id,
+                                        code: 'WHATSAPP_MESSAGE_FAILED',
+                                        sourceId: String(status.id || '').trim()
+                                            || metaWebhookNotificationSource({
+                                                kind: 'whatsapp-status',
+                                                wabaId: entry.id || null,
+                                                status,
+                                            }),
+                                        severity: 'warning',
+                                    });
+                                }
+                            }).immediate();
 
                             try {
                                 updateMetaChargeFromStatus({
@@ -558,6 +825,21 @@ router.post('/', async (req, res) => {
                             );
 
                             console.log('[Webhook] Quality update for tenant:', tenant.id, '->', newQuality);
+
+                            if (newQuality === 'Low' || newQuality === 'Medium') {
+                                eventBus.persistBrowserAlert({
+                                    tenantId: tenant.id,
+                                    code: 'WHATSAPP_QUALITY_DEGRADED',
+                                    sourceId: metaWebhookNotificationSource({
+                                        kind: 'whatsapp-quality',
+                                        wabaId: entry.id,
+                                        phoneNumberId: phoneNumberId || null,
+                                        rating: String(update.phone_number_quality_rating || '').toUpperCase(),
+                                        eventTime: entry.time || null,
+                                    }),
+                                    severity: newQuality === 'Low' ? 'critical' : 'warning',
+                                });
+                            }
                         }
                     }
 
@@ -573,6 +855,22 @@ router.post('/', async (req, res) => {
                             `).run((event || '').toLowerCase(), message_template_id, tenantId);
 
                             console.log('[Webhook] Template status update:', message_template_name, '->', event);
+
+                            if (['rejected', 'paused', 'disabled'].includes(String(event || '').toLowerCase())) {
+                                eventBus.persistBrowserAlert({
+                                    tenantId,
+                                    code: 'WHATSAPP_TEMPLATE_REQUIRES_ATTENTION',
+                                    sourceId: metaWebhookNotificationSource({
+                                        kind: 'template-status',
+                                        templateId: message_template_id,
+                                        event: String(event || '').toLowerCase(),
+                                        eventTime: entry.time || null,
+                                    }),
+                                    severity: String(event || '').toLowerCase() === 'disabled'
+                                        ? 'critical'
+                                        : 'warning',
+                                });
+                            }
                         }
                     }
 
@@ -587,7 +885,39 @@ router.post('/', async (req, res) => {
                             `).run(new_quality_score || 'UNKNOWN', message_template_id, tenant.id);
 
                             console.log('[Webhook] Template quality update:', message_template_id, '->', new_quality_score);
+
+                            if (['RED', 'YELLOW', 'LOW', 'MEDIUM'].includes(
+                                String(new_quality_score || '').toUpperCase()
+                            )) {
+                                eventBus.persistBrowserAlert({
+                                    tenantId: tenant.id,
+                                    code: 'WHATSAPP_TEMPLATE_QUALITY_DEGRADED',
+                                    sourceId: metaWebhookNotificationSource({
+                                        kind: 'template-quality',
+                                        templateId: message_template_id,
+                                        quality: String(new_quality_score || '').toUpperCase(),
+                                        eventTime: entry.time || null,
+                                    }),
+                                    severity: ['RED', 'LOW'].includes(
+                                        String(new_quality_score || '').toUpperCase()
+                                    ) ? 'critical' : 'warning',
+                                });
+                            }
                         }
+                    }
+
+                    if (change.field === 'account_alerts' && tenant) {
+                        eventBus.persistBrowserAlert({
+                            tenantId: tenant.id,
+                            code: 'META_ACCOUNT_ALERT',
+                            sourceId: metaWebhookNotificationSource({
+                                kind: 'account-alert',
+                                wabaId: entry.id,
+                                eventTime: entry.time || null,
+                                alert: value,
+                            }),
+                            severity: 'warning',
+                        });
                     }
                 });
             });
@@ -603,9 +933,22 @@ router.post('/', async (req, res) => {
                 const pageId = entry.id;
 
                 // Look up which tenant owns this page
-                const linkedPage = db.prepare(
-                    'SELECT * FROM tenant_pages WHERE page_id = ? AND is_active = 1'
-                ).get(pageId);
+                const linkedPage = db.prepare(`
+                    WITH owner AS (
+                        SELECT MIN(tenant_id) AS tenant_id
+                        FROM tenant_pages
+                        WHERE page_id = ? AND is_active = 1
+                        HAVING COUNT(DISTINCT tenant_id) = 1
+                    )
+                    SELECT page.*
+                    FROM owner
+                    JOIN tenant_pages AS page
+                      ON page.tenant_id = owner.tenant_id
+                     AND page.page_id = ?
+                     AND page.is_active = 1
+                    ORDER BY page.id ASC
+                    LIMIT 1
+                `).get(pageId, pageId);
 
                 if (!linkedPage) {
                     console.warn(`[Webhook] Received page event for unlinked page: ${pageId}`);
@@ -616,88 +959,11 @@ router.post('/', async (req, res) => {
                 db.prepare('UPDATE webhook_logs SET tenant_id = ? WHERE id = ?')
                     .run(linkedPage.tenant_id, webhookLogId);
 
-                // Handle feed changes (posts, comments)
-                if (entry.changes) {
-                    for (const change of entry.changes) {
-                        if (change.field === 'feed') {
-                            const value = change.value;
-                            const item = value.item;
-                            const verb = value.verb;
-
-                            console.log(`[Webhook/FB] Page ${pageId} | ${item} ${verb}`);
-
-                            const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?')
-                                .get(linkedPage.tenant_id);
-
-                            const fbEventData = {
-                                tenant_id: linkedPage.tenant_id,
-                                page_id: pageId,
-                                item,
-                                verb,
-                                post_id: value.post_id,
-                                comment_id: value.comment_id,
-                                from: value.from,
-                                message: value.message,
-                                created_time: value.created_time,
-                            };
-
-                            eventBus.broadcast('admin', 'fb_page_event', fbEventData);
-                            eventBus.broadcast(`tenant:${linkedPage.tenant_id}`, 'fb_page_event', fbEventData);
-
-                            if (item === 'comment' && verb === 'add') {
-                                db.prepare(`
-                                    INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                                    VALUES (?, ?, 'fb_new_comment', ?, 'info')
-                                `).run(
-                                    linkedPage.tenant_id,
-                                    tenant?.name || 'Unknown',
-                                    `تعليق جديد على صفحة ${linkedPage.page_name || pageId}: "${(value.message || '').substring(0, 50)}"`
-                                );
-
-                                // Comment auto-reply (fire-and-forget)
-                                if (!value.comment_id) {
-                                    console.warn(`[Webhook/FB] Skipping comment automation for page ${pageId}: missing comment_id`);
-                                } else if (value.from?.id === pageId) {
-                                    console.log(`[Webhook/FB] Skipping comment automation for page ${pageId}: comment is from the page itself`);
-                                } else {
-                                    const fallbackCommenterId = `comment:${value.comment_id}`;
-                                    const commenterId = value.from?.id || fallbackCommenterId;
-                                    if (!value.from?.id) {
-                                        console.warn(`[Webhook/FB] Comment ${value.comment_id} has no from.id; using fallback cooldown key ${fallbackCommenterId}`);
-                                    }
-
-                                    processIncomingComment({
-                                        tenant_id: linkedPage.tenant_id,
-                                        page_id: pageId,
-                                        linked_page_id: linkedPage.id,
-                                        post_id: value.post_id,
-                                        comment_id: value.comment_id,
-                                        commenter_id: commenterId,
-                                        commenter_name: value.from?.name || null,
-                                        comment_text: value.message || '',
-                                    }).then(result => {
-                                        console.log(`[AutoResponder] Comment ${value.comment_id} result: ${result.reason || (result.replied ? 'sent' : 'not_sent')}`);
-                                    }).catch(err => console.error('[AutoResponder] Comment error:', err.message));
-                                }
-                            }
-
-                            // Handle reactions/likes
-                            if ((item === 'reaction' || item === 'like') && verb === 'add') {
-                                if (value.from?.id && value.from.id !== pageId) {
-                                    processIncomingReaction({
-                                        tenant_id: linkedPage.tenant_id,
-                                        page_id: pageId,
-                                        linked_page_id: linkedPage.id,
-                                        post_id: value.post_id,
-                                        reactor_id: value.from.id,
-                                        reactor_name: value.from.name,
-                                        reaction_type: value.reaction_type || 'like',
-                                    }).catch(err => console.error('[AutoResponder] Reaction error:', err.message));
-                                }
-                            }
-
-                            forwardToTenantWebhook(linkedPage.tenant_id, `fb_${item}_${verb}`, value);
-                        }
+                // Feed automations are deliberately deferred until after the
+                // durable message projection is acknowledged to Meta.
+                for (const change of entry.changes || []) {
+                    if (change.field === 'feed') {
+                        pageFeedJobs.push({ pageId, linkedPage, change });
                     }
                 }
 
@@ -724,7 +990,18 @@ router.post('/', async (req, res) => {
 
                             // Deduplicate by mid
                             const existingMsg = mid ? db.prepare('SELECT id FROM fb_messages WHERE mid = ?').get(mid) : null;
-                            if (existingMsg) continue;
+                            if (existingMsg) {
+                                // Storage may have committed before the durable
+                                // Push outbox write. Rebuild the idempotent intent
+                                // when Meta retries instead of permanently losing
+                                // the browser notification.
+                                eventBus.persistBrowserMessage({
+                                    tenantId: linkedPage.tenant_id,
+                                    channel: 'messenger',
+                                    sourceId: mid,
+                                });
+                                continue;
+                            }
                             const messageCreatedAt = normalizeMessengerTimestamp(
                                 msgEvent.timestamp || new Date()
                             );
@@ -733,29 +1010,13 @@ router.post('/', async (req, res) => {
                             let conv = db.prepare(
                                 'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
                             ).get(linkedPage.id, senderId);
+                            const conversationWasCreated = !conv;
 
                             if (!conv) {
-                                // Fetch user profile from Meta API (best-effort)
-                                let userName = null, userPic = null;
-                                if (pageToken) {
-                                    try {
-                                        const profileRes = await fetch(
-                                            `${META_API_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
-                                        );
-                                        const profileResult = await readMetaResponse(profileRes);
-                                        if (profileResult.ok) {
-                                            userName = profileResult.data?.name || null;
-                                            userPic = profileResult.data?.profile_pic || null;
-                                        }
-                                    } catch (e) {
-                                        console.warn('[Webhook/FB] Failed to fetch user profile:', e.message);
-                                    }
-                                }
-
                                 db.prepare(`
                                     INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-                                `).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic,
+                                `).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, null, null,
                                     (messageText || '[مرفق]').substring(0, 100),
                                     messageCreatedAt);
 
@@ -817,6 +1078,26 @@ router.post('/', async (req, res) => {
                                 sender_name: conv?.user_name,
                                 message: messageText,
                             });
+                            eventBus.persistBrowserMessage({
+                                tenantId: linkedPage.tenant_id,
+                                channel: 'messenger',
+                                sourceId: mid || metaWebhookNotificationSource({
+                                    kind: 'messenger-message',
+                                    pageId,
+                                    senderId,
+                                    timestamp: msgEvent.timestamp || null,
+                                    message: msgEvent.message,
+                                }),
+                            });
+
+                            if (conversationWasCreated) {
+                                refreshMessengerProfile({
+                                    conversationId: conv?.id,
+                                    tenantId: linkedPage.tenant_id,
+                                    senderId,
+                                    pageToken,
+                                });
+                            }
 
                             // Log activity
                             const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(linkedPage.tenant_id);
@@ -845,30 +1126,32 @@ router.post('/', async (req, res) => {
                             ).get(conv.id) : null;
                             const fbIsFirstMessage = (fbMsgCount?.count || 0) <= 1;
 
-                            const botResult = await processMessengerBotEvent({
+                            processMessengerBotEvent({
                                 linkedPage,
                                 conversation: conv,
                                 senderId,
                                 messageText: messageText || '',
                                 quickReplyPayload,
                                 isFirstMessage: fbIsFirstMessage,
-                            });
-
-                            if (!botResult.handled) {
-                                processIncomingMessage({
-                                    channel: 'messenger',
-                                    tenant_id: linkedPage.tenant_id,
-                                    contact_id: senderId,
-                                    message_text: messageText || '',
-                                    message_type: attachments.length > 0 ? (attachments[0].type || 'attachment') : 'text',
-                                    is_new_contact: fbIsFirstMessage,
-                                    page_id: pageId,
-                                    page_access_token: pageToken,
-                                    linked_page_id: linkedPage.id,
-                                }).catch(err => console.error('[AutoResponder] Messenger error:', err.message));
-                            } else {
+                            }).then(botResult => {
+                                if (!botResult.handled) {
+                                    return processIncomingMessage({
+                                        channel: 'messenger',
+                                        tenant_id: linkedPage.tenant_id,
+                                        contact_id: senderId,
+                                        message_text: messageText || '',
+                                        message_type: attachments.length > 0
+                                            ? (attachments[0].type || 'attachment')
+                                            : 'text',
+                                        is_new_contact: fbIsFirstMessage,
+                                        page_id: pageId,
+                                        page_access_token: pageToken,
+                                        linked_page_id: linkedPage.id,
+                                    });
+                                }
                                 console.log(`[MessengerBot] Event handled for page ${pageId}: ${botResult.reason}`);
-                            }
+                                return null;
+                            }).catch(err => console.error('[AutoResponder] Messenger error:', err.message));
                         }
 
                         if (msgEvent.postback) {
@@ -878,57 +1161,18 @@ router.post('/', async (req, res) => {
                                 msgEvent.timestamp || new Date()
                             );
 
-                            let conv = db.prepare(
-                                'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
-                            ).get(linkedPage.id, senderId);
-
-                            if (!conv) {
-                                let userName = null, userPic = null;
-                                if (pageToken) {
-                                    try {
-                                        const profileRes = await fetch(
-                                            `${META_API_BASE}/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
-                                        );
-                                        const profileResult = await readMetaResponse(profileRes);
-                                        if (profileResult.ok) {
-                                            userName = profileResult.data?.name || null;
-                                            userPic = profileResult.data?.profile_pic || null;
-                                        }
-                                    } catch (e) {
-                                        console.warn('[Webhook/FB] Failed to fetch user profile for postback:', e.message);
-                                    }
-                                }
-
-                                db.prepare(`
-                                    INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, user_name, user_profile_pic, last_message, last_message_time, unread_count)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-                                `).run(linkedPage.tenant_id, linkedPage.id, pageId, senderId, userName, userPic, title.substring(0, 100), postbackCreatedAt);
-
-                                conv = db.prepare(
-                                    'SELECT * FROM fb_conversations WHERE linked_page_id = ? AND user_psid = ?'
-                                ).get(linkedPage.id, senderId);
-                            } else {
-                                db.prepare(`
-                                    UPDATE fb_conversations
-                                    SET last_message = ?, last_message_time = ?,
-                                        unread_count = unread_count + 1,
-                                        updated_at = datetime('now', 'localtime')
-                                    WHERE id = ?
-                                `).run(title.substring(0, 100), postbackCreatedAt, conv.id);
-                            }
-
-                            if (conv) {
-                                insertMessengerMessage(db, {
-                                    conversationId: conv.id,
-                                    tenantId: linkedPage.tenant_id,
-                                    mid: null,
-                                    direction: 'incoming',
-                                    senderId,
-                                    senderName: conv.user_name,
-                                    messageText: title,
-                                    createdAt: postbackCreatedAt,
-                                });
-                            }
+                            const persistedPostback = persistMessengerPostback({
+                                linkedPage,
+                                pageId,
+                                senderId,
+                                postback: msgEvent.postback,
+                                timestamp: msgEvent.timestamp,
+                                title,
+                                createdAt: postbackCreatedAt,
+                            });
+                            if (!persistedPostback.inserted) continue;
+                            const conv = persistedPostback.conversation;
+                            const conversationWasCreated = persistedPostback.conversationWasCreated;
 
                             eventBus.broadcast('admin', 'fb_message:new', {
                                 tenant_id: linkedPage.tenant_id,
@@ -948,31 +1192,40 @@ router.post('/', async (req, res) => {
                                 message: title,
                                 postback: payload,
                             });
+                            if (conversationWasCreated) {
+                                refreshMessengerProfile({
+                                    conversationId: conv?.id,
+                                    tenantId: linkedPage.tenant_id,
+                                    senderId,
+                                    pageToken,
+                                    context: 'postback',
+                                });
+                            }
 
-                            const botResult = await processMessengerBotEvent({
+                            processMessengerBotEvent({
                                 linkedPage,
                                 conversation: conv,
                                 senderId,
                                 postbackPayload: payload,
                                 messageText: title,
                                 isFirstMessage: false,
-                            });
-
-                            if (!botResult.handled) {
-                                processIncomingMessage({
-                                    channel: 'messenger',
-                                    tenant_id: linkedPage.tenant_id,
-                                    contact_id: senderId,
-                                    message_text: title,
-                                    message_type: 'postback',
-                                    is_new_contact: false,
-                                    page_id: pageId,
-                                    page_access_token: pageToken,
-                                    linked_page_id: linkedPage.id,
-                                }).catch(err => console.error('[AutoResponder] Messenger postback error:', err.message));
-                            } else {
+                            }).then(botResult => {
+                                if (!botResult.handled) {
+                                    return processIncomingMessage({
+                                        channel: 'messenger',
+                                        tenant_id: linkedPage.tenant_id,
+                                        contact_id: senderId,
+                                        message_text: title,
+                                        message_type: 'postback',
+                                        is_new_contact: false,
+                                        page_id: pageId,
+                                        page_access_token: pageToken,
+                                        linked_page_id: linkedPage.id,
+                                    });
+                                }
                                 console.log(`[MessengerBot] Postback handled for page ${pageId}: ${botResult.reason}`);
-                            }
+                                return null;
+                            }).catch(err => console.error('[AutoResponder] Messenger postback error:', err.message));
                         }
 
                         // Handle message read receipts from user
@@ -983,8 +1236,32 @@ router.post('/', async (req, res) => {
                 }
             }
         }
+        // Preserve the historical fire-and-forget behavior, but start each job
+        // only after durable message work. An async rejection is handled here
+        // and cannot turn the successful webhook acknowledgement into a 500.
+        if (pageFeedJobs.length > 0) {
+            for (const job of pageFeedJobs) {
+                void processPageFeedJob(job).catch(error => {
+                    const value = job.change?.value || {};
+                    const eventType = `fb_${value.item}_${value.verb}`;
+                    console.error('[Webhook/FB] Best-effort feed processing failed:', error.message);
+                    logWebhookFailure(
+                        job.linkedPage.tenant_id,
+                        eventType,
+                        value,
+                        error.message,
+                    );
+                });
+            }
+        }
+
+        db.prepare('UPDATE webhook_logs SET processed = 1 WHERE id = ?')
+            .run(webhookLogId);
+        res.sendStatus(200);
+        return undefined;
     } catch (error) {
-        console.error('[Webhook] Processing error:', error);
+        console.error('[Webhook] Durable processing failed:', error);
+        return res.sendStatus(500);
     }
 });
 

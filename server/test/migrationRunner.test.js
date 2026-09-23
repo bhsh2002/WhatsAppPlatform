@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '052_managed_sms_gateway.sql';
+    const latestMigration = '054_meta_page_ownership.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -207,6 +207,41 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.equal(tableExists(db, 'sms_gateway_provision_deliveries'), true);
     assert.equal(tableExists(db, 'sms_gateway_management_audit'), true);
     assert.equal(tableExists(db, 'tenant_api_callback_outbox'), true);
+    assert.equal(tableExists(db, 'web_push_subscriptions'), true);
+    assert.equal(tableExists(db, 'web_push_preferences'), true);
+    assert.equal(tableExists(db, 'web_push_events'), true);
+    assert.equal(tableExists(db, 'web_push_deliveries'), true);
+    assert.equal(tableExists(db, 'web_push_alert_states'), true);
+    assert.equal(
+        db.prepare(`
+            SELECT COUNT(*) count
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name = 'idx_tenant_pages_page_id_global'
+              AND sql LIKE 'CREATE UNIQUE INDEX%'
+        `).get().count,
+        1
+    );
+    db.prepare("INSERT INTO tenants (id, name) VALUES (42, 'Second tenant')").run();
+    assert.throws(
+        () => db.prepare(`
+            INSERT INTO tenant_pages (tenant_id, page_id, page_name)
+            VALUES (42, 'page-77', 'Conflicting page')
+        `).run(),
+        /UNIQUE constraint failed: tenant_pages\.page_id/
+    );
+    assert.equal(
+        db.pragma('table_info(users)')
+            .some(column => column.name === 'auth_version'
+                && column.dflt_value === '0' && column.notnull === 1),
+        true
+    );
+    assert.equal(
+        db.pragma('table_info(web_push_subscriptions)')
+            .some(column => column.name === 'session_auth_version'
+                && column.dflt_value === '0' && column.notnull === 1),
+        true
+    );
     assert.deepEqual(
         db.prepare(`
             SELECT tenant_id, phone_number_id, waba_id, dataset_id, access_token_encrypted,
