@@ -3,13 +3,19 @@ import jwt from 'jsonwebtoken';
 const MEDIA_TOKEN_TTL_SECONDS = 300;
 const MEDIA_TOKEN_AUDIENCE = 'media-download';
 
-export function createMediaToken({ userId, tenantId = null, role = null }, secret) {
+export function createMediaToken({
+    userId,
+    tenantId = null,
+    role = null,
+    authVersion = 0,
+}, secret) {
     if (!secret) throw new Error('JWT secret is required');
 
     return jwt.sign({
         sub: userId,
         tid: tenantId,
         role,
+        auth_version: authVersion,
         purpose: 'media',
     }, secret, {
         expiresIn: MEDIA_TOKEN_TTL_SECONDS,

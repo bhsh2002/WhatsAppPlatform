@@ -63,3 +63,36 @@ test('production environment rejects HTTP, foreign-origin and incorrect callback
         },
     );
 });
+
+test('production environment validates Web Push only when it is enabled', () => {
+    const disabled = validEnvironment();
+    disabled.WEB_PUSH_ENABLED = 'false';
+    assert.doesNotThrow(() => validateProductionEnv(disabled));
+
+    const enabled = validEnvironment();
+    enabled.WEB_PUSH_ENABLED = 'true';
+    enabled.WEB_PUSH_VAPID_PUBLIC_KEY = Buffer.alloc(65, 7).toString('base64url');
+    enabled.WEB_PUSH_VAPID_PRIVATE_KEY = Buffer.alloc(32, 8).toString('base64url');
+    enabled.WEB_PUSH_VAPID_SUBJECT = 'mailto:support@savana.ly';
+    enabled.WEB_PUSH_TIMEOUT_MS = '10000';
+    assert.doesNotThrow(() => validateProductionEnv(enabled));
+
+    enabled.WEB_PUSH_VAPID_PUBLIC_KEY = 'invalid';
+    enabled.WEB_PUSH_VAPID_SUBJECT = 'javascript:alert(1)';
+    assert.throws(
+        () => validateProductionEnv(enabled),
+        error => {
+            assert.match(error.message, /WEB_PUSH_VAPID_PUBLIC_KEY/);
+            assert.match(error.message, /WEB_PUSH_VAPID_SUBJECT/);
+            return true;
+        },
+    );
+
+    enabled.WEB_PUSH_VAPID_PUBLIC_KEY = Buffer.alloc(65, 7).toString('base64url');
+    enabled.WEB_PUSH_VAPID_SUBJECT = 'mailto:support@savana.ly';
+    enabled.WEB_PUSH_TIMEOUT_MS = '999';
+    assert.throws(
+        () => validateProductionEnv(enabled),
+        /WEB_PUSH_TIMEOUT_MS must be an integer from 1000 to 60000/,
+    );
+});

@@ -79,6 +79,41 @@ jobs:
         run: npm run build
         working-directory: client
 
+      - name: Verify PWA build artifacts
+        run: |
+          test -s dist/sw.js
+          test -s dist/manifest.webmanifest
+          node --input-type=module <<'NODE'
+          import { readFileSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+
+          const manifest = JSON.parse(readFileSync('dist/manifest.webmanifest', 'utf8'));
+          const requiredStrings = ['name', 'short_name', 'start_url', 'display'];
+          if (requiredStrings.some(field => typeof manifest[field] !== 'string' || !manifest[field].trim())) {
+            process.exit(1);
+          }
+          if (!Array.isArray(manifest.icons) || manifest.icons.length === 0) {
+            process.exit(1);
+          }
+          for (const icon of manifest.icons) {
+            if (typeof icon?.src !== 'string' || !icon.src.startsWith('/') || icon.src.includes('..')) {
+              process.exit(1);
+            }
+            const iconFile = statSync(join('dist', icon.src.slice(1)));
+            if (!iconFile.isFile() || iconFile.size === 0) {
+              process.exit(1);
+            }
+          }
+
+          const worker = readFileSync('dist/sw.js', 'utf8');
+          if (/<(?:!doctype\s+html|html)(?:\s|>)/i.test(worker)
+              || !worker.includes("addEventListener('push'")
+              || !worker.includes("addEventListener('notificationclick'")) {
+            process.exit(1);
+          }
+          NODE
+        working-directory: client
+
       - name: Audit client dependencies
         run: npm audit --audit-level=low
         working-directory: client
@@ -108,7 +143,11 @@ jobs:
           WA_UPLOADS_DIR: /tmp/wa-savana-ci-uploads
 
       - name: Check production scripts
-        run: bash -n tools/deploy_production.sh tools/backup_production.sh
+        run: >-
+          bash -n
+          tools/deploy_production.sh
+          tools/backup_production.sh
+          tools/preflight_migrations.sh
 
       - name: Build pinned server image
         run: docker build --tag whatsapp-platform-server:ci server

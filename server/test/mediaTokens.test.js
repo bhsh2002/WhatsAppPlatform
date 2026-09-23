@@ -14,12 +14,14 @@ test('media token carries a restricted audience and expected identity', () => {
         userId: 42,
         tenantId: 7,
         role: 'user',
+        authVersion: 4,
     }, secret);
 
     const decoded = verifyMediaToken(token, secret);
     assert.equal(decoded.sub, 42);
     assert.equal(decoded.tid, 7);
     assert.equal(decoded.role, 'user');
+    assert.equal(decoded.auth_version, 4);
     assert.equal(decoded.purpose, 'media');
     assert.equal(decoded.aud, 'media-download');
 });

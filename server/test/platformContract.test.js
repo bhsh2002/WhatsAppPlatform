@@ -220,6 +220,21 @@ test('Facebook comment DMs use the Page Send API and likes cannot mask reply fai
     assert.doesNotMatch(autoResponder, /return publicSent \|\| dmSent \|\| !!rule\.auto_like/);
 });
 
+test('Facebook feed best-effort work starts after durable messages without controlling the ACK', () => {
+    const webhooks = read('server/routes/webhooks.js');
+    const collect = webhooks.indexOf('pageFeedJobs.push({ pageId, linkedPage, change })');
+    const messaging = webhooks.indexOf('// Handle messaging (Messenger inbox)', collect);
+    const dispatch = webhooks.indexOf('void processPageFeedJob(job).catch', messaging);
+    const processed = webhooks.indexOf("UPDATE webhook_logs SET processed = 1", dispatch);
+    const acknowledgement = webhooks.indexOf('res.sendStatus(200)', processed);
+
+    assert.ok(collect >= 0 && messaging > collect);
+    assert.ok(dispatch > messaging && processed > dispatch && acknowledgement > processed);
+    assert.doesNotMatch(webhooks, /await processPageFeedJob\(job\)/);
+    assert.doesNotMatch(webhooks, /setImmediate\(\(\) =>[\s\S]*processPageFeedJob\(job\)/);
+    assert.doesNotMatch(webhooks, /claimMetaWebhookEvent|meta_webhook_event_claims/);
+});
+
 test('admin and tenant template pages share Meta payload and status behavior', () => {
     const adminPage = read('client/src/pages/Templates/AdminTemplates.jsx');
     const tenantPage = read('client/src/pages/TenantPortal/TenantTemplates.jsx');
@@ -404,6 +419,9 @@ test('Docker runs the backend in production mode and waits for health', () => {
     assert.match(read('client/nginx.conf'), /listen \[::\]:8080/);
     assert.match(ci, /docker build --tag whatsapp-platform-server:ci server/);
     assert.match(ci, /docker build --tag whatsapp-platform-client:ci client/);
+    assert.match(ci, /test -s dist\/sw\.js/);
+    assert.match(ci, /test -s dist\/manifest\.webmanifest/);
+    assert.match(ci, /JSON\.parse\(readFileSync\('dist\/manifest\.webmanifest'/);
     assert.doesNotMatch(dockerfile, /RUN npm install/);
 });
 
@@ -411,8 +429,17 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
     const release = read('.github/workflows/release-images.yml');
     const productionCompose = read('docker-compose.production.yml');
     const deploy = read('tools/deploy_production.sh');
+    const backup = read('tools/backup_production.sh');
+    const runtimeEnvironment = read('ops/production-runtime.env.example');
     const runbook = read('docs/PRODUCTION_CADDY_RUNBOOK.md');
-    const productionContract = [release, productionCompose, deploy, runbook].join('\n');
+    const productionContract = [
+        release,
+        productionCompose,
+        deploy,
+        backup,
+        runtimeEnvironment,
+        runbook,
+    ].join('\n');
 
     assert.ok(release.includes('server_package="savana-wa-server"'));
     assert.ok(release.includes('client_package="savana-wa-client"'));
@@ -467,11 +494,62 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
     assert.ok(deploy.includes(
         "client_digest_pattern='^ghcr\\.io/bhsh2002/savana-wa-client@sha256:[0-9a-f]{64}$'",
     ));
+    assert.match(deploy, /git -C "\$ROOT_DIR" rev-parse --verify HEAD/);
+    assert.match(deploy, /git -C "\$ROOT_DIR" status --porcelain=v1 --untracked-files=all/);
+    assert.match(deploy, /Release checkout HEAD does not match WA_RELEASE_SHA/);
+    assert.match(deploy, /Release checkout must be clean before deployment/);
+    assert.match(deploy, /Release source is not a Git checkout; relying on immutable OCI revision labels/);
+    assert.match(deploy, /verify_pwa_asset \/manifest\.webmanifest manifest/);
+    assert.match(deploy, /verify_pwa_asset \/sw\.js worker/);
+    assert.match(deploy, /unexpected Content-Type/);
+    assert.match(deploy, /missing Cache-Control/);
+    assert.match(deploy, /incorrectly returned the SPA HTML fallback/);
+    assert.match(deploy, /WA_REQUIRE_WEB_PUSH/);
+    assert.match(deploy, /This release requires WEB_PUSH_ENABLED=true/);
+    assert.match(deploy, /webPushConfigFromEnv\(process\.env\)/);
+    assert.match(deploy, /did not enable the required Web Push configuration/);
+    assert.match(backup, /node scripts\/backup-database\.js/);
+    assert.match(backup, /Backup verified:/);
+    assert.match(backup, /SHA-256:/);
+    assert.match(backup, /sha256sum --check --status/);
+    assert.match(backup, /WA_BACKUP_VERIFIED path=/);
+    assert.match(runtimeEnvironment, /^WEB_PUSH_ENABLED=false$/m);
+    assert.match(runtimeEnvironment, /^WEB_PUSH_VAPID_PUBLIC_KEY=$/m);
+    assert.match(runtimeEnvironment, /^WEB_PUSH_VAPID_PRIVATE_KEY=$/m);
+    assert.match(runtimeEnvironment, /^WEB_PUSH_VAPID_SUBJECT=$/m);
+    assert.match(runtimeEnvironment, /^WEB_PUSH_TIMEOUT_MS=10000$/m);
     assert.match(runbook, /ghcr\.io\/bhsh2002\/savana-wa-server/);
     assert.match(runbook, /ghcr\.io\/bhsh2002\/savana-wa-client/);
     assert.doesNotMatch(productionContract, /ghcr\.io\/bhsh2002\/wa-savana-(server|client)/);
     assert.doesNotMatch(productionContract, /whatsapp-platform-(server|client)/);
     assert.doesNotMatch(productionCompose, /:(?:latest|sha-)/);
+});
+
+test('production migration preflight restores a verified backup into the new image before compose up', () => {
+    const deploy = read('tools/deploy_production.sh');
+    const preflight = read('tools/preflight_migrations.sh');
+    const preflightCall = deploy.indexOf('tools/preflight_migrations.sh');
+    const composeUp = deploy.indexOf('up -d --remove-orphans');
+
+    assert.ok(preflightCall >= 0 && composeUp > preflightCall);
+    assert.match(deploy, /\[\[ -f "\$database_path" && ! -L "\$database_path" \]\]/);
+    assert.match(deploy, /database_present == server_container_present/);
+    assert.match(deploy, /platform\.db and wa-savana-server must either both exist or both be absent/);
+    assert.match(deploy, /WA_DEPLOY_RECOVERY_MODE/);
+    assert.match(deploy, /verified-database-restore/);
+    assert.match(deploy, /Recovery mode requires a verified restored Wa database/);
+    assert.match(deploy, /Recovery mode requires the prior wa-savana-server container to be absent/);
+    assert.match(deploy, /Existing Wa database requires the current wa-savana-server container to be running/);
+    assert.match(preflight, /sha256sum --check --status/);
+    assert.match(preflight, /gzip --decompress --stdout/);
+    assert.match(preflight, /runMigrationsSync\(database\)/);
+    assert.match(preflight, /getMigrationStatusSync\(database\)/);
+    assert.match(preflight, /quick_check/);
+    assert.match(preflight, /foreign_key_check/);
+    assert.match(preflight, /--network none/);
+    assert.match(preflight, /--read-only/);
+    assert.match(preflight, /--volume "\$\{preflight_dir\}:\/preflight:Z"/);
+    assert.doesNotMatch(preflight, /chown 1000/);
 });
 
 test('production edge omits query credentials and exposes data-deletion routes through /api', () => {
@@ -513,9 +591,75 @@ test('literal Meta template delete routes are registered before dynamic template
     );
 });
 
+test('Messenger webhook retries rebuild the durable browser notification intent', () => {
+    const webhooks = read('server/routes/webhooks.js');
+    const duplicateBranch = webhooks.match(
+        /if \(existingMsg\) \{[\s\S]*?continue;\s*\}/
+    )?.[0] || '';
+
+    assert.match(duplicateBranch, /eventBus\.persistBrowserMessage\(/);
+    assert.match(duplicateBranch, /channel: 'messenger'/);
+    assert.match(duplicateBranch, /sourceId: mid/);
+});
+
+test('Messenger postback retries cannot repeat unread or automation effects', () => {
+    const webhooks = read('server/routes/webhooks.js');
+    const helper = webhooks.match(
+        /const persistMessengerPostback = \([\s\S]*?^};$/m
+    )?.[0] || '';
+    const postbackBranch = webhooks.match(
+        /if \(msgEvent\.postback\) \{[\s\S]*?if \(msgEvent\.read\)/
+    )?.[0] || '';
+
+    assert.match(helper, /db\.transaction\(\(\) => \{/);
+    assert.ok(helper.indexOf('SELECT id FROM fb_messages WHERE mid = ?')
+        < helper.indexOf('unread_count = unread_count + 1'));
+    assert.match(helper, /eventBus\.persistBrowserMessage\(/);
+    assert.match(postbackBranch, /persistMessengerPostback\(/);
+    assert.match(postbackBranch, /if \(!persistedPostback\.inserted\) continue;/);
+    assert.ok(postbackBranch.indexOf('if (!persistedPostback.inserted) continue;')
+        < postbackBranch.indexOf("eventBus.broadcast('admin'"));
+    assert.ok(postbackBranch.indexOf('if (!persistedPostback.inserted) continue;')
+        < postbackBranch.indexOf('processMessengerBotEvent({'));
+});
+
+test('Meta acknowledgement follows business projection and durable browser intent persistence', () => {
+    const webhookRouter = read('server/routes/webhooks.js');
+    const route = webhookRouter.slice(webhookRouter.indexOf("router.post('/',"));
+    const receiptIndex = route.indexOf('INSERT INTO webhook_logs');
+    const messageProjectionIndex = route.indexOf('persistIncomingWhatsAppMessage({');
+    const messengerProjectionIndex = route.indexOf('insertMessengerMessage(db,');
+    const processedIndex = route.indexOf('UPDATE webhook_logs SET processed = 1');
+    const acknowledgementIndex = route.indexOf('res.sendStatus(200)', processedIndex);
+
+    assert.ok(receiptIndex >= 0);
+    assert.ok(messageProjectionIndex > receiptIndex);
+    assert.ok(messengerProjectionIndex > messageProjectionIndex);
+    assert.ok(processedIndex > messengerProjectionIndex);
+    assert.ok(acknowledgementIndex > processedIndex);
+    assert.match(route, /eventBus\.persistBrowserMessage\(/);
+    assert.match(route, /eventBus\.persistBrowserAlert\(/);
+    assert.match(route, /Durable processing failed:[\s\S]*return res\.sendStatus\(500\)/);
+    assert.doesNotMatch(route, /persistMetaWebhookNotificationIntents/);
+});
+
+test('Meta webhook ownership resolution fails closed for ambiguous WABA and Page links', () => {
+    const webhooks = read('server/routes/webhooks.js');
+
+    assert.match(
+        webhooks,
+        /FROM tenant_whatsapp_numbers[\s\S]*?WHERE waba_id = \? AND is_active = 1[\s\S]*?HAVING COUNT\(DISTINCT tenant_id\) = 1/
+    );
+    assert.match(
+        webhooks,
+        /FROM tenant_pages[\s\S]*?WHERE page_id = \? AND is_active = 1[\s\S]*?HAVING COUNT\(DISTINCT tenant_id\) = 1/
+    );
+});
+
 test('browser auth uses HttpOnly cookies while logout and password rotation remain server-side', () => {
     const authContext = read('client/src/context/AuthContext.jsx');
     const apiClient = read('client/src/api/index.js');
+    const pwaClient = read('client/src/pwa/pwaClient.js');
     const authRoute = read('server/routes/auth.js');
     const server = read('server/server.js');
 
@@ -526,7 +670,8 @@ test('browser auth uses HttpOnly cookies while logout and password rotation rema
     assert.match(apiClient, /getCurrentUser\(\)[\s\S]*['"]\/api\/auth\/session['"]/);
     assert.match(authRoute, /router\.get\('\/session'/);
     assert.match(authContext, /if \(!data\.authenticated \|\| !data\.user\)/);
-    assert.match(authContext, /api\.logout\(\)/);
+    assert.match(authContext, /logoutAfterPushUnlink\(api,/);
+    assert.match(pwaClient, /Promise\.resolve\(apiClient\.logout\(\)\)/);
     assert.match(authContext, /api\.adoptLegacySession\(legacyToken\)/);
     const unauthenticatedBranch = authContext.indexOf('if (err.status === 401 || err.status === 403)');
     const otherFailureBranch = authContext.indexOf('} else {', unauthenticatedBranch);
@@ -539,6 +684,17 @@ test('browser auth uses HttpOnly cookies while logout and password rotation rema
     assert.match(authRoute, /setSessionCookie\(res, token\)/);
     assert.match(authRoute, /clearSessionCookie\(res\)/);
     assert.match(server, /createOriginGuard\(\{ allowedOrigins: CORS_ORIGINS \}\)/);
+});
+
+test('administrator tenant password resets revoke existing sessions', () => {
+    const tenantsRoute = read('server/routes/tenants.js');
+    const resetRoute = tenantsRoute.match(
+        /router\.put\('\/:id\/account\/password'[\s\S]*?res\.json\(\{ message: 'تم تحديث كلمة المرور بنجاح' \}\);/
+    )?.[0] || '';
+
+    assert.match(resetRoute, /password_hash = \?/);
+    assert.match(resetRoute, /auth_version = auth_version \+ 1/);
+    assert.match(resetRoute, /tokens_revoked_at = datetime\('now', 'localtime'\)/);
 });
 
 test('admin tenant CRUD encrypts access tokens and presents redacted tenants', () => {

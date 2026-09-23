@@ -44,7 +44,8 @@ import {
     Language as LanguageIcon,
     PointOfSale as PosIcon,
     Sms as SmsIcon,
-    Dialpad as UssdIcon
+    Dialpad as UssdIcon,
+    InstallMobile as InstallMobileIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -101,6 +102,7 @@ const Sidebar = () => {
                 { label: t('nav.automation'), path: '/automation', icon: <SmartToyIcon /> },
                 { label: t('nav.logs'), path: '/logs', icon: <AssessmentIcon /> },
                 { label: t('nav.settings'), path: '/settings', icon: <SettingsIcon /> },
+                { label: t('nav.appSettings'), path: '/app-settings', icon: <InstallMobileIcon /> },
             ],
         },
     ];
@@ -147,6 +149,7 @@ const Sidebar = () => {
             title: t('nav.sections.operations'),
             items: [
                 { label: t('nav.automation'), path: '/portal/automation', icon: <SmartToyIcon /> },
+                { label: t('nav.appSettings'), path: '/app-settings', icon: <InstallMobileIcon /> },
             ],
         },
     ];

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { tx } from "../i18n/tx";
+import { logoutAfterPushUnlink } from '../pwa/pwaClient';
 const AuthContext = createContext();
 const AUTH_USER_KEY = 'auth_user';
 const AUTH_TENANT_KEY = 'auth_tenant';
@@ -43,6 +44,7 @@ export const AuthProvider = ({
   const [tenant, setTenant] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [sessionRevision, setSessionRevision] = useState(0);
 
   const verifySession = useCallback(async () => {
     try {
@@ -145,9 +147,14 @@ export const AuthProvider = ({
     }
   }, []);
   const logout = useCallback(() => {
-    const revokeRequest = api.logout().catch(err => {
-      console.warn('Server-side logout failed:', err);
-    });
+    const revokeRequest = logoutAfterPushUnlink(api, {
+      onUnlinkError: err => {
+        console.warn('Browser notification unlink failed during logout:', err);
+      }
+    })
+      .catch(err => {
+        console.warn('Server-side logout failed:', err);
+      });
     clearStoredSession();
     api.resetSessionCaches();
     setUser(null);
@@ -158,6 +165,7 @@ export const AuthProvider = ({
     try {
       await api.changePassword(currentPassword, newPassword);
       api.resetSessionCaches();
+      setSessionRevision(revision => revision + 1);
       return {
         success: true
       };
@@ -181,6 +189,7 @@ export const AuthProvider = ({
     isAuthenticated,
     isTenant,
     isAdmin,
+    sessionRevision,
     login,
     register,
     logout,

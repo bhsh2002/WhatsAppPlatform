@@ -1,0 +1,30 @@
+{
+  "id": "/",
+  "name": "Wa Savana",
+  "short_name": "Wa Savana",
+  "description": "منصة Wa Savana لإدارة الرسائل والتنبيهات",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/login?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f2e8",
+  "theme_color": "#087f5b",
+  "categories": ["business", "productivity", "social"],
+  "icons": [
+    {
+      "src": "/icons/wa-savana-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/wa-savana-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "prefer_related_applications": false
+}

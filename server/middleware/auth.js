@@ -9,10 +9,29 @@ import {
 import { getSessionCookie } from '../security/sessionCookie.js';
 
 const getCurrentUserIdentity = userId => db.prepare(`
-    SELECT id, username, role, tenant_id, is_active, tokens_revoked_at
+    SELECT id, username, role, tenant_id, is_active, tokens_revoked_at, auth_version
     FROM users
     WHERE id = ?
 `).get(userId);
+
+const normalizeAuthVersion = value => {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : null;
+};
+
+// JWTs issued before auth_version was introduced are generation zero. This
+// preserves existing sessions through deployment, while the first rotation
+// increments the database value and invalidates them without timestamp races.
+const authVersionMatches = (decoded, user) => {
+    const tokenVersion = decoded?.auth_version === undefined
+        ? 0
+        : normalizeAuthVersion(decoded.auth_version);
+    const currentVersion = normalizeAuthVersion(user?.auth_version);
+    return tokenVersion !== null
+        && currentVersion !== null
+        && tokenVersion === currentVersion;
+};
 
 const applyCurrentIdentity = (decoded, user) => {
     const identity = {
@@ -20,6 +39,7 @@ const applyCurrentIdentity = (decoded, user) => {
         id: user.id,
         username: user.username,
         role: user.role,
+        auth_version: normalizeAuthVersion(user.auth_version) ?? 0,
     };
 
     if (user.tenant_id === null || user.tenant_id === undefined) {
@@ -38,8 +58,8 @@ const applyCurrentIdentity = (decoded, user) => {
  * Generate a short-lived HMAC-signed token for media access.
  * This avoids exposing the full JWT in URL query params.
  */
-export function generateMediaToken(userId, tenantId = null, role = null) {
-    return createMediaToken({ userId, tenantId, role }, JWT_SECRET);
+export function generateMediaToken(userId, tenantId = null, role = null, authVersion = 0) {
+    return createMediaToken({ userId, tenantId, role, authVersion }, JWT_SECRET);
 }
 
 export const getRequestAuthToken = req => {
@@ -85,18 +105,21 @@ export const authMiddleware = (req, res, next) => {
         }
 
         const user = db.prepare(
-            'SELECT id, role, tenant_id, is_active, tokens_revoked_at FROM users WHERE id = ?'
+            `SELECT id, role, tenant_id, is_active, tokens_revoked_at, auth_version
+             FROM users WHERE id = ?`
         ).get(mediaUser.sub);
 
         const tokenTenantId = mediaUser.tid ?? null;
         const currentTenantId = user?.tenant_id ?? null;
         const roleMatches = user?.role === (mediaUser.role || null);
         const tenantMatches = currentTenantId === tokenTenantId;
+        const generationMatches = authVersionMatches({ auth_version: mediaUser.auth_version }, user);
         const issuedBeforeRevocation = user?.tokens_revoked_at && mediaUser.iat
             ? mediaUser.iat < new Date(user.tokens_revoked_at).getTime() / 1000
             : false;
 
-        if (!user?.is_active || !roleMatches || !tenantMatches || issuedBeforeRevocation) {
+        if (!user?.is_active || !roleMatches || !tenantMatches
+            || !generationMatches || issuedBeforeRevocation) {
             return res.status(401).json({ error: 'رمز وسائط غير صالح أو منتهي' });
         }
 
@@ -124,6 +147,10 @@ export const authMiddleware = (req, res, next) => {
         const user = getCurrentUserIdentity(decoded.id);
         if (!user || !user.is_active) {
             return res.status(401).json({ error: 'الحساب غير مُفعّل' });
+        }
+
+        if (!authVersionMatches(decoded, user)) {
+            return res.status(401).json({ error: 'تم إلغاء الجلسة — يرجى تسجيل الدخول مجدداً' });
         }
 
         // Check if all user tokens were revoked (user-level revocation)
@@ -175,6 +202,10 @@ export const optionalAuth = (req, res, next) => {
             const user = getCurrentUserIdentity(decoded.id);
             if (!user || !user.is_active) {
                 return next(); // User inactive, continue without user
+            }
+
+            if (!authVersionMatches(decoded, user)) {
+                return next(); // Token belongs to an older authentication generation
             }
 
             // Check user-level revocation

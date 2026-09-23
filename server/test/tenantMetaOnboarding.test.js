@@ -58,7 +58,8 @@ function createDatabase() {
             token_scopes TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (tenant_id, page_id)
+            UNIQUE (tenant_id, page_id),
+            UNIQUE (page_id)
         );
         INSERT INTO tenants (id, name) VALUES (1, 'Tenant A'), (2, 'Tenant B');
     `);
@@ -383,6 +384,77 @@ test('page linking keeps tokens server-side, subscribes by authorization and dis
     assert.equal(calls.at(-1).init.headers.Authorization, 'Bearer page-token');
     assert.equal(db.prepare('SELECT COUNT(*) count FROM tenant_pages').get().count, 0);
     assert.equal(db.prepare("SELECT COUNT(*) count FROM activity_logs WHERE event_type = 'page_unlinked'").get().count, 1);
+});
+
+test('page linking rejects ownership by another tenant without exposing that tenant', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    db.prepare(`
+        INSERT INTO tenant_pages (
+            tenant_id, page_id, page_name, page_access_token_encrypted,
+            subscribed_fields, webhook_subscribed
+        ) VALUES (1, 'page-owned', 'Private owner page', 'encrypted:owner-token', '[]', 1)
+    `).run();
+
+    const calls = [];
+    const requestMeta = async (url, init = {}) => {
+        calls.push({ url, init });
+        if (url.endsWith('/oauth/access_token')) {
+            const values = new URLSearchParams(init.body);
+            return values.get('grant_type') === 'fb_exchange_token'
+                ? { ok: true, status: 200, data: { access_token: 'tenant-two-long-token' } }
+                : { ok: true, status: 200, data: { access_token: 'tenant-two-short-token' } };
+        }
+        if (url.includes('/debug_token')) {
+            return { ok: true, status: 200, data: { data: { is_valid: true, scopes: [] } } };
+        }
+        if (url.includes('/me?fields=')) {
+            return { ok: true, status: 200, data: { id: 'user-2', name: 'User Two' } };
+        }
+        if (url.includes('/me/accounts?')) {
+            return {
+                ok: true,
+                status: 200,
+                data: {
+                    data: [{
+                        id: 'page-owned',
+                        name: 'Presented page',
+                        access_token: 'tenant-two-page-token',
+                    }],
+                },
+            };
+        }
+        return assert.fail(`Unexpected Meta request: ${url}`);
+    };
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({ requestMeta }),
+    });
+    const connected = await connectFacebook(router, 2);
+    assert.equal(connected.statusCode, 200);
+
+    const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
+        user: { tenant_id: 2 },
+        body: { link_state: connected.body.link_state, page_ids: ['page-owned'] },
+    });
+
+    assert.equal(linked.statusCode, 200);
+    assert.deepEqual(linked.body.linked, [{
+        id: 'page-owned',
+        name: 'Presented page',
+        webhook_subscribed: false,
+        webhook_error: 'هذه الصفحة غير متاحة للربط',
+    }]);
+    assert.doesNotMatch(JSON.stringify(linked.body), /Private owner page|owner-token|Tenant A|tenant_id/);
+    assert.equal(calls.some(call => call.url.endsWith('/page-owned/subscribed_apps')), false);
+    assert.deepEqual(
+        db.prepare('SELECT tenant_id, page_name FROM tenant_pages WHERE page_id = ?').get('page-owned'),
+        { tenant_id: 1, page_name: 'Private owner page' }
+    );
+    assert.equal(
+        db.prepare("SELECT COUNT(*) count FROM activity_logs WHERE event_type = 'page_linked'").get().count,
+        0
+    );
 });
 
 test('WhatsApp onboarding verifies WABA phone ownership before encrypted tenant update', async (t) => {

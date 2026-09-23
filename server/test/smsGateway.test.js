@@ -305,11 +305,17 @@ test('signed SMS webhooks are deduplicated and cannot cross account boundaries',
     assert.equal(accepted.duplicate, false);
     assert.equal(accepted.message.sms_account_id, 13);
     assert.equal(accepted.message.sender, 'BANK-LY');
-    assert.equal(service.acceptWebhook(
+    const duplicate = service.acceptWebhook(
         webhookKey,
         { timestamp, deliveryId, signature },
         rawBody,
-    ).duplicate, true);
+    );
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(duplicate.tenantId, 1);
+    assert.equal(duplicate.accountId, 13);
+    assert.equal(duplicate.event, 'sms.message.received.v1');
+    assert.equal(duplicate.message.id, accepted.message.id);
+    assert.equal(duplicate.message.gateway_message_id, 'incoming-1');
     assert.equal(database.prepare(`
         SELECT COUNT(*) AS count FROM sms_messages WHERE sms_account_id = 14
     `).get().count, 0);

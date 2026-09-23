@@ -478,10 +478,19 @@ export function createTenantMetaOnboardingRouter({
                 const encryptedToken = encryptToken(pageToken);
                 const pagePictureUrl = page.picture?.data?.url || null;
                 const existing = database.prepare(`
-                    SELECT id
+                    SELECT id, tenant_id
                     FROM tenant_pages
-                    WHERE tenant_id = ? AND page_id = ?
-                `).get(tenantId, pageId);
+                    WHERE page_id = ?
+                `).get(pageId);
+                if (existing && String(existing.tenant_id) !== String(tenantId)) {
+                    linked.push({
+                        id: pageId,
+                        name: page.name || null,
+                        webhook_subscribed: false,
+                        webhook_error: 'هذه الصفحة غير متاحة للربط',
+                    });
+                    continue;
+                }
                 let linkedPageDbId;
                 if (existing) {
                     database.prepare(`
@@ -500,19 +509,30 @@ export function createTenantMetaOnboardingRouter({
                     );
                     linkedPageDbId = existing.id;
                 } else {
-                    linkedPageDbId = database.prepare(`
-                        INSERT INTO tenant_pages (
-                            tenant_id, platform, page_id, page_name, page_access_token_encrypted,
-                            page_category, page_picture_url, webhook_subscribed
-                        ) VALUES (?, 'facebook', ?, ?, ?, ?, ?, 0)
-                    `).run(
-                        tenantId,
-                        pageId,
-                        page.name || null,
-                        encryptedToken,
-                        page.category || null,
-                        pagePictureUrl
-                    ).lastInsertRowid;
+                    try {
+                        linkedPageDbId = database.prepare(`
+                            INSERT INTO tenant_pages (
+                                tenant_id, platform, page_id, page_name, page_access_token_encrypted,
+                                page_category, page_picture_url, webhook_subscribed
+                            ) VALUES (?, 'facebook', ?, ?, ?, ?, ?, 0)
+                        `).run(
+                            tenantId,
+                            pageId,
+                            page.name || null,
+                            encryptedToken,
+                            page.category || null,
+                            pagePictureUrl
+                        ).lastInsertRowid;
+                    } catch (error) {
+                        if (error?.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
+                        linked.push({
+                            id: pageId,
+                            name: page.name || null,
+                            webhook_subscribed: false,
+                            webhook_error: 'هذه الصفحة غير متاحة للربط',
+                        });
+                        continue;
+                    }
                 }
 
                 if (meta.appId && meta.appSecret) {

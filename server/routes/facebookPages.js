@@ -174,9 +174,16 @@ router.post('/tenant/:tenantId', async (req, res) => {
             return res.status(404).json({ error: 'العميل غير موجود' });
         }
 
-        const existing = db.prepare('SELECT id FROM tenant_pages WHERE tenant_id = ? AND page_id = ?').get(tenantId, page_id);
+        const existing = db.prepare(
+            'SELECT id, tenant_id FROM tenant_pages WHERE page_id = ?'
+        ).get(page_id);
         if (existing) {
-            return res.status(409).json({ error: 'هذه الصفحة مربوطة بالفعل بهذا العميل' });
+            const sameTenant = String(existing.tenant_id) === String(tenantId);
+            return res.status(409).json({
+                error: sameTenant
+                    ? 'هذه الصفحة مربوطة بالفعل بهذا العميل'
+                    : 'هذه الصفحة غير متاحة للربط',
+            });
         }
 
         // Verify the page token by fetching page info from Meta
@@ -205,7 +212,23 @@ router.post('/tenant/:tenantId', async (req, res) => {
             INSERT INTO tenant_pages (tenant_id, platform, page_id, page_name, page_access_token_encrypted, page_category, page_picture_url, webhook_subscribed)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         `);
-        const result = stmt.run(tenantId, 'facebook', page_id, pageName, encryptedToken, pageCategory, pagePictureUrl);
+        let result;
+        try {
+            result = stmt.run(
+                tenantId,
+                'facebook',
+                page_id,
+                pageName,
+                encryptedToken,
+                pageCategory,
+                pagePictureUrl
+            );
+        } catch (error) {
+            if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+                return res.status(409).json({ error: 'هذه الصفحة غير متاحة للربط' });
+            }
+            throw error;
+        }
 
         const newPage = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(result.lastInsertRowid);
 

@@ -36,6 +36,11 @@ local-operability goal.
 
 ## Production deployment
 
+Every update first creates and verifies an online SQLite backup, restores that
+archive into an isolated copy, and runs every migration with the new immutable
+server image. The live containers are replaced only after the migrated copy
+passes migration status, `quick_check`, and foreign-key validation.
+
 Use the dedicated Caddy topology and immutable GHCR images described in
 [docs/PRODUCTION_CADDY_RUNBOOK.md](docs/PRODUCTION_CADDY_RUNBOOK.md). It publishes
 only the frontend on host loopback, joins the server to the private Control
@@ -54,6 +59,12 @@ token is stored in Actions. The repository must retain `Write` under each
 package's **Manage Actions access** without inheriting repository permissions.
 The release verifies the exact repository link, private visibility, and denial
 of anonymous image access.
+
+When the production source is a Git checkout, the deployment command requires
+its exact `HEAD` to equal `WA_RELEASE_SHA` and rejects tracked or untracked
+local changes before Docker is changed. A source release without `.git` emits a
+warning and relies on the mandatory immutable-image OCI revision checks. Prefer
+a clean Git checkout when preparing future releases so both gates are applied.
 
 `docker-compose.server.yml` and `tools/deploy_server.sh` remain the isolated
 company/test topology. They must not be used on the production host.
@@ -81,8 +92,56 @@ company/test topology. They must not be used on the production host.
 - Production requires a separate random `METRICS_TOKEN` of at least 32
   characters. Scrape the loopback `/api/metrics` path with an Authorization
   bearer header; Caddy blocks that route publicly.
+- Browser push requires one stable VAPID key pair. Keep
+  `WEB_PUSH_VAPID_PRIVATE_KEY` only in the mode-`0600` production runtime file;
+  it is not an Actions secret and must never be committed, pasted into chat, or
+  printed in deployment logs. The public key is not secret, but both halves
+  must remain paired and unchanged across routine releases. The example runtime
+  file keeps `WEB_PUSH_ENABLED=false` so copying it with empty key fields cannot
+  break an unrelated deployment; enable the feature only after installing the
+  complete key pair and subject below.
 - Stop production with the same Compose file and Compose environment used to
   start it. Never add `-v` and never delete the shared data directory.
+
+## Web Push production keys
+
+Generate the VAPID pair once from a trusted checkout after `npm ci` has
+installed the reviewed server dependencies. Redirect the result into a private
+file so the private key never appears in terminal output or shell history:
+
+```bash
+umask 077
+vapid_output=/srv/wa-savana/shared/web-push-vapid.generated
+install -m 0600 /dev/null "$vapid_output"
+(
+  cd server
+  node --input-type=module <<'NODE'
+import webpush from 'web-push';
+
+const keys = webpush.generateVAPIDKeys();
+process.stdout.write(`WEB_PUSH_VAPID_PUBLIC_KEY=${keys.publicKey}\n`);
+process.stdout.write(`WEB_PUSH_VAPID_PRIVATE_KEY=${keys.privateKey}\n`);
+NODE
+) > "$vapid_output"
+chmod 0600 "$vapid_output"
+```
+
+Using a local editor, transfer the two generated assignments into the file
+referenced by `WA_RUNTIME_ENV_FILE`, then add:
+
+```dotenv
+WEB_PUSH_ENABLED=true
+WEB_PUSH_VAPID_SUBJECT=mailto:an-address-monitored-by-savana@example.invalid
+WEB_PUSH_TIMEOUT_MS=10000
+```
+
+Replace the subject with a monitored Savana contact address. Keep the runtime
+file mode `0600`, run the production environment validator through the normal
+deployment command, and delete the temporary `web-push-vapid.generated` file
+after the first verified push. Do not generate a new pair for each deployment:
+rotating it invalidates existing browser subscriptions and requires users to
+subscribe again. If rotation is necessary, schedule it as a user-visible
+maintenance change rather than silently replacing either key.
 
 ## Supported topology
 
@@ -103,6 +162,7 @@ Run from the repository root:
 ```bash
 cd server && npm test && npm audit --audit-level=low
 cd ../client && npm run lint && npm run build && npm audit --audit-level=low
+test -s dist/manifest.webmanifest && test -s dist/sw.js
 cd .. && docker compose config --quiet
 docker build --tag whatsapp-platform-server:verify server
 docker build --tag whatsapp-platform-client:verify client
@@ -118,7 +178,10 @@ an equivalent scanner is acceptable when it uses a current vulnerability DB
 and returns a non-zero exit status for those severities.
 
 The `/health` readiness endpoint returns HTTP 503 when SQLite is unavailable or
-when the checked-out code has unapplied migrations.
+when the checked-out code has unapplied migrations. Production deployment also
+requires `/manifest.webmanifest` and `/sw.js` to return their correct non-HTML
+content types with revalidating cache policies; this prevents the SPA fallback
+from masquerading as an installable PWA asset.
 
 ## Backup, migration, and rollback
 
@@ -147,3 +210,24 @@ Restore into a separate file first, keep the current database as a rollback
 copy, and only replace `db/platform.db` while the server is stopped. Backup
 retention defaults to 10 local archives and may be set with `BACKUP_RETENTION`;
 configure encrypted off-host copies and scheduling in the deployment platform.
+
+`tools/deploy_production.sh` normally permits only two host states: a fresh
+installation with neither `platform.db` nor `wa-savana-server`, or an update
+with both a regular (non-symlink) database and the current server container
+running. It fails closed when only one exists so a deleted or unsafe database
+cannot silently be replaced by an empty one.
+
+After an intentional rollback or disaster recovery, verify the backup as
+shown above, remove the stopped `wa-savana-server` container, restore
+`platform.db` as a regular file, and invoke the target release once with:
+
+```bash
+WA_DEPLOY_RECOVERY_MODE=verified-database-restore \
+  WA_COMPOSE_ENV_FILE=/srv/wa-savana/shared/production-compose.env \
+  ./tools/deploy_production.sh
+```
+
+This one-shot mode accepts only the exact recovery state (verified database
+present and server container absent). It intentionally skips the online backup
+that requires the old running container. Never persist the recovery variable in
+the Compose or runtime environment files.

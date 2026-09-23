@@ -41,3 +41,18 @@ npm audit --audit-level=low
 
 Production output is written to `dist/` and served by the client Nginx image.
 Routes are loaded lazily and Nginx falls back to `index.html` for SPA paths.
+
+## PWA and browser notifications
+
+The client registers `/sw.js` and exposes `/manifest.webmanifest` so Wa Savana
+can be installed from supporting browsers. The service worker is deliberately
+network-only: it does not use Cache Storage and never intercepts `/api` traffic.
+
+Authenticated users can manage installation and notifications from
+`/app-settings`. Notification permission is requested only after the user
+presses the enable button. Existing browser subscriptions are linked to the
+current account through `/api/notifications/*` after login and unlinked before
+the browser-side subscription is removed on logout. Server unlinking runs as
+best-effort cleanup alongside immediate session revocation, so a slow Push API
+cannot delay logout. Notification titles and bodies remain generic; message
+content and customer identifiers are never displayed by the service worker.

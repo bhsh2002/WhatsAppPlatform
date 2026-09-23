@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 import authRouter, { sseAuth } from '../routes/auth.js';
+import tenantsRouter from '../routes/tenants.js';
 import { adminMiddleware, authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 
-const findRouteHandlers = (method, routePath) => {
-    const layer = authRouter.stack.find(item => (
+const findRouterHandlers = (router, method, routePath) => {
+    const layer = router.stack.find(item => (
         item.route?.path === routePath && item.route.methods?.[method]
     ));
     assert.ok(layer, `Missing ${method.toUpperCase()} ${routePath}`);
     return layer.route.stack.map(item => item.handle);
 };
+
+const findRouteHandlers = (method, routePath) => (
+    findRouterHandlers(authRouter, method, routePath)
+);
 
 const invokeHandlers = (handlers, request = {}) => new Promise((resolve, reject) => {
     const req = {
@@ -63,6 +69,9 @@ const invokeHandlers = (handlers, request = {}) => new Promise((resolve, reject)
 const invokeRoute = (method, routePath, request) => (
     invokeHandlers(findRouteHandlers(method, routePath), request)
 );
+const invokeTenantRoute = (method, routePath, request) => (
+    invokeHandlers(findRouterHandlers(tenantsRouter, method, routePath), request)
+);
 
 const bearer = token => ({ authorization: `Bearer ${token}` });
 const sessionCookie = response => {
@@ -83,6 +92,10 @@ const pendingTenantId = Number(db.prepare(`
     INSERT INTO tenants (name, phone, status)
     VALUES ('Pending tenant', '+218910000102', 'Pending')
 `).run().lastInsertRowid);
+const resetTenantId = Number(db.prepare(`
+    INSERT INTO tenants (name, phone, status)
+    VALUES ('Reset tenant', '+218910000103', 'Active')
+`).run().lastInsertRowid);
 
 const insertUser = db.prepare(`
     INSERT INTO users (username, password_hash, name, role, tenant_id, is_active)
@@ -94,6 +107,9 @@ const tenantUserId = Number(insertUser.run(
 ).lastInsertRowid);
 const pendingUserId = Number(insertUser.run(
     'fixture-pending', passwordHash, 'Fixture pending', 'user', pendingTenantId
+).lastInsertRowid);
+const resetUserId = Number(insertUser.run(
+    'fixture-reset', passwordHash, 'Fixture reset', 'user', resetTenantId
 ).lastInsertRowid);
 
 const login = async (username, suppliedPassword = password) => invokeRoute('post', '/login', {
@@ -147,17 +163,23 @@ assert.equal(revokedSession.res.body.authenticated, false);
 
 // Password change revokes the old token, returns a usable replacement, and changes login credentials.
 const passwordLogin = await login('fixture-tenant');
+const parallelPasswordLogin = await login('fixture-tenant');
+const previousAuthVersion = jwt.decode(passwordLogin.res.body.token).auth_version;
 const changed = await invokeRoute('post', '/change-password', {
     headers: sessionCookie(passwordLogin.res),
     body: { currentPassword: password, newPassword: replacementPassword },
 });
 assert.equal(changed.res.statusCode, 200);
 assert.ok(changed.res.body.token);
+assert.equal(jwt.decode(changed.res.body.token).auth_version, previousAuthVersion + 1);
 
 const oldTokenMe = await invokeRoute('get', '/me', {
     headers: bearer(passwordLogin.res.body.token),
 });
 assert.equal(oldTokenMe.res.statusCode, 401);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(parallelPasswordLogin.res.body.token),
+})).res.statusCode, 401);
 const newTokenMe = await invokeRoute('get', '/me', {
     headers: sessionCookie(changed.res),
 });
@@ -165,6 +187,119 @@ assert.equal(newTokenMe.res.statusCode, 200);
 assert.equal(newTokenMe.res.body.user.id, tenantUserId);
 assert.equal((await login('fixture-tenant', password)).res.statusCode, 401);
 assert.equal((await login('fixture-tenant', replacementPassword)).res.statusCode, 200);
+
+// Administrator password resets rotate a monotonic authentication generation.
+// Derived credentials and JWTs from generation zero must fail immediately,
+// including when the revocation timestamp equals the token's iat second.
+const resetLogin = await login('fixture-reset');
+const resetTokenClaims = jwt.decode(resetLogin.res.body.token);
+assert.equal(resetTokenClaims.auth_version, 0);
+const legacyWithoutGeneration = jwt.sign({
+    id: resetUserId,
+    username: 'fixture-reset',
+    role: 'user',
+    tenant_id: resetTenantId,
+    iat: resetTokenClaims.iat,
+    exp: resetTokenClaims.iat + 3600,
+    jti: 'legacy-generation-zero',
+}, process.env.JWT_SECRET);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(legacyWithoutGeneration),
+})).res.statusCode, 200);
+const resetMediaToken = await invokeRoute('post', '/media-token', {
+    headers: sessionCookie(resetLogin.res),
+});
+const resetSseToken = await invokeRoute('post', '/sse-token', {
+    headers: sessionCookie(resetLogin.res),
+});
+
+const adminResetPassword = 'AdminResetPassword!789';
+const adminReset = await invokeTenantRoute('put', '/:id/account/password', {
+    params: { id: String(resetTenantId) },
+    body: { password: adminResetPassword },
+});
+assert.equal(adminReset.res.statusCode, 200);
+assert.equal(
+    db.prepare('SELECT auth_version FROM users WHERE id = ?').get(resetUserId).auth_version,
+    1,
+);
+db.prepare(`
+    UPDATE users
+    SET tokens_revoked_at = datetime(?, 'unixepoch', 'localtime')
+    WHERE id = ?
+`).run(resetTokenClaims.iat, resetUserId);
+
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(resetLogin.res.body.token),
+})).res.statusCode, 401);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(legacyWithoutGeneration),
+})).res.statusCode, 401);
+const resetAnonymousSession = await invokeRoute('get', '/session', {
+    headers: bearer(resetLogin.res.body.token),
+});
+assert.equal(resetAnonymousSession.res.statusCode, 200);
+assert.equal(resetAnonymousSession.res.body.authenticated, false);
+assert.equal((await invokeHandlers([authMiddleware], {
+    method: 'GET',
+    originalUrl: '/messages/media/example/download',
+    headers: {},
+    query: { media_token: resetMediaToken.res.body.media_token },
+})).res.statusCode, 401);
+assert.equal((await invokeHandlers([sseAuth], {
+    query: { token: resetSseToken.res.body.token },
+})).res.statusCode, 401);
+
+const sameSecondClaims = {
+    id: resetUserId,
+    username: 'fixture-reset',
+    role: 'user',
+    tenant_id: resetTenantId,
+    iat: resetTokenClaims.iat,
+    exp: resetTokenClaims.iat + 3600,
+};
+const staleSameSecondToken = jwt.sign({
+    ...sameSecondClaims,
+    auth_version: 0,
+    jti: 'same-second-stale',
+}, process.env.JWT_SECRET);
+const currentSameSecondToken = jwt.sign({
+    ...sameSecondClaims,
+    auth_version: 1,
+    jti: 'same-second-current',
+}, process.env.JWT_SECRET);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(staleSameSecondToken),
+})).res.statusCode, 401);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(currentSameSecondToken),
+})).res.statusCode, 200);
+const resetRelogin = await login('fixture-reset', adminResetPassword);
+assert.equal(resetRelogin.res.statusCode, 200);
+assert.equal(jwt.decode(resetRelogin.res.body.token).auth_version, 1);
+const disabledResetAccount = await invokeTenantRoute('put', '/:id/account/toggle', {
+    params: { id: String(resetTenantId) },
+});
+assert.equal(disabledResetAccount.res.statusCode, 200);
+assert.equal(disabledResetAccount.res.body.is_active, 0);
+assert.equal(
+    db.prepare('SELECT auth_version FROM users WHERE id = ?').get(resetUserId).auth_version,
+    2,
+);
+const reenabledResetAccount = await invokeTenantRoute('put', '/:id/account/toggle', {
+    params: { id: String(resetTenantId) },
+});
+assert.equal(reenabledResetAccount.res.statusCode, 200);
+assert.equal(reenabledResetAccount.res.body.is_active, 1);
+assert.equal(
+    db.prepare('SELECT auth_version FROM users WHERE id = ?').get(resetUserId).auth_version,
+    2,
+);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(resetRelogin.res.body.token),
+})).res.statusCode, 401);
+const loginAfterReactivation = await login('fixture-reset', adminResetPassword);
+assert.equal(jwt.decode(loginAfterReactivation.res.body.token).auth_version, 2);
 
 // A legacy Bearer token is rotated into a cookie and cannot be reused afterward.
 const legacyLogin = await login('fixture-tenant', replacementPassword);
@@ -229,6 +364,22 @@ const pendingTenantAccess = await invokeHandlers([authMiddleware, tenantMiddlewa
 });
 assert.equal(pendingTenantAccess.res.statusCode, 403);
 assert.equal(pendingTenantAccess.res.body.code, 'ACCOUNT_PENDING');
+const rejectedTenant = await invokeTenantRoute('post', '/:id/reject', {
+    params: { id: String(pendingTenantId) },
+    body: { reason: 'fixture rejection' },
+});
+assert.equal(rejectedTenant.res.statusCode, 200);
+assert.deepEqual(
+    db.prepare('SELECT is_active, auth_version FROM users WHERE id = ?').get(pendingUserId),
+    { is_active: 0, auth_version: 1 },
+);
+const reenabledRejectedAccount = await invokeTenantRoute('put', '/:id/account/toggle', {
+    params: { id: String(pendingTenantId) },
+});
+assert.equal(reenabledRejectedAccount.res.body.is_active, 1);
+assert.equal((await invokeRoute('get', '/me', {
+    headers: bearer(pendingLogin.res.body.token),
+})).res.statusCode, 401);
 
 // Restore admin in the database and prove tenant-only policy still rejects the current admin identity.
 db.prepare("UPDATE users SET role = 'admin', tenant_id = NULL WHERE id = ?").run(adminId);
@@ -240,6 +391,9 @@ assert.equal(adminTenantAccess.res.statusCode, 403);
 console.log(JSON.stringify({
     logoutRevocation: true,
     passwordRotation: true,
+    sameSecondGenerationRevocation: true,
+    resetRevokesDerivedCredentials: true,
+    reactivationKeepsOldSessionsRevoked: true,
     httpOnlySession: true,
     legacySessionUpgrade: true,
     oneTimeSseToken: true,

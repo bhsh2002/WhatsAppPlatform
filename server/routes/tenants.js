@@ -555,7 +555,14 @@ router.put('/:id/account/password', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(password, salt);
 
-        db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+        db.prepare(`
+            UPDATE users
+            SET password_hash = ?,
+                auth_version = auth_version + 1,
+                tokens_revoked_at = datetime('now', 'localtime'),
+                updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `)
             .run(password_hash, account.id);
 
         res.json({ message: 'تم تحديث كلمة المرور بنجاح' });
@@ -744,8 +751,19 @@ router.put('/:id/account/toggle', (req, res) => {
         }
 
         const newStatus = account.is_active ? 0 : 1;
-        db.prepare("UPDATE users SET is_active = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
-            .run(newStatus, account.id);
+        db.prepare(`
+            UPDATE users
+            SET is_active = ?,
+                auth_version = auth_version + CASE
+                    WHEN ? = 0 AND is_active = 1 THEN 1 ELSE 0
+                END,
+                tokens_revoked_at = CASE
+                    WHEN ? = 0 AND is_active = 1 THEN datetime('now', 'localtime')
+                    ELSE tokens_revoked_at
+                END,
+                updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+        `).run(newStatus, newStatus, newStatus, account.id);
 
         res.json({
             message: newStatus ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب',
@@ -1429,7 +1447,17 @@ router.post('/:id/reject', (req, res) => {
             .run('Rejected', tenantId);
         
         // Deactivate the user account (if exists)
-        db.prepare('UPDATE users SET is_active = 0 WHERE tenant_id = ?').run(tenantId);
+        db.prepare(`
+            UPDATE users
+            SET is_active = 0,
+                auth_version = auth_version + CASE WHEN is_active = 1 THEN 1 ELSE 0 END,
+                tokens_revoked_at = CASE
+                    WHEN is_active = 1 THEN datetime('now', 'localtime')
+                    ELSE tokens_revoked_at
+                END,
+                updated_at = datetime('now', 'localtime')
+            WHERE tenant_id = ?
+        `).run(tenantId);
         
         // Log activity
         db.prepare(`

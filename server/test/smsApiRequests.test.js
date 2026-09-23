@@ -6,10 +6,29 @@ import Database from 'better-sqlite3';
 import {
     createSmsHistoryMessageHandler,
     reconcileSmsMessageBilling,
+    smsBrowserNotificationSource,
     smsCallbackDedupeKey,
     SmsApiRequestStore,
     smsApiRequestHash,
 } from '../services/smsApiRequests.js';
+
+test('browser notification sources distinguish equal message ids across SMS accounts', () => {
+    const first = smsBrowserNotificationSource({
+        sms_account_id: 12,
+        gateway_message_id: 'gateway-shared',
+    });
+    const second = smsBrowserNotificationSource({
+        sms_account_id: 13,
+        gateway_message_id: 'gateway-shared',
+    });
+
+    assert.notEqual(first, second);
+    assert.equal(first, 'sms-account:12:message:gateway-shared');
+    assert.equal(
+        smsBrowserNotificationSource({ gateway_message_id: 'gateway-shared' }, 14),
+        'sms-account:14:message:gateway-shared',
+    );
+});
 
 const createDatabase = () => {
     const database = new Database(':memory:');
@@ -176,6 +195,7 @@ test('unchanged incremental history replay re-enqueues a missed callback without
     const broadcasts = [];
     const conversationUpdates = [];
     const callbackAttempts = [];
+    const browserMessages = [];
     const message = {
         id: 502,
         tenant_id: 4,
@@ -193,6 +213,7 @@ test('unchanged incremental history replay re-enqueues a missed callback without
         presentMessage: value => ({ ...value, presented: true }),
         broadcast: (channel, event, data) => broadcasts.push({ channel, event, data }),
         emitConversationUpdate: tenantId => conversationUpdates.push(tenantId),
+        emitBrowserMessage: payload => browserMessages.push(payload),
         callbackSender: async (tenantId, event, data, options) => {
             callbackAttempts.push({ tenantId, event, data, options });
         },
@@ -212,6 +233,10 @@ test('unchanged incremental history replay re-enqueues a missed callback without
     assert.deepEqual(reconciled, [502, 502]);
     assert.deepEqual(broadcasts, []);
     assert.deepEqual(conversationUpdates, []);
+    assert.deepEqual(browserMessages, [
+        { tenantId: 4, channel: 'sms', sourceId: 'sms-account:12:message:gateway-502' },
+        { tenantId: 4, channel: 'sms', sourceId: 'sms-account:12:message:gateway-502' },
+    ]);
     assert.equal(callbackAttempts.length, 2);
     assert.equal(callbackAttempts[0].tenantId, 4);
     assert.equal(callbackAttempts[0].event, 'sms_message_received');
@@ -224,4 +249,57 @@ test('unchanged incremental history replay re-enqueues a missed callback without
         callbackAttempts[1].options.dedupeKey,
         callbackAttempts[0].options.dedupeKey,
     );
+});
+
+test('changed incremental history emits privacy-safe browser message and failure alerts', async () => {
+    const browserMessages = [];
+    const browserAlerts = [];
+    const handler = createSmsHistoryMessageHandler({
+        reconcileMessage: () => undefined,
+        presentMessage: value => value,
+        broadcast: () => undefined,
+        emitConversationUpdate: () => undefined,
+        emitBrowserMessage: payload => browserMessages.push(payload),
+        emitBrowserAlert: payload => browserAlerts.push(payload),
+        callbackSender: async () => undefined,
+    });
+
+    await handler({
+        account: { id: 12, tenant_id: 4 },
+        message: {
+            id: 601,
+            tenant_id: 4,
+            gateway_message_id: 'gateway-601',
+            direction: 'incoming',
+            status: 'received',
+            content: 'must not be copied into the notification payload',
+        },
+        phase: 'incremental',
+        changed: true,
+    });
+    await handler({
+        account: { id: 12, tenant_id: 4 },
+        message: {
+            id: 602,
+            tenant_id: 4,
+            gateway_message_id: 'gateway-602',
+            direction: 'outgoing',
+            status: 'failed',
+            content: 'also private',
+        },
+        phase: 'incremental',
+        changed: true,
+    });
+
+    assert.deepEqual(browserMessages, [{
+        tenantId: 4,
+        channel: 'sms',
+        sourceId: 'sms-account:12:message:gateway-601',
+    }]);
+    assert.deepEqual(browserAlerts, [{
+        tenantId: 4,
+        code: 'SMS_MESSAGE_FAILED',
+        sourceId: 'sms-account:12:message:gateway-602',
+        severity: 'warning',
+    }]);
 });
