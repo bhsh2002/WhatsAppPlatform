@@ -39,6 +39,16 @@ function createDatabase() {
             message_text TEXT, attachment_type TEXT, attachment_url TEXT, sticker_url TEXT,
             is_read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE sms_gateway_accounts (
+            id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT
+        );
+        CREATE TABLE sms_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, sms_account_id INTEGER,
+            gateway_message_id TEXT, external_id TEXT, group_id TEXT, direction TEXT,
+            sender TEXT, recipient TEXT, content TEXT, status TEXT, device_id TEXT,
+            sim_slot INTEGER, result_code TEXT, error_code TEXT, error_message TEXT,
+            sent_at TEXT, delivered_at TEXT, created_at DATETIME, updated_at DATETIME
+        );
         INSERT INTO tenants VALUES
             (1, 'Tenant A', 'phone/A', 'Active'),
             (2, 'Tenant B', 'phone-B', 'Active'),
@@ -156,6 +166,119 @@ test('unified conversations validate channel and merge only the current tenant s
     assert.equal(whatsapp.body[0].contact_id, '218910000001');
 });
 
+test('unified conversation filters run before pagination and remain tenant and source scoped', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const times = db.prepare(`
+        SELECT
+            datetime('now', 'localtime') AS today,
+            datetime('now', 'localtime', '-1 day') AS yesterday,
+            datetime('now', 'localtime', '+1 day') AS tomorrow,
+            datetime('now', 'localtime', '+2 days') AS after_tomorrow
+    `).get();
+    const insertWhatsApp = db.prepare(`
+        INSERT INTO messages (
+            tenant_id, direction, recipient, sender, message_type,
+            content, status, wamid, created_at
+        ) VALUES (?, ?, ?, ?, 'text', ?, ?, ?, ?)
+    `);
+
+    insertWhatsApp.run(1, 'incoming', 'phone/A', 'wa-both', 'Today unread', 'received', 'wa-both-in', times.today);
+    insertWhatsApp.run(1, 'outgoing', 'wa-both', 'phone/A', 'Future follow-up', 'sent', 'wa-both-out', times.tomorrow);
+    insertWhatsApp.run(1, 'incoming', 'phone/A', 'wa-unread-old', 'Old unread', 'received', 'wa-old', times.yesterday);
+    insertWhatsApp.run(1, 'outgoing', 'wa-today-read', 'phone/A', 'Today read', 'sent', 'wa-today', times.today);
+    insertWhatsApp.run(1, 'outgoing', 'wa-number-scope', 'phone/A', 'Selected number history', 'sent', 'wa-scope-a', times.yesterday);
+    insertWhatsApp.run(1, 'incoming', 'phone-other', 'wa-number-scope', 'Other number only', 'received', 'wa-scope-b', times.today);
+    insertWhatsApp.run(2, 'incoming', 'phone-B', 'wa-tenant-b', 'Tenant B today', 'received', 'wa-tenant-b', times.today);
+    for (let index = 0; index < 101; index += 1) {
+        insertWhatsApp.run(
+            1,
+            'outgoing',
+            `wa-future-${index}`,
+            'phone/A',
+            `Future ${index}`,
+            'sent',
+            `wa-future-${index}`,
+            times.after_tomorrow,
+        );
+    }
+
+    db.exec(`
+        INSERT INTO fb_conversations VALUES
+            (101, 1, 10, 'page/A', 'fb-both', 'FB both', NULL, 'FB future', '${times.tomorrow}', 1, 1, CURRENT_TIMESTAMP),
+            (102, 1, 10, 'page/A', 'fb-unread-old', 'FB unread old', NULL, 'FB old', '${times.yesterday}', 1, 1, CURRENT_TIMESTAMP),
+            (103, 1, 10, 'page/A', 'fb-today-read', 'FB today read', NULL, 'FB today', '${times.today}', 0, 1, CURRENT_TIMESTAMP),
+            (201, 2, 20, 'page-B', 'fb-tenant-b', 'FB tenant B', NULL, 'FB B today', '${times.today}', 1, 1, CURRENT_TIMESTAMP);
+        INSERT INTO fb_messages (
+            conversation_id, tenant_id, mid, direction, sender_id,
+            sender_name, message_text, is_read, created_at
+        ) VALUES
+            (101, 1, 'fb-both-today', 'incoming', 'fb-both', 'FB both', 'FB both today', 0, '${times.today}'),
+            (102, 1, 'fb-old-unread', 'incoming', 'fb-unread-old', 'FB unread old', 'FB old unread', 0, '${times.yesterday}'),
+            (103, 1, 'fb-read-today', 'outgoing', 'page/A', 'Page A', 'FB read today', 1, '${times.today}'),
+            (201, 2, 'fb-b-today', 'incoming', 'fb-tenant-b', 'FB tenant B', 'FB B today', 0, '${times.today}');
+        INSERT INTO sms_gateway_accounts VALUES
+            (7, 1, 'SMS A'),
+            (8, 1, 'SMS A second'),
+            (20, 2, 'SMS B');
+    `);
+    const insertSms = db.prepare(`
+        INSERT INTO sms_messages (
+            tenant_id, sms_account_id, gateway_message_id, direction,
+            sender, recipient, content, status, sent_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+    `);
+    insertSms.run(1, 7, 'sms-both-in', 'incoming', 'sms-both', null, 'SMS today unread', 'received', times.today);
+    insertSms.run(1, 7, 'sms-both-out', 'outgoing', null, 'sms-both', 'SMS future follow-up', 'sent', times.tomorrow);
+    insertSms.run(1, 7, 'sms-unread-old', 'incoming', 'sms-unread-old', null, 'SMS old unread', 'received', times.yesterday);
+    insertSms.run(1, 7, 'sms-today-read', 'outgoing', null, 'sms-today-read', 'SMS today read', 'sent', times.today);
+    insertSms.run(1, 7, 'sms-account-old', 'incoming', 'sms-account-scope', null, 'First account old', 'received', times.yesterday);
+    insertSms.run(1, 8, 'sms-account-today', 'outgoing', null, 'sms-account-scope', 'Second account today', 'sent', times.today);
+    insertSms.run(2, 20, 'sms-tenant-b', 'incoming', 'sms-tenant-b', null, 'SMS B today', 'received', times.today);
+
+    const { router } = createRouter(db, { smsGateway: {} });
+    const unread = await invoke(router, 'get', '/unified/conversations', {
+        query: { unread: '1' },
+    });
+    const today = await invoke(router, 'get', '/unified/conversations', {
+        query: { period: 'today' },
+    });
+    const combined = await invoke(router, 'get', '/unified/conversations', {
+        query: { unread: '1', period: 'today' },
+    });
+
+    const includes = (rows, channel, contactId, smsAccountId = null) => rows.some(row => (
+        row.channel === channel
+        && row.contact_id === contactId
+        && (smsAccountId == null || row.sms_account_id === smsAccountId)
+    ));
+    assert.equal(unread.statusCode, 200);
+    assert.ok(includes(unread.body, 'whatsapp', 'wa-unread-old'));
+    assert.ok(includes(unread.body, 'messenger', 'fb-unread-old'));
+    assert.ok(includes(unread.body, 'sms', 'sms-unread-old', 7));
+    assert.equal(includes(unread.body, 'whatsapp', 'wa-today-read'), false);
+    assert.equal(includes(unread.body, 'messenger', 'fb-today-read'), false);
+    assert.equal(includes(unread.body, 'sms', 'sms-today-read', 7), false);
+
+    assert.equal(today.statusCode, 200);
+    assert.ok(includes(today.body, 'whatsapp', 'wa-today-read'));
+    assert.ok(includes(today.body, 'messenger', 'fb-today-read'));
+    assert.ok(includes(today.body, 'sms', 'sms-today-read', 7));
+    assert.equal(includes(today.body, 'whatsapp', 'wa-unread-old'), false);
+    assert.equal(includes(today.body, 'messenger', 'fb-unread-old'), false);
+    assert.equal(includes(today.body, 'sms', 'sms-unread-old', 7), false);
+
+    assert.equal(combined.statusCode, 200);
+    assert.ok(includes(combined.body, 'whatsapp', 'wa-both'));
+    assert.ok(includes(combined.body, 'messenger', 'fb-both'));
+    assert.ok(includes(combined.body, 'sms', 'sms-both', 7));
+    assert.equal(includes(combined.body, 'whatsapp', 'wa-number-scope'), false);
+    assert.equal(includes(combined.body, 'sms', 'sms-account-scope', 7), false);
+    assert.equal(includes(combined.body, 'sms', 'sms-account-scope', 8), false);
+    assert.ok(combined.body.every(row => row.tenant_id === 1));
+    assert.doesNotMatch(JSON.stringify(combined.body), /tenant-b|Tenant B/);
+});
+
 test('unified message reads mark only the owned WhatsApp or Messenger conversation as read', async (t) => {
     const db = createDatabase();
     t.after(() => db.close());
@@ -262,6 +385,35 @@ test('Messenger unified send enforces page ownership and releases billing outsid
     assert.equal(outsideWindow.body.error_code, 'OUTSIDE_WINDOW');
     assert.equal(billing.calls.releases.length, 1);
     assert.equal(db.prepare("SELECT COUNT(*) count FROM fb_messages WHERE mid = 'fb-new'").get().count, 1);
+});
+
+test('SMS unified send rejects a missing account instead of using a tenant default', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    let accountChecks = 0;
+    let sends = 0;
+    const smsGateway = {
+        requireActiveAccount() {
+            accountChecks += 1;
+            return { id: 7, tenant_id: 1, status: 'active' };
+        },
+        async send() {
+            sends += 1;
+            throw new Error('send must not be reached');
+        },
+    };
+    const { router, billing } = createRouter(db, { smsGateway });
+
+    const response = await invoke(router, 'post', '/unified/:channel/:id/send', {
+        params: { channel: 'sms', id: '218910000009' },
+        body: { message: 'Must choose an account' },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.code, 'SMS_ACCOUNT_REQUIRED');
+    assert.equal(accountChecks, 0);
+    assert.equal(sends, 0);
+    assert.equal(billing.calls.reserves.length, 0);
 });
 
 test('SMS unified send preserves billing and idempotency after Gateway acceptance', async (t) => {

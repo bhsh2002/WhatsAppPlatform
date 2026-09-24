@@ -3,6 +3,7 @@ import {
     Box,
     Grid,
     Card,
+    CardActionArea,
     CardContent,
     Typography,
     Button,
@@ -18,27 +19,121 @@ import {
 } from '@mui/material';
 import {
     Chat as ChatIcon,
-    Send as SendIcon,
-    Inbox as InboxIcon,
     Description as TemplateIcon,
     NotificationsActive as UnreadIcon,
     Refresh as RefreshIcon,
     History as HistoryIcon,
     AccountBalanceWallet as CreditsIcon,
-    WhatsApp as WhatsAppIcon,
-    Facebook as FacebookIcon,
-    EventAvailable as SubscriptionIcon
+    EventAvailable as SubscriptionIcon,
+    Sms as SmsIcon,
+    ArrowForward as ArrowForwardIcon,
 } from '@mui/icons-material';
+import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
+import { buildTenantDashboardCards } from './dashboardPresentation';
 
 const EXPIRY_WARNING_DAYS = 7;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+const STAT_ICONS = Object.freeze({
+    conversations: <ChatIcon />,
+    messages: <ChatIcon />,
+    templates: <TemplateIcon />,
+    unread: <UnreadIcon />,
+    credits: <CreditsIcon />,
+    subscription: <SubscriptionIcon />,
+    sms: <SmsIcon />,
+});
+
+const StatCard = ({ title, value, icon, color, description, actionLabel, to, direction, loading }) => (
+    <Card
+        component="article"
+        elevation={0}
+        sx={{
+            height: '100%',
+            minHeight: 196,
+            overflow: 'hidden',
+            border: 1,
+            borderColor: 'divider',
+            borderBlockStart: '4px solid',
+            borderBlockStartColor: `${color}.main`,
+        }}
+    >
+        <CardActionArea
+            component={RouterLink}
+            to={to}
+            sx={{
+                height: '100%',
+                alignItems: 'stretch',
+                transition: theme => theme.transitions.create(['background-color', 'box-shadow']),
+                '&:hover': {
+                    bgcolor: 'action.hover',
+                    boxShadow: 2,
+                },
+                '&.Mui-focusVisible': {
+                    outline: '3px solid',
+                    outlineColor: `${color}.main`,
+                    outlineOffset: -3,
+                },
+            }}
+        >
+            <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: { xs: 2, md: 2.5 } }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, mb: 1.5 }}>
+                    <Typography variant="subtitle2" component="h3" color="text.secondary" fontWeight={600}>
+                        {title}
+                    </Typography>
+                    <Box sx={{
+                        width: 42,
+                        height: 42,
+                        flexShrink: 0,
+                        borderRadius: 2.5,
+                        bgcolor: `${color}.main`,
+                        color: `${color}.contrastText`,
+                        display: 'grid',
+                        placeItems: 'center',
+                    }}>
+                        {icon}
+                    </Box>
+                </Box>
+                <Typography variant="h4" component="p" fontWeight={700} sx={{ lineHeight: 1.25, mb: 0.75 }}>
+                    {loading ? '—' : value}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ minHeight: '2.6em' }}>
+                    {description}
+                </Typography>
+                <Box sx={{
+                    mt: 'auto',
+                    pt: 1.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                }}>
+                    <Typography
+                        variant="caption"
+                        fontWeight={700}
+                        color={color === 'info' ? 'info.dark' : `${color}.main`}
+                    >
+                        {actionLabel}
+                    </Typography>
+                    <ArrowForwardIcon
+                        aria-hidden="true"
+                        sx={{
+                            color: `${color}.main`,
+                            fontSize: 17,
+                            transform: direction === 'rtl' ? 'scaleX(-1)' : 'none',
+                        }}
+                    />
+                </Box>
+            </CardContent>
+        </CardActionArea>
+    </Card>
+);
+
 const TenantDashboard = () => {
     const { tenant } = useAuth();
-    const { locale, t } = useLanguage();
+    const { direction, locale, t } = useLanguage();
     const [dashboardData, setDashboardData] = useState(null);
     const [billingSummary, setBillingSummary] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -83,35 +178,6 @@ const TenantDashboard = () => {
         return translated === `dashboard.events.${event}` ? event : translated;
     };
 
-    const StatCard = ({ title, value, icon, color, description }) => (
-        <Card elevation={0} sx={{ height: '100%', borderTop: '3px solid', borderTopColor: `${color}.main` }}>
-            <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Typography variant="subtitle2" component="p" color="text.secondary">
-                        {title}
-                    </Typography>
-                    <Box sx={{
-                        p: 1,
-                        borderRadius: '12px 12px 3px 12px',
-                        bgcolor: `${color}.light`,
-                        color: `${color}.main`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}>
-                        {icon}
-                    </Box>
-                </Box>
-                <Typography variant="h4" component="p" fontWeight={600} gutterBottom>
-                    {loading ? '-' : value}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                    {description}
-                </Typography>
-            </CardContent>
-        </Card>
-    );
-
     if (error) {
         return (
             <Box sx={{ p: 3 }}>
@@ -129,11 +195,11 @@ const TenantDashboard = () => {
     const stats = dashboardData?.stats || {};
     const recentActivity = dashboardData?.recentActivity || [];
     const formatNumber = (value) => Number(value || 0).toLocaleString(locale);
-    const formatDateTime = (value) => {
+    const formatDate = (value) => {
         if (!value) return t('common.notSet');
         const parsed = new Date(String(value).replace(' ', 'T'));
         if (Number.isNaN(parsed.getTime())) return value;
-        return parsed.toLocaleString(locale);
+        return parsed.toLocaleDateString(locale, { dateStyle: 'medium' });
     };
     const cycleEnd = billingSummary?.account?.billing_cycle_end || null;
     const cycleEndDate = cycleEnd ? new Date(String(cycleEnd).replace(' ', 'T')) : null;
@@ -144,8 +210,17 @@ const TenantDashboard = () => {
     const cycleNearExpiry = !cycleExpired && daysUntilExpiry !== null && daysUntilExpiry <= EXPIRY_WARNING_DAYS;
     const cycleStatusColor = !cycleEnd ? 'info' : (cycleExpired ? 'error' : (cycleNearExpiry ? 'warning' : 'success'));
     const cycleCaption = cycleExpired
-        ? 'منتهي'
-        : (cycleNearExpiry ? `ينتهي خلال ${formatNumber(daysUntilExpiry)} يوم` : (cycleEnd ? 'نشط' : t('common.notSet')));
+        ? t('dashboard.subscriptionExpired')
+        : (cycleNearExpiry
+            ? t('dashboard.subscriptionEndsInDays', { count: formatNumber(daysUntilExpiry) })
+            : (cycleEnd ? t('dashboard.subscriptionActive') : t('common.notSet')));
+    const dashboardCards = buildTenantDashboardCards({
+        stats,
+        credits: dashboardData?.tenant?.credits,
+        formattedCycleEnd: formatDate(cycleEnd),
+        cycleCaption,
+        cycleColor: cycleStatusColor,
+    });
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -171,134 +246,42 @@ const TenantDashboard = () => {
 
             {cycleExpired && (
                 <Alert severity="error" sx={{ mb: 3 }}>
-                    انتهت فترة الاشتراك، ولا يمكن تنفيذ عمليات جديدة حتى يتم تجديد الباقة.
+                    {t('dashboard.subscriptionExpiredNotice')}
                 </Alert>
             )}
             {cycleNearExpiry && (
                 <Alert severity="warning" sx={{ mb: 3 }}>
-                    فترة الاشتراك ستنتهي خلال {formatNumber(daysUntilExpiry)} يوم. يرجى التواصل مع الإدارة لتجديد الباقة.
+                    {t('dashboard.subscriptionExpiringNotice', { count: formatNumber(daysUntilExpiry) })}
                 </Alert>
             )}
 
-            {/* Stats Grid */}
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.totalConversations')}
-                        value={formatNumber(stats.totalConversations)}
-                        icon={<ChatIcon />}
-                        color="primary"
-                        description={t('dashboard.whatsappMessenger')}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.sentToday')}
-                        value={formatNumber(stats.sentToday)}
-                        icon={<SendIcon />}
-                        color="success"
-                        description={t('dashboard.whatsappMessenger')}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.receivedToday')}
-                        value={formatNumber(stats.receivedToday)}
-                        icon={<InboxIcon />}
-                        color="info"
-                        description={t('dashboard.whatsappMessenger')}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.unreadMessages')}
-                        value={formatNumber(stats.unreadCount)}
-                        icon={<UnreadIcon />}
-                        color="warning"
-                        description={t('dashboard.whatsappMessenger')}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.templates')}
-                        value={formatNumber(stats.templatesCount)}
-                        icon={<TemplateIcon />}
-                        color="secondary"
-                        description="WhatsApp"
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.messagesToday')}
-                        value={formatNumber(stats.messagesToday)}
-                        icon={<ChatIcon />}
-                        color="primary"
-                        description={t('dashboard.whatsappMessenger')}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title={t('dashboard.remainingCredits')}
-                        value={dashboardData?.tenant?.credits ?? '—'}
-                        icon={<CreditsIcon />}
-                        color={
-                            (dashboardData?.tenant?.credits ?? 999) > 100 ? 'success' :
-                            (dashboardData?.tenant?.credits ?? 999) >= 10 ? 'warning' : 'error'
-                        }
-                        description={t('dashboard.messageCredits')}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <StatCard
-                        title="انتهاء الاشتراك"
-                        value={formatDateTime(cycleEnd)}
-                        icon={<SubscriptionIcon />}
-                        color={cycleStatusColor}
-                        description={cycleCaption}
-                    />
-                </Grid>
-            </Grid>
-
-            <Typography variant="h6" component="h2" fontWeight={600} sx={{ mb: 2 }}>
-                {t('dashboard.channelSummary')}
+            <Typography variant="h6" component="h2" fontWeight={700} sx={{ mb: 2 }}>
+                {t('dashboard.keyMetrics')}
             </Typography>
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                    <StatCard
-                        title={t('dashboard.whatsappToday')}
-                        value={formatNumber(stats.whatsappMessagesToday)}
-                        icon={<WhatsAppIcon />}
-                        color="success"
-                        description={t('dashboard.sentReceived', { sent: formatNumber(stats.whatsappSentToday), received: formatNumber(stats.whatsappReceivedToday) })}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                    <StatCard
-                        title={t('dashboard.messengerToday')}
-                        value={formatNumber(stats.messengerMessagesToday)}
-                        icon={<FacebookIcon />}
-                        color="primary"
-                        description={t('dashboard.sentReceived', { sent: formatNumber(stats.messengerSentToday), received: formatNumber(stats.messengerReceivedToday) })}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                    <StatCard
-                        title={t('dashboard.messengerConversations')}
-                        value={formatNumber(stats.messengerConversations)}
-                        icon={<FacebookIcon />}
-                        color="info"
-                        description={t('dashboard.unreadCount', { count: formatNumber(stats.messengerUnread) })}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                    <StatCard
-                        title={t('dashboard.facebookPages')}
-                        value={formatNumber(stats.linkedFacebookPages)}
-                        icon={<FacebookIcon />}
-                        color="secondary"
-                        description={t('dashboard.facebookActionsWeek', { count: formatNumber(stats.facebookActionsWeek) })}
-                    />
-                </Grid>
+            <Grid container spacing={{ xs: 1.5, sm: 2, md: 2.5 }} sx={{ mb: 4 }}>
+                {dashboardCards.map(card => {
+                    const descriptionValues = Object.fromEntries(
+                        Object.entries(card.descriptionValues || {}).map(([key, value]) => [key, formatNumber(value)])
+                    );
+                    const description = card.description
+                        ?? t(card.descriptionKey, descriptionValues);
+                    const value = typeof card.value === 'number' ? formatNumber(card.value) : card.value;
+                    return (
+                        <Grid key={card.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+                            <StatCard
+                                title={t(card.titleKey)}
+                                value={value}
+                                icon={STAT_ICONS[card.icon]}
+                                color={card.color}
+                                description={description}
+                                actionLabel={t(card.actionKey)}
+                                to={card.to}
+                                direction={direction}
+                                loading={loading}
+                            />
+                        </Grid>
+                    );
+                })}
             </Grid>
 
             {/* Low Credit Alert */}
@@ -322,7 +305,8 @@ const TenantDashboard = () => {
                     <Button
                         color="primary"
                         endIcon={<HistoryIcon />}
-                        href="/portal/inbox"
+                        component={RouterLink}
+                        to="/portal/inbox"
                     >
                         {t('dashboard.viewInbox')}
                     </Button>

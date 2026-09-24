@@ -22,6 +22,7 @@ test('tenant dashboard aggregates remain scoped on an isolated database', () => 
                 JWT_SECRET: 'tenant-dashboard-test-secret-that-is-long-enough',
                 CRYPTO_KEY: 'ef'.repeat(32),
                 NODE_ENV: 'test',
+                TZ: 'Africa/Tripoli',
             },
             encoding: 'utf8',
             timeout: 30_000,
@@ -31,7 +32,7 @@ test('tenant dashboard aggregates remain scoped on an isolated database', () => 
         const lastLine = result.stdout.trim().split('\n').at(-1);
         assert.deepEqual(JSON.parse(lastLine), {
             aggregateCounts: true,
-            whatsappAndMessengerIsolation: true,
+            channelIsolation: true,
             pageAndTemplateIsolation: true,
             activityAllowlistAndIsolation: true,
             tenantSecretRedaction: true,

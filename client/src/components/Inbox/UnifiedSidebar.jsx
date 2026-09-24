@@ -4,6 +4,7 @@ import {
     TextField,
     List,
     ListItem,
+    ListItemButton,
     ListItemAvatar,
     ListItemText,
     Avatar,
@@ -16,7 +17,8 @@ import {
     IconButton,
     Tooltip,
     CircularProgress,
-    Divider
+    Divider,
+    Button,
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -24,7 +26,8 @@ import {
     WhatsApp as WhatsAppIcon,
     Facebook as FacebookIcon,
     Sms as SmsIcon,
-    Sync as SyncIcon
+    Sync as SyncIcon,
+    AddComment as AddCommentIcon,
 } from '@mui/icons-material';
 import { getUnifiedConversationKey } from '../../utils/conversationKeys';
 import { useLanguage } from '../../context/LanguageContext';
@@ -60,9 +63,14 @@ const UnifiedSidebar = ({
     setSearchTerm,
     channelFilter,
     setChannelFilter,
+    unreadOnly = false,
+    periodFilter = '',
+    onClearUnread,
+    onClearPeriod,
     onRefresh,
     onSyncMessenger,
-    syncing
+    syncing,
+    onComposeMessage,
 }) => {
     const { locale, t } = useLanguage();
     const channelSections = [
@@ -75,7 +83,7 @@ const UnifiedSidebar = ({
         {
             value: 'sms',
             title: 'SMS',
-            subtitle: 'رسائل SMS الواردة والصادرة',
+            subtitle: t('inbox.smsSubtitle'),
             icon: <SmsIcon sx={{ fontSize: 18, color: '#7c3aed' }} />,
         },
         {
@@ -109,65 +117,68 @@ const UnifiedSidebar = ({
         return (
             <ListItem
                 key={getUnifiedConversationKey(conv)}
-                button
-                selected={isSelected}
-                onClick={() => onSelectChat(conv)}
-                sx={{
-                    borderBottom: 1,
-                    borderColor: 'divider',
-                    borderInlineStart: `3px solid ${channelColor}`,
-                    '&.Mui-selected': {
-                        bgcolor: conv.channel === 'whatsapp' ? '#25D36612' : conv.channel === 'sms' ? '#7c3aed12' : '#1877f212',
-                    },
-                    '&:hover': {
-                        bgcolor: conv.channel === 'whatsapp' ? '#25D3660c' : conv.channel === 'sms' ? '#7c3aed0c' : '#1877f20c',
-                    },
-                    px: 1.5,
-                }}
+                disablePadding
             >
-                <ListItemAvatar sx={{ minWidth: 48 }}>
-                    <Badge
-                        badgeContent={conv.unread_count || 0}
-                        color="error"
-                        invisible={!conv.unread_count}
-                    >
-                        <Avatar
-                            src={conv.avatar_url || undefined}
-                            sx={{ bgcolor: conv.avatar_url ? undefined : channelColor + '22', width: 40, height: 40 }}
+                <ListItemButton
+                    selected={isSelected}
+                    onClick={() => onSelectChat(conv)}
+                    sx={{
+                        borderBottom: 1,
+                        borderColor: 'divider',
+                        borderInlineStart: `3px solid ${channelColor}`,
+                        '&.Mui-selected': {
+                            bgcolor: conv.channel === 'whatsapp' ? '#25D36612' : conv.channel === 'sms' ? '#7c3aed12' : '#1877f212',
+                        },
+                        '&:hover': {
+                            bgcolor: conv.channel === 'whatsapp' ? '#25D3660c' : conv.channel === 'sms' ? '#7c3aed0c' : '#1877f20c',
+                        },
+                        px: 1.5,
+                    }}
+                >
+                    <ListItemAvatar sx={{ minWidth: 48 }}>
+                        <Badge
+                            badgeContent={conv.unread_count || 0}
+                            color="error"
+                            invisible={!conv.unread_count}
                         >
-                            {displayName.charAt(0)?.toUpperCase() || '?'}
-                        </Avatar>
-                    </Badge>
-                </ListItemAvatar>
-                <ListItemText
-                    primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                            <Typography
-                                variant="body2"
-                                fontWeight={conv.unread_count ? 700 : 500}
-                                sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            <Avatar
+                                src={conv.avatar_url || undefined}
+                                sx={{ bgcolor: conv.avatar_url ? undefined : channelColor + '22', width: 40, height: 40 }}
                             >
-                                {displayName}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                                {formatDate(conv.last_message_time, t, locale)}
-                            </Typography>
-                        </Box>
-                    }
-                    sx={{ minWidth: 0 }}
-                    secondary={
-                        <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2" color="text.secondary" noWrap sx={{ fontSize: 12 }}>
-                                {conv.last_message || '—'}
-                            </Typography>
-                            {detailParts.length > 0 && (
-                                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                                    {detailParts.join(' • ')}
+                                {displayName.charAt(0)?.toUpperCase() || '?'}
+                            </Avatar>
+                        </Badge>
+                    </ListItemAvatar>
+                    <ListItemText
+                        primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                                <Typography
+                                    variant="body2"
+                                    fontWeight={conv.unread_count ? 700 : 500}
+                                    sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                >
+                                    {displayName}
                                 </Typography>
-                            )}
-                        </Box>
-                    }
-                />
+                                <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                                    {formatDate(conv.last_message_time, t, locale)}
+                                </Typography>
+                            </Box>
+                        }
+                        sx={{ minWidth: 0 }}
+                        secondary={
+                            <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="body2" color="text.secondary" noWrap sx={{ fontSize: 12 }}>
+                                    {conv.last_message || '—'}
+                                </Typography>
+                                {detailParts.length > 0 && (
+                                    <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                                        {detailParts.join(' • ')}
+                                    </Typography>
+                                )}
+                            </Box>
+                        }
+                    />
+                </ListItemButton>
             </ListItem>
         );
     };
@@ -200,15 +211,29 @@ const UnifiedSidebar = ({
                         )}
                     </Box>
                 </Box>
+                {onComposeMessage && (
+                    <Button
+                        fullWidth
+                        variant="contained"
+                        startIcon={<AddCommentIcon />}
+                        onClick={onComposeMessage}
+                        sx={{ mb: 1.25 }}
+                    >
+                        {t('inbox.newMessage')}
+                    </Button>
+                )}
                 <Tabs
                     value={channelFilter || 'all'}
                     onChange={(_, value) => setChannelFilter(value === 'all' ? '' : value)}
-                    variant="fullWidth"
+                    variant="scrollable"
+                    scrollButtons="auto"
+                    allowScrollButtonsMobile
                     sx={{
                         minHeight: 36,
                         mb: 1,
                         '& .MuiTab-root': {
                             minHeight: 36,
+                            minWidth: 'auto',
                             px: 1,
                             fontSize: 12,
                             fontWeight: 700,
@@ -220,12 +245,39 @@ const UnifiedSidebar = ({
                     <Tab value="sms" icon={<SmsIcon sx={{ fontSize: 16, color: '#7c3aed' }} />} iconPosition="start" label="SMS" />
                     <Tab value="messenger" icon={<FacebookIcon sx={{ fontSize: 16, color: '#1877f2' }} />} iconPosition="start" label="Facebook" />
                 </Tabs>
+                {(unreadOnly || periodFilter === 'today') && (
+                    <Box
+                        sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}
+                    >
+                        {unreadOnly && (
+                            <Chip
+                                label={t('inbox.filterUnread')}
+                                aria-label={t('inbox.clearFilter', { filter: t('inbox.filterUnread') })}
+                                size="small"
+                                color="warning"
+                                variant="outlined"
+                                onDelete={onClearUnread}
+                            />
+                        )}
+                        {periodFilter === 'today' && (
+                            <Chip
+                                label={t('inbox.filterToday')}
+                                aria-label={t('inbox.clearFilter', { filter: t('inbox.filterToday') })}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                                onDelete={onClearPeriod}
+                            />
+                        )}
+                    </Box>
+                )}
                 <TextField
                     fullWidth
                     size="small"
                     placeholder={t('inbox.searchPlaceholder')}
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
+                    inputProps={{ 'aria-label': t('inbox.searchPlaceholder') }}
                     InputProps={{
                         startAdornment: (
                             <InputAdornment position="start">

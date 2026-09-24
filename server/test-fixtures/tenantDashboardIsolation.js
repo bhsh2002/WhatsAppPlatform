@@ -92,6 +92,78 @@ insertMessengerMessage.run(activeConversationA, tenantA, 'mid-a-in', 'incoming',
 insertMessengerMessage.run(activeConversationA, tenantA, 'mid-a-out', 'outgoing', 'page-a-active', 'Messenger outgoing A');
 insertMessengerMessage.run(activeConversationB, tenantB, 'mid-b-in', 'incoming', 'psid-b-active', 'Messenger incoming B');
 
+const insertSmsAccount = db.prepare(`
+    INSERT INTO sms_gateway_accounts (
+        tenant_id, name, base_url, api_key_encrypted, credential_fingerprint,
+        webhook_secret_encrypted, webhook_key, enabled, is_default, status
+    ) VALUES (?, ?, 'https://sms.example.test', ?, ?, ?, ?, ?, ?, ?)
+`);
+const smsAccountA = Number(insertSmsAccount.run(
+    tenantA,
+    'SMS A',
+    'encrypted-api-a',
+    'fingerprint-dashboard-a',
+    'encrypted-webhook-a',
+    'webhook-dashboard-a',
+    1,
+    1,
+    'active',
+).lastInsertRowid);
+const smsAccountAError = Number(insertSmsAccount.run(
+    tenantA,
+    'SMS A degraded',
+    'encrypted-api-a-degraded',
+    'fingerprint-dashboard-a-degraded',
+    'encrypted-webhook-a-degraded',
+    'webhook-dashboard-a-degraded',
+    1,
+    0,
+    'error',
+).lastInsertRowid);
+insertSmsAccount.run(
+    tenantA,
+    'SMS A disabled',
+    'encrypted-api-a-disabled',
+    'fingerprint-dashboard-a-disabled',
+    'encrypted-webhook-a-disabled',
+    'webhook-dashboard-a-disabled',
+    0,
+    0,
+    'disabled',
+);
+const smsAccountB = Number(insertSmsAccount.run(
+    tenantB,
+    'SMS B',
+    'encrypted-api-b',
+    'fingerprint-dashboard-b',
+    'encrypted-webhook-b',
+    'webhook-dashboard-b',
+    1,
+    1,
+    'active',
+).lastInsertRowid);
+const smsTimes = db.prepare(`
+    SELECT
+        strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AS current_event,
+        date('now', 'localtime') || 'T00:30:00+02:00' AS local_day_boundary_event,
+        datetime('now', 'localtime') AS current_import
+`).get();
+const insertSmsMessage = db.prepare(`
+    INSERT INTO sms_messages (
+        tenant_id, sms_account_id, gateway_message_id, direction,
+        sender, recipient, content, status, sent_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-out', 'outgoing', null, '218910001111', 'A sent', 'sent', smsTimes.current_event, smsTimes.current_import);
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-failed', 'outgoing', null, '218910001111', 'A failed', 'failed', smsTimes.current_event, smsTimes.current_import);
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-canceled', 'outgoing', null, '218910001111', 'A canceled', 'canceled', smsTimes.current_event, smsTimes.current_import);
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-in', 'incoming', '218910001111', null, 'A received', 'received', smsTimes.current_event, smsTimes.current_import);
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-pending', 'outgoing', null, '218910002222', 'A pending', 'pending', smsTimes.current_event, smsTimes.current_import);
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-delivered', 'outgoing', null, '218910003333', 'A delivered', 'delivered', smsTimes.local_day_boundary_event, '2000-01-01 00:00:00');
+insertSmsMessage.run(tenantA, smsAccountA, 'sms-a-backfill', 'outgoing', null, '218910004444', 'A historical import', 'sent', '2000-01-01T12:00:00Z', smsTimes.current_import);
+insertSmsMessage.run(tenantA, smsAccountAError, 'sms-a-second-account', 'outgoing', null, '218910001111', 'A second account', 'sent', smsTimes.current_event, smsTimes.current_import);
+insertSmsMessage.run(tenantB, smsAccountB, 'sms-b-in', 'incoming', '218910005555', null, 'B received', 'received', smsTimes.current_event, smsTimes.current_import);
+
 const insertTemplate = db.prepare(`
     INSERT INTO templates (tenant_id, name, body, status)
     VALUES (?, ?, ?, 'approved')
@@ -134,11 +206,11 @@ assert.deepEqual(dashboardA.res.body.tenant, {
 assert.equal('access_token' in dashboardA.res.body.tenant, false);
 assert.equal('webhook_secret' in dashboardA.res.body.tenant, false);
 assert.deepEqual(dashboardA.res.body.stats, {
-    totalConversations: 3,
-    messagesToday: 5,
-    sentToday: 2,
-    receivedToday: 3,
-    unreadCount: 4,
+    totalConversations: 8,
+    messagesToday: 12,
+    sentToday: 5,
+    receivedToday: 4,
+    unreadCount: 5,
     templatesCount: 2,
     whatsappConversations: 2,
     whatsappMessagesToday: 3,
@@ -150,6 +222,14 @@ assert.deepEqual(dashboardA.res.body.stats, {
     messengerSentToday: 1,
     messengerReceivedToday: 1,
     messengerUnread: 3,
+    smsConversations: 5,
+    smsMessagesToday: 7,
+    smsSentToday: 3,
+    smsPendingToday: 1,
+    smsReceivedToday: 1,
+    smsFailedToday: 2,
+    smsUnread: 1,
+    smsAccounts: 2,
     linkedFacebookPages: 1,
     facebookActionsWeek: 2,
 });
@@ -167,6 +247,14 @@ const dashboardB = await invokeRoute('get', '/', {
 assert.equal(dashboardB.res.statusCode, 200);
 assert.equal(dashboardB.res.body.stats.whatsappConversations, 1);
 assert.equal(dashboardB.res.body.stats.messengerConversations, 1);
+assert.equal(dashboardB.res.body.stats.smsConversations, 1);
+assert.equal(dashboardB.res.body.stats.smsMessagesToday, 1);
+assert.equal(dashboardB.res.body.stats.smsSentToday, 0);
+assert.equal(dashboardB.res.body.stats.smsPendingToday, 0);
+assert.equal(dashboardB.res.body.stats.smsReceivedToday, 1);
+assert.equal(dashboardB.res.body.stats.smsFailedToday, 0);
+assert.equal(dashboardB.res.body.stats.smsUnread, 1);
+assert.equal(dashboardB.res.body.stats.smsAccounts, 1);
 assert.equal(dashboardB.res.body.stats.templatesCount, 1);
 assert.equal(dashboardB.res.body.stats.linkedFacebookPages, 1);
 assert.ok(dashboardB.res.body.recentActivity.some(item => item.description === 'B marker must stay hidden'));
@@ -179,7 +267,7 @@ assert.equal(missingTenant.res.statusCode, 404);
 db.close();
 console.log(JSON.stringify({
     aggregateCounts: true,
-    whatsappAndMessengerIsolation: true,
+    channelIsolation: true,
     pageAndTemplateIsolation: true,
     activityAllowlistAndIsolation: true,
     tenantSecretRedaction: true,

@@ -45,15 +45,23 @@ const getDateKey = (dateStr) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const smsStatusLabel = value => ({
-    scheduled: 'مجدولة',
-    pending: 'قيد الإرسال',
-    queued: 'في قائمة الإرسال',
-    sent: 'أُرسلت',
-    delivered: 'تم التسليم',
-    failed: 'فشل الإرسال',
-    canceled: 'ملغاة',
-}[String(value || '').toLowerCase()] || String(value || ''));
+const smsStatusTranslationKeys = {
+    scheduled: 'inbox.smsStatusScheduled',
+    pending: 'inbox.smsStatusPending',
+    queued: 'inbox.smsStatusQueued',
+    sent: 'inbox.smsStatusSent',
+    delivered: 'inbox.smsStatusDelivered',
+    failed: 'inbox.smsStatusFailed',
+    canceled: 'inbox.smsStatusCanceled',
+    cancelled: 'inbox.smsStatusCanceled',
+    rejected: 'inbox.smsStatusRejected',
+};
+
+const smsStatusLabel = (value, t) => {
+    const normalizedValue = String(value || '').toLowerCase();
+    const translationKey = smsStatusTranslationKeys[normalizedValue];
+    return translationKey ? t(translationKey) : String(value || '');
+};
 
 // Messenger message bubble
 const ChannelBubble = ({ msg, channel }) => {
@@ -100,10 +108,13 @@ const ChannelBubble = ({ msg, channel }) => {
                 }}>
                     {formatTime(msg?.created_at || '', locale)}
                     {channel === 'sms' && isOutgoing && msg?.status
-                        ? ` • ${smsStatusLabel(msg.status)}`
+                        ? ` • ${smsStatusLabel(msg.status, t)}`
                         : ''}
                 </Typography>
-                {channel === 'sms' && isOutgoing && msg?.status === 'failed' && msg?.error_message && (
+                {channel === 'sms'
+                    && isOutgoing
+                    && ['failed', 'rejected', 'canceled', 'cancelled'].includes(String(msg?.status).toLowerCase())
+                    && msg?.error_message && (
                     <Typography variant="caption" sx={{ display: 'block', mt: 0.25, opacity: 0.85 }}>
                         {msg.error_message}
                     </Typography>
@@ -241,7 +252,7 @@ const UnifiedChatWindow = ({
                 borderColor: 'divider',
                 bgcolor: 'background.paper',
             }}>
-                <IconButton aria-label="Back to conversations" sx={{ display: { md: 'none' } }} onClick={onBack}>
+                <IconButton aria-label={t('inbox.backToConversations')} sx={{ display: { md: 'none' } }} onClick={onBack}>
                     <ArrowBackIcon />
                 </IconButton>
                 <Avatar
@@ -359,7 +370,7 @@ const UnifiedChatWindow = ({
             <Paper sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }} elevation={0}>
                 {!canSend && (
                     <Alert severity="info" sx={{ mb: 1 }}>
-                        لا يمكن الرد على مرسل SMS غير رقمي، لكن تبقى رسائله محفوظة في السجل.
+                        {t('inbox.nonNumericSmsSender')}
                     </Alert>
                 )}
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
@@ -367,7 +378,7 @@ const UnifiedChatWindow = ({
                         <Tooltip title={productCapability.reason || ''} arrow>
                             <span>
                                 <IconButton
-                                    aria-label="إدراج منتج مرتبط"
+                                    aria-label={t('inbox.insertIntegratedProduct')}
                                     onClick={() => setProductPickerOpen(true)}
                                     disabled={!productCapability.enabled}
                                     sx={{ flexShrink: 0 }}

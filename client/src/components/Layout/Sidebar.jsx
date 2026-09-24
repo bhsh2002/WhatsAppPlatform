@@ -31,7 +31,6 @@ import {
     Business as BusinessIcon,
     Facebook as FacebookIcon,
     Handshake as HandshakeIcon,
-    TrendingUp as TrendingUpIcon,
     PhoneCallback as PhoneCallbackIcon,
     Webhook as WebhookSubIcon,
     ContactPhone as ContactPhoneIcon,
@@ -39,7 +38,6 @@ import {
     BarChart as BarChartIcon,
     ReportProblem as ReportProblemIcon,
     SmartToy as SmartToyIcon,
-    FactCheck as FactCheckIcon,
     AccountBalanceWallet as BillingIcon,
     Language as LanguageIcon,
     PointOfSale as PosIcon,
@@ -49,15 +47,19 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
+import WhatsAppNumberSelector from '../WhatsApp/WhatsAppNumberSelector';
 
-const Sidebar = () => {
+const Sidebar = ({ onNavigate }) => {
     const { user, tenant, logout, isTenant, isAdmin } = useAuth();
     const { language, setLanguage, t } = useLanguage();
+    const { numbers } = useWhatsAppNumbers();
     const navigate = useNavigate();
     const location = useLocation();
     const sidebarId = useId();
 
     const handleLogout = () => {
+        onNavigate?.();
         logout();
         navigate('/login');
     };
@@ -114,23 +116,32 @@ const Sidebar = () => {
                 { label: t('nav.dashboard'), path: '/portal', icon: <DashboardIcon /> },
                 { label: t('nav.inbox'), path: '/portal/inbox', icon: <InboxIcon /> },
                 { label: t('nav.tenantBilling'), path: '/portal/billing', icon: <BillingIcon /> },
-                { label: t('nav.posIntegration'), path: '/portal/integrations', icon: <PosIcon /> },
-                { label: 'حسابات SMS', path: '/portal/integrations/sms', icon: <SmsIcon /> },
-                { label: 'USSD', path: '/portal/ussd', icon: <UssdIcon /> },
+            ],
+        },
+        {
+            title: t('nav.sections.channels'),
+            items: [
+                { label: t('nav.whatsappConnect'), path: '/portal/whatsapp-connect', icon: <WhatsAppIcon /> },
+                { label: t('nav.smsAccounts'), path: '/portal/integrations/sms', icon: <SmsIcon /> },
+                { label: t('nav.ussd'), path: '/portal/ussd', icon: <UssdIcon /> },
             ],
         },
         {
             title: t('nav.sections.whatsapp'),
             color: '#067647',
             items: [
-                { label: t('nav.whatsappConnect'), path: '/portal/whatsapp-connect', icon: <WhatsAppIcon /> },
                 { label: t('nav.whatsappAnalytics'), path: '/portal/analytics', icon: <AnalyticsIcon /> },
                 { label: t('nav.whatsappContacts'), path: '/portal/contacts', icon: <ContactPhoneIcon /> },
                 { label: t('nav.broadcast'), path: '/portal/broadcast', icon: <CampaignIcon /> },
                 { label: t('nav.templates'), path: '/portal/templates', icon: <TemplateIcon /> },
                 { label: t('nav.businessProfile'), path: '/portal/business-profile', icon: <BusinessIcon /> },
                 { label: t('nav.qrCodes'), path: '/portal/qr-codes', icon: <QrCodeIcon /> },
-                { label: t('nav.conversions'), path: '/portal/conversions', icon: <TrendingUpIcon /> },
+            ],
+        },
+        {
+            title: t('nav.sections.integrations'),
+            items: [
+                { label: t('nav.posIntegration'), path: '/portal/integrations', icon: <PosIcon /> },
                 { label: t('nav.apiSettings'), path: '/portal/api-settings', icon: <ApiIcon /> },
             ],
         },
@@ -142,7 +153,6 @@ const Sidebar = () => {
                 { label: t('nav.contentManager'), path: '/portal/fb-content', icon: <StoreIcon /> },
                 { label: t('nav.messengerBot'), path: '/portal/messenger-bot', icon: <SmartToyIcon /> },
                 { label: t('nav.facebookInsights'), path: '/portal/fb-insights', icon: <BarChartIcon /> },
-                { label: t('nav.metaReview'), path: '/portal/meta-review', icon: <FactCheckIcon /> },
             ],
         },
         {
@@ -197,6 +207,18 @@ const Sidebar = () => {
 
             <Divider sx={{ borderColor: '#d7ccba' }} />
 
+            {isTenant && numbers.length > 0 && (
+                <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+                    <Box sx={{ p: 1.5 }}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ display: 'block', mb: 0.75 }}>
+                            {t('layout.activeWhatsAppNumber')}
+                        </Typography>
+                        <WhatsAppNumberSelector compact />
+                    </Box>
+                    <Divider sx={{ borderColor: '#d7ccba' }} />
+                </Box>
+            )}
+
             {/* Navigation */}
             <Box component="nav" aria-label={t('layout.mainNavigation')} sx={{ flex: 1, px: 1.5, py: 1.5, overflowY: 'auto' }}>
                 {navSections.map((section, sectionIndex) => (
@@ -230,6 +252,7 @@ const Sidebar = () => {
                                             component={RouterLink}
                                             to={item.path}
                                             selected={isActive}
+                                            onClick={onNavigate}
                                             sx={{
                                                 borderRadius: '11px 11px 3px 11px',
                                                 minHeight: 40,
@@ -324,6 +347,7 @@ const Sidebar = () => {
                         to="/privacy-policy"
                         size="small"
                         startIcon={<PrivacyTipIcon fontSize="small" />}
+                        onClick={onNavigate}
                         sx={{
                             textTransform: 'none',
                             color: 'text.secondary',

@@ -15,21 +15,28 @@ import {
   Typography,
 } from '@mui/material';
 import { Inventory2, Search } from '@mui/icons-material';
+import { useLanguage } from '../../context/LanguageContext';
 
-const productMessage = product => {
-  const parts = [product.name || product.sku || product.barcode || 'المنتج'];
+const productMessage = (product, t) => {
+  const parts = [product.name || product.sku || product.barcode || t('inbox.integratedProductFallback')];
   if (product.price !== null && product.price !== undefined && product.price !== '') {
-    parts.push(`السعر: ${product.price} ${product.currency || 'LYD'}`);
+    parts.push(t('inbox.integratedProductPrice', {
+      price: product.price,
+      currency: product.currency || 'LYD',
+    }));
   }
   const quantity = product.quantity_available ?? product.quantity_on_hand;
   if (quantity !== null && quantity !== undefined && quantity !== '') {
-    parts.push(`المتوفر: ${quantity}`);
+    parts.push(t('inbox.integratedProductAvailable', { quantity }));
   }
-  if (product.shelf_code) parts.push(`الرف: ${product.shelf_code}`);
+  if (product.shelf_code) {
+    parts.push(t('inbox.integratedProductShelf', { shelf: product.shelf_code }));
+  }
   return parts.join(' — ');
 };
 
 const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -43,7 +50,7 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
   }, [products, search]);
 
   const handleSelect = product => {
-    onSelect(productMessage(product), product);
+    onSelect(productMessage(product, t), product);
     setSearch('');
     onClose();
   };
@@ -54,16 +61,17 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
       onClose={onClose}
       fullWidth
       maxWidth="sm"
-      slotProps={{ paper: { 'aria-label': 'اختيار منتج من المنصات المرتبطة' } }}
+      slotProps={{ paper: { 'aria-label': t('inbox.integratedProductDialogLabel') } }}
     >
-      <DialogTitle>استخدام منتج من المنصات المرتبطة</DialogTitle>
+      <DialogTitle>{t('inbox.integratedProductDialogTitle')}</DialogTitle>
       <DialogContent>
         <TextField
           fullWidth
           size="small"
           value={search}
           onChange={event => setSearch(event.target.value)}
-          placeholder="ابحث بالاسم أو الباركود أو الرف"
+          placeholder={t('inbox.integratedProductSearch')}
+          inputProps={{ 'aria-label': t('inbox.integratedProductSearch') }}
           sx={{ mt: 1, mb: 1 }}
           InputProps={{
             startAdornment: (
@@ -75,7 +83,7 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
           <Box sx={{ py: 5, textAlign: 'center' }}>
             <Inventory2 sx={{ fontSize: 48, color: 'text.disabled' }} />
             <Typography color="text.secondary">
-              لا توجد منتجات متزامنة بعد. نفّذ مزامنة المنتجات من POS أو Catalog أولاً.
+              {t('inbox.integratedProductEmpty')}
             </Typography>
           </Box>
         ) : (
@@ -100,8 +108,12 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
                       <Chip size="small" color="primary" variant="outlined" label={`${product.price} ${product.currency || 'LYD'}`} />
                     )}
                     <Typography variant="caption" color="text.secondary">
-                      {quantity !== null && quantity !== undefined ? `متوفر ${quantity}` : 'المخزون غير متاح'}
-                      {product.shelf_code ? ` • رف ${product.shelf_code}` : ''}
+                      {quantity !== null && quantity !== undefined
+                        ? t('inbox.integratedProductStock', { quantity })
+                        : t('inbox.integratedProductStockUnavailable')}
+                      {product.shelf_code
+                        ? ` • ${t('inbox.integratedProductShelfShort', { shelf: product.shelf_code })}`
+                        : ''}
                     </Typography>
                   </Stack>
                 </ListItemButton>
