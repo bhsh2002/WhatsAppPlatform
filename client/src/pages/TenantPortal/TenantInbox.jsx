@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { Alert, Box, Snackbar, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { DoneAll as DoneAllIcon, Done as DoneIcon, Schedule as ScheduleIcon, Error as ErrorIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api';
@@ -11,16 +11,28 @@ import { isNearBottom, scrollElementToBottom } from '../../utils/chatScroll';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
 import { PageTitle } from '../../components/Layout/PageTitle';
+import { useLanguage } from '../../context/LanguageContext';
 import IntegrationRequestBar from '../../components/Inbox/IntegrationRequestBar';
+import NewMessageDialog from '../../components/Inbox/NewMessageDialog';
+import { findMatchingConversation } from '../../components/Inbox/newMessageDraft';
 import {
   integrationRequestMatchesConversation,
   integrationRequestRecipient,
 } from './integrationRequestLifecycle';
+import {
+  readInboxFilters,
+  updateInboxSearchFilter,
+} from './inboxFilters';
 const TenantInbox = () => {
   const theme = useTheme();
+  const { t } = useLanguage();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialChannel = ['whatsapp', 'messenger', 'sms'].includes(searchParams.get('channel')) ? searchParams.get('channel') : '';
+  const {
+    channel: channelFilter,
+    unreadOnly,
+    period: periodFilter,
+  } = readInboxFilters(searchParams);
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -31,7 +43,6 @@ const TenantInbox = () => {
   const [sendingInteractive, setSendingInteractive] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [channelFilter, setChannelFilter] = useState(initialChannel);
   const [templates, setTemplates] = useState([]);
   const [windowStatus, setWindowStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);
@@ -42,6 +53,11 @@ const TenantInbox = () => {
   const [integrationRequestBusyId, setIntegrationRequestBusyId] = useState(null);
   const [platformIntegrations, setPlatformIntegrations] = useState([]);
   const [integrationProducts, setIntegrationProducts] = useState([]);
+  const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const [smsAccounts, setSmsAccounts] = useState([]);
+  const [smsAccountsLoading, setSmsAccountsLoading] = useState(false);
+  const [smsAccountsError, setSmsAccountsError] = useState('');
+  const [sendError, setSendError] = useState('');
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const selectedChatRef = useRef(null);
@@ -61,6 +77,8 @@ const TenantInbox = () => {
       setLoading(true);
       const params = {};
       if (channelFilter) params.channel = channelFilter;
+      if (unreadOnly) params.unread = '1';
+      if (periodFilter === 'today') params.period = 'today';
       const data = await api.getPortalUnifiedConversations(params);
       setConversations(data);
     } catch (error) {
@@ -68,7 +86,7 @@ const TenantInbox = () => {
     } finally {
       setLoading(false);
     }
-  }, [channelFilter]);
+  }, [channelFilter, periodFilter, unreadOnly]);
   useEffect(() => {
     fetchConversations();
     api.getMediaToken();
@@ -110,20 +128,20 @@ const TenantInbox = () => {
       return {
         enabled: true,
         providers: providers.map(item => item.platform_code),
-        reason: 'إدراج منتج متزامن في الرسالة',
+        reason: t('inbox.productCapabilityReady'),
       };
     }
     if (!connected.length) {
-      return { enabled: false, providers: [], reason: 'اربط POS أو Catalog أو Sawemly لاستخدام المنتجات في المحادثة.' };
+      return { enabled: false, providers: [], reason: t('inbox.productCapabilityConnect') };
     }
     if (!active.length) {
-      return { enabled: false, providers: [], reason: 'ربط المنتجات موجود لكنه غير نشط. استأنف الربط أولاً.' };
+      return { enabled: false, providers: [], reason: t('inbox.productCapabilityInactive') };
     }
     if (!entitled.length) {
-      return { enabled: false, providers: [], reason: 'هذه الميزة غير مشمولة في الاشتراك الحالي للربط.' };
+      return { enabled: false, providers: [], reason: t('inbox.productCapabilityNotEntitled') };
     }
-    return { enabled: false, providers: [], reason: 'الربط لا يملك صلاحية مشاركة المنتجات مع Wa.' };
-  }, [platformIntegrations]);
+    return { enabled: false, providers: [], reason: t('inbox.productCapabilityMissingScope') };
+  }, [platformIntegrations, t]);
   const fetchIntegrationRequests = useCallback(async () => {
     try {
       const response = await api.getPortalMessageRequests(20);
@@ -140,12 +158,9 @@ const TenantInbox = () => {
     const interval = setInterval(fetchIntegrationRequests, 15000);
     return () => clearInterval(interval);
   }, [fetchIntegrationRequests]);
-  useEffect(() => {
-    const channel = searchParams.get('channel');
-    if (['whatsapp', 'messenger', 'sms'].includes(channel) && channelFilter !== channel) {
-      setChannelFilter(channel);
-    }
-  }, [channelFilter, searchParams]);
+  const setInboxFilter = useCallback((key, value) => {
+    setSearchParams(updateInboxSearchFilter(searchParams, key, value), { replace: true });
+  }, [searchParams, setSearchParams]);
   const fetchMessages = useCallback(async conv => {
     const requestedKey = getUnifiedConversationKey(conv);
     try {
@@ -278,6 +293,7 @@ const TenantInbox = () => {
     isFirstLoad.current = true;
     setMessages([]);
     setSelectedChat(conv);
+    setSendError('');
     setActiveIntegrationRequest(current => (
       integrationRequestMatchesConversation(current, conv) ? current : null
     ));
@@ -287,15 +303,44 @@ const TenantInbox = () => {
       clearContactQuery();
     }
   }, [clearContactQuery]);
+  const handleOpenNewMessage = useCallback(async () => {
+    setNewMessageOpen(true);
+    setSmsAccountsLoading(true);
+    setSmsAccountsError('');
+    try {
+      const response = await api.getSmsAccounts();
+      setSmsAccounts(response?.data || []);
+    } catch (error) {
+      setSmsAccounts([]);
+      setSmsAccountsError(error.message || tx('inbox.smsAccountsLoadFailed'));
+    } finally {
+      setSmsAccountsLoading(false);
+    }
+  }, []);
+  const handleContinueNewMessage = useCallback(draft => {
+    const conversation = findMatchingConversation(conversations, draft.conversation)
+      || draft.conversation;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('channel', conversation.channel);
+    ['contact', 'name', 'tenant_id', 'unread', 'period'].forEach(key => nextParams.delete(key));
+    setSearchParams(nextParams, { replace: true });
+    handleSelectChat(conversation, { fromQuery: true });
+    setNewMessage(draft.message);
+    setNewMessageOpen(false);
+  }, [conversations, handleSelectChat, searchParams, setSearchParams]);
   const messageFromIntegrationRequest = useCallback(request => {
     const payload = request?.payload || {};
     if (payload.message) return payload.message;
     const parameters = payload.parameters || {};
     if (parameters.order_number) {
-      return `مرحباً ${parameters.customer_name || 'بك'}، تحديث الطلب #${parameters.order_number}: ${parameters.status || 'تم تحديث حالته'}.`;
+      return t('inbox.orderUpdateDraft', {
+        name: parameters.customer_name || t('inbox.orderUpdateFallbackName'),
+        order: parameters.order_number,
+        status: parameters.status || t('inbox.orderUpdateFallbackStatus'),
+      });
     }
     return '';
-  }, []);
+  }, [t]);
   const handleOpenIntegrationRequest = useCallback(async request => {
     const phone = integrationRequestRecipient(request);
     if (!phone) return;
@@ -405,6 +450,10 @@ const TenantInbox = () => {
 
   const handleSendWAMessage = useCallback(async () => {
     if (!newMessage.trim() || !selectedChat || sending) return;
+    if (windowStatus?.is_open === false) {
+      setSendError(t('inbox.whatsappWindowClosed'));
+      return;
+    }
     try {
       setSending(true);
       const result = await api.sendPortalMessage({
@@ -413,16 +462,20 @@ const TenantInbox = () => {
         message: newMessage.trim()
       });
       await completeActiveIntegrationRequest(result?.message_id);
+      setSendError('');
       setNewMessage('');
       await fetchMessages(selectedChat);
       fetchConversations();
       scrollToBottom();
     } catch (err) {
       console.error('Failed to send:', err);
+      setSendError(err?.data?.code === 'OUTSIDE_WINDOW'
+        ? t('inbox.whatsappWindowClosed')
+        : t('inbox.sendFailed'));
     } finally {
       setSending(false);
     }
-  }, [newMessage, selectedChat, sending, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
+  }, [newMessage, selectedChat, sending, windowStatus, fetchMessages, fetchConversations, completeActiveIntegrationRequest, t]);
   const handleSendTemplate = useCallback(async templateData => {
     if (!selectedChat || sending) return;
     try {
@@ -557,6 +610,7 @@ const TenantInbox = () => {
         idempotency_key: pendingSmsRequestRef.current.key
       });
       pendingSmsRequestRef.current = null;
+      setSendError('');
       setNewMessage('');
       await fetchMessages(selectedChat);
       fetchConversations();
@@ -564,10 +618,13 @@ const TenantInbox = () => {
     } catch (err) {
       if (!err.data?.retry_same_request) pendingSmsRequestRef.current = null;
       console.error('Failed to send SMS:', err);
+      setSendError(err?.data?.retry_same_request
+        ? t('inbox.smsSendUncertain')
+        : t('inbox.smsSendFailed'));
     } finally {
       setSending(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations]);
+  }, [selectedChat, fetchMessages, fetchConversations, t]);
   const handleGetMessageTags = useCallback(async () => {
     return await api.getPortalMessageTags();
   }, []);
@@ -752,8 +809,8 @@ const TenantInbox = () => {
   return <Box sx={{
     display: 'flex',
     height: {
-      xs: 'calc(100vh - 56px)',
-      md: '100vh'
+      xs: 'calc(100dvh - 48px)',
+      md: '100dvh'
     },
     overflow: 'hidden'
   }}>
@@ -766,10 +823,27 @@ const TenantInbox = () => {
       flexDirection: 'column',
       overflow: 'hidden',
       transition: 'width 0.3s',
-      borderRight: 1,
+      borderInlineEnd: 1,
       borderColor: 'divider'
     }}>
-                <UnifiedSidebar conversations={conversations} selectedChat={selectedChat} onSelectChat={handleSelectChat} loading={loading} searchTerm={searchTerm} setSearchTerm={setSearchTerm} channelFilter={channelFilter} setChannelFilter={setChannelFilter} onRefresh={fetchConversations} onSyncMessenger={handleSyncMessenger} syncing={syncing} />
+                <UnifiedSidebar
+                  conversations={conversations}
+                  selectedChat={selectedChat}
+                  onSelectChat={handleSelectChat}
+                  loading={loading}
+                  searchTerm={searchTerm}
+                  setSearchTerm={setSearchTerm}
+                  channelFilter={channelFilter}
+                  setChannelFilter={value => setInboxFilter('channel', value)}
+                  unreadOnly={unreadOnly}
+                  periodFilter={periodFilter}
+                  onClearUnread={() => setInboxFilter('unread', '')}
+                  onClearPeriod={() => setInboxFilter('period', '')}
+                  onRefresh={fetchConversations}
+                  onSyncMessenger={handleSyncMessenger}
+                  syncing={syncing}
+                  onComposeMessage={handleOpenNewMessage}
+                />
 
             </Box>
 
@@ -791,6 +865,26 @@ const TenantInbox = () => {
                   {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} integrationProducts={integrationProducts} productCapability={productCapability} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} integrationProducts={integrationProducts} productCapability={productCapability} />}
                 </Box>
             </Box>
+            {newMessageOpen && (
+              <NewMessageDialog
+                open
+                onClose={() => setNewMessageOpen(false)}
+                onContinue={handleContinueNewMessage}
+                smsAccounts={smsAccounts}
+                smsAccountsLoading={smsAccountsLoading}
+                smsAccountsError={smsAccountsError}
+              />
+            )}
+            <Snackbar
+              open={Boolean(sendError)}
+              autoHideDuration={7000}
+              onClose={() => setSendError('')}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+              <Alert severity="error" variant="filled" onClose={() => setSendError('')} sx={{ width: '100%' }}>
+                {sendError}
+              </Alert>
+            </Snackbar>
         </Box>;
 };
 export default TenantInbox;

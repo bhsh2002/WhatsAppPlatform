@@ -153,8 +153,19 @@ export const createAppTheme = (direction = 'rtl') => createTheme({
         MuiDialog: {
             styleOverrides: {
                 paper: {
-                    maxWidth: 'calc(100% - 32px)',
                     overflowWrap: 'anywhere',
+                    border: '1px solid #d7ccba',
+                    borderRadius: 18,
+                    boxShadow: '0 24px 64px rgba(22, 53, 47, 0.18)',
+                    '&.MuiDialog-paperFullScreen': {
+                        border: 0,
+                        borderRadius: 0,
+                    },
+                    '@media (min-width: 600px)': {
+                        '&.MuiDialog-paperWidthMd:not(.MuiDialog-paperFullScreen)': {
+                            maxWidth: 760,
+                        },
+                    },
                 },
             },
         },

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Box, Button, Chip, Stack, Typography } from '@mui/material';
 import { Chat, Close, SyncAlt } from '@mui/icons-material';
+import { useLanguage } from '../../context/LanguageContext';
 
 const sourceLabels = {
   catalog: 'Catalog',
@@ -9,6 +10,7 @@ const sourceLabels = {
 };
 
 const IntegrationRequestBar = ({ requests, busyId, onOpen, onDismiss }) => {
+  const { t } = useLanguage();
   if (!requests.length) return null;
   const request = requests[0];
   const payload = request.payload || {};
@@ -30,7 +32,9 @@ const IntegrationRequestBar = ({ requests, busyId, onOpen, onDismiss }) => {
             disabled={busyId === request.id}
             onClick={() => onOpen(request)}
           >
-            {request.status === 'approved' ? 'متابعة الرسالة' : 'مراجعة في المحادثة'}
+            {request.status === 'approved'
+              ? t('inbox.integrationRequestContinue')
+              : t('inbox.integrationRequestReview')}
           </Button>
           <Button
             size="small"
@@ -39,17 +43,18 @@ const IntegrationRequestBar = ({ requests, busyId, onOpen, onDismiss }) => {
             disabled={busyId === request.id}
             onClick={() => onDismiss(request)}
           >
-            رفض
+            {t('inbox.integrationRequestReject')}
           </Button>
         </Stack>
       )}
     >
       <Box>
         <Typography variant="subtitle2">
-          طلب رسالة من {source} {recipient ? `إلى ${recipient}` : ''}
+          {t('inbox.integrationRequestTitle', { source })}{' '}
+          {recipient ? t('inbox.integrationRequestRecipient', { recipient }) : ''}
         </Typography>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 520 }}>
-          {payload.message || `مرجع الطلب: ${request.request_key}`}
+          {payload.message || t('inbox.integrationRequestReference', { key: request.request_key })}
         </Typography>
       </Box>
     </Alert>

@@ -933,7 +933,8 @@ test('authenticated pages preserve keyboard focus, page headings, and control na
     assert.match(globalStyles, /\.Mui-focusVisible/);
     assert.match(globalStyles, /outline:\s*3px solid #005fcc/);
     assert.match(mainLayout, /variant="subtitle1" component="div"/);
-    assert.match(mainLayout, /slotProps=\{\{ paper: \{ 'aria-label': t\('layout\.mainNavigation'\) \} \}\}/);
+    assert.match(mainLayout, /aria-controls=\{mobileDrawerId\}/);
+    assert.match(mainLayout, /slotProps=\{\{ paper: \{ id: mobileDrawerId, 'aria-label': t\('layout\.mainNavigation'\) \} \}\}/);
     assert.match(sidebar, /variant="h6" component="div"/);
     assert.match(sidebar, /<Box component="nav" aria-label=\{t\('layout\.mainNavigation'\)\}/);
     assert.match(sidebar, /const sidebarId = useId\(\)/);

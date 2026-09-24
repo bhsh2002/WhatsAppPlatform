@@ -253,7 +253,7 @@ const TenantSmsAccounts = () => {
             );
             pendingTestRequestRef.current = null;
             setTestAccount(null);
-            setNotice('قُبلت رسالة الاختبار ويمكن متابعة حالتها من صندوق الوارد.');
+            setNotice('قُبلت رسالة الاختبار ويمكن متابعة حالتها من الرسائل.');
         } catch (testError) {
             if (!testError.data?.retry_same_request) pendingTestRequestRef.current = null;
             setError(testError.message || 'فشل إرسال رسالة الاختبار');
@@ -504,7 +504,7 @@ const TenantSmsAccounts = () => {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={Boolean(apiAccessAccount)} onClose={closeApiAccess} fullWidth maxWidth="md" aria-labelledby="sms-api-access-dialog-title">
+            <Dialog open={Boolean(apiAccessAccount)} onClose={closeApiAccess} fullWidth maxWidth="sm" aria-labelledby="sms-api-access-dialog-title">
                 <DialogTitle id="sms-api-access-dialog-title">API — {apiAccessAccount?.name}</DialogTitle>
                 <DialogContent>
                     {apiAccessLoading ? (

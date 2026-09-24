@@ -49,6 +49,7 @@ const ChatWindow = ({
   const [filePreviewUrl, setFilePreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const freeformBlocked = windowStatus?.is_open === false;
 
   // File handlers
   const handleDocumentSelect = e => {
@@ -111,7 +112,7 @@ const ChatWindow = ({
   const handleKeyDown = e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSendMessage();
+      if (!freeformBlocked) onSendMessage();
     }
   };
   const handleSendInteractive = async data => {
@@ -362,17 +363,17 @@ const ChatWindow = ({
                                     <ListItemText>إدراج منتج مرتبط</ListItemText>
                                 </MenuItem></span>
                             </Tooltip>}
-                            <MenuItem onClick={handleOpenFilePicker}>
+                            <MenuItem onClick={handleOpenFilePicker} disabled={freeformBlocked}>
                                 <ListItemIcon><AttachFileIcon fontSize="small" sx={{
                 transform: 'rotate(45deg)'
               }} /></ListItemIcon>
                                 <ListItemText>{tx("auto.k_ae09d61d9c93")}</ListItemText>
                             </MenuItem>
-                            {onSendImage && <MenuItem onClick={handleOpenImagePicker}>
+                            {onSendImage && <MenuItem onClick={handleOpenImagePicker} disabled={freeformBlocked}>
                                     <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
                                     <ListItemText>{tx("auto.k_df9bac60e9b6")}</ListItemText>
                                 </MenuItem>}
-                            {onSendInteractive && <MenuItem onClick={handleOpenInteractiveDialog}>
+                            {onSendInteractive && <MenuItem onClick={handleOpenInteractiveDialog} disabled={freeformBlocked}>
                                     <ListItemIcon><InteractiveIcon fontSize="small" /></ListItemIcon>
                                     <ListItemText>{tx("auto.k_c8f8c9313a7a")}</ListItemText>
                                 </MenuItem>}
@@ -390,15 +391,15 @@ const ChatWindow = ({
                                 <ProductIcon />
                             </IconButton></span>
                         </Tooltip>}
-                        <IconButton size="small" onClick={() => fileInputRef.current?.click()} title={tx("auto.k_ae09d61d9c93")}>
+                        <IconButton size="small" onClick={() => fileInputRef.current?.click()} title={tx("auto.k_ae09d61d9c93")} disabled={freeformBlocked}>
                             <AttachFileIcon sx={{
             transform: 'rotate(45deg)'
           }} />
                         </IconButton>
-                        {onSendImage && <IconButton size="small" onClick={() => imageInputRef.current?.click()} title={tx("auto.k_df9bac60e9b6")}>
+                        {onSendImage && <IconButton size="small" onClick={() => imageInputRef.current?.click()} title={tx("auto.k_df9bac60e9b6")} disabled={freeformBlocked}>
                                 <ImageIcon />
                             </IconButton>}
-                        {onSendInteractive && <IconButton size="small" onClick={() => setShowInteractiveDialog(true)} title={tx("auto.k_c8f8c9313a7a")}>
+                        {onSendInteractive && <IconButton size="small" onClick={() => setShowInteractiveDialog(true)} title={tx("auto.k_c8f8c9313a7a")} disabled={freeformBlocked}>
                                 <InteractiveIcon />
                             </IconButton>}
                     </Box>}
@@ -412,7 +413,7 @@ const ChatWindow = ({
       }} />
 
 
-                <IconButton aria-label="Send message" onClick={onSendMessage} disabled={sending || !newMessage.trim()} sx={{
+                <IconButton aria-label="Send message" onClick={onSendMessage} disabled={freeformBlocked || sending || !newMessage.trim()} sx={{
         flexShrink: 0,
         bgcolor: 'primary.main',
         color: 'white',

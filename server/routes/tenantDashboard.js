@@ -77,6 +77,70 @@ router.get('/', (req, res) => {
             WHERE tenant_id = ?
         `).get(tenantId);
 
+        const sms = db.prepare(`
+            WITH scoped_sms AS (
+                SELECT
+                    sms_account_id,
+                    direction,
+                    status,
+                    CASE
+                        WHEN direction = 'incoming' THEN sender
+                        ELSE recipient
+                    END AS contact,
+                    date(COALESCE(datetime(sent_at, 'localtime'), created_at)) AS event_local_date
+                FROM sms_messages
+                WHERE tenant_id = ?
+            )
+            SELECT
+                (
+                    SELECT COUNT(*)
+                    FROM (
+                        SELECT sms_account_id, contact
+                        FROM scoped_sms
+                        WHERE contact IS NOT NULL AND contact != ''
+                        GROUP BY sms_account_id, contact
+                    ) conversations
+                ) AS conversations,
+                COALESCE(SUM(CASE
+                    WHEN event_local_date = date('now', 'localtime') THEN 1
+                    ELSE 0
+                END), 0) AS messages_today,
+                COALESCE(SUM(CASE
+                    WHEN direction = 'outgoing'
+                     AND status IN ('sent', 'delivered', 'read')
+                     AND event_local_date = date('now', 'localtime') THEN 1
+                    ELSE 0
+                END), 0) AS sent_today,
+                COALESCE(SUM(CASE
+                    WHEN direction = 'outgoing'
+                     AND status IN ('pending', 'queued')
+                     AND event_local_date = date('now', 'localtime') THEN 1
+                    ELSE 0
+                END), 0) AS pending_today,
+                COALESCE(SUM(CASE
+                    WHEN direction = 'incoming'
+                     AND event_local_date = date('now', 'localtime') THEN 1
+                    ELSE 0
+                END), 0) AS received_today,
+                COALESCE(SUM(CASE
+                    WHEN direction = 'outgoing'
+                     AND status IN ('failed', 'rejected', 'canceled', 'cancelled')
+                     AND event_local_date = date('now', 'localtime') THEN 1
+                    ELSE 0
+                END), 0) AS failed_today,
+                COALESCE(SUM(CASE
+                    WHEN direction = 'incoming' AND status = 'received' THEN 1
+                    ELSE 0
+                END), 0) AS unread
+            FROM scoped_sms
+        `).get(tenantId);
+
+        const smsAccounts = db.prepare(`
+            SELECT COUNT(*) AS count
+            FROM sms_gateway_accounts
+            WHERE tenant_id = ? AND enabled = 1
+        `).get(tenantId).count;
+
         const linkedFacebookPages = db.prepare(`
             SELECT COUNT(*) AS count
             FROM tenant_pages
@@ -97,11 +161,14 @@ router.get('/', (req, res) => {
         `).get(tenantId, ...FACEBOOK_ACTIVITY_TYPES).count;
 
         const stats = {
-            totalConversations: whatsapp.conversations + messengerConversations.conversations,
-            messagesToday: whatsapp.messages_today + messengerMessages.messages_today,
-            sentToday: whatsapp.sent_today + messengerMessages.sent_today,
-            receivedToday: whatsapp.received_today + messengerMessages.received_today,
-            unreadCount: whatsapp.unread + messengerConversations.unread,
+            totalConversations: whatsapp.conversations + messengerConversations.conversations
+                + sms.conversations,
+            messagesToday: whatsapp.messages_today + messengerMessages.messages_today
+                + sms.messages_today,
+            sentToday: whatsapp.sent_today + messengerMessages.sent_today + sms.sent_today,
+            receivedToday: whatsapp.received_today + messengerMessages.received_today
+                + sms.received_today,
+            unreadCount: whatsapp.unread + messengerConversations.unread + sms.unread,
             templatesCount,
             whatsappConversations: whatsapp.conversations,
             whatsappMessagesToday: whatsapp.messages_today,
@@ -113,6 +180,14 @@ router.get('/', (req, res) => {
             messengerSentToday: messengerMessages.sent_today,
             messengerReceivedToday: messengerMessages.received_today,
             messengerUnread: messengerConversations.unread,
+            smsConversations: sms.conversations,
+            smsMessagesToday: sms.messages_today,
+            smsSentToday: sms.sent_today,
+            smsPendingToday: sms.pending_today,
+            smsReceivedToday: sms.received_today,
+            smsFailedToday: sms.failed_today,
+            smsUnread: sms.unread,
+            smsAccounts,
             linkedFacebookPages,
             facebookActionsWeek,
         };

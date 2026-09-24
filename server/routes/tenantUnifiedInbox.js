@@ -133,6 +133,8 @@ export function createTenantUnifiedInboxRouter({
             if (channel && !VALID_CHANNELS.has(channel)) {
                 return res.status(400).json({ error: 'القناة غير صالحة' });
             }
+            const unreadOnly = req.query?.unread === '1';
+            const todayOnly = req.query?.period === 'today';
             const { limit, offset } = parseListPagination(req.query, {
                 defaultLimit: 100,
                 maxLimit: 200,
@@ -158,13 +160,49 @@ export function createTenantUnifiedInboxRouter({
                 const numberFilter = phoneNumberId
                     ? {
                         unreadSql: ' AND unread.recipient = ?',
+                        unreadConversationSql: ' AND unread_filter.recipient = ?',
+                        todaySql: `
+                          AND ((today.direction = 'incoming' AND today.recipient = ?)
+                            OR (today.direction = 'outgoing' AND today.sender = ?))`,
                         messageSql: `
                           AND ((direction = 'incoming' AND recipient = ?)
                             OR (direction = 'outgoing' AND sender = ?))`,
                         unreadArgs: [phoneNumberId],
+                        unreadConversationArgs: [phoneNumberId],
+                        todayArgs: [phoneNumberId, phoneNumberId],
                         messageArgs: [phoneNumberId, phoneNumberId],
                     }
-                    : { unreadSql: '', messageSql: '', unreadArgs: [], messageArgs: [] };
+                    : {
+                        unreadSql: '',
+                        unreadConversationSql: '',
+                        todaySql: '',
+                        messageSql: '',
+                        unreadArgs: [],
+                        unreadConversationArgs: [],
+                        todayArgs: [],
+                        messageArgs: [],
+                    };
+                const unreadConversationFilter = unreadOnly ? `
+                    AND EXISTS (
+                        SELECT 1 FROM messages unread_filter
+                        WHERE unread_filter.tenant_id = latest.tenant_id
+                          AND unread_filter.sender = latest.contact
+                          AND unread_filter.direction = 'incoming'
+                          AND unread_filter.status = 'received'
+                          ${numberFilter.unreadConversationSql}
+                    )
+                ` : '';
+                const todayConversationFilter = todayOnly ? `
+                    AND EXISTS (
+                        SELECT 1 FROM messages today
+                        WHERE today.tenant_id = latest.tenant_id
+                          AND ((today.direction = 'incoming' AND today.sender = latest.contact)
+                            OR (today.direction = 'outgoing' AND today.recipient = latest.contact))
+                          ${numberFilter.todaySql}
+                          AND today.created_at >= datetime('now', 'localtime', 'start of day')
+                          AND today.created_at < datetime('now', 'localtime', 'start of day', '+1 day')
+                    )
+                ` : '';
                 whatsapp.push(...enrichTemplateFallbackMessages(database.prepare(`
                     SELECT
                         'whatsapp' AS channel,
@@ -210,6 +248,8 @@ export function createTenantUnifiedInboxRouter({
                       ON contact.phone = latest.contact AND contact.tenant_id = ?
                     LEFT JOIN tenants tenant ON tenant.id = latest.tenant_id
                     WHERE latest.row_number = 1
+                      ${unreadConversationFilter}
+                      ${todayConversationFilter}
                     ORDER BY last_message_time DESC
                     LIMIT ?
                 `).all(
@@ -219,6 +259,8 @@ export function createTenantUnifiedInboxRouter({
                     tenantId,
                     ...numberFilter.messageArgs,
                     tenantId,
+                    ...(unreadOnly ? numberFilter.unreadConversationArgs : []),
+                    ...(todayOnly ? numberFilter.todayArgs : []),
                     sourceWindowSize,
                 ), 'last_message', database));
                 }
@@ -251,6 +293,16 @@ export function createTenantUnifiedInboxRouter({
                     LEFT JOIN tenant_pages page
                       ON page.id = conversation.linked_page_id AND page.tenant_id = conversation.tenant_id
                     WHERE conversation.is_active = 1 AND conversation.tenant_id = ?
+                      ${unreadOnly ? 'AND conversation.unread_count > 0' : ''}
+                      ${todayOnly ? `
+                        AND EXISTS (
+                            SELECT 1 FROM fb_messages today
+                            WHERE today.conversation_id = conversation.id
+                              AND today.tenant_id = conversation.tenant_id
+                              AND today.created_at >= datetime('now', 'localtime', 'start of day')
+                              AND today.created_at < datetime('now', 'localtime', 'start of day', '+1 day')
+                        )
+                      ` : ''}
                     ORDER BY last_message_time DESC NULLS LAST
                     LIMIT ?
                 `).all(tenantId, sourceWindowSize));
@@ -306,6 +358,29 @@ export function createTenantUnifiedInboxRouter({
                       ON account.id = latest.sms_account_id AND account.tenant_id = latest.tenant_id
                     LEFT JOIN tenants tenant ON tenant.id = latest.tenant_id
                     WHERE latest.row_number = 1
+                      ${unreadOnly ? `
+                        AND EXISTS (
+                            SELECT 1 FROM sms_messages unread_filter
+                            WHERE unread_filter.tenant_id = latest.tenant_id
+                              AND unread_filter.sms_account_id IS latest.sms_account_id
+                              AND unread_filter.sender = latest.contact
+                              AND unread_filter.direction = 'incoming'
+                              AND unread_filter.status = 'received'
+                        )
+                      ` : ''}
+                      ${todayOnly ? `
+                        AND EXISTS (
+                            SELECT 1 FROM sms_messages today
+                            WHERE today.tenant_id = latest.tenant_id
+                              AND today.sms_account_id IS latest.sms_account_id
+                              AND ((today.direction = 'incoming' AND today.sender = latest.contact)
+                                OR (today.direction = 'outgoing' AND today.recipient = latest.contact))
+                              AND COALESCE(datetime(today.sent_at, 'localtime'), today.created_at)
+                                  >= datetime('now', 'localtime', 'start of day')
+                              AND COALESCE(datetime(today.sent_at, 'localtime'), today.created_at)
+                                  < datetime('now', 'localtime', 'start of day', '+1 day')
+                        )
+                      ` : ''}
                     ORDER BY last_message_time DESC
                     LIMIT ?
                 `).all(tenantId, tenantId, tenantId, sourceWindowSize));
@@ -502,7 +577,7 @@ export function createTenantUnifiedInboxRouter({
                 const messageId = result.data?.messages?.[0]?.id || null;
                 billing.commit(reservation, {
                     referenceId: messageId,
-                    description: 'خصم إرسال رسالة WhatsApp من صندوق الوارد',
+                    description: 'خصم إرسال رسالة WhatsApp من الرسائل',
                 });
                 database.prepare(`
                     INSERT INTO messages (
@@ -534,11 +609,12 @@ export function createTenantUnifiedInboxRouter({
                     128,
                 );
                 const idempotencyKey = suppliedKey || `wa-sms:${crypto.randomUUID()}`;
-                const smsAccountId = req.body?.sms_account_id == null
-                    ? null
-                    : parsePositiveId(req.body.sms_account_id);
-                if (req.body?.sms_account_id != null && !smsAccountId) {
-                    return res.status(400).json({ error: 'sms_account_id غير صالح' });
+                const smsAccountId = parsePositiveId(req.body?.sms_account_id);
+                if (!smsAccountId) {
+                    return res.status(400).json({
+                        error: 'sms_account_id مطلوب وصالح',
+                        code: 'SMS_ACCOUNT_REQUIRED',
+                    });
                 }
                 smsGateway.requireActiveAccount(tenantId, smsAccountId);
                 reservation = billing.reserve({
@@ -559,7 +635,7 @@ export function createTenantUnifiedInboxRouter({
                 smsGatewayAccepted = true;
                 billing.commit(reservation, {
                     referenceId: gatewayResult.message.message_id,
-                    description: 'خصم إرسال رسالة SMS من صندوق الوارد',
+                    description: 'خصم إرسال رسالة SMS من الرسائل',
                 });
                 reservation = null;
                 const stored = smsGateway.storeMessage(gatewayResult.account, gatewayResult.message);
@@ -633,7 +709,7 @@ export function createTenantUnifiedInboxRouter({
             const messageId = result.data?.message_id || null;
             billing.commit(reservation, {
                 referenceId: messageId,
-                description: 'خصم رد Messenger من صندوق الوارد',
+                description: 'خصم رد Messenger من الرسائل',
             });
             if (conversation) {
                 const createdAt = normalizeMessengerTimestamp();
