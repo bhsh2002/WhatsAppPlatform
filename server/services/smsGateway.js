@@ -381,6 +381,67 @@ export class SmsGatewayService {
         };
     }
 
+    async directApiAccess(tenantId, accountId) {
+        // An explicit tenant-owned account id is mandatory. Never fall back to
+        // another tenant's account or to a platform-wide credential.
+        const account = this.getAccount(tenantId, accountId);
+        if (!account) {
+            throw new SmsGatewayError(
+                'حساب SMS غير موجود',
+                404,
+                'SMS_ACCOUNT_NOT_FOUND',
+            );
+        }
+        if (!account.enabled) {
+            throw new SmsGatewayError(
+                'حساب SMS غير مفعّل',
+                409,
+                'SMS_ACCOUNT_DISABLED',
+            );
+        }
+
+        let publicApiKey;
+        if (account.management_mode === 'managed') {
+            const response = await this.gatewayRequest(account, 'services/v1/account-api.php');
+            publicApiKey = String(response?.data?.api_key || '').trim();
+        } else {
+            // A manually connected account stores the customer's public key
+            // directly, so no gateway-specific credential discovery exists.
+            publicApiKey = String(decrypt(account.api_key_encrypted) || '').trim();
+        }
+        if (publicApiKey.length < 20 || publicApiKey.length > 128) {
+            throw new SmsGatewayError(
+                'تعذر استرجاع مفتاح API لحساب SMS',
+                502,
+                'SMS_ACCOUNT_API_KEY_UNAVAILABLE',
+            );
+        }
+
+        const baseUrl = String(account.base_url).replace(/\/+$/, '');
+        const tenant = this.db.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
+        this.db.prepare(`
+            INSERT INTO activity_logs (
+                tenant_id, tenant_name, event_type, description, status
+            ) VALUES (?, ?, 'sms_api_access_revealed', ?, 'success')
+        `).run(
+            tenantId,
+            tenant?.name || null,
+            `تم عرض بيانات API لحساب SMS: ${String(account.name).slice(0, 80)}`,
+        );
+
+        return {
+            account_id: account.id,
+            account_name: account.name,
+            scope: 'tenant_account',
+            base_url: baseUrl,
+            api_key: publicApiKey,
+            send_url: endpointUrl(baseUrl, 'services/send.php'),
+            method: 'POST',
+            content_type: 'application/x-www-form-urlencoded',
+            key_field: 'key',
+        };
+    }
+
     presentMessage(message, { includeTechnical = false } = {}) {
         const { sms_account_management_mode: _managementMode, ...presented } = message;
         if (!includeTechnical) {

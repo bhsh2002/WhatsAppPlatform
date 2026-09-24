@@ -302,6 +302,12 @@ export const portalCoreMethods = {
         });
     },
 
+    async revealSmsAccountDirectApi(accountId) {
+        return this.request(`/api/portal/sms-gateway/${accountId}/direct-api/reveal`, {
+            method: 'POST',
+        });
+    },
+
     async getUssdRequests({ accountId, limit = 100 } = {}) {
         const params = new URLSearchParams();
         if (accountId) params.set('account_id', accountId);

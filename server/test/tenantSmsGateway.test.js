@@ -23,7 +23,9 @@ const invoke = (router, method, path, request = {}) => new Promise((resolve, rej
     const res = {
         statusCode: 200,
         body: undefined,
+        headers: {},
         status(value) { this.statusCode = value; return this; },
+        set(values) { Object.assign(this.headers, values); return this; },
         json(value) { this.body = value; resolve(this); return this; },
     };
     const handlers = findHandlers(router, method, path);
@@ -75,6 +77,35 @@ test('tenant SMS router does not expose a device inventory endpoint', () => {
     ));
 
     assert.equal(exposed, false);
+});
+
+test('direct SMS Gateway API reveal is explicit, tenant-scoped and never cacheable', async () => {
+    const calls = [];
+    const service = {
+        async directApiAccess(tenantId, accountId) {
+            calls.push({ tenantId, accountId });
+            return {
+                account_id: 91,
+                scope: 'tenant_account',
+                base_url: 'https://sms.example.test',
+                api_key: 'public-account-key-0000000000000000000001',
+                send_url: 'https://sms.example.test/services/send.php',
+            };
+        },
+    };
+    const router = createTenantSmsGatewayRouter({ service, billing: createBilling() });
+    const response = await invoke(router, 'post', '/:accountId/direct-api/reveal', {
+        params: { accountId: '91' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(calls, [{ tenantId: 7, accountId: '91' }]);
+    assert.equal(response.body.data.scope, 'tenant_account');
+    assert.equal(response.body.data.api_key, 'public-account-key-0000000000000000000001');
+    assert.equal(response.headers['Cache-Control'], 'no-store, private');
+    assert.equal(response.headers.Pragma, 'no-cache');
+    assert.equal(response.headers.Expires, '0');
+    assert.equal(response.headers['Referrer-Policy'], 'no-referrer');
 });
 
 test('SMS statistics stay tenant-scoped and preserve dashboard filters', async () => {

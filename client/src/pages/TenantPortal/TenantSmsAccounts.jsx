@@ -5,8 +5,10 @@ import {
     FormControlLabel, Grid, MenuItem, Paper, Stack, Switch, TextField, Typography,
 } from '@mui/material';
 import {
-    Add as AddIcon, CheckCircle as CheckIcon,
-    HealthAndSafety as HealthIcon, QueryStats as StatsIcon, Sms as SmsIcon,
+    Add as AddIcon, Api as ApiIcon, CheckCircle as CheckIcon,
+    ContentCopy as CopyIcon, HealthAndSafety as HealthIcon,
+    QueryStats as StatsIcon, Sms as SmsIcon,
+    Visibility as VisibilityIcon, VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 
 import api from '../../api';
@@ -56,7 +58,7 @@ const formatDateTime = value => {
 
 const ManagedAccountDetails = () => (
     <Alert severity="info" icon={false} sx={{ mt: 2 }}>
-        تتولى Savana إعداد الاتصال والتوجيه لهذا الحساب. يمكنك استخدام الخدمة ومتابعة حالتها دون إعدادات تقنية.
+        تتولى Savana تشغيل هذا الحساب. استخدم زر «API والربط» للحصول على مفتاح حسابك وربط أنظمتك الخارجية مباشرة.
     </Alert>
 );
 
@@ -80,6 +82,11 @@ const TenantSmsAccounts = () => {
     const [range, setRange] = useState('7d');
     const [customFrom, setCustomFrom] = useState(isoDate(-6));
     const [customTo, setCustomTo] = useState(isoDate());
+    const [apiAccessAccount, setApiAccessAccount] = useState(null);
+    const [apiAccess, setApiAccess] = useState(null);
+    const [apiAccessLoading, setApiAccessLoading] = useState(false);
+    const [apiAccessError, setApiAccessError] = useState('');
+    const [showApiKey, setShowApiKey] = useState(false);
 
     const load = useCallback(async () => {
         try {
@@ -194,6 +201,39 @@ const TenantSmsAccounts = () => {
         }
     };
 
+    const closeApiAccess = () => {
+        if (apiAccessLoading) return;
+        setApiAccessAccount(null);
+        setApiAccess(null);
+        setApiAccessError('');
+        setShowApiKey(false);
+    };
+
+    const openApiAccess = async account => {
+        setApiAccessAccount(account);
+        setApiAccess(null);
+        setApiAccessError('');
+        setShowApiKey(false);
+        try {
+            setApiAccessLoading(true);
+            const result = await api.revealSmsAccountDirectApi(account.id);
+            setApiAccess(result?.data || null);
+        } catch (accessError) {
+            setApiAccessError(accessError.message || 'تعذر استرجاع بيانات API لهذا الحساب');
+        } finally {
+            setApiAccessLoading(false);
+        }
+    };
+
+    const copyValue = async (value, label) => {
+        try {
+            await navigator.clipboard.writeText(String(value || ''));
+            setNotice(`تم نسخ ${label}.`);
+        } catch {
+            setApiAccessError(`تعذر نسخ ${label} تلقائيًا. حدده وانسخه يدويًا.`);
+        }
+    };
+
     const sendTest = async () => {
         if (!testAccount || isManagedSmsAccount(testAccount)) return;
         const fingerprint = `${testAccount.id}\u0000${testForm.recipient.trim()}\u0000${testForm.message}`;
@@ -228,7 +268,7 @@ const TenantSmsAccounts = () => {
                 <Box>
                     <PageTitle fontWeight={800}>حسابات SMS</PageTitle>
                     <Typography color="text.secondary">
-                        تابع حسابات SMS والإرسال والاستقبال من مكان واحد. تتولى Savana إعداد الحسابات المُدارة وحمايتها.
+                        تابع حسابات SMS والإرسال والاستقبال، واحصل على مفتاح كل حساب لربط أنظمتك الخارجية مباشرة.
                     </Typography>
                 </Box>
                 {manualConfigurationAllowed && (
@@ -397,7 +437,7 @@ const TenantSmsAccounts = () => {
                                                 </Box>
                                             </Stack>
                                             <Stack direction="row" gap={0.75} flexWrap="wrap" justifyContent="flex-end" useFlexGap>
-                                                {account.is_default && <Chip icon={<CheckIcon />} label="افتراضي" color="primary" size="small" />}
+                                                {account.is_default && <Chip icon={<CheckIcon />} label="افتراضي لمؤسستك" color="primary" size="small" />}
                                                 <Chip label={status.label} color={status.color} size="small" />
                                             </Stack>
                                         </Stack>
@@ -413,14 +453,19 @@ const TenantSmsAccounts = () => {
                                         {account.last_health_at && <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>آخر فحص: {formatDateTime(account.last_health_at)}</Typography>}
                                         {account.last_error && <Alert severity="error" sx={{ mt: 2 }}>{managed ? 'الخدمة تحتاج متابعة من فريق Savana.' : account.last_error}</Alert>}
                                     </CardContent>
-                                    {!managed && manualConfigurationAllowed && (
-                                        <CardActions sx={{ px: 2, pb: 2, flexWrap: 'wrap' }}>
+                                    <CardActions sx={{ px: 2, pb: 2, flexWrap: 'wrap' }}>
+                                        <Button startIcon={<ApiIcon />} onClick={() => openApiAccess(account)} disabled={!account.enabled}>
+                                            API والربط
+                                        </Button>
+                                        {!managed && manualConfigurationAllowed && (
+                                            <>
                                             <Button onClick={() => openEdit(account)}>تعديل</Button>
                                             <Button startIcon={<HealthIcon />} onClick={() => checkHealth(account)}>فحص</Button>
                                             <Button onClick={() => setTestAccount(account)} disabled={!account.enabled}>اختبار إرسال</Button>
                                             <Button color="error" onClick={() => disable(account)} disabled={!account.enabled}>تعطيل</Button>
-                                        </CardActions>
-                                    )}
+                                            </>
+                                        )}
+                                    </CardActions>
                                 </Card>
                             </Grid>
                         );
@@ -456,6 +501,85 @@ const TenantSmsAccounts = () => {
                 <DialogActions>
                     <Button onClick={() => setTestAccount(null)} disabled={saving}>إلغاء</Button>
                     <Button variant="contained" onClick={sendTest} disabled={saving || !testForm.recipient || !testForm.message}>إرسال</Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={Boolean(apiAccessAccount)} onClose={closeApiAccess} fullWidth maxWidth="md" aria-labelledby="sms-api-access-dialog-title">
+                <DialogTitle id="sms-api-access-dialog-title">API — {apiAccessAccount?.name}</DialogTitle>
+                <DialogContent>
+                    {apiAccessLoading ? (
+                        <Box textAlign="center" py={6}><CircularProgress /></Box>
+                    ) : apiAccessError ? (
+                        <Alert severity="error" sx={{ mt: 1 }}>{apiAccessError}</Alert>
+                    ) : apiAccess && (
+                        <Stack spacing={2.25} mt={1}>
+                            <Alert severity="warning">
+                                مفتاح API سري وخاص بهذا الحساب داخل مؤسستك. لا تشاركه إلا مع النظام الذي تثق به.
+                            </Alert>
+                            <TextField
+                                label="عنوان خادم SMS Gateway"
+                                value={apiAccess.base_url || ''}
+                                fullWidth
+                                InputProps={{
+                                    readOnly: true,
+                                    endAdornment: (
+                                        <Button startIcon={<CopyIcon />} onClick={() => copyValue(apiAccess.base_url, 'عنوان الخادم')}>
+                                            نسخ
+                                        </Button>
+                                    ),
+                                }}
+                                inputProps={{ dir: 'ltr' }}
+                            />
+                            <TextField
+                                label="مفتاح API الخاص بهذا الحساب"
+                                value={apiAccess.api_key || ''}
+                                type={showApiKey ? 'text' : 'password'}
+                                fullWidth
+                                autoComplete="off"
+                                InputProps={{
+                                    readOnly: true,
+                                    endAdornment: (
+                                        <Stack direction="row">
+                                            <Button
+                                                aria-label={showApiKey ? 'إخفاء مفتاح API' : 'إظهار مفتاح API'}
+                                                onClick={() => setShowApiKey(value => !value)}
+                                                startIcon={showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                                            >
+                                                {showApiKey ? 'إخفاء' : 'إظهار'}
+                                            </Button>
+                                            <Button startIcon={<CopyIcon />} onClick={() => copyValue(apiAccess.api_key, 'مفتاح API')}>
+                                                نسخ
+                                            </Button>
+                                        </Stack>
+                                    ),
+                                }}
+                                inputProps={{ dir: 'ltr' }}
+                            />
+                            <Box>
+                                <Typography variant="h6" fontWeight={800} mb={1}>تعليمات الربط الحالية</Typography>
+                                <Typography variant="body2" color="text.secondary" mb={1.5}>
+                                    استخدم واجهة SMS Gateway مباشرة. تظل المسارات والحقول والاستجابات الحالية كما هي؛ عند نقل تكامل قديم يكفي تغيير عنوان الخادم إلى العنوان أعلاه.
+                                </Typography>
+                                <Paper variant="outlined" sx={{ p: 2, overflowX: 'auto', bgcolor: 'grey.50' }}>
+                                    <Typography component="pre" variant="body2" dir="ltr" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace' }}>
+{`POST ${apiAccess.send_url}
+Content-Type: application/x-www-form-urlencoded
+
+key=YOUR_API_KEY
+number=2189XXXXXXXX
+message=Your message
+option=1`}
+                                    </Typography>
+                                </Paper>
+                                <Typography variant="body2" color="text.secondary" mt={1.5}>
+                                    أرسل الطلب بصيغة form، وضع قيمة المفتاح الظاهر أعلاه في الحقل <Box component="span" dir="ltr" sx={{ fontFamily: 'monospace' }}>key</Box>. يتولى الحساب اختيار إعداد الإرسال المرتبط به تلقائيًا.
+                                </Typography>
+                            </Box>
+                        </Stack>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={closeApiAccess} disabled={apiAccessLoading}>إغلاق</Button>
                 </DialogActions>
             </Dialog>
         </Box>
