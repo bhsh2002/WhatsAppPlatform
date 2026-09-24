@@ -29,6 +29,7 @@ const insertAccount = (database, {
     key,
     secret,
     isDefault = false,
+    apiKey = `api-key-${id}`,
 } = {}) => {
     database.prepare(`
         INSERT INTO sms_gateway_accounts (
@@ -40,7 +41,7 @@ const insertAccount = (database, {
         id,
         name,
         `https://sms-${id}.example.com`,
-        encrypt(`api-key-${id}`),
+        encrypt(apiKey),
         `fingerprint-${id}`,
         encrypt(secret),
         key,
@@ -229,6 +230,93 @@ test('one Wa tenant keeps multiple SMS accounts and identical gateway ids isolat
         service.listUssd(1, { accountId: 11 }).map(item => item.request_code),
         ['*100#'],
     );
+});
+
+test('direct Gateway API access reveals the live public key only for an explicit tenant account', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    insertAccount(database, {
+        id: 19,
+        name: 'Managed direct API',
+        key: '19191919-1919-4191-8191-191919191919',
+        secret: 'managed-direct-api-webhook-secret',
+        isDefault: true,
+    });
+    database.prepare(`
+        UPDATE sms_gateway_accounts
+        SET management_mode = 'managed', gateway_assignment_id = 'managed-direct-api-assignment'
+        WHERE id = 19
+    `).run();
+    const gatewayCalls = [];
+    const service = new SmsGatewayService({
+        database,
+        gatewayRequest: async (account, path) => {
+            gatewayCalls.push({ accountId: account.id, path });
+            return { success: true, data: { api_key: 'public-account-api-key-00000000000000000001' } };
+        },
+    });
+
+    const listed = service.presentAccount(service.getAccount(1, 19));
+    assert.equal(listed.api_key, undefined);
+    assert.equal(listed.api_key_encrypted, undefined);
+    assert.equal(listed.base_url, undefined);
+
+    const access = await service.directApiAccess(1, 19);
+    assert.deepEqual(gatewayCalls, [{
+        accountId: 19,
+        path: 'services/v1/account-api.php',
+    }]);
+    assert.deepEqual(access, {
+        account_id: 19,
+        account_name: 'Managed direct API',
+        scope: 'tenant_account',
+        base_url: 'https://sms-19.example.com',
+        api_key: 'public-account-api-key-00000000000000000001',
+        send_url: 'https://sms-19.example.com/services/send.php',
+        method: 'POST',
+        content_type: 'application/x-www-form-urlencoded',
+        key_field: 'key',
+    });
+    const audit = database.prepare(`
+        SELECT event_type, description FROM activity_logs ORDER BY id DESC LIMIT 1
+    `).get();
+    assert.equal(audit.event_type, 'sms_api_access_revealed');
+    assert.doesNotMatch(audit.description, /public-account-api-key/);
+
+    database.prepare(`
+        INSERT INTO tenants (id, name, phone, status)
+        VALUES (2, 'Other tenant', '218910000002', 'Active')
+    `).run();
+    assert.equal(service.defaultAccount(2), null, 'there is no cross-tenant default fallback');
+    await assert.rejects(
+        service.directApiAccess(2, 19),
+        error => error instanceof SmsGatewayError && error.code === 'SMS_ACCOUNT_NOT_FOUND',
+    );
+    await assert.rejects(
+        service.directApiAccess(1, null),
+        error => error instanceof SmsGatewayError && error.code === 'SMS_ACCOUNT_NOT_FOUND',
+    );
+});
+
+test('manual SMS accounts reveal only their tenant-owned stored public key', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    insertAccount(database, {
+        id: 20,
+        name: 'Manual direct API',
+        key: '20202020-2020-4202-8202-202020202020',
+        secret: 'manual-direct-api-webhook-secret',
+        isDefault: true,
+        apiKey: 'manual-public-api-key-00000000000000000020',
+    });
+    const service = new SmsGatewayService({
+        database,
+        gatewayRequest: async () => assert.fail('manual reveal must not call the gateway'),
+    });
+
+    const access = await service.directApiAccess(1, 20);
+    assert.equal(access.api_key, 'manual-public-api-key-00000000000000000020');
+    assert.equal(access.scope, 'tenant_account');
 });
 
 test('disabling the default SMS account promotes a healthy account before a pending one', async (t) => {

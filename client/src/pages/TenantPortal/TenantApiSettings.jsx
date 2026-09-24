@@ -306,8 +306,8 @@ Idempotency-Key: order-2026-000123
                             </Typography>
                             <Alert severity="info" sx={{ mb: 2 }}>
                                 {isArabic
-                                  ? 'استخدم مفتاح Wa Savana API الخاص بحسابك في X-API-Key. لا تستخدم أو تكشف مفتاح بوابة SMS.'
-                                  : 'Use your Wa Savana account API key in X-API-Key. Never use or expose the SMS gateway key.'}
+                                  ? 'هذا المسار يمر عبر Wa Savana ويستخدم مفتاح Wa في X-API-Key. للاستخدام المباشر مع SMS Gateway، احصل على مفتاح الحساب من صفحة «حسابات SMS».'
+                                  : 'This route passes through Wa Savana and uses the Wa key in X-API-Key. For direct SMS Gateway access, retrieve the account key from the SMS Accounts page.'}
                             </Alert>
                             <Paper sx={{
               p: 2,
@@ -325,8 +325,8 @@ Idempotency-Key: order-2026-000123
                             </Paper>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
                                 {isArabic
-                                  ? 'أرسل Idempotency-Key فريدًا لكل رسالة لمنع التكرار. الحقل sms_account_id اختياري؛ احذفه لاستخدام حساب SMS الافتراضي.'
-                                  : 'Send a unique Idempotency-Key for each message to prevent duplicates. sms_account_id is optional; omit it to use the default SMS account.'}
+                                  ? 'أرسل Idempotency-Key فريدًا لكل رسالة لمنع التكرار. الحقل sms_account_id اختياري؛ احذفه لاستخدام الحساب الافتراضي داخل مؤسستك فقط.'
+                                  : 'Send a unique Idempotency-Key for each message to prevent duplicates. sms_account_id is optional; omit it to use only your organization’s default SMS account.'}
                             </Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                                 {isArabic

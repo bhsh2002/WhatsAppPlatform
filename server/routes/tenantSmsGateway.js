@@ -145,6 +145,25 @@ export const createTenantSmsGatewayRouter = ({
         }
     });
 
+    router.post('/:accountId/direct-api/reveal', async (req, res) => {
+        try {
+            res.set({
+                'Cache-Control': 'no-store, private',
+                Pragma: 'no-cache',
+                Expires: '0',
+                'Referrer-Policy': 'no-referrer',
+            });
+            return res.json({
+                data: await service.directApiAccess(
+                    req.user.tenant_id,
+                    req.params.accountId,
+                ),
+            });
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.post('/:accountId/health', async (req, res) => {
         try {
             return res.json(await service.health(req.user.tenant_id, req.params.accountId));
