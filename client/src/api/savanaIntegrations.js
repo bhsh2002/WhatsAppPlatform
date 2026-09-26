@@ -34,6 +34,13 @@ export const savanaIntegrationMethods = {
         });
     },
 
+    async createPortalCentralPaymentIntent(data) {
+        return this.request('/api/portal/integrations/subscription/payment-intents', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async getPortalPlatformIntegrations() {
         return this.request('/api/portal/integrations/platforms');
     },

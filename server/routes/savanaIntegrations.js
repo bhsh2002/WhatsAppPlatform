@@ -110,6 +110,19 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
+    router.post('/subscription/payment-intents', async (req, res) => {
+        try {
+            const result = await service.createSubscriptionPaymentIntent(
+                req.user.tenant_id,
+                req.body || {},
+                req.user.id,
+            );
+            return res.status(201).json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.get('/platforms', (req, res) => {
         try {
             const existing = new Map(

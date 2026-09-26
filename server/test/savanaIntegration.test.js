@@ -554,6 +554,147 @@ test('central plan checkout is validated locally and delegated idempotently', as
     database.close();
 });
 
+test('tenant payment intents use only an open invoice visible to that tenant', async () => {
+    const database = createDatabase();
+    database.prepare("INSERT INTO tenants (id, name, phone, status) VALUES (2, 'Other tenant', '218910000002', 'Active')").run();
+    const ownInvoiceId = crypto.randomUUID();
+    const otherInvoiceId = crypto.randomUUID();
+    const otherOrganizationId = crypto.randomUUID();
+    const intentRequests = [];
+    let ownInvoiceStatus = 'open';
+    let visibleIntents = [];
+    const service = new SavanaIntegrationService({
+        database,
+        config: {
+            ...config,
+            subscriptionsMode: 'central',
+            publicAppUrl: 'https://wa.test',
+        },
+        fetchImpl: async (url, options = {}) => {
+            const parsed = new URL(url);
+            if (parsed.pathname === '/v1/platform-bindings') {
+                const tenantId = parsed.searchParams.get('external_tenant_id') === 'wa_savana:tenant:1' ? 1 : 2;
+                return Response.json([{
+                    id: crypto.randomUUID(),
+                    organization_id: tenantId === 1 ? organizationId : otherOrganizationId,
+                    platform_code: 'wa_savana',
+                    external_tenant_id: `wa_savana:tenant:${tenantId}`,
+                }]);
+            }
+            if (parsed.pathname.endsWith('/subscription-context/wa_savana')) {
+                const isOwn = parsed.pathname.includes(organizationId);
+                return Response.json({ data: {
+                    managed_centrally: true,
+                    organization: { id: isOwn ? organizationId : otherOrganizationId },
+                    platform_code: 'wa_savana',
+                    payment_methods: ['moamalat', 'cash'],
+                    invoices: [{ id: isOwn ? ownInvoiceId : otherInvoiceId,
+                        status: isOwn ? ownInvoiceStatus : 'open' }],
+                    payment_intents: isOwn ? visibleIntents : [],
+                } });
+            }
+            if (parsed.pathname.endsWith('/payment-intents')) {
+                intentRequests.push({ path: parsed.pathname, options });
+                const provider = JSON.parse(options.body).provider;
+                return Response.json({ data: {
+                    checkout_url: provider === 'moamalat'
+                        ? 'https://payments.test/checkout/session-1'
+                        : null,
+                    status: 'pending',
+                } }, { status: 201 });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+    });
+
+    await assert.rejects(
+        () => service.createSubscriptionPaymentIntent(1, {
+            invoice_id: otherInvoiceId,
+            provider: 'moamalat',
+        }, 'user-1'),
+        error => error instanceof SavanaIntegrationError && error.code === 'invoice_not_found'
+            && error.statusCode === 404,
+    );
+    assert.equal(intentRequests.length, 0);
+
+    ownInvoiceStatus = 'paid';
+    await assert.rejects(
+        () => service.createSubscriptionPaymentIntent(1, {
+            invoice_id: ownInvoiceId,
+            provider: 'moamalat',
+        }, 'user-1'),
+        error => error instanceof SavanaIntegrationError && error.code === 'invoice_not_payable'
+            && error.statusCode === 409,
+    );
+    assert.equal(intentRequests.length, 0);
+    ownInvoiceStatus = 'open';
+
+    const intent = await service.createSubscriptionPaymentIntent(1, {
+        invoice_id: ownInvoiceId,
+        provider: 'moamalat',
+    }, 'user-1');
+    assert.equal(intent.checkout_url, 'https://payments.test/checkout/session-1');
+    assert.equal(intentRequests.length, 1);
+    assert.equal(intentRequests[0].path,
+        `/v1/organizations/${organizationId}/invoices/${ownInvoiceId}/payment-intents`);
+    assert.equal(intentRequests[0].options.headers['X-Savana-Platform-Code'], 'wa_savana');
+    assert.deepEqual(JSON.parse(intentRequests[0].options.body), {
+        provider: 'moamalat',
+        return_url: 'https://wa.test/portal/billing',
+        idempotency_key: `wa-savana:moamalat:${ownInvoiceId}`,
+        actor_id: 'wa_savana:tenant:1:user:user-1',
+    });
+
+    await service.createSubscriptionPaymentIntent(1, {
+        invoice_id: ownInvoiceId,
+        provider: 'moamalat',
+        idempotency_key: 'different-client-key-ignored',
+    }, 'user-1');
+    assert.equal(JSON.parse(intentRequests[1].options.body).idempotency_key,
+        `wa-savana:moamalat:${ownInvoiceId}`);
+
+    visibleIntents = [{
+        id: crypto.randomUUID(),
+        invoice_id: ownInvoiceId,
+        provider: 'moamalat',
+        status: 'pending',
+        checkout_url: intent.checkout_url,
+    }];
+    await assert.rejects(
+        () => service.createSubscriptionPaymentIntent(1, {
+            invoice_id: ownInvoiceId,
+            provider: 'cash',
+        }, 'user-1'),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'payment_method_already_selected',
+    );
+    const resumed = await service.createSubscriptionPaymentIntent(1, {
+        invoice_id: ownInvoiceId,
+        provider: 'moamalat',
+    }, 'user-1');
+    assert.equal(resumed.checkout_url, intent.checkout_url);
+    assert.equal(intentRequests.length, 2);
+    visibleIntents = [];
+
+    const cashIntent = await service.createSubscriptionPaymentIntent(1, {
+        invoice_id: ownInvoiceId,
+        provider: 'cash',
+    }, 'user-1');
+    assert.equal(cashIntent.status, 'pending');
+    assert.equal(cashIntent.checkout_url, null);
+    assert.equal(JSON.parse(intentRequests[2].options.body).provider, 'cash');
+    assert.equal(JSON.parse(intentRequests[2].options.body).idempotency_key,
+        `wa-savana:cash:${ownInvoiceId}`);
+    await assert.rejects(
+        () => service.createSubscriptionPaymentIntent(1, {
+            invoice_id: ownInvoiceId,
+            provider: 'unconfigured',
+        }, 'user-1'),
+        error => error instanceof SavanaIntegrationError && error.code === 'payment_provider_invalid',
+    );
+    database.close();
+});
+
 test('Wa manager can create a central pending-review subscription for a selected tenant', async (t) => {
     let checkoutCall;
     const service = {
