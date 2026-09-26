@@ -74,6 +74,7 @@ export const integrationConfigFromEnv = (env = process.env) => ({
     subscriptionsPlatformToken: env.SAVANA_SUBSCRIPTIONS_PLATFORM_TOKEN || '',
     subscriptionsSigningSecret: env.SAVANA_SUBSCRIPTIONS_SIGNING_SECRET || '',
     subscriptionsMode: String(env.SAVANA_SUBSCRIPTIONS_MODE || 'local').trim().toLowerCase(),
+    publicAppUrl: env.PUBLIC_APP_URL || 'http://localhost:5173',
     timeoutMs: Math.max(500, Number(env.SAVANA_CONTROL_PLANE_TIMEOUT_MS || 10_000)),
     outboxMaxAttempts: Math.max(
         1,
@@ -165,6 +166,21 @@ export const validateIntegrationConfig = (config, env = process.env) => {
             'SAVANA_CONNECT_CALLBACK_URL must use HTTPS in production '
             + 'unless it targets the private wa-savana-server:3031 Docker service'
         );
+    }
+    if (config.subscriptionsMode === 'central') {
+        let publicAppUrl;
+        try {
+            publicAppUrl = new URL(config.publicAppUrl);
+        } catch {
+            throw new Error('PUBLIC_APP_URL must be a valid absolute URL');
+        }
+        if (!['http:', 'https:'].includes(publicAppUrl.protocol) || !publicAppUrl.host
+            || publicAppUrl.username || publicAppUrl.password) {
+            throw new Error('PUBLIC_APP_URL must be an HTTP(S) origin');
+        }
+        if (env.NODE_ENV === 'production' && publicAppUrl.protocol !== 'https:') {
+            throw new Error('PUBLIC_APP_URL must use HTTPS in production');
+        }
     }
 };
 
@@ -626,6 +642,69 @@ export class SavanaIntegrationService {
                     payload.idempotency_key || `wa-savana-checkout-${crypto.randomUUID()}`
                 ),
                 ...offer,
+            }
+        );
+    }
+
+    async createSubscriptionPaymentIntent(tenantId, payload = {}, actorId = 'tenant') {
+        const invoiceId = requireUuid(payload.invoice_id, 'invoice_id');
+        const provider = String(payload.provider || '').trim().toLowerCase();
+        if (!['moamalat', 'cash'].includes(provider)) {
+            throw new SavanaIntegrationError(
+                'Choose Moamalat or cash for payment', 400, 'payment_provider_invalid'
+            );
+        }
+        const context = await this.subscriptionContext(tenantId);
+        if (!context.managed_centrally || !context.bound || !context.organization?.id
+            || context.platform_code !== 'wa_savana') {
+            throw new SavanaIntegrationError(
+                'The tenant is not linked to a central Wa Savana organization',
+                409,
+                'central_subscription_unbound'
+            );
+        }
+        const invoice = context.invoices?.find(item => item.id === invoiceId);
+        if (!invoice) {
+            throw new SavanaIntegrationError(
+                'Invoice is not available to this tenant', 404, 'invoice_not_found'
+            );
+        }
+        if (invoice.status !== 'open') {
+            throw new SavanaIntegrationError(
+                'Invoice is not open for payment', 409, 'invoice_not_payable'
+            );
+        }
+        const existingIntent = context.payment_intents?.find(item => item.invoice_id === invoiceId);
+        if (existingIntent) {
+            if (existingIntent.provider !== provider) {
+                throw new SavanaIntegrationError(
+                    'This invoice already has a payment method', 409, 'payment_method_already_selected'
+                );
+            }
+            if (!['pending', 'processing'].includes(existingIntent.status)) {
+                throw new SavanaIntegrationError(
+                    'This payment requires operator review', 409, 'payment_intent_needs_review'
+                );
+            }
+            if (provider === 'cash' || existingIntent.checkout_url) return existingIntent;
+        } else if (!(Array.isArray(context.payment_methods)
+            ? context.payment_methods : ['cash']).includes(provider)) {
+            throw new SavanaIntegrationError(
+                'This payment method is not currently available', 409, 'payment_provider_not_available'
+            );
+        }
+        const idempotencyKey = `wa-savana:${provider}:${invoiceId}`;
+        const returnUrl = new URL('/portal/billing', this.config.publicAppUrl).toString();
+        return this.requestJson(
+            'subscriptions',
+            'POST',
+            `/v1/organizations/${encodeURIComponent(context.organization.id)}`
+            + `/invoices/${encodeURIComponent(invoiceId)}/payment-intents`,
+            {
+                provider,
+                return_url: returnUrl,
+                idempotency_key: idempotencyKey,
+                actor_id: `wa_savana:tenant:${tenantId}:user:${actorId}`,
             }
         );
     }

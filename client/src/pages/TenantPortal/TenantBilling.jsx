@@ -33,6 +33,38 @@ import {
     portalInvoiceColumnKey,
     presentPortalInvoices,
 } from './billingInvoicePresentation';
+import { availableCentralPaymentMethods, centralInvoiceIsPaid, centralInvoicePaymentState } from './paymentMethods';
+
+const PAYMENT_RETURN_INVOICE_KEY = 'wa-savana-payment-return-invoice';
+const PAYMENT_POLL_ATTEMPTS = 6;
+const PAYMENT_POLL_INTERVAL_MS = 2000;
+
+const rememberPaymentInvoice = (invoiceId, checkoutUrl) => {
+    try {
+        const paymentIntentId = new URL(checkoutUrl).pathname.split('/').filter(Boolean).pop();
+        window.sessionStorage.setItem(
+            PAYMENT_RETURN_INVOICE_KEY,
+            JSON.stringify({ invoiceId, paymentIntentId })
+        );
+    } catch {
+        // Payment can still proceed when browser storage is unavailable.
+    }
+};
+
+const returnedPayment = () => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get('payment_status') !== 'paid') return null;
+    let invoiceId = null;
+    try {
+        const saved = JSON.parse(window.sessionStorage.getItem(PAYMENT_RETURN_INVOICE_KEY) || 'null');
+        if (saved?.paymentIntentId && saved.paymentIntentId === query.get('payment_intent_id')) {
+            invoiceId = saved.invoiceId;
+        }
+    } catch {
+        // The invoice cannot be correlated without browser storage.
+    }
+    return { status: invoiceId ? 'checking' : 'unknown_invoice', invoiceId };
+};
 
 const StatCard = ({ title, value, icon, color = 'primary', caption }) => (
     <Card elevation={1} sx={{ height: '100%' }}>
@@ -70,7 +102,9 @@ const TenantBilling = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [checkoutWorking, setCheckoutWorking] = useState('');
+    const [paymentWorking, setPaymentWorking] = useState('');
     const [checkoutMessage, setCheckoutMessage] = useState('');
+    const [paymentReturn, setPaymentReturn] = useState(returnedPayment);
 
     const fetchBilling = useCallback(async () => {
         try {
@@ -113,6 +147,79 @@ const TenantBilling = () => {
         fetchBilling();
     }, [fetchBilling]);
 
+    useEffect(() => {
+        if (loading || paymentReturn?.status !== 'checking') return undefined;
+        let cancelled = false;
+        let timerId;
+        let attempts = 0;
+        const refreshPayment = async () => {
+            attempts += 1;
+            try {
+                const context = await api.getPortalCentralSubscription();
+                if (cancelled) return;
+                if (context?.managed_centrally) {
+                    setCentralSubscription(context);
+                    setInvoices((context.invoices || []).map(invoice => ({
+                        ...invoice,
+                        invoice_number: invoice.number,
+                    })));
+                }
+                if (centralInvoiceIsPaid(context, paymentReturn.invoiceId)) {
+                    try {
+                        window.sessionStorage.removeItem(PAYMENT_RETURN_INVOICE_KEY);
+                    } catch {
+                        // Browser storage may be unavailable.
+                    }
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('payment_status');
+                    url.searchParams.delete('payment_intent_id');
+                    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+                    setPaymentReturn({ status: 'confirmed', invoiceId: paymentReturn.invoiceId });
+                    return;
+                }
+            } catch {
+                if (cancelled) return;
+            }
+            if (attempts >= PAYMENT_POLL_ATTEMPTS) {
+                setPaymentReturn({ status: 'timeout', invoiceId: paymentReturn.invoiceId });
+                return;
+            }
+            timerId = window.setTimeout(refreshPayment, PAYMENT_POLL_INTERVAL_MS);
+        };
+        refreshPayment();
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timerId);
+        };
+    }, [loading, paymentReturn?.invoiceId, paymentReturn?.status]);
+
+    const resumeMoamalatPayment = (invoiceId, checkoutUrl) => {
+        rememberPaymentInvoice(invoiceId, checkoutUrl);
+        window.location.assign(checkoutUrl);
+    };
+
+    const startPayment = async (invoiceId, provider) => {
+        setPaymentWorking(`${provider}:${invoiceId}`);
+        setError(null);
+        try {
+            const intent = await api.createPortalCentralPaymentIntent({
+                invoice_id: invoiceId,
+                provider,
+            });
+            if (provider === 'cash') {
+                setCheckoutMessage('تم تسجيل طلب السداد النقدي. ستبقى الفاتورة بانتظار تأكيد الاستلام من الإدارة.');
+                await fetchBilling();
+                return;
+            }
+            if (!intent?.checkout_url) throw new Error('رابط الدفع غير متاح لهذه الفاتورة.');
+            resumeMoamalatPayment(invoiceId, intent.checkout_url);
+        } catch (paymentError) {
+            setError(paymentError.message || 'تعذر بدء الدفع الإلكتروني.');
+        } finally {
+            setPaymentWorking('');
+        }
+    };
+
     const checkout = async (kind, offer) => {
         setCheckoutWorking(offer.id);
         setCheckoutMessage('');
@@ -130,7 +237,7 @@ const TenantBilling = () => {
             const invoice = result?.invoice;
             setCheckoutMessage(
                 invoice
-                    ? `تم إنشاء طلب الاشتراك والفاتورة ${invoice.number}.`
+                    ? `تم إنشاء طلب الاشتراك والفاتورة ${invoice.number}. اختر طريقة الدفع من قائمة الفواتير.`
                     : 'تم إنشاء طلب الاشتراك المركزي بنجاح.'
             );
             await fetchBilling();
@@ -171,6 +278,7 @@ const TenantBilling = () => {
         : Boolean(balances.billing_cycle_blocked);
     const lowBalance = !cycleBlocked && Number(balances.available_credits || 0) < 10;
     const usingCreditLimit = Number(balances.credit_used_credits || 0) > 0;
+    const paymentMethods = availableCentralPaymentMethods(centralSubscription?.payment_methods);
     const number = (value) => Number(value || 0).toLocaleString(locale);
     const money = (value) => `${Number(value || 0).toLocaleString(locale)} LYD`;
     const formatDateTime = (value) => {
@@ -178,6 +286,50 @@ const TenantBilling = () => {
         const parsed = new Date(String(value).replace(' ', 'T'));
         if (Number.isNaN(parsed.getTime())) return value;
         return parsed.toLocaleString(locale);
+    };
+
+    const renderInvoicePayment = (invoice) => {
+        if (invoice.status !== 'open') return null;
+        const paymentState = centralInvoicePaymentState(
+            centralSubscription?.payment_intents, invoice.id,
+        );
+        if (paymentState.kind === 'cash_pending') {
+            return <Chip size="small" color="warning" label="السداد النقدي بانتظار تأكيد الإدارة" />;
+        }
+        if (paymentState.kind === 'moamalat_resume') {
+            return <Button size="small" variant="contained" onClick={() => resumeMoamalatPayment(invoice.id, paymentState.intent.checkout_url)}>متابعة الدفع عبر معاملات</Button>;
+        }
+        if (paymentState.kind === 'moamalat_pending') {
+            return <Button size="small" variant="outlined" disabled={Boolean(paymentWorking)} onClick={() => startPayment(invoice.id, 'moamalat')}>إعادة محاولة رابط معاملات</Button>;
+        }
+        if (paymentState.kind === 'needs_review') {
+            return <Typography variant="body2" color="text.secondary">نية الدفع تحتاج مراجعة الإدارة</Typography>;
+        }
+        return (
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {paymentMethods.includes('moamalat') && (
+                    <Button
+                        size="small"
+                        variant="contained"
+                        disabled={Boolean(paymentWorking)}
+                        onClick={() => startPayment(invoice.id, 'moamalat')}
+                    >
+                        {paymentWorking === `moamalat:${invoice.id}` ? <CircularProgress size={18} color="inherit" /> : 'الدفع عبر معاملات'}
+                    </Button>
+                )}
+                {paymentMethods.includes('cash') && (
+                    <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={Boolean(paymentWorking)}
+                        onClick={() => startPayment(invoice.id, 'cash')}
+                    >
+                        {paymentWorking === `cash:${invoice.id}` ? <CircularProgress size={18} color="inherit" /> : 'طلب سداد نقدي'}
+                    </Button>
+                )}
+                {paymentMethods.length === 0 && <Typography variant="body2" color="text.secondary">لا تتوفر طريقة دفع حالياً</Typography>}
+            </Box>
+        );
     };
 
     return (
@@ -193,6 +345,24 @@ const TenantBilling = () => {
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {paymentReturn?.status === 'checking' && (
+                <Alert severity="info" sx={{ mb: 2 }}>جارٍ تحديث الفاتورة من نظام الاشتراكات بعد العودة من معاملات...</Alert>
+            )}
+            {paymentReturn?.status === 'confirmed' && (
+                <Alert severity="success" sx={{ mb: 2 }}>تأكد سداد الفاتورة في نظام الاشتراكات.</Alert>
+            )}
+            {paymentReturn?.status === 'timeout' && (
+                <Alert
+                    severity="warning"
+                    sx={{ mb: 2 }}
+                    action={<Button color="inherit" size="small" onClick={() => setPaymentReturn(current => ({ ...current, status: 'checking' }))}>إعادة التحقق</Button>}
+                >
+                    لم يصل تأكيد سداد الفاتورة إلى نظام الاشتراكات بعد. أعد التحقق بعد قليل؛ ستبقى حالة الفاتورة كما يعرضها النظام.
+                </Alert>
+            )}
+            {paymentReturn?.status === 'unknown_invoice' && (
+                <Alert severity="warning" sx={{ mb: 2 }}>تعذر تحديد الفاتورة المرتبطة بعملية الدفع. راجع حالة الفواتير أدناه أو حدّث الصفحة.</Alert>
+            )}
             {checkoutMessage && (
                 <Alert severity="success" onClose={() => setCheckoutMessage('')} sx={{ mb: 2 }}>
                     {checkoutMessage}
@@ -467,6 +637,7 @@ const TenantBilling = () => {
                                             <TableCell>{t('common.status')}</TableCell>
                                             <TableCell>{t(portalInvoiceColumnKey(centralSubscription?.managed_centrally))}</TableCell>
                                             <TableCell>{t('common.createdAt')}</TableCell>
+                                            {centralSubscription?.managed_centrally && <TableCell>الدفع</TableCell>}
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -476,6 +647,9 @@ const TenantBilling = () => {
                                                 <TableCell><Chip size="small" label={invoice.status} /></TableCell>
                                                 <TableCell>{formatPortalInvoiceValue(invoice, centralSubscription?.managed_centrally, locale)}</TableCell>
                                                 <TableCell>{invoice.created_at}</TableCell>
+                                                {centralSubscription?.managed_centrally && (
+                                                    <TableCell>{renderInvoicePayment(invoice)}</TableCell>
+                                                )}
                                             </TableRow>
                                         ))}
                                     </TableBody>
