@@ -197,7 +197,7 @@ function AppRoutes() {
         path="/inbox"
         element={
           <ProtectedRoute requireAdmin>
-            <MainLayout><UnifiedInbox /></MainLayout>
+            <MainLayout fullHeight><UnifiedInbox /></MainLayout>
           </ProtectedRoute>
         }
       />
@@ -321,7 +321,7 @@ function AppRoutes() {
         path="/portal/inbox"
         element={
           <ProtectedRoute requireTenant>
-            <MainLayout><TenantInbox /></MainLayout>
+            <MainLayout fullHeight><TenantInbox /></MainLayout>
           </ProtectedRoute>
         }
       />
