@@ -244,6 +244,7 @@ const TenantMetaReview = () => {
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
   const [error, setError] = useState('');
   const [snapshotMessage, setSnapshotMessage] = useState('');
   const loadSnapshots = useCallback(async () => {
@@ -415,6 +416,12 @@ const TenantMetaReview = () => {
       }]
     }];
   }, [readiness, t]);
+  const authorizationReady = readiness?.permissions?.live_token_status === 'valid'
+    && readiness.permissions?.live_token_app_id_matches !== false
+    && (readiness.permissions?.missing_scopes?.length || 0) === 0;
+  const connectedPageReady = readiness?.pages?.pages?.some(page =>
+    page.is_active && page.token_ready && page.webhook_ready
+  ) || false;
   if (loading) {
     return <Box sx={{
       display: 'flex',
@@ -474,6 +481,48 @@ const TenantMetaReview = () => {
     }}>{snapshotMessage}</Alert>}
 
             {readiness && <>
+                    <Paper sx={{ p: 3, mb: 2 }}>
+                        <Typography component="h2" variant="h6" fontWeight={700} gutterBottom>
+                            {t('metaReview.connectionStatus')}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            {t('metaReview.connectionHint')}
+                        </Typography>
+                        <Stack spacing={2}>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                                <Box>
+                                    <Typography fontWeight={700}>{t('metaReview.facebookAuthorization')}</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {authorizationReady
+                                          ? t('metaReview.authorizationReady')
+                                          : readiness.permissions?.live_token_status === 'unavailable'
+                                            ? t(readiness.permissions?.live_token_error === 'app_credentials_missing'
+                                              ? 'metaReview.authorizationConfigUnavailable'
+                                              : 'metaReview.authorizationCheckUnavailable')
+                                            : t('metaReview.authorizationNeedsAttention')}
+                                    </Typography>
+                                </Box>
+                                <StatusChip status={authorizationReady ? 'ready' : 'action_required'} />
+                            </Box>
+                            <Divider />
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                                <Box>
+                                    <Typography fontWeight={700}>{t('metaReview.pageConnection')}</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {connectedPageReady ? t('metaReview.pageConnectionReady') : t('metaReview.pageConnectionNeedsAttention')}
+                                    </Typography>
+                                </Box>
+                                <StatusChip status={connectedPageReady ? 'ready' : 'action_required'} />
+                            </Box>
+                        </Stack>
+                        {(!authorizationReady || !connectedPageReady) && <Button component={RouterLink} to="/portal/fb-pages" variant="contained" size="small" sx={{ mt: 2 }}>
+                            {t('metaReview.managePages')}
+                        </Button>}
+                    </Paper>
+                    <Button variant="text" size="small" onClick={() => setReviewDetailsOpen(open => !open)} sx={{ mb: 2 }}>
+                        {t(reviewDetailsOpen ? 'metaReview.hideReviewDetails' : 'metaReview.showReviewDetails')}
+                    </Button>
+                    {reviewDetailsOpen && <>
                     <Paper sx={{
         p: 3,
         mb: 3
@@ -708,6 +757,7 @@ const TenantMetaReview = () => {
                                     </Box>)}
                             </Stack>
                         </Paper>}
+                    </>}
                 </>}
         </Box>;
 };

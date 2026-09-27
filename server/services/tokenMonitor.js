@@ -1,28 +1,26 @@
 import db from '../db/database.js';
 import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js';
 import { decryptIfEncrypted } from './encryption.js';
+import eventBus from './eventBus.js';
 import { requestMetaJson } from './metaHttp.js';
+import { classifyMetaTokenStatus } from './metaTokenStatus.js';
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKEN_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
-const getTokenStatus = (tokenData) => {
-    const isValid = tokenData.is_valid === true;
-    const expiresAt = tokenData.expires_at;
-
-    if (!isValid) return 'invalid';
-    if (expiresAt && expiresAt > 0) {
-        const expiresDate = new Date(expiresAt * 1000);
-        const now = new Date();
-        if (expiresDate <= now) return 'expired';
-        if (expiresDate <= new Date(now.getTime() + SEVEN_DAYS_MS)) return 'expiring';
-    }
-    return 'valid';
-};
 
 const expiresAtIso = (expiresAt) => (
     expiresAt && expiresAt > 0 ? new Date(expiresAt * 1000).toISOString() : null
 );
+
+const notifyFacebookTokenTransition = (tenant, status) => {
+    if (tenant.facebook_user_token_status === status
+        || !['expiring', 'expired', 'invalid'].includes(status)) return;
+    eventBus.emitBrowserAlert({
+        tenantId: tenant.id,
+        code: 'FACEBOOK_AUTH_RENEWAL_REQUIRED',
+        sourceId: `facebook-user-token:${tenant.id}:${status}:${Date.now()}`,
+        severity: status === 'expiring' ? 'warning' : 'critical',
+    });
+};
 
 const debugToken = (token, appAccessToken) => requestMetaJson(
     `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
@@ -67,7 +65,7 @@ export async function checkTokenHealth() {
             }
 
             const tokenData = data.data || {};
-            const status = getTokenStatus(tokenData);
+            const status = classifyMetaTokenStatus(tokenData);
             const expiresAt = tokenData.expires_at;
 
             db.prepare(
@@ -81,7 +79,8 @@ export async function checkTokenHealth() {
     }
 
     const facebookUsers = db.prepare(`
-        SELECT id, name, facebook_user_access_token_encrypted
+        SELECT id, name, facebook_user_access_token_encrypted,
+               facebook_user_token_status
         FROM tenants
         WHERE status != 'Suspended' AND facebook_user_access_token_encrypted IS NOT NULL
     `).all();
@@ -92,6 +91,7 @@ export async function checkTokenHealth() {
             db.prepare(
                 "UPDATE tenants SET facebook_user_token_status = 'invalid', facebook_user_token_checked_at = datetime('now', 'localtime') WHERE id = ?"
             ).run(tenant.id);
+            notifyFacebookTokenTransition(tenant, 'invalid');
             continue;
         }
 
@@ -99,15 +99,20 @@ export async function checkTokenHealth() {
             const { data, error } = await debugToken(token, appAccessToken);
 
             if (error) {
+                if (error.retryable) {
+                    errors++;
+                    continue;
+                }
                 db.prepare(
                     "UPDATE tenants SET facebook_user_token_status = 'invalid', facebook_user_token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(tenant.id);
+                notifyFacebookTokenTransition(tenant, 'invalid');
                 errors++;
                 continue;
             }
 
             const tokenData = data.data || {};
-            const status = getTokenStatus(tokenData);
+            const status = classifyMetaTokenStatus(tokenData);
             const expiresAt = tokenData.expires_at;
 
             db.prepare(`
@@ -125,6 +130,7 @@ export async function checkTokenHealth() {
                 JSON.stringify(tokenData.scopes || []),
                 tenant.id
             );
+            notifyFacebookTokenTransition(tenant, status);
             checked++;
         } catch (err) {
             console.error(`[TokenMonitor] Error checking Facebook user token for tenant ${tenant.id}:`, err.message);
@@ -133,7 +139,9 @@ export async function checkTokenHealth() {
     }
 
     const pages = db.prepare(
-        "SELECT id, tenant_id, page_id, page_name, page_access_token_encrypted FROM tenant_pages"
+        `SELECT id, tenant_id, page_id, page_name, page_access_token_encrypted
+         FROM tenant_pages
+         WHERE is_active = 1`
     ).all();
 
     for (const page of pages) {
@@ -152,14 +160,19 @@ export async function checkTokenHealth() {
             const { data, error } = await debugToken(token, appAccessToken);
 
             if (error) {
+                if (error.retryable) {
+                    errors++;
+                    continue;
+                }
                 db.prepare(
                     "UPDATE tenant_pages SET token_status = 'invalid', token_checked_at = datetime('now', 'localtime') WHERE id = ?"
                 ).run(page.id);
+                errors++;
                 continue;
             }
 
             const tokenData = data.data || {};
-            const status = getTokenStatus(tokenData);
+            const status = classifyMetaTokenStatus(tokenData);
             const expiresAt = tokenData.expires_at;
 
             db.prepare(`
@@ -214,7 +227,7 @@ export async function checkSingleTenant(tenantId) {
     const tokenData = data.data || {};
     const isValid = tokenData.is_valid === true;
     const expiresAt = tokenData.expires_at;
-    const status = getTokenStatus(tokenData);
+    const status = classifyMetaTokenStatus(tokenData);
 
     db.prepare(
         `UPDATE tenants SET token_status = ?, token_expires_at = ?, token_checked_at = datetime('now', 'localtime') WHERE id = ?`

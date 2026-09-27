@@ -19,6 +19,9 @@ function createDatabase() {
             is_active INTEGER DEFAULT 1,
             subscribed_fields TEXT,
             webhook_subscribed INTEGER DEFAULT 0,
+            token_status TEXT DEFAULT 'unchecked',
+            token_expires_at TEXT,
+            token_checked_at TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -193,6 +196,51 @@ test('page subscription status enforces ownership and sends the token only in au
     });
     assert.equal(malformed.statusCode, 400);
     assert.equal(calls.length, 1);
+});
+
+test('page webhook repair updates only an owned page after Meta confirms it', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const calls = [];
+    const router = createTenantFacebookMessagingRouter({
+        database: db,
+        ...createDependencies({
+            requestMeta: async (url, init) => {
+                calls.push({ url, init });
+                return { ok: true, status: 200, data: { success: true } };
+            },
+        }),
+    });
+
+    const forbidden = await invokeRoute(router, 'post', '/pages/:id/repair-webhook', {
+        user: { tenant_id: 1 }, params: { id: '2' },
+    });
+    assert.equal(forbidden.statusCode, 404);
+    assert.equal(calls.length, 0);
+
+    db.prepare('UPDATE tenant_pages SET webhook_subscribed = 0 WHERE id = 1').run();
+    const repaired = await invokeRoute(router, 'post', '/pages/:id/repair-webhook', {
+        user: { tenant_id: 1 }, params: { id: '1' },
+    });
+    assert.equal(repaired.statusCode, 200);
+    assert.equal(db.prepare('SELECT webhook_subscribed FROM tenant_pages WHERE id = 1').get().webhook_subscribed, 1);
+    assert.equal(calls[0].init.method, 'POST');
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer token-a');
+    assert.doesNotMatch(calls[0].url, /access_token|token-a/);
+    assert.match(calls[0].init.body, /subscribed_fields=feed%2Cmessages%2Cmessaging_postbacks/);
+
+    const failing = createTenantFacebookMessagingRouter({
+        database: db,
+        ...createDependencies({
+            requestMeta: async () => ({ ok: false, status: 403, error: { message: 'Denied' } }),
+        }),
+    });
+    db.prepare('UPDATE tenant_pages SET webhook_subscribed = 0 WHERE id = 1').run();
+    const failed = await invokeRoute(failing, 'post', '/pages/:id/repair-webhook', {
+        user: { tenant_id: 1 }, params: { id: '1' },
+    });
+    assert.equal(failed.statusCode, 403);
+    assert.equal(db.prepare('SELECT webhook_subscribed FROM tenant_pages WHERE id = 1').get().webhook_subscribed, 0);
 });
 
 test('tenant Messenger exposes only the reviewed human-agent message tag', async (t) => {

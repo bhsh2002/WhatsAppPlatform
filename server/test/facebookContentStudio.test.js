@@ -650,8 +650,8 @@ test('AI route records generation, billing and optionally creates review items',
         generate: async () => ({
             variants: [{
                 title: 'عنوان مولد',
-                body: 'محتوى مولد',
-                hashtags: ['سافانا'],
+                body: 'محتوى مولد #سافانا',
+                hashtags: ['سافانا', 'سافانا'],
                 cta: 'اكتب لنا',
             }],
             model: 'test-model',
@@ -695,6 +695,7 @@ test('AI route records generation, billing and optionally creates review items',
     assert.equal(item.kind, 'ai');
     assert.equal(item.status, 'review');
     assert.match(item.body, /#سافانا/);
+    assert.equal(item.body.match(/#سافانا/g).length, 1);
 
     const history = await invoke(router, 'get', '/ai/history');
     assert.equal('model' in history.body[0], false);
@@ -819,6 +820,11 @@ test('campaign and publication APIs preserve approval, page and tenant boundarie
         INSERT INTO facebook_content_items (
             id, tenant_id, linked_page_id, kind, title, body, status, created_by
         ) VALUES (301, 1, 11, 'manual', 'محتوى معتمد', 'نص جاهز للنشر', 'approved', 1)
+    `).run();
+    database.prepare(`
+        INSERT INTO facebook_content_settings (
+            tenant_id, linked_page_id, posting_start_time, posting_end_time, no_repeat_days
+        ) VALUES (1, 11, '00:00', '23:59', 0)
     `).run();
     const campaigns = createFacebookContentCampaignsRouter({ database });
     const publications = createFacebookContentPublicationsRouter({ database });
@@ -997,7 +1003,10 @@ test('campaign and publication lifecycle supports filters, edits and recovery ac
         ) VALUES (401, 1, 11, 'manual', 'جاهز', 'منشور دورة الحياة', 'approved', 1);
     `);
     const campaigns = createFacebookContentCampaignsRouter({ database });
-    const publications = createFacebookContentPublicationsRouter({ database });
+    const publications = createFacebookContentPublicationsRouter({
+        database,
+        clock: () => new Date('2026-07-16T12:00:00.000Z'),
+    });
 
     const created = await invoke(campaigns, 'post', '/campaigns', {
         body: {
@@ -1111,4 +1120,88 @@ test('campaign and publication lifecycle supports filters, edits and recovery ac
         params: { id: '9999' },
     });
     assert.equal(missingCampaign.statusCode, 404);
+});
+
+test('publication API uses the page timezone and scopes summary to every active filter', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    database.exec(`
+        INSERT INTO tenant_pages (id, tenant_id, page_id, page_name, is_active)
+        VALUES (12, 1, 'page-a-two', 'Page A Two', 1);
+        INSERT INTO facebook_content_items (
+            id, tenant_id, linked_page_id, kind, title, body, status, created_by
+        ) VALUES
+            (501, 1, 11, 'manual', 'أول', 'النص الأول', 'approved', 1),
+            (502, 1, 11, 'manual', 'ثان', 'النص الثاني', 'approved', 1);
+        INSERT INTO facebook_content_settings (
+            tenant_id, linked_page_id, timezone, allowed_days_json,
+            posting_start_time, posting_end_time, daily_post_limit, no_repeat_days
+        ) VALUES (1, 11, 'Africa/Tripoli', '[4]', '09:00', '11:00', 1, 0);
+        INSERT INTO facebook_content_publications (
+            tenant_id, linked_page_id, product_id, status, scheduled_for,
+            next_attempt_at, idempotency_key, rendered_message
+        ) VALUES (
+            1, 12, 101, 'failed', '2026-07-16T08:00:00.000Z',
+            '2026-07-16T08:00:00.000Z', 'other-page-failure', 'Other page'
+        );
+    `);
+    const router = createFacebookContentPublicationsRouter({
+        database,
+        clock: () => new Date('2026-07-16T07:00:00.000Z'),
+    });
+    const created = await invoke(router, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            content_item_id: 501,
+            scheduled_for_local: '2026-07-16T10:00',
+        },
+    });
+    assert.equal(created.statusCode, 201);
+    assert.equal(created.body.scheduled_for, '2026-07-16T08:00:00.000Z');
+
+    const outsideWindowRouter = createFacebookContentPublicationsRouter({
+        database,
+        clock: () => new Date('2026-07-16T12:00:00.000Z'),
+    });
+    const publishOutsideWindow = await invoke(
+        outsideWindowRouter,
+        'post',
+        '/publications/:id/publish-now',
+        { params: { id: String(created.body.id) } },
+    );
+    assert.equal(publishOutsideWindow.statusCode, 409);
+    assert.equal(publishOutsideWindow.body.code, 'CONTENT_POSTING_WINDOW_CLOSED');
+
+    const limited = await invoke(router, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            content_item_id: 502,
+            scheduled_for_local: '2026-07-16T10:30',
+        },
+    });
+    assert.equal(limited.statusCode, 409);
+    assert.equal(limited.body.code, 'CONTENT_DAILY_LIMIT_REACHED');
+    assert.equal(limited.body.details.timezone, 'Africa/Tripoli');
+
+    const outsideWindow = await invoke(router, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            content_item_id: 502,
+            scheduled_for_local: '2026-07-16T12:00',
+        },
+    });
+    assert.equal(outsideWindow.statusCode, 409);
+    assert.equal(outsideWindow.body.code, 'CONTENT_POSTING_WINDOW_CLOSED');
+
+    const filtered = await invoke(router, 'get', '/publications', {
+        query: {
+            linked_page_id: '11',
+            status: 'pending',
+            start: '2026-07-16T00:00:00.000Z',
+            end: '2026-07-16T23:59:59.999Z',
+        },
+    });
+    assert.equal(filtered.body.total, 1);
+    assert.deepEqual(filtered.body.summary, { pending: 1 });
+    assert.equal(filtered.body.publications[0].timezone, 'Africa/Tripoli');
 });

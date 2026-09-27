@@ -37,7 +37,8 @@ import {
     Campaign as CampaignIcon,
     BarChart as BarChartIcon,
     ReportProblem as ReportProblemIcon,
-    SmartToy as SmartToyIcon,
+    AccountTree as FlowIcon,
+    Rule as AutomationIcon,
     AccountBalanceWallet as BillingIcon,
     Language as LanguageIcon,
     PointOfSale as PosIcon,
@@ -91,7 +92,7 @@ const Sidebar = ({ onNavigate }) => {
             color: '#0B57D0',
             items: [
                 { label: t('nav.facebookContent'), path: '/fb-manager', icon: <FacebookIcon /> },
-                { label: t('nav.messengerBot'), path: '/messenger-bot', icon: <SmartToyIcon /> },
+                { label: t('nav.messengerBot'), path: '/messenger-bot', icon: <FlowIcon /> },
                 { label: t('nav.facebookInsights'), path: '/fb-insights', icon: <BarChartIcon /> },
                 { label: t('nav.businessManager'), path: '/business-manager', icon: <BusinessIcon /> },
                 { label: t('nav.partnerSolutions'), path: '/partner-solutions', icon: <HandshakeIcon /> },
@@ -101,7 +102,7 @@ const Sidebar = ({ onNavigate }) => {
         {
             title: t('nav.sections.system'),
             items: [
-                { label: t('nav.automation'), path: '/automation', icon: <SmartToyIcon /> },
+                { label: t('nav.automation'), path: '/automation', icon: <AutomationIcon /> },
                 { label: t('nav.logs'), path: '/logs', icon: <AssessmentIcon /> },
                 { label: t('nav.settings'), path: '/settings', icon: <SettingsIcon /> },
                 { label: t('nav.appSettings'), path: '/app-settings', icon: <InstallMobileIcon /> },
@@ -151,14 +152,14 @@ const Sidebar = ({ onNavigate }) => {
             items: [
                 { label: t('nav.facebookPages'), path: '/portal/fb-pages', icon: <FacebookIcon /> },
                 { label: t('nav.contentManager'), path: '/portal/fb-content', icon: <StoreIcon /> },
-                { label: t('nav.messengerBot'), path: '/portal/messenger-bot', icon: <SmartToyIcon /> },
+                { label: t('nav.messengerBot'), path: '/portal/messenger-bot', icon: <FlowIcon /> },
                 { label: t('nav.facebookInsights'), path: '/portal/fb-insights', icon: <BarChartIcon /> },
             ],
         },
         {
             title: t('nav.sections.operations'),
             items: [
-                { label: t('nav.automation'), path: '/portal/automation', icon: <SmartToyIcon /> },
+                { label: t('nav.automation'), path: '/portal/automation', icon: <AutomationIcon /> },
                 { label: t('nav.appSettings'), path: '/app-settings', icon: <InstallMobileIcon /> },
             ],
         },

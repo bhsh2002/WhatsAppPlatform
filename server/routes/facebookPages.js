@@ -147,7 +147,11 @@ router.get('/tenant/:tenantId', (req, res) => {
         }
 
         const pages = db.prepare(
-            'SELECT id, tenant_id, platform, page_id, page_name, page_category, page_picture_url, is_active, subscribed_fields, webhook_subscribed, created_at, updated_at FROM tenant_pages WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+            `SELECT id, tenant_id, platform, page_id, page_name, page_category, page_picture_url,
+                    is_active, subscribed_fields, webhook_subscribed, created_at, updated_at,
+                    CASE WHEN page_access_token_encrypted IS NOT NULL
+                              AND page_access_token_encrypted <> '' THEN 1 ELSE 0 END AS page_access_token_present
+             FROM tenant_pages WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`
         ).all(tenantId, limit, offset);
 
         res.json(pages);
@@ -175,10 +179,10 @@ router.post('/tenant/:tenantId', async (req, res) => {
         }
 
         const existing = db.prepare(
-            'SELECT id, tenant_id FROM tenant_pages WHERE page_id = ?'
+            'SELECT id, tenant_id, is_active, subscribed_fields FROM tenant_pages WHERE page_id = ?'
         ).get(page_id);
-        if (existing) {
-            const sameTenant = String(existing.tenant_id) === String(tenantId);
+        const sameTenant = existing && String(existing.tenant_id) === String(tenantId);
+        if (existing && (!sameTenant || existing.is_active)) {
             return res.status(409).json({
                 error: sameTenant
                     ? 'هذه الصفحة مربوطة بالفعل بهذا العميل'
@@ -208,21 +212,46 @@ router.post('/tenant/:tenantId', async (req, res) => {
         // Encrypt the page access token before storing
         const encryptedToken = encrypt(page_access_token);
 
-        const stmt = db.prepare(`
-            INSERT INTO tenant_pages (tenant_id, platform, page_id, page_name, page_access_token_encrypted, page_category, page_picture_url, webhook_subscribed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-        `);
-        let result;
+        let linkedPageId;
         try {
-            result = stmt.run(
-                tenantId,
-                'facebook',
-                page_id,
-                pageName,
-                encryptedToken,
-                pageCategory,
-                pagePictureUrl
-            );
+            if (existing) {
+                const savedFields = parseStoredFields(existing.subscribed_fields);
+                const update = db.prepare(`
+                    UPDATE tenant_pages
+                    SET page_name = ?, page_access_token_encrypted = ?, page_category = ?, page_picture_url = ?,
+                        is_active = 1, subscribed_fields = ?, webhook_subscribed = 0,
+                        token_status = 'unchecked', token_expires_at = NULL, token_checked_at = NULL,
+                        token_app_id = NULL, token_scopes = NULL,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE id = ? AND tenant_id = ? AND is_active = 0
+                `).run(
+                    pageName,
+                    encryptedToken,
+                    pageCategory,
+                    pagePictureUrl,
+                    JSON.stringify(savedFields.length ? savedFields : FACEBOOK_WEBHOOK_FIELDS),
+                    existing.id,
+                    tenantId
+                );
+                if (!update.changes) {
+                    return res.status(409).json({ error: 'هذه الصفحة مربوطة بالفعل بهذا العميل' });
+                }
+                linkedPageId = existing.id;
+            } else {
+                const result = db.prepare(`
+                    INSERT INTO tenant_pages (tenant_id, platform, page_id, page_name, page_access_token_encrypted, page_category, page_picture_url, webhook_subscribed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                `).run(
+                    tenantId,
+                    'facebook',
+                    page_id,
+                    pageName,
+                    encryptedToken,
+                    pageCategory,
+                    pagePictureUrl
+                );
+                linkedPageId = result.lastInsertRowid;
+            }
         } catch (error) {
             if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
                 return res.status(409).json({ error: 'هذه الصفحة غير متاحة للربط' });
@@ -230,7 +259,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
             throw error;
         }
 
-        const newPage = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(result.lastInsertRowid);
+        const newPage = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(linkedPageId);
 
         if (META_APP_ID && META_APP_SECRET) {
             try {
@@ -301,7 +330,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
         db.prepare(`
             INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
             VALUES (?, ?, 'page_linked', ?, 'success')
-        `).run(parseInt(tenantId), tenant.name, `ربط صفحة فيسبوك: ${pageName || page_id}`);
+        `).run(parseInt(tenantId), tenant.name, `${existing ? 'إعادة ربط' : 'ربط'} صفحة فيسبوك: ${pageName || page_id}`);
 
         const finalPage = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(newPage.id);
         const response = sanitizePage(finalPage);
@@ -310,7 +339,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
         }
         response._webhook_subscribed = webhookSubscribed;
 
-        res.status(201).json(response);
+        res.status(existing ? 200 : 201).json(response);
     } catch (error) {
         console.error('[FacebookPages] Link error:', error);
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -332,6 +361,12 @@ router.put('/:id', (req, res) => {
         if (!existing) {
             return res.status(404).json({ error: 'الصفحة غير موجودة' });
         }
+        if (page_access_token !== undefined && (typeof page_access_token !== 'string' || !page_access_token.trim())) {
+            return res.status(400).json({ error: 'أدخل رمز وصول صالحاً للصفحة' });
+        }
+        if (is_active && !existing.page_access_token_encrypted && page_access_token === undefined) {
+            return res.status(409).json({ error: 'أعد ربط الصفحة برمز وصول صالح قبل تفعيلها' });
+        }
 
         const setClauses = [];
         const values = [];
@@ -348,7 +383,13 @@ router.put('/:id', (req, res) => {
 
         if (page_access_token !== undefined) {
             setClauses.push('page_access_token_encrypted = ?');
-            values.push(encrypt(page_access_token));
+            values.push(encrypt(page_access_token.trim()));
+            setClauses.push("token_status = 'unchecked'");
+            setClauses.push('token_expires_at = NULL');
+            setClauses.push('token_checked_at = NULL');
+            setClauses.push('token_app_id = NULL');
+            setClauses.push('token_scopes = NULL');
+            setClauses.push('webhook_subscribed = 0');
         }
 
         if (setClauses.length === 0) {
@@ -369,7 +410,7 @@ router.put('/:id', (req, res) => {
 });
 
 // ============================================
-// Unlink a page (unsubscribe webhook + delete)
+// Disconnect a page without deleting conversations or Content Studio records.
 // ============================================
 router.delete('/:id', async (req, res) => {
     try {
@@ -380,32 +421,79 @@ router.delete('/:id', async (req, res) => {
             return res.status(404).json({ error: 'الصفحة غير موجودة' });
         }
 
-        // Try to unsubscribe the page from our webhooks
+        // Clear local credentials even if Meta is temporarily unavailable.
         const accessToken = decrypt(existing.page_access_token_encrypted);
+        let webhookUnsubscribed = false;
+        let webhookError = null;
         if (accessToken) {
             try {
-                await fetch(
-                    `${META_API_BASE}/${existing.page_id}/subscribed_apps?access_token=${accessToken}`,
-                    { method: 'DELETE' }
+                const unsubscribeResponse = await fetch(
+                    `${META_API_BASE}/${encodeURIComponent(existing.page_id)}/subscribed_apps`,
+                    { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
                 );
+                const unsubscribeResult = await readMetaResponse(unsubscribeResponse);
+                webhookUnsubscribed = unsubscribeResult.ok && unsubscribeResult.data?.success !== false;
+                if (!webhookUnsubscribed) webhookError = 'تعذر إلغاء اشتراك Webhook لدى Meta';
             } catch (err) {
                 console.warn('[FacebookPages] Failed to unsubscribe webhook on unlink:', err.message);
+                webhookError = 'تعذر الاتصال بـ Meta لإلغاء اشتراك Webhook';
             }
+        } else {
+            webhookError = 'رمز وصول الصفحة غير متاح لإلغاء اشتراك Webhook لدى Meta';
         }
 
         const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(existing.tenant_id);
-
-        db.prepare('DELETE FROM tenant_pages WHERE id = ?').run(id);
-
-        // Log activity
-        if (tenant) {
+        let pausedCampaigns = 0;
+        let cancelledPublications = 0;
+        db.transaction(() => {
+            db.prepare(`
+                UPDATE tenant_pages
+                SET is_active = 0,
+                    webhook_subscribed = 0,
+                    subscribed_fields = '[]',
+                    page_access_token_encrypted = NULL,
+                    token_status = 'unchecked',
+                    token_expires_at = NULL,
+                    token_checked_at = NULL,
+                    token_app_id = NULL,
+                    token_scopes = NULL,
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ?
+            `).run(id);
+            pausedCampaigns = db.prepare(`
+                UPDATE facebook_content_campaigns
+                SET status = 'paused', next_run_at = NULL, updated_at = datetime('now')
+                WHERE linked_page_id = ? AND status = 'active'
+            `).run(id).changes;
+            cancelledPublications = db.prepare(`
+                UPDATE facebook_content_publications
+                SET status = 'cancelled', next_attempt_at = NULL, updated_at = datetime('now')
+                WHERE linked_page_id = ? AND status = 'pending'
+            `).run(id).changes;
+            if (!tenant) return;
             db.prepare(`
                 INSERT INTO activity_logs (tenant_id, tenant_name, event_type, description, status)
-                VALUES (?, ?, 'page_unlinked', ?, 'success')
-            `).run(existing.tenant_id, tenant.name, `فك ربط صفحة فيسبوك: ${existing.page_name || existing.page_id}`);
-        }
+                VALUES (?, ?, 'page_unlinked', ?, ?)
+            `).run(
+                existing.tenant_id,
+                tenant.name,
+                webhookUnsubscribed
+                    ? `إلغاء ربط صفحة فيسبوك: ${existing.page_name || existing.page_id}`
+                    : `تعطيل صفحة فيسبوك محلياً مع تعذر إلغاء Webhook لدى Meta: ${existing.page_name || existing.page_id}`,
+                webhookUnsubscribed ? 'success' : 'failed'
+            );
+        })();
 
-        res.json({ message: 'تم فك ربط الصفحة بنجاح' });
+        res.json({
+            success: webhookUnsubscribed,
+            partial_success: !webhookUnsubscribed,
+            local_disconnected: true,
+            webhook_unsubscribed: webhookUnsubscribed,
+            webhook_error: webhookError,
+            data_preserved: true,
+            paused_campaigns: pausedCampaigns,
+            cancelled_publications: cancelledPublications,
+        });
     } catch (error) {
         console.error('[FacebookPages] Delete error:', error);
         res.status(500).json({ error: 'فشل فك ربط الصفحة' });

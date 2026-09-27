@@ -28,7 +28,7 @@ import {
     Sms as SmsIcon,
     ArrowBack as ArrowBackIcon,
     Label as LabelIcon,
-    SmartToy as BotIcon,
+    AccountTree as BotIcon,
     Inventory2 as ProductIcon,
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';

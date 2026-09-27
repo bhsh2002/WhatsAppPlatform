@@ -15,7 +15,13 @@ test('operational signals aggregate failures without tenant labels or payloads',
     t.after(() => db.close());
 
     db.exec(`
-        CREATE TABLE tenants (id INTEGER PRIMARY KEY, status TEXT, token_status TEXT);
+        CREATE TABLE tenants (
+            id INTEGER PRIMARY KEY,
+            status TEXT,
+            token_status TEXT,
+            facebook_user_access_token_encrypted TEXT,
+            facebook_user_token_status TEXT
+        );
         CREATE TABLE tenant_pages (id INTEGER PRIMARY KEY, is_active INTEGER, token_status TEXT);
         CREATE TABLE webhook_failures (
             id INTEGER PRIMARY KEY,
@@ -25,7 +31,8 @@ test('operational signals aggregate failures without tenant labels or payloads',
             resolved_at DATETIME
         );
         CREATE TABLE broadcast_jobs (id INTEGER PRIMARY KEY, status TEXT, created_at DATETIME);
-        INSERT INTO tenants VALUES (1, 'Active', 'invalid');
+        INSERT INTO tenants VALUES (1, 'Active', 'invalid', NULL, 'unchecked');
+        INSERT INTO tenants VALUES (2, 'Active', 'valid', 'encrypted-token', 'expired');
         INSERT INTO tenant_pages VALUES (1, 1, 'valid');
         INSERT INTO webhook_failures VALUES (1, 1, 'secret payload', datetime('now', 'localtime'), NULL);
         INSERT INTO broadcast_jobs VALUES (1, 'running', datetime('now', 'localtime', '-20 minutes'));
@@ -42,7 +49,7 @@ test('operational signals aggregate failures without tenant labels or payloads',
     assert.equal(result.status, 'critical');
     assert.equal(result.values.unresolved_webhook_failures, 1);
     assert.equal(result.values.stuck_broadcast_jobs, 1);
-    assert.equal(result.values.unhealthy_meta_tokens, 1);
+    assert.equal(result.values.unhealthy_meta_tokens, 2);
     assert.deepEqual(result.alerts.map((alert) => alert.code), [
         'HIGH_HTTP_5XX_RATE',
         'RECENT_WEBHOOK_FAILURES',

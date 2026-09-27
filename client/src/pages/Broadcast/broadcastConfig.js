@@ -11,20 +11,16 @@ export const MEDIA_ACCEPT = {
 
 export const getBroadcastContactFields = () => [{
   value: 'profile_name',
-  label: tx('auto.k_28fc609bc67b'),
-  icon: '👤'
+  label: tx('auto.k_28fc609bc67b')
 }, {
   value: 'phone',
-  label: tx('auto.k_211cce4ca4ef'),
-  icon: '📱'
+  label: tx('auto.k_211cce4ca4ef')
 }, {
   value: 'label',
-  label: tx('auto.k_7c75fec5c0f8'),
-  icon: '🏷️'
+  label: tx('auto.k_7c75fec5c0f8')
 }, {
   value: 'notes',
-  label: tx('auto.k_b172fc1d3b6d'),
-  icon: '📝'
+  label: tx('auto.k_b172fc1d3b6d')
 }];
 
 export const getBroadcastMediaLabels = () => ({

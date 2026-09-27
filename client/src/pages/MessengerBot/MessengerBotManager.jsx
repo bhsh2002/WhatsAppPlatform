@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid, IconButton, MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Inventory2 as ProductIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, SmartToy as BotIcon, UploadFile as UploadIcon } from '@mui/icons-material';
+import { AccountTree as BotIcon, Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Inventory2 as ProductIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, UploadFile as UploadIcon } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 import { PageTitle } from '../../components/Layout/PageTitle';
@@ -1017,7 +1017,7 @@ const MessengerBotManager = ({
     return <Box sx={{
       p: 3
     }}>
-                <PageTitle variant="h5" visuallyHidden>Messenger Bot</PageTitle>
+                <PageTitle variant="h5" visuallyHidden>{t('messengerBot.title')}</PageTitle>
                 <Alert severity="info">{t('messengerBot.noTenant')}</Alert>
             </Box>;
   }
@@ -1044,7 +1044,7 @@ const MessengerBotManager = ({
           gap: 1,
           alignItems: 'center'
         }}>
-                        <BotIcon color="primary" /> Messenger Bot
+                        <BotIcon color="primary" /> {t('messengerBot.title')}
                     </PageTitle>
                     <Typography variant="body2" color="text.secondary">
                         {t('messengerBot.subtitle')}
@@ -1249,7 +1249,7 @@ const MessengerBotManager = ({
                                         <TableRow>
                                             <TableCell>{t('messengerBot.user')}</TableCell>
                                             <TableCell>{t('messengerBot.page')}</TableCell>
-                                            <TableCell>Flow</TableCell>
+                                            <TableCell>{t('messengerBot.flow')}</TableCell>
                                             <TableCell>{t('messengerBot.steps')}</TableCell>
                                             <TableCell>{t('common.status')}</TableCell>
                                             <TableCell>{t('messengerBot.updatedAt')}</TableCell>
@@ -1286,7 +1286,7 @@ const MessengerBotManager = ({
                                     <Grid size={{
               xs: 6,
               md: 3
-            }}><StatBox title="Handoffs" value={performance.handoffs || 0} color="warning" /></Grid>
+            }}><StatBox title={t('messengerBot.handoffs')} value={performance.handoffs || 0} color="warning" /></Grid>
                                     <Grid size={{
               xs: 6,
               md: 3
@@ -1578,7 +1578,7 @@ const MessengerBotManager = ({
                 mb: 1
               }}>{t('messengerBot.trigger')}</Typography>
                                 <Stack spacing={2}>
-                                    <TextField select fullWidth label="Trigger" value={flowForm.trigger_type} onChange={e => setFlowForm(prev => ({
+                                    <TextField select fullWidth label={t('messengerBot.trigger')} value={flowForm.trigger_type} onChange={e => setFlowForm(prev => ({
                   ...prev,
                   trigger_type: e.target.value
                 }))}>

@@ -327,7 +327,7 @@ const TemplatePicker = ({
               mb: 1,
               color: 'primary.main'
             }}>
-                                        [🎞️ GIF]
+                                        [GIF]
                                     </Typography>}
 
                                 <Typography variant="body1" sx={{

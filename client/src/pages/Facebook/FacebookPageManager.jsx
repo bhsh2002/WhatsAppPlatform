@@ -13,9 +13,9 @@ import {
     Refresh as RefreshIcon, ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon, ChatBubble as CommentIcon,
     OpenInNew as OpenInNewIcon, CloudUpload as UploadIcon,
-    SmartToy as AutomationIcon, Bolt as BoltIcon, SettingsEthernet as WebhookIcon,
+    Rule as AutomationIcon, Bolt as BoltIcon, SettingsEthernet as WebhookIcon,
     ThumbUp as LikeIcon, Share as ShareIcon,
-    AutoAwesome as AiIcon, FlagOutlined as FollowupIcon
+    EditNote as WritingAssistantIcon, FlagOutlined as FollowupIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -251,7 +251,7 @@ const FacebookPageManager = () => {
                 await api.scheduleContentStudioPublication(selectedTenantId, {
                     linked_page_id: selectedPageId,
                     content_item_id: item.id,
-                    scheduled_for: new Date(composerScheduleTime).toISOString(),
+                    scheduled_for_local: composerScheduleTime,
                 });
             } else {
                 if (!effectiveMessage) return;
@@ -1232,7 +1232,9 @@ const FacebookPageManager = () => {
                                                                 <Typography variant="body2">{comment.message}</Typography>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                                                                     <Typography variant="caption" color="text.secondary">{formatTime(comment.created_time)}</Typography>
-                                                                    <Typography variant="caption" color="text.secondary">• 👍 {comment.like_count || 0}</Typography>
+                                                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
+                                                                        <LikeIcon sx={{ fontSize: 14 }} aria-hidden="true" /> {comment.like_count || 0}
+                                                                    </Typography>
                                                                     {replyCount > 0 && <Typography variant="caption" color="text.secondary">• {t('facebookContent.replies', { count: replyCount })}</Typography>}
                                                                 </Box>
                                                                 <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
@@ -1251,7 +1253,7 @@ const FacebookPageManager = () => {
                                                                     <Button
                                                                         size="small"
                                                                         variant="text"
-                                                                        startIcon={commentTools.suggesting[comment.id] ? <CircularProgress size={14} /> : <AiIcon />}
+                                                                        startIcon={commentTools.suggesting[comment.id] ? <CircularProgress size={14} /> : <WritingAssistantIcon />}
                                                                         onClick={() => commentTools.suggestReply(comment, post)}
                                                                         disabled={commentTools.suggesting[comment.id]}
                                                                     >
@@ -1281,7 +1283,9 @@ const FacebookPageManager = () => {
                                                                                     <Typography variant="body2">{reply.message}</Typography>
                                                                                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
                                                                                         <Typography variant="caption" color="text.secondary">{formatTime(reply.created_time)}</Typography>
-                                                                                        <Typography variant="caption" color="text.secondary">• 👍 {reply.like_count || 0}</Typography>
+                                                                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
+                                                                                            <LikeIcon sx={{ fontSize: 14 }} aria-hidden="true" /> {reply.like_count || 0}
+                                                                                        </Typography>
                                                                                         <Button size="small" onClick={() => handleLikeComment(reply, post.id, comment.id)}>
                                                                                             {reply.user_likes ? t('facebookContent.unlike') : t('facebookContent.like')}
                                                                                         </Button>

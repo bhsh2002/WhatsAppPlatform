@@ -31,4 +31,4 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: An active WhatsApp Platform tenant or page token is invalid or expired
+          summary: An active WhatsApp, Facebook user, or Facebook page token is invalid or expired

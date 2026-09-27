@@ -10,6 +10,7 @@ import {
     WA_EMBEDDED_SIGNUP_CONFIG_ID,
 } from '../config/index.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
+import { classifyMetaTokenStatus, isMetaTokenReady } from '../services/metaTokenStatus.js';
 import { parseListPagination } from '../services/pagination.js';
 import {
     hasWhatsAppNumbersTable,
@@ -18,6 +19,10 @@ import {
 } from '../services/whatsappNumbers.js';
 
 const DEFAULT_SESSION_TTL_MS = 10 * 60 * 1000;
+const FACEBOOK_ACCOUNTS_FIELDS = 'id,name,category,picture.width(100).height(100),access_token';
+const FACEBOOK_ACCOUNTS_PAGE_SIZE = 100;
+const MAX_FACEBOOK_ACCOUNT_REQUESTS = 10;
+const MAX_FACEBOOK_ACCOUNTS = 1000;
 
 const normalizeString = (value, maxLength = 500) => {
     if (typeof value !== 'string') return null;
@@ -46,17 +51,95 @@ const buildFormRequest = values => ({
     body: new URLSearchParams(values).toString(),
 });
 
-const normalizeMetaNextUrl = (value, apiBase) => {
+const normalizeMetaNextUrl = (value, apiBase, expectedPath) => {
     if (!value) return null;
     try {
         const next = new URL(value);
         const base = new URL(apiBase);
-        return next.protocol === 'https:' && next.origin === base.origin
-            ? next.toString()
-            : null;
+        if (next.protocol !== 'https:' || next.origin !== base.origin || next.pathname !== expectedPath) {
+            return null;
+        }
+        const after = normalizeString(next.searchParams.get('after'), 2048);
+        return after;
     } catch {
         return null;
     }
+};
+
+const fetchFacebookAccounts = async ({
+    apiBase,
+    accessToken,
+    requestMeta,
+    stopWhenIds = null,
+}) => {
+    const endpoint = new URL(`${apiBase}/me/accounts`);
+    endpoint.searchParams.set('fields', FACEBOOK_ACCOUNTS_FIELDS);
+    endpoint.searchParams.set('limit', String(FACEBOOK_ACCOUNTS_PAGE_SIZE));
+
+    const accounts = [];
+    const seenAccountIds = new Set();
+    const seenCursors = new Set();
+    let pageRequests = 0;
+    let nextUrl = endpoint.toString();
+    let hasMore = false;
+    let paginationWarning = null;
+
+    while (nextUrl && pageRequests < MAX_FACEBOOK_ACCOUNT_REQUESTS && accounts.length < MAX_FACEBOOK_ACCOUNTS) {
+        const result = await requestMeta(nextUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!result.ok) return { ok: false, result };
+
+        pageRequests += 1;
+        for (const account of (Array.isArray(result.data?.data) ? result.data.data : [])) {
+            const accountId = normalizeString(String(account?.id || ''), 256);
+            if (!accountId || seenAccountIds.has(accountId)) continue;
+            seenAccountIds.add(accountId);
+            accounts.push(account);
+            if (accounts.length >= MAX_FACEBOOK_ACCOUNTS) break;
+        }
+
+        if (stopWhenIds && [...stopWhenIds].every(id => seenAccountIds.has(id))) {
+            nextUrl = null;
+            hasMore = false;
+            break;
+        }
+
+        const rawNext = result.data?.paging?.next;
+        if (!rawNext) {
+            nextUrl = null;
+            hasMore = false;
+            break;
+        }
+
+        hasMore = true;
+        const after = normalizeString(result.data?.paging?.cursors?.after, 2048)
+            || normalizeMetaNextUrl(rawNext, apiBase, endpoint.pathname);
+        if (!after || seenCursors.has(after)) {
+            paginationWarning = after ? 'repeated_cursor' : 'invalid_next_page';
+            nextUrl = null;
+            break;
+        }
+
+        seenCursors.add(after);
+        const next = new URL(endpoint);
+        next.searchParams.set('after', after);
+        nextUrl = next.toString();
+    }
+
+    const truncated = hasMore && (
+        pageRequests >= MAX_FACEBOOK_ACCOUNT_REQUESTS
+        || accounts.length >= MAX_FACEBOOK_ACCOUNTS
+        || !!paginationWarning
+    );
+
+    return {
+        ok: true,
+        accounts,
+        pageRequests,
+        truncated,
+        paginationWarning,
+    };
 };
 
 export function createTenantMetaOnboardingRouter({
@@ -249,7 +332,7 @@ export function createTenantMetaOnboardingRouter({
                     if (debugResult.ok) {
                         const debugTokenData = debugResult.data?.data || {};
                         grantedScopes = Array.isArray(debugTokenData.scopes) ? debugTokenData.scopes : [];
-                        tokenStatus = debugTokenData.is_valid === true ? 'valid' : 'invalid';
+                        tokenStatus = classifyMetaTokenStatus(debugTokenData, { now: now() });
                         tokenExpiresAt = debugTokenData.expires_at > 0
                             ? new Date(debugTokenData.expires_at * 1000).toISOString()
                             : null;
@@ -323,13 +406,16 @@ export function createTenantMetaOnboardingRouter({
                 }
             })();
 
-            const pagesResult = await requestMeta(
-                `${meta.apiBase}/me/accounts?fields=id,name,category,picture.width(100).height(100),access_token`,
-                { headers: { Authorization: `Bearer ${longLivedToken}` } }
-            );
-            if (!pagesResult.ok) return sendMetaFailure(res, pagesResult, 'Failed to fetch pages');
+            const accountsResult = await fetchFacebookAccounts({
+                apiBase: meta.apiBase,
+                accessToken: longLivedToken,
+                requestMeta,
+            });
+            if (!accountsResult.ok) {
+                return sendMetaFailure(res, accountsResult.result, 'تعذر جلب صفحات Facebook');
+            }
 
-            const pages = (Array.isArray(pagesResult.data?.data) ? pagesResult.data.data : []).map(page => ({
+            const pages = accountsResult.accounts.map(page => ({
                 id: page.id,
                 name: page.name,
                 category: page.category,
@@ -343,6 +429,9 @@ export function createTenantMetaOnboardingRouter({
                 granted_scopes: grantedScopes,
                 missing_scopes: missingScopes,
                 facebook_user: facebookUserProfile,
+                token_status: tokenStatus,
+                pages_truncated: accountsResult.truncated,
+                pages_pagination_warning: accountsResult.paginationWarning,
             });
         } catch (error) {
             console.error('[TenantMetaOnboarding] Facebook connect error:', error);
@@ -443,20 +532,24 @@ export function createTenantMetaOnboardingRouter({
             const requestedPageIds = Array.isArray(req.body?.page_ids)
                 ? [...new Set(req.body.page_ids.map(value => normalizeString(value, 256)).filter(Boolean))]
                 : null;
-            if (!linkState || !requestedPageIds || requestedPageIds.length > 100) {
-                return res.status(400).json({ error: 'link_state and page_ids are required' });
+            if (!linkState || !requestedPageIds?.length || requestedPageIds.length > 100) {
+                return res.status(400).json({ error: 'بيانات جلسة الربط والصفحات المحددة مطلوبة' });
             }
             const session = consumeSession(linkState, tenantId, 'facebook_link');
             if (!session) return res.status(400).json({ error: 'Invalid or expired link state' });
 
-            const pagesResult = await requestMeta(
-                `${meta.apiBase}/me/accounts?fields=id,name,category,picture.width(100).height(100),access_token`,
-                { headers: { Authorization: `Bearer ${session.longLivedToken}` } }
-            );
-            if (!pagesResult.ok) return sendMetaFailure(res, pagesResult, 'Failed to fetch pages');
-
             const requestedSet = new Set(requestedPageIds);
-            const allPages = Array.isArray(pagesResult.data?.data) ? pagesResult.data.data : [];
+            const accountsResult = await fetchFacebookAccounts({
+                apiBase: meta.apiBase,
+                accessToken: session.longLivedToken,
+                requestMeta,
+                stopWhenIds: requestedSet,
+            });
+            if (!accountsResult.ok) {
+                return sendMetaFailure(res, accountsResult.result, 'تعذر التحقق من صفحات Facebook');
+            }
+
+            const allPages = accountsResult.accounts;
             const selectedPages = allPages.filter(page => requestedSet.has(String(page.id)));
             const selectedIds = new Set(selectedPages.map(page => String(page.id)));
             const tenant = database.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
@@ -469,8 +562,9 @@ export function createTenantMetaOnboardingRouter({
                     linked.push({
                         id: pageId,
                         name: page.name || null,
+                        page_linked: false,
                         webhook_subscribed: false,
-                        webhook_error: 'Page access token unavailable',
+                        webhook_error: 'تعذر الحصول على رمز وصول صالح للصفحة',
                     });
                     continue;
                 }
@@ -486,6 +580,7 @@ export function createTenantMetaOnboardingRouter({
                     linked.push({
                         id: pageId,
                         name: page.name || null,
+                        page_linked: false,
                         webhook_subscribed: false,
                         webhook_error: 'هذه الصفحة غير متاحة للربط',
                     });
@@ -497,6 +592,9 @@ export function createTenantMetaOnboardingRouter({
                         UPDATE tenant_pages
                         SET page_access_token_encrypted = ?, page_name = ?, page_category = ?,
                             page_picture_url = ?, is_active = 1,
+                            webhook_subscribed = 0, subscribed_fields = '[]',
+                            token_status = 'unchecked', token_expires_at = NULL,
+                            token_checked_at = NULL, token_app_id = NULL, token_scopes = NULL,
                             updated_at = datetime('now', 'localtime')
                         WHERE id = ? AND tenant_id = ?
                     `).run(
@@ -513,8 +611,9 @@ export function createTenantMetaOnboardingRouter({
                         linkedPageDbId = database.prepare(`
                             INSERT INTO tenant_pages (
                                 tenant_id, platform, page_id, page_name, page_access_token_encrypted,
-                                page_category, page_picture_url, webhook_subscribed
-                            ) VALUES (?, 'facebook', ?, ?, ?, ?, ?, 0)
+                                page_category, page_picture_url, subscribed_fields,
+                                webhook_subscribed, token_status
+                            ) VALUES (?, 'facebook', ?, ?, ?, ?, ?, '[]', 0, 'unchecked')
                         `).run(
                             tenantId,
                             pageId,
@@ -528,6 +627,7 @@ export function createTenantMetaOnboardingRouter({
                         linked.push({
                             id: pageId,
                             name: page.name || null,
+                            page_linked: false,
                             webhook_subscribed: false,
                             webhook_error: 'هذه الصفحة غير متاحة للربط',
                         });
@@ -535,6 +635,7 @@ export function createTenantMetaOnboardingRouter({
                     }
                 }
 
+                let pageTokenStatus = 'unchecked';
                 if (meta.appId && meta.appSecret) {
                     try {
                         const debugResult = await requestMeta(
@@ -543,6 +644,7 @@ export function createTenantMetaOnboardingRouter({
                         );
                         if (debugResult.ok) {
                             const data = debugResult.data?.data || {};
+                            pageTokenStatus = classifyMetaTokenStatus(data, { now: now() });
                             database.prepare(`
                                 UPDATE tenant_pages
                                 SET token_status = ?, token_expires_at = ?,
@@ -550,7 +652,7 @@ export function createTenantMetaOnboardingRouter({
                                     token_app_id = ?, token_scopes = ?
                                 WHERE id = ? AND tenant_id = ?
                             `).run(
-                                data.is_valid === true ? 'valid' : 'invalid',
+                                pageTokenStatus,
                                 data.expires_at > 0 ? new Date(data.expires_at * 1000).toISOString() : null,
                                 data.app_id || null,
                                 JSON.stringify(Array.isArray(data.scopes) ? data.scopes : []),
@@ -611,15 +713,32 @@ export function createTenantMetaOnboardingRouter({
                 linked.push({
                     id: pageId,
                     name: page.name || null,
+                    page_linked: true,
+                    token_status: pageTokenStatus,
+                    page_ready: isMetaTokenReady(pageTokenStatus) && webhookSubscribed,
                     webhook_subscribed: webhookSubscribed,
                     webhook_error: webhookError,
                 });
             }
 
+            const unavailablePageIds = requestedPageIds.filter(pageId => !selectedIds.has(pageId));
+            const savedCount = linked.filter(page => page.page_linked).length;
+            const readyCount = linked.filter(page => page.page_ready).length;
+            const failedCount = requestedPageIds.length - readyCount;
+            const success = readyCount === requestedPageIds.length
+                && failedCount === 0
+                && unavailablePageIds.length === 0;
+
             return res.json({
-                success: true,
+                success,
+                partial_success: !success && savedCount > 0,
                 linked,
-                unavailable_page_ids: requestedPageIds.filter(pageId => !selectedIds.has(pageId)),
+                saved_count: savedCount,
+                ready_count: readyCount,
+                failed_count: failedCount,
+                unavailable_page_ids: unavailablePageIds,
+                pages_truncated: accountsResult.truncated,
+                pages_pagination_warning: accountsResult.paginationWarning,
             });
         } catch (error) {
             console.error('[TenantMetaOnboarding] Facebook link-pages error:', error);
@@ -640,32 +759,78 @@ export function createTenantMetaOnboardingRouter({
             if (!page) return res.status(404).json({ error: 'الصفحة غير موجودة' });
 
             const accessToken = decryptToken(page.page_access_token_encrypted);
+            let webhookUnsubscribed = false;
+            let unsubscribeError = null;
             if (accessToken) {
                 try {
-                    await requestMeta(
+                    const unsubscribeResult = await requestMeta(
                         `${meta.apiBase}/${encodeURIComponent(page.page_id)}/subscribed_apps`,
                         { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
                     );
+                    webhookUnsubscribed = unsubscribeResult.ok && unsubscribeResult.data?.success !== false;
+                    if (!webhookUnsubscribed) {
+                        unsubscribeError = unsubscribeResult.error?.message || 'تعذر إلغاء اشتراك Webhook لدى Meta';
+                    }
                 } catch (error) {
                     console.warn('[TenantMetaOnboarding] Webhook unsubscribe failed:', error.message);
+                    unsubscribeError = error.message || 'تعذر إلغاء اشتراك Webhook لدى Meta';
                 }
+            } else {
+                unsubscribeError = 'رمز وصول الصفحة غير متاح لإلغاء اشتراك Webhook لدى Meta';
             }
 
             const tenant = database.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
             database.transaction(() => {
-                database.prepare('DELETE FROM tenant_pages WHERE id = ? AND tenant_id = ?')
-                    .run(linkedPageId, tenantId);
+                database.prepare(`
+                    UPDATE tenant_pages
+                    SET is_active = 0,
+                        webhook_subscribed = 0,
+                        subscribed_fields = '[]',
+                        page_access_token_encrypted = NULL,
+                        token_status = 'unchecked',
+                        token_expires_at = NULL,
+                        token_checked_at = NULL,
+                        token_app_id = NULL,
+                        token_scopes = NULL,
+                        updated_at = datetime('now', 'localtime')
+                    WHERE id = ? AND tenant_id = ?
+                `).run(linkedPageId, tenantId);
+                database.prepare(`
+                    UPDATE facebook_content_campaigns
+                    SET status = 'paused', next_run_at = NULL,
+                        last_error = 'أُوقفت الحملة بعد فصل صفحة Facebook',
+                        updated_at = datetime('now')
+                    WHERE tenant_id = ? AND linked_page_id = ? AND status = 'active'
+                `).run(tenantId, linkedPageId);
+                database.prepare(`
+                    UPDATE facebook_content_publications
+                    SET status = 'cancelled', next_attempt_at = NULL,
+                        error_code = 'PAGE_DISCONNECTED',
+                        error_message = 'أُلغي النشر المجدول بعد فصل صفحة Facebook',
+                        updated_at = datetime('now')
+                    WHERE tenant_id = ? AND linked_page_id = ? AND status = 'pending'
+                `).run(tenantId, linkedPageId);
                 database.prepare(`
                     INSERT INTO activity_logs (
                         tenant_id, tenant_name, event_type, description, status
-                    ) VALUES (?, ?, 'page_unlinked', ?, 'success')
+                    ) VALUES (?, ?, 'page_unlinked', ?, ?)
                 `).run(
                     tenantId,
                     tenant?.name,
-                    `إلغاء ربط صفحة فيسبوك: ${page.page_name || page.page_id}`
+                    webhookUnsubscribed
+                        ? `إلغاء ربط صفحة فيسبوك: ${page.page_name || page.page_id}`
+                        : `تعطيل صفحة فيسبوك محلياً مع تعذر إلغاء Webhook لدى Meta: ${page.page_name || page.page_id}`,
+                    webhookUnsubscribed ? 'success' : 'failed'
                 );
             })();
-            return res.json({ success: true });
+            return res.json({
+                success: webhookUnsubscribed,
+                partial_success: !webhookUnsubscribed,
+                local_disconnected: true,
+                webhook_unsubscribed: webhookUnsubscribed,
+                webhook_error: unsubscribeError,
+                data_preserved: true,
+            });
         } catch (error) {
             console.error('[TenantMetaOnboarding] Facebook disconnect error:', error);
             return res.status(500).json({ error: 'فشل إلغاء ربط الصفحة' });

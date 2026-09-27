@@ -33,6 +33,11 @@ export function getOperationalSignals(db, metrics) {
              WHERE lower(COALESCE(status, 'active')) = 'active'
                AND token_status IN ('invalid', 'expired'))
             +
+            (SELECT COUNT(*) FROM tenants
+             WHERE lower(COALESCE(status, 'active')) = 'active'
+               AND facebook_user_access_token_encrypted IS NOT NULL
+               AND facebook_user_token_status IN ('invalid', 'expired'))
+            +
             (SELECT COUNT(*) FROM tenant_pages
              WHERE COALESCE(is_active, 1) = 1
                AND token_status IN ('invalid', 'expired')) AS unhealthy

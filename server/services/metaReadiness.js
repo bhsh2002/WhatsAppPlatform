@@ -3,6 +3,11 @@ import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js'
 import { getAccessToken } from './credentials.js';
 import { decryptIfEncrypted } from './encryption.js';
 import { readMetaResponse, sanitizeStoredMetaResponse } from './metaHttp.js';
+import {
+    classifyMetaTokenStatus,
+    isMetaTokenExpiring,
+    isMetaTokenReady,
+} from './metaTokenStatus.js';
 
 export const FACEBOOK_OAUTH_SCOPES = [
     'public_profile',
@@ -380,26 +385,15 @@ const getLatestActivityByStatus = (tenantId, eventTypes, status) => {
     `).get(tenantId, status, ...eventTypes);
 };
 
-const tokenStatusFromDebugData = (tokenData) => {
-    if (tokenData?.is_valid !== true) return 'invalid';
-    const expiresAt = tokenData.expires_at;
-    if (!expiresAt || expiresAt <= 0) return 'valid';
-
-    const expiresDate = new Date(expiresAt * 1000);
-    const now = new Date();
-    if (expiresDate <= now) return 'expired';
-    if (expiresDate <= new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)) return 'expiring';
-    return 'valid';
-};
-
 export const debugFacebookUserToken = async (tenant) => {
     if (!tenant?.facebook_user_access_token_encrypted || !META_APP_ID || !META_APP_SECRET) {
         return {
             checked: false,
-            status: tenant?.facebook_user_token_status || 'unchecked',
+            status: tenant?.facebook_user_access_token_encrypted ? 'unavailable' : 'unchecked',
             scopes: parseStoredArray(tenant?.facebook_user_token_scopes),
             app_id: tenant?.facebook_user_token_app_id || null,
             error: !tenant?.facebook_user_access_token_encrypted ? 'facebook_user_token_missing' : 'app_credentials_missing',
+            retryable: false,
         };
     }
 
@@ -418,17 +412,18 @@ export const debugFacebookUserToken = async (tenant) => {
     if (!metaResult.ok) {
         return {
             checked: true,
-            status: 'invalid',
+            status: metaResult.error?.retryable ? 'unavailable' : 'invalid',
             scopes: parseStoredArray(tenant.facebook_user_token_scopes),
             app_id: null,
             error: metaResult.error?.message || 'debug_token_failed',
+            retryable: !!metaResult.error?.retryable,
         };
     }
 
     const tokenData = data.data || {};
     return {
         checked: true,
-        status: tokenStatusFromDebugData(tokenData),
+        status: classifyMetaTokenStatus(tokenData),
         scopes: tokenData.scopes || [],
         app_id: tokenData.app_id || null,
         expires_at: tokenData.expires_at && tokenData.expires_at > 0 ? new Date(tokenData.expires_at * 1000).toISOString() : null,
@@ -437,10 +432,10 @@ export const debugFacebookUserToken = async (tenant) => {
     };
 };
 
-const buildPermissionMatrix = ({ grantedScopes, evidence }) => META_PERMISSION_MATRIX.map(permission => {
+const buildPermissionMatrix = ({ grantedScopes, evidence, facebookUserTokenReady }) => META_PERMISSION_MATRIX.map(permission => {
     const evidenceItem = evidence[permission.evidence_key];
     const granted = permission.feature ? !!evidenceItem?.ready : grantedScopes.includes(permission.key);
-    let ready = granted;
+    const ready = permission.feature ? granted : facebookUserTokenReady && granted;
     let lastSuccessAt = null;
     let lastFailureAt = null;
     let evidenceStatus = 'missing';
@@ -457,7 +452,10 @@ const buildPermissionMatrix = ({ grantedScopes, evidence }) => META_PERMISSION_M
         group: permission.group,
         feature: !!permission.feature,
         granted,
-        status: readinessStatus(granted && evidenceStatus === 'ready', granted || evidenceStatus === 'action_required'),
+        status: readinessStatus(
+            ready && evidenceStatus === 'ready',
+            granted || evidenceStatus === 'action_required'
+        ),
         action_path: permission.action_path,
         admin_paths: permission.admin_paths || [],
         usage: permission.usage,
@@ -506,15 +504,22 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     } catch (err) {
         liveFacebookUserToken = {
             checked: false,
-            status: tenant.facebook_user_token_status || 'unchecked',
+            status: 'unavailable',
             scopes: grantedScopes,
             app_id: tenant.facebook_user_token_app_id || null,
             error: err.message,
+            retryable: true,
         };
     }
 
     const missingScopes = missingItems(FACEBOOK_OAUTH_SCOPES, grantedScopes);
     const facebookUserTokenPresent = !!tenant.facebook_user_access_token_encrypted;
+    const facebookUserTokenStatus = liveFacebookUserToken?.status || 'unchecked';
+    const facebookUserTokenReady = facebookUserTokenPresent
+        && isMetaTokenReady(facebookUserTokenStatus)
+        && liveFacebookUserToken?.app_id_matches !== false;
+    const facebookUserTokenExpiring = facebookUserTokenPresent
+        && isMetaTokenExpiring(facebookUserTokenStatus);
     const facebookIdentity = {
         id: tenant.facebook_user_id || null,
         name: tenant.facebook_user_name || null,
@@ -540,6 +545,13 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         const subscribedFields = parseStoredArray(page.subscribed_fields);
         const missingWebhookFields = missingItems(FACEBOOK_WEBHOOK_FIELDS, subscribedFields);
         const tokenScopes = parseStoredArray(page.token_scopes);
+        const tokenStatus = page.token_status || 'unchecked';
+        const tokenAppIdMatches = !META_APP_ID
+            || !page.token_app_id
+            || String(page.token_app_id) === String(META_APP_ID);
+        const tokenReady = !!page.page_access_token_encrypted
+            && isMetaTokenReady(tokenStatus)
+            && tokenAppIdMatches;
 
         return {
             id: page.id,
@@ -555,10 +567,12 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             missing_webhook_fields: missingWebhookFields,
             webhook_subscribed: !!page.webhook_subscribed,
             webhook_ready: !!page.webhook_subscribed && missingWebhookFields.length === 0,
-            token_status: page.token_status || 'unchecked',
+            token_status: tokenStatus,
+            token_ready: tokenReady,
+            token_expiring: isMetaTokenExpiring(tokenStatus),
             token_scopes: tokenScopes,
             token_app_id: page.token_app_id || null,
-            token_app_id_matches: !META_APP_ID || !page.token_app_id || String(page.token_app_id) === String(META_APP_ID),
+            token_app_id_matches: tokenAppIdMatches,
             token_expires_at: page.token_expires_at || null,
             token_checked_at: page.token_checked_at || null,
             created_at: page.created_at,
@@ -567,10 +581,11 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     });
 
     const activePages = pages.filter(page => page.is_active);
-    const pagesWithToken = activePages.filter(page => page.page_access_token_present && page.token_status !== 'invalid');
-    const webhookReadyPages = activePages.filter(page => page.webhook_ready);
+    const pagesWithToken = activePages.filter(page => page.token_ready);
+    const expiringTokenPages = activePages.filter(page => page.page_access_token_present && page.token_expiring);
+    const webhookReadyPages = activePages.filter(page => page.token_ready && page.webhook_ready);
     const messengerWebhookPages = activePages.filter(page =>
-        page.webhook_subscribed && page.subscribed_fields.includes('messages')
+        page.token_ready && page.webhook_subscribed && page.subscribed_fields.includes('messages')
     );
 
     const conversationStats = db.prepare(`
@@ -675,18 +690,22 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     const feedProductionEvidence = (webhookEvidence.by_event_key['feed:comment:add']?.production_count || 0) > 0 ||
         (webhookEvidence.by_event_key['feed:reaction:add']?.production_count || 0) > 0;
 
-    const permissionsReady = facebookUserTokenPresent &&
-        liveFacebookUserToken?.status === 'valid' &&
+    const permissionsReady = facebookUserTokenReady &&
         missingScopes.length === 0 &&
-        (liveFacebookUserToken.app_id_matches !== false);
+        (liveFacebookUserToken?.app_id_matches !== false);
     const pagesReady = activePages.length > 0 && webhookReadyPages.length > 0;
     const contentScopesReady = hasAllItems(CONTENT_REVIEW_SCOPES, grantedScopes);
-    const contentReady = pagesWithToken.length > 0 && contentScopesReady && (feedProductionEvidence || !!contentActivity);
+    const contentReady = facebookUserTokenReady
+        && pagesWithToken.length > 0
+        && contentScopesReady
+        && (feedProductionEvidence || !!contentActivity);
     const messengerScopesReady = hasAllItems(MESSENGER_REVIEW_SCOPES, grantedScopes);
-    const messengerConfigured = messengerScopesReady && messengerWebhookPages.length > 0;
+    const messengerConfigured = facebookUserTokenReady
+        && messengerScopesReady
+        && messengerWebhookPages.length > 0;
     const messengerHasEvidence = (conversationStats?.count || 0) > 0 || (messageStats?.count || 0) > 0 || messengerProductionEvidence;
     const businessScopeReady = hasAllItems(BUSINESS_REVIEW_SCOPES, grantedScopes);
-    const businessConfigured = !!tenant.business_id && facebookUserTokenPresent && businessScopeReady && liveFacebookUserToken?.status === 'valid';
+    const businessConfigured = !!tenant.business_id && facebookUserTokenReady && businessScopeReady;
     const businessReady = businessConfigured && !!businessActivity;
     const eventsConfigured = !!tenant.dataset_id && effectiveWhatsAppTokenPresent;
     const eventsReady = eventsConfigured && lastConversion?.status === 'sent';
@@ -695,29 +714,31 @@ export const buildMetaReviewReadiness = async (tenantId) => {
 
     const evidence = {
         facebook_public_profile: {
-            ready: facebookPublicProfileReady,
+            ready: facebookUserTokenReady && facebookPublicProfileReady,
             partial: facebookUserTokenPresent,
             last_success_at: facebookPublicProfileReady ? (facebookIdentity.updated_at || tenant.facebook_user_token_updated_at) : null,
             last_failure_at: facebookUserTokenPresent && !facebookPublicProfileReady ? tenant.facebook_user_token_updated_at : null,
         },
         facebook_email: {
-            ready: facebookEmailReady,
+            ready: facebookUserTokenReady && facebookEmailReady,
             partial: facebookEmailGranted || facebookUserTokenPresent,
             last_success_at: facebookEmailReady ? (facebookIdentity.updated_at || tenant.facebook_user_token_updated_at) : null,
             last_failure_at: facebookEmailGranted && !facebookEmailReady ? tenant.facebook_user_token_updated_at : null,
         },
         facebook_user_token: {
-            ready: facebookUserTokenPresent && liveFacebookUserToken?.status === 'valid',
+            ready: facebookUserTokenReady,
             partial: facebookUserTokenPresent,
-            last_success_at: liveFacebookUserToken?.status === 'valid'
+            last_success_at: facebookUserTokenReady
                 ? (liveFacebookUserToken.checked ? generatedAt : tenant.facebook_user_token_checked_at || tenant.facebook_user_token_updated_at)
                 : null,
-            last_failure_at: liveFacebookUserToken?.status === 'invalid' ? tenant.facebook_user_token_checked_at : null,
+            last_failure_at: ['invalid', 'expired'].includes(facebookUserTokenStatus)
+                ? tenant.facebook_user_token_checked_at
+                : null,
         },
         linked_pages: {
-            ready: activePages.length > 0,
+            ready: pagesWithToken.length > 0,
             partial: pages.length > 0,
-            last_success_at: activePages[0]?.updated_at || null,
+            last_success_at: pagesWithToken[0]?.updated_at || null,
         },
         webhook_subscription: {
             ready: pagesReady,
@@ -725,22 +746,28 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             last_success_at: webhookReadyPages[0]?.updated_at || null,
         },
         content_activity: {
-            ready: !!contentActivity || feedProductionEvidence,
+            ready: facebookUserTokenReady
+                && pagesWithToken.length > 0
+                && contentScopesReady
+                && (!!contentActivity || feedProductionEvidence),
             partial: pagesWithToken.length > 0,
             last_success_at: contentActivity?.created_at || webhookEvidence.by_event_key['feed:comment:add']?.latest_at || null,
         },
         post_management: {
-            ready: !!postActivity,
+            ready: facebookUserTokenReady && pagesWithToken.length > 0 && contentScopesReady && !!postActivity,
             partial: pagesWithToken.length > 0 && contentScopesReady,
             last_success_at: postActivity?.created_at || null,
         },
         comment_management: {
-            ready: !!commentActivity || feedProductionEvidence,
+            ready: facebookUserTokenReady
+                && pagesWithToken.length > 0
+                && contentScopesReady
+                && (!!commentActivity || feedProductionEvidence),
             partial: pagesWithToken.length > 0 && contentScopesReady,
             last_success_at: commentActivity?.created_at || webhookEvidence.by_event_key['feed:comment:add']?.latest_at || null,
         },
         messenger_activity: {
-            ready: messengerHasEvidence,
+            ready: messengerConfigured && messengerHasEvidence,
             partial: messengerConfigured,
             last_success_at: conversationStats?.latest_activity_at || messageStats?.latest_message_at || webhookEvidence.by_field.messages?.latest_at || null,
         },
@@ -773,13 +800,17 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             last_failure_at: partnerFailure?.created_at || null,
         },
         profile_records: {
-            ready: assetProfileReady,
+            ready: messengerConfigured && assetProfileReady,
             partial: messengerConfigured,
             last_success_at: conversationStats?.latest_activity_at || null,
         },
     };
 
-    const permission_matrix = buildPermissionMatrix({ grantedScopes, evidence });
+    const permission_matrix = buildPermissionMatrix({
+        grantedScopes,
+        evidence,
+        facebookUserTokenReady,
+    });
     const businessActionReason = !tenant.business_id
         ? 'business_id_missing'
         : !facebookUserTokenPresent
@@ -799,6 +830,32 @@ export const buildMetaReviewReadiness = async (tenantId) => {
                 ? 'send_test_event'
                 : null;
     const remainingActions = [
+        facebookUserTokenReady ? null : {
+            key: 'facebook_user_token',
+            label: facebookUserTokenExpiring
+                ? 'تجديد ربط Facebook'
+                : facebookUserTokenStatus === 'unavailable'
+                    ? 'إعادة فحص ربط Facebook'
+                    : 'التحقق من ربط Facebook',
+            status: 'action_required',
+            reason: facebookUserTokenExpiring
+                ? 'رمز Facebook صالح حالياً لكنه يقترب من الانتهاء. أعد التفويض لتجنب توقف الخدمة.'
+                : facebookUserTokenStatus === 'unavailable'
+                    ? liveFacebookUserToken?.error === 'app_credentials_missing'
+                        ? 'إعدادات تطبيق Meta غير مكتملة على الخادم. تواصل مع الإدارة لإكمالها.'
+                        : 'تعذر التحقق من الرمز الآن. أعد الفحص لاحقاً؛ لا يعني ذلك أن الرمز غير صالح.'
+                : facebookUserTokenStatus === 'unchecked'
+                    ? 'لم يتم التحقق من صلاحية رمز Facebook بعد. أعد التفويض أو نفذ فحص الرمز.'
+                    : 'رمز Facebook غير صالح أو منتهي. أعد التفويض لاستعادة الخدمة.',
+            action_path: '/portal/fb-pages',
+        },
+        expiringTokenPages.length === 0 ? null : {
+            key: 'facebook_page_tokens',
+            label: 'تجديد رموز صفحات Facebook',
+            status: 'action_required',
+            reason: `يوجد ${expiringTokenPages.length} من رموز الصفحات يقترب من الانتهاء. أعد ربط الصفحات قبل توقف الخدمة.`,
+            action_path: '/portal/fb-pages',
+        },
         evidence.post_management.ready ? null : {
             key: 'pages_manage_posts',
             label: 'إنشاء دليل pages_manage_posts',
@@ -856,6 +913,8 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             live_token_app_id_matches: liveFacebookUserToken?.app_id_matches !== false,
             live_token_expires_at: liveFacebookUserToken?.expires_at || tenant.facebook_user_token_expires_at || null,
             live_token_error: liveFacebookUserToken?.error || null,
+            live_token_retryable: !!liveFacebookUserToken?.retryable,
+            live_token_warning: facebookUserTokenExpiring ? 'facebook_user_token_expiring' : null,
             review_hint: missingScopes.length
                 ? 'أعد تفويض Facebook من صفحة الربط حتى تظهر الأذونات المطلوبة في debug_token.'
                 : 'كل أذونات Facebook المطلوبة موجودة في رمز المستخدم، مع تحقق live عند توفر إعدادات التطبيق.',
@@ -863,7 +922,10 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         identity: {
             key: 'identity',
             title: 'Identity Evidence',
-            status: readinessStatus(facebookPublicProfileReady && facebookEmailReady, facebookPublicProfileReady || facebookUserTokenPresent),
+            status: readinessStatus(
+                facebookUserTokenReady && facebookPublicProfileReady && facebookEmailReady,
+                facebookPublicProfileReady || facebookUserTokenPresent
+            ),
             action_path: '/portal/fb-pages',
             required_permissions: ['public_profile', 'email'],
             facebook_user: facebookIdentity,
@@ -886,6 +948,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             linked_count: pages.length,
             active_count: activePages.length,
             page_token_ready_count: pagesWithToken.length,
+            page_token_expiring_count: expiringTokenPages.length,
             webhook_ready_count: webhookReadyPages.length,
             required_webhook_fields: FACEBOOK_WEBHOOK_FIELDS,
             webhook_evidence: webhookEvidence,
@@ -937,7 +1000,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         business_asset_user_profile_access: {
             key: 'business_asset_user_profile_access',
             title: 'Business Asset User Profile Access',
-            status: readinessStatus(assetProfileReady, messengerConfigured),
+            status: readinessStatus(messengerConfigured && assetProfileReady, messengerConfigured || assetProfileReady),
             action_path: '/portal/inbox',
             feature_required: 'Business Asset User Profile Access',
             profile_records_count: profileStats?.count || 0,
@@ -948,13 +1011,16 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         feature_evidence: {
             key: 'feature_evidence',
             title: 'Feature Evidence',
-            status: readinessStatus(assetProfileReady && !!partnerActivity, messengerConfigured || businessConfigured || !!partnerFailure),
+            status: readinessStatus(
+                messengerConfigured && assetProfileReady && !!partnerActivity && businessConfigured,
+                messengerConfigured || businessConfigured || assetProfileReady || !!partnerFailure
+            ),
             action_path: '/portal/meta-review',
             features: [
                 {
                     key: 'business_asset_user_profile_access',
                     label: 'Business Asset User Profile Access',
-                    status: readinessStatus(assetProfileReady, messengerConfigured),
+                    status: readinessStatus(messengerConfigured && assetProfileReady, messengerConfigured || assetProfileReady),
                     last_success_at: evidence.profile_records.last_success_at || null,
                     action_path: '/portal/inbox',
                 },

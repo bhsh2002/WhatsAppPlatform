@@ -32,7 +32,7 @@ import {
 import {
     Add as AddIcon,
     ArchiveOutlined as ArchiveIcon,
-    AutoAwesome as AutoAwesomeIcon,
+    EditNote as WritingIcon,
     CalendarMonth as CalendarIcon,
     Campaign as CampaignIcon,
     CheckCircleOutline as ApproveIcon,
@@ -91,6 +91,42 @@ const toLocalDateTimeInput = (date = new Date(Date.now() + 60 * 60 * 1000)) => {
     return local.toISOString().slice(0, 16);
 };
 
+const toZonedDateTimeInput = (
+    date = new Date(Date.now() + 60 * 60 * 1000),
+    timeZone,
+) => {
+    if (!timeZone) return toLocalDateTimeInput(date);
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    }).formatToParts(date).reduce((result, part) => {
+        result[part.type] = part.value;
+        return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+};
+
+const zonedDateKey = (value, timeZone) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'unknown';
+    if (!timeZone) return date.toISOString().slice(0, 10);
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(date).reduce((result, part) => {
+        result[part.type] = part.value;
+        return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
 const parseCsv = value => String(value || '')
     .split(',')
     .map(item => item.trim())
@@ -116,13 +152,14 @@ const statusColor = status => ({
 
 const statusLabel = (t, status) => t(`contentStudio.status.${status || 'unknown'}`);
 
-const formatDateTime = (value, locale) => {
+const formatDateTime = (value, locale, timeZone) => {
     if (!value) return '—';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return new Intl.DateTimeFormat(locale || 'ar-LY', {
         dateStyle: 'medium',
         timeStyle: 'short',
+        ...(timeZone ? { timeZone } : {}),
     }).format(date);
 };
 
@@ -211,8 +248,7 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
     const grouped = useMemo(() => {
         const groups = new Map();
         for (const publication of data.publications || []) {
-            const date = new Date(publication.scheduled_for);
-            const key = Number.isNaN(date.getTime()) ? 'unknown' : date.toISOString().slice(0, 10);
+            const key = zonedDateKey(publication.scheduled_for, publication.timezone);
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(publication);
         }
@@ -220,9 +256,10 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
     }, [data.publications]);
 
     const openSchedule = async () => {
+        const defaultPageId = selectedPageId || pages[0]?.id || '';
         setDialogOpen(true);
         setForm({
-            linked_page_id: selectedPageId || pages[0]?.id || '',
+            linked_page_id: defaultPageId,
             source_type: 'item',
             source_id: '',
             scheduled_for: toLocalDateTimeInput(),
@@ -230,16 +267,43 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
         });
         try {
             setSourcesLoading(true);
-            const [itemResult, productResult] = await Promise.all([
+            const [itemResult, productResult, settingsResult] = await Promise.all([
                 api.getPortalContentStudioItems({ status: 'approved', limit: 100 }),
                 api.getPortalContentStudioProducts({ limit: 100 }),
+                defaultPageId
+                    ? api.getPortalContentStudioSettings(defaultPageId)
+                    : Promise.resolve(null),
             ]);
             setItems(itemResult.items || []);
             setProducts(productResult.products || []);
+            setForm(current => ({
+                ...current,
+                scheduled_for: toZonedDateTimeInput(
+                    undefined,
+                    settingsResult?.settings?.timezone,
+                ),
+            }));
         } catch (requestError) {
             notify(requestError.message || t('contentStudio.messages.sourcesLoadFailed'), 'error');
         } finally {
             setSourcesLoading(false);
+        }
+    };
+
+    const changeSchedulePage = async value => {
+        setForm(current => ({ ...current, linked_page_id: value }));
+        try {
+            const result = await api.getPortalContentStudioSettings(value);
+            setForm(current => (
+                current.linked_page_id === value
+                    ? {
+                        ...current,
+                        scheduled_for: toZonedDateTimeInput(undefined, result?.settings?.timezone),
+                    }
+                    : current
+            ));
+        } catch {
+            // Scheduling validation on the server remains authoritative.
         }
     };
 
@@ -249,7 +313,7 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
             setSaving(true);
             await api.schedulePortalContentStudioPublication({
                 linked_page_id: form.linked_page_id,
-                scheduled_for: new Date(form.scheduled_for).toISOString(),
+                scheduled_for_local: form.scheduled_for,
                 ...(form.source_type === 'item'
                     ? { content_item_id: form.source_id }
                     : { product_id: form.source_id }),
@@ -324,7 +388,7 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                                                         {publication.content_title || publication.product_name || publication.campaign_name || t('contentStudio.manualPost')}
                                                     </Typography>
                                                     <Typography variant="caption" color="text.secondary" sx={wrapTextSx}>
-                                                        {publication.page_name} · {formatDateTime(publication.scheduled_for, locale)}
+                                                        {publication.page_name} · {formatDateTime(publication.scheduled_for, locale, publication.timezone)}
                                                     </Typography>
                                                 </Box>
                                                 <Chip size="small" color={statusColor(publication.status)} label={statusLabel(t, publication.status)} />
@@ -377,7 +441,7 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                 <DialogContent dividers>
                     {sourcesLoading ? <LoadingPanel /> : (
                         <Stack spacing={2} sx={{ pt: 0.5 }}>
-                            <PagePicker pages={pages} value={form.linked_page_id} onChange={value => setForm(current => ({ ...current, linked_page_id: value }))} t={t} />
+                            <PagePicker pages={pages} value={form.linked_page_id} onChange={changeSchedulePage} t={t} />
                             <FormControl fullWidth size="small">
                                 <InputLabel>{t('contentStudio.source')}</InputLabel>
                                 <Select value={form.source_type} label={t('contentStudio.source')} onChange={event => setForm(current => ({ ...current, source_type: event.target.value, source_id: '' }))}>
@@ -1386,13 +1450,13 @@ function AiPanel({ pages, selectedPageId, readiness, notify, t, refreshToken }) 
                                 label={t('contentStudio.saveToReview')}
                             />
                         </Box>
-                        <Alert severity="info" icon={<AutoAwesomeIcon />}>
+                        <Alert severity="info" icon={<WritingIcon />}>
                             {t('contentStudio.aiCreditNote')}
                         </Alert>
                         <Button
                             variant="contained"
                             size="large"
-                            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <AutoAwesomeIcon />}
+                            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <WritingIcon />}
                             disabled={loading || !readiness?.ai?.configured || (!input.trim() && !productId)}
                             onClick={generate}
                         >
@@ -1654,7 +1718,7 @@ export default function FacebookContentStudioWorkspace() {
         ['calendar', <CalendarIcon key="calendar" />, t('contentStudio.tabs.calendar')],
         ['library', <LibraryIcon key="library" />, t('contentStudio.tabs.library')],
         ['campaigns', <CampaignIcon key="campaigns" />, t('contentStudio.tabs.campaigns')],
-        ['ai', <AutoAwesomeIcon key="ai" />, t('contentStudio.tabs.ai')],
+        ['ai', <WritingIcon key="ai" />, t('contentStudio.tabs.ai')],
         ['settings', <SettingsIcon key="settings" />, t('contentStudio.tabs.settings')],
         ['live', <FacebookIcon key="live" />, t('contentStudio.tabs.live')],
     ];

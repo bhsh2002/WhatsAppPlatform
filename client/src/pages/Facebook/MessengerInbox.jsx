@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Paper, Typography, Button, TextField, Avatar, IconButton, CircularProgress, Alert, Snackbar, Chip, Divider, useMediaQuery, useTheme, InputAdornment, Stack } from '@mui/material';
-import { Facebook as FacebookIcon, Send as SendIcon, Search as SearchIcon, Refresh as RefreshIcon, QuestionAnswer as MessengerIcon, Sync as SyncIcon, ArrowBack as ArrowBackIcon, SmartToy as BotIcon } from '@mui/icons-material';
+import { AccountTree as BotIcon, AttachFile as AttachmentIcon, Facebook as FacebookIcon, Send as SendIcon, Search as SearchIcon, Refresh as RefreshIcon, QuestionAnswer as MessengerIcon, Sync as SyncIcon, ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
@@ -582,7 +582,8 @@ const MessengerInbox = () => {
                         }} /> : <Typography variant="body2" component="a" href={msg.attachment_url} target="_blank" rel="noopener" sx={{
                           wordBreak: 'break-all'
                         }}>
-                                                                                📎 {msg.attachment_type || tx("auto.k_052eabac3913")}
+                                                                                <AttachmentIcon sx={{ fontSize: 16, verticalAlign: 'middle' }} aria-hidden="true" />{' '}
+                                                                                {msg.attachment_type || tx("auto.k_052eabac3913")}
                                                                             </Typography>}
                                                                     </Box>}
                                                                 {msg.sticker_url && <Box component="img" src={msg.sticker_url} sx={{

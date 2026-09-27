@@ -2,6 +2,7 @@ import express from 'express';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
+import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
 import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
 
 const router = express.Router();
@@ -54,8 +55,9 @@ const extractPostEngagement = (post) => ({
 
 const fetchRecentPostEngagement = async (pageId, accessToken, days = 28) => {
     const since = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
-    const response = await fetch(
-        `${META_API_BASE}/${pageId}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=100&since=${since}&access_token=${accessToken}`
+    const response = await fetchMetaWithAccessToken(
+        `${META_API_BASE}/${pageId}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=100&since=${since}`,
+        accessToken
     );
     const metaResult = await readMetaResponse(response);
     const data = metaResult.data || {};
@@ -90,8 +92,9 @@ router.get('/:linkedPageId/overview', async (req, res) => {
         if (error) return res.status(status).json({ error });
 
         // Fetch page metadata
-        const metaResponse = await fetch(
-            `${META_API_BASE}/${page.page_id}?fields=name,followers_count,fan_count,talking_about_count,picture.width(100).height(100)&access_token=${accessToken}`
+        const metaResponse = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${page.page_id}?fields=name,followers_count,fan_count,talking_about_count,picture.width(100).height(100)`,
+            accessToken
         );
         const pageResult = await readMetaResponse(metaResponse);
         const metaData = pageResult.data || {};
@@ -101,8 +104,9 @@ router.get('/:linkedPageId/overview', async (req, res) => {
         }
 
         // Fetch 28-day insights
-        const insightsResponse = await fetch(
-            `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=days_28&access_token=${accessToken}`
+        const insightsResponse = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=days_28`,
+            accessToken
         );
         const insightsResult = await readMetaResponse(insightsResponse);
         const insightsData = insightsResult.data || {};
@@ -154,8 +158,9 @@ router.get('/:linkedPageId/daily', async (req, res) => {
         const untilDate = until || new Date().toISOString().split('T')[0];
         const sinceDate = since || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-        const response = await fetch(
-            `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=day&since=${sinceDate}&until=${untilDate}&access_token=${accessToken}`
+        const response = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${page.page_id}/insights?metric=page_views_total,page_actions_post_reactions_total,page_video_views&period=day&since=${sinceDate}&until=${untilDate}`,
+            accessToken
         );
         const metaResult = await readMetaResponse(response);
         const data = metaResult.data || {};
@@ -206,8 +211,9 @@ router.get('/:linkedPageId/posts', async (req, res) => {
         if (error) return res.status(status).json({ error });
 
         // Fetch posts
-        const postsResponse = await fetch(
-            `${META_API_BASE}/${page.page_id}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=${limit}&access_token=${accessToken}`
+        const postsResponse = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${page.page_id}/posts?fields=${encodeURIComponent(POST_ENGAGEMENT_FIELDS)}&limit=${limit}`,
+            accessToken
         );
         const postsResult = await readMetaResponse(postsResponse);
         const postsData = postsResult.data || {};
@@ -233,8 +239,9 @@ router.get('/:linkedPageId/posts', async (req, res) => {
 
             if (i < insightsLimit) {
                 try {
-                    const insightsResponse = await fetch(
-                        `${META_API_BASE}/${post.id}/insights?metric=post_reactions_by_type_total,post_clicks&period=lifetime&access_token=${accessToken}`
+                    const insightsResponse = await fetchMetaWithAccessToken(
+                        `${META_API_BASE}/${post.id}/insights?metric=post_reactions_by_type_total,post_clicks&period=lifetime`,
+                        accessToken
                     );
                     const insightsResult = await readMetaResponse(insightsResponse);
                     const insightsData = insightsResult.data || {};

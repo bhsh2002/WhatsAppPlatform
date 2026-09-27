@@ -16,6 +16,8 @@ const FacebookConnect = ({
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
   const [linkState, setLinkState] = useState('');
+  const [connectSummary, setConnectSummary] = useState(null);
+  const [linkResult, setLinkResult] = useState(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -64,9 +66,15 @@ const FacebookConnect = ({
       setError('');
       setActiveStep(1);
       const data = await api.connectFacebook(fbCode, fbState);
-      setPages(data.pages || []);
+      const discoveredPages = data.pages || [];
+      setPages(discoveredPages);
       setLinkState(data.link_state);
-      if (data.pages.length > 0) {
+      setConnectSummary({
+        missingScopes: data.missing_scopes || [],
+        tokenStatus: data.token_status || 'unchecked',
+        pagesTruncated: data.pages_truncated === true
+      });
+      if (discoveredPages.length > 0) {
         setActiveStep(2);
       } else {
         setError(tx("auto.k_97e20304a7f6"));
@@ -86,14 +94,14 @@ const FacebookConnect = ({
     try {
       setLoading(true);
       setError('');
-      await api.linkFacebookPages(linkState, selectedPages);
+      const result = await api.linkFacebookPages(linkState, selectedPages);
+      setLinkResult(result);
       setActiveStep(3);
       setSnackbar({
         open: true,
-        message: tx("auto.k_c13056d1a78e"),
-        severity: 'success'
+        message: result.success ? tx("auto.k_c13056d1a78e") : result.partial_success ? 'تم حفظ بعض الصفحات، وتحتاج بقية خطوات الربط إلى مراجعة.' : 'تعذر إكمال ربط الصفحات المحددة.',
+        severity: result.success ? 'success' : result.partial_success ? 'warning' : 'error'
       });
-      if (onComplete) onComplete();
     } catch (err) {
       setError(err.message || tx("auto.k_fae7a2aae64d"));
     } finally {
@@ -205,6 +213,26 @@ const FacebookConnect = ({
 
             {activeStep === 2 && <Box>
                     <Typography variant="h6" gutterBottom>{tx("auto.k_c1d34ed80310")}</Typography>
+                    {connectSummary?.missingScopes?.length > 0 && <Alert severity="warning" sx={{
+        mb: 2
+      }}>
+                        لم يمنح حساب Facebook كل الصلاحيات المطلوبة. الصلاحيات الناقصة: {connectSummary.missingScopes.join('، ')}. يمكنك متابعة اختيار الصفحات، لكن بعض الوظائف لن تعمل قبل إعادة التفويض.
+                    </Alert>}
+                    {connectSummary?.tokenStatus === 'expiring' && <Alert severity="warning" sx={{
+        mb: 2
+      }}>
+                        رمز الوصول صالح حالياً لكنه يقترب من الانتهاء. أعد التفويض قريباً لتجنب توقف الربط.
+                    </Alert>}
+                    {!['valid', 'expiring'].includes(connectSummary?.tokenStatus) && <Alert severity="warning" sx={{
+        mb: 2
+      }}>
+                        لم نتمكن من التحقق من صلاحية رمز الوصول. لن تُعد الخدمة جاهزة حتى يكتمل التحقق.
+                    </Alert>}
+                    {connectSummary?.pagesTruncated && <Alert severity="warning" sx={{
+        mb: 2
+      }}>
+                        لدى الحساب عدد كبير من الصفحات، لذلك عُرضت الصفحات التي أمكن التحقق منها ضمن الحد الآمن. أعد المحاولة إذا لم تجد الصفحة المطلوبة.
+                    </Alert>}
                     <List>
                         {pages.map(page => <ListItem key={page.id} dense button onClick={() => togglePage(page.id)}>
                                 <ListItemAvatar>
@@ -246,26 +274,59 @@ const FacebookConnect = ({
       textAlign: 'center',
       py: 3
     }}>
-                    <CheckCircleIcon sx={{
+                    {linkResult?.success && <CheckCircleIcon sx={{
         fontSize: 64,
         color: 'success.main',
         mb: 2
-      }} />
-                    <Typography variant="h6" gutterBottom>{tx("auto.k_1d13848b5c89")}</Typography>
-                    <Typography color="text.secondary">{tx("auto.k_3971687e7824")}
+      }} />}
+                    <Typography variant="h6" gutterBottom>
+                        {linkResult?.success ? tx("auto.k_1d13848b5c89") : linkResult?.partial_success ? 'اكتمل الربط جزئياً' : 'تعذر إكمال الربط'}
+                    </Typography>
+                    {linkResult?.success ? <Typography color="text.secondary">{tx("auto.k_3971687e7824")}
           {selectedPages.length}{tx("auto.k_61e00284d031")}
-        </Typography>
+        </Typography> : <Box sx={{
+        maxWidth: 680,
+        mx: 'auto',
+        textAlign: 'start'
+      }}>
+                        <Alert severity={linkResult?.partial_success ? 'warning' : 'error'} sx={{
+          mb: 2
+        }}>
+                            أصبحت {linkResult?.ready_count || 0} من أصل {selectedPages.length} صفحة جاهزة بالكامل. راجع التفاصيل التالية ثم أعد المحاولة للصفحات المتأثرة.
+                        </Alert>
+                        {(linkResult?.linked || []).filter(page => !page.page_ready).map(page => <Alert key={page.id || page.name} severity="warning" sx={{
+          mb: 1
+        }}>
+                            <strong>{page.name || page.id || 'صفحة Facebook'}:</strong>{' '}
+                            {!page.page_linked
+                              ? 'لم يتم ربط الصفحة.'
+                              : !['valid'].includes(page.token_status)
+                                ? page.token_status === 'expiring'
+                                  ? 'تم حفظ الصفحة، لكن رمز الوصول يقترب من الانتهاء ويجب تجديد التفويض.'
+                                  : 'تم حفظ الصفحة، لكن صلاحية رمز الوصول لم تُتحقق بعد.'
+                                : 'تم حفظ الصفحة، لكن تعذر تفعيل استقبال الأحداث.'}
+                            {page.webhook_error ? ` ${page.webhook_error}` : ''}
+                        </Alert>)}
+                        {(linkResult?.unavailable_page_ids || []).length > 0 && <Alert severity="warning">
+                            لم تعد بعض الصفحات المحددة متاحة لهذا الحساب: {linkResult.unavailable_page_ids.join('، ')}.
+                        </Alert>}
+                    </Box>}
                     <Button sx={{
         mt: 2
       }} variant="outlined" onClick={() => {
         setActiveStep(0);
         setPages([]);
         setSelectedPages([]);
+        setConnectSummary(null);
+        setLinkResult(null);
         setCode('');
         setOauthState('');
       }}>{tx("auto.k_f30eaffd1418")}
 
         </Button>
+                    {onComplete && <Button sx={{ mt: 2, ms: 1 }} variant="contained" onClick={onComplete}>
+                        {tx('facebookConnection.viewLinkedPages')}
+                    </Button>}
                 </Box>}
 
             <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar(prev => ({

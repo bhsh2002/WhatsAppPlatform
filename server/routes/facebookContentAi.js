@@ -26,13 +26,26 @@ import {
     sendContentError,
 } from './facebookContentStudioShared.js';
 
-const variantBody = variant => [
-    variant.body,
-    variant.cta,
-    normalizeStringList(variant.hashtags)
+const variantBody = variant => {
+    const body = String(variant.body || '').trim();
+    const cta = String(variant.cta || '').trim();
+    const existingHashtags = new Set(
+        [...body.matchAll(/#[\p{L}\p{N}_]+/gu)].map(match => match[0].toLocaleLowerCase()),
+    );
+    const newHashtags = normalizeStringList(variant.hashtags)
         .map(tag => tag.startsWith('#') ? tag : `#${tag.replace(/\s+/g, '_')}`)
-        .join(' '),
-].filter(Boolean).join('\n\n').trim();
+        .filter(tag => {
+            const key = tag.toLocaleLowerCase();
+            if (existingHashtags.has(key)) return false;
+            existingHashtags.add(key);
+            return true;
+        });
+    return [
+        body,
+        cta && !body.includes(cta) ? cta : '',
+        newHashtags.join(' '),
+    ].filter(Boolean).join('\n\n').trim();
+};
 
 const clientSafeAiError = error => {
     if (error instanceof BillingError) return error;

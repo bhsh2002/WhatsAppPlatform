@@ -1,6 +1,11 @@
 import crypto from 'node:crypto';
 import express from 'express';
 
+import {
+    assertFacebookContentPublishingPolicy,
+    getFacebookContentPublishingPolicy,
+    parsePageLocalDateTime,
+} from '../services/facebookContentPolicy.js';
 import { createContentPublication } from '../services/facebookContentScheduler.js';
 import { parseListPagination } from '../services/pagination.js';
 import {
@@ -23,7 +28,10 @@ const parseDate = (value, { fallback = null, field = 'التاريخ' } = {}) =>
     return parsed;
 };
 
-export function createFacebookContentPublicationsRouter({ database } = {}) {
+export function createFacebookContentPublicationsRouter({
+    database,
+    clock = () => new Date(),
+} = {}) {
     if (!database) throw new TypeError('database is required');
     const router = express.Router();
 
@@ -67,6 +75,7 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
                 params.push(end.toISOString());
             }
             const where = clauses.join(' AND ');
+            const timezoneByPage = new Map();
             const publications = database.prepare(`
                 SELECT publication.*, tp.page_name, c.name AS campaign_name,
                        i.title AS content_title, p.name AS product_name, p.sku AS product_sku,
@@ -82,7 +91,22 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
                 WHERE ${where}
                 ORDER BY publication.scheduled_for DESC, publication.id DESC
                 LIMIT ? OFFSET ?
-            `).all(...params, limit, offset);
+            `).all(...params, limit, offset).map(publication => {
+                if (!timezoneByPage.has(publication.linked_page_id)) {
+                    timezoneByPage.set(
+                        publication.linked_page_id,
+                        getFacebookContentPublishingPolicy(
+                            database,
+                            publication.tenant_id,
+                            publication.linked_page_id,
+                        ).timezone,
+                    );
+                }
+                return {
+                    ...publication,
+                    timezone: timezoneByPage.get(publication.linked_page_id),
+                };
+            });
             const total = database.prepare(`
                 SELECT COUNT(*) AS count
                 FROM facebook_content_publications publication
@@ -91,11 +115,13 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
                 WHERE ${where}
             `).get(...params).count;
             const summary = database.prepare(`
-                SELECT status, COUNT(*) AS count
-                FROM facebook_content_publications
-                WHERE tenant_id = ?
-                GROUP BY status
-            `).all(tenant.id).reduce((result, row) => {
+                SELECT publication.status, COUNT(*) AS count
+                FROM facebook_content_publications publication
+                LEFT JOIN facebook_content_items i ON i.id = publication.content_item_id
+                LEFT JOIN bot_products p ON p.id = publication.product_id
+                WHERE ${where}
+                GROUP BY publication.status
+            `).all(...params).reduce((result, row) => {
                 result[row.status] = row.count;
                 return result;
             }, {});
@@ -111,11 +137,13 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
             if (!tenant) return;
             const page = requireContentPage(database, tenant.id, req.body.linked_page_id);
             const settings = getEffectiveContentSettings(database, tenant.id, page.id);
-            const requestedDate = parseDate(req.body.scheduled_for, {
-                fallback: new Date(),
-                field: 'موعد النشر',
-            });
-            const scheduledFor = requestedDate.getTime() < Date.now() ? new Date() : requestedDate;
+            const now = clock();
+            const requestedValue = req.body.scheduled_for_local ?? req.body.scheduled_for;
+            const requestedDate = requestedValue
+                ? parsePageLocalDateTime(requestedValue, settings.timezone)
+                : now;
+            if (!requestedDate) throw contentError('موعد النشر غير صالح', 400, 'INVALID_DATE');
+            const scheduledFor = requestedDate.getTime() < now.getTime() ? now : requestedDate;
             let item = null;
             let product = null;
             if (req.body.content_item_id) {
@@ -139,17 +167,29 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
             const renderedMessage = item
                 ? item.body
                 : renderProductPost(req.body.product_template, product);
+            const publicationMessage = boundedText(req.body.message_override || renderedMessage, {
+                field: 'محتوى المنشور',
+                max: 5000,
+                required: true,
+            });
+            assertFacebookContentPublishingPolicy(database, {
+                tenantId: tenant.id,
+                linkedPageId: page.id,
+                contentItemId: item?.id || null,
+                productId: product?.id || null,
+                renderedMessage: publicationMessage,
+                linkUrl: item?.link_url || product?.product_url || null,
+                mediaUrl: item?.media_url || product?.image_url || null,
+                at: scheduledFor,
+                mode: 'schedule',
+            });
             const publication = createContentPublication(database, {
                 tenantId: tenant.id,
                 linkedPageId: page.id,
                 contentItemId: item?.id || null,
                 productId: product?.id || null,
                 scheduledFor,
-                renderedMessage: boundedText(req.body.message_override || renderedMessage, {
-                    field: 'محتوى المنشور',
-                    max: 5000,
-                    required: true,
-                }),
+                renderedMessage: publicationMessage,
                 linkUrl: item?.link_url || product?.product_url || null,
                 mediaUrl: item?.media_url || product?.image_url || null,
                 createdBy: req.user?.id || null,
@@ -191,12 +231,33 @@ export function createFacebookContentPublicationsRouter({ database } = {}) {
         try {
             const tenant = requireContentTenant(database, req, res);
             if (!tenant) return;
-            const now = new Date().toISOString();
+            const publication = database.prepare(`
+                SELECT *
+                FROM facebook_content_publications
+                WHERE id = ? AND tenant_id = ? AND status = 'pending'
+            `).get(req.params.id, tenant.id);
+            if (!publication) {
+                throw contentError('المنشور غير موجود أو ليس في الانتظار', 409, 'PUBLICATION_NOT_PENDING');
+            }
+            const now = clock();
+            assertFacebookContentPublishingPolicy(database, {
+                tenantId: tenant.id,
+                linkedPageId: publication.linked_page_id,
+                contentItemId: publication.content_item_id,
+                productId: publication.product_id,
+                renderedMessage: publication.rendered_message,
+                linkUrl: publication.link_url,
+                mediaUrl: publication.media_url,
+                at: now,
+                excludePublicationId: publication.id,
+                mode: 'publish',
+            });
+            const nowIso = now.toISOString();
             const result = database.prepare(`
                 UPDATE facebook_content_publications
                 SET scheduled_for = ?, next_attempt_at = ?, updated_at = datetime('now')
                 WHERE id = ? AND tenant_id = ? AND status = 'pending'
-            `).run(now, now, req.params.id, tenant.id);
+            `).run(nowIso, nowIso, req.params.id, tenant.id);
             if (!result.changes) {
                 throw contentError('المنشور غير موجود أو ليس في الانتظار', 409, 'PUBLICATION_NOT_PENDING');
             }
