@@ -616,7 +616,7 @@ const UnifiedInbox = () => {
     } : null;
 
     return (
-        <Box sx={{ display: 'flex', height: { xs: 'calc(100vh - 56px)', md: '100vh' }, overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', height: { xs: '100%', md: '100dvh' }, minHeight: 0, overflow: 'hidden' }}>
             <PageTitle variant="h5" visuallyHidden>{t('inbox.title')}</PageTitle>
             {/* Sidebar */}
             <Box sx={{

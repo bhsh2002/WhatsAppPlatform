@@ -809,9 +809,10 @@ const TenantInbox = () => {
   return <Box sx={{
     display: 'flex',
     height: {
-      xs: 'calc(100dvh - 48px)',
+      xs: '100%',
       md: '100dvh'
     },
+    minHeight: 0,
     overflow: 'hidden'
   }}>
             <PageTitle variant="h5" visuallyHidden>{tx('inbox.title')}</PageTitle>

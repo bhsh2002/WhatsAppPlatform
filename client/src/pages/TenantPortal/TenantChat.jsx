@@ -374,9 +374,10 @@ const TenantChat = () => {
   };
   return <Box sx={{
     height: {
-      xs: 'calc(100vh - 48px)',
-      md: '100vh'
+      xs: '100%',
+      md: '100dvh'
     },
+    minHeight: 0,
     display: 'flex',
     bgcolor: 'background.default',
     overflow: 'hidden'
