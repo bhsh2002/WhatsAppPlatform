@@ -277,9 +277,9 @@ if (( database_present == 1 && server_container_present == 1 )); then
     "$ROOT_DIR/tools/backup_production.sh")"
   backup_archive="$(awk -F'[ =]' '
     /^WA_BACKUP_VERIFIED / {
-      for (index = 1; index <= NF; index += 1) {
-        if ($index == "path") {
-          print $(index + 1)
+      for (field = 1; field <= NF; field += 1) {
+        if ($field == "path") {
+          print $(field + 1)
           found = 1
           exit
         }
