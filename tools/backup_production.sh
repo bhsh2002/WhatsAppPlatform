@@ -63,7 +63,7 @@ actual_sha="$(sha256sum "$backup_archive" | awk '{ print $1 }')"
 
 checksum_file="${backup_archive}.sha256"
 printf '%s  %s\n' "$reported_sha" "$(basename "$backup_archive")" >"$checksum_file"
-chmod 0640 "$backup_archive" "$checksum_file"
+chmod 0640 "$checksum_file"
 (
   cd "$data_dir/backups"
   sha256sum --check --status "$(basename "$checksum_file")"
