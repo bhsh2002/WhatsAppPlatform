@@ -34,6 +34,13 @@ export const savanaIntegrationMethods = {
         });
     },
 
+    async quotePortalCentralSubscription(data) {
+        return this.request('/api/portal/integrations/subscription/checkout-quote', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async createPortalCentralPaymentIntent(data) {
         return this.request('/api/portal/integrations/subscription/payment-intents', {
             method: 'POST',

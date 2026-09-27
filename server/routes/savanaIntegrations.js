@@ -127,6 +127,18 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         }
     });
 
+    router.post('/subscription/checkout-quote', async (req, res) => {
+        try {
+            const result = await service.subscriptionCheckoutQuote(
+                req.user.tenant_id,
+                req.body || {},
+            );
+            return res.json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
     router.post('/subscription/payment-intents', async (req, res) => {
         try {
             const result = await service.createSubscriptionPaymentIntent(

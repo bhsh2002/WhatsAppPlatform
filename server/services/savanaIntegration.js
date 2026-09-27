@@ -570,7 +570,7 @@ export class SavanaIntegrationService {
         };
     }
 
-    async subscriptionCheckout(tenantId, payload = {}, actorId = 'tenant') {
+    async resolveSubscriptionCheckout(tenantId, payload = {}) {
         const context = await this.subscriptionContext(tenantId);
         if (!context.managed_centrally || !context.bound || !context.organization?.id) {
             throw new SavanaIntegrationError(
@@ -591,6 +591,7 @@ export class SavanaIntegrationService {
         }
 
         let offer;
+        let billingPeriod;
         if (planId) {
             const plan = context.plans?.find(item => item.id === planId);
             if (!plan) {
@@ -611,6 +612,7 @@ export class SavanaIntegrationService {
                     'central_price_unavailable'
                 );
             }
+            billingPeriod = price.billing_period;
             offer = {
                 items: [{
                     plan_id: plan.id,
@@ -627,17 +629,74 @@ export class SavanaIntegrationService {
                     'central_bundle_not_found'
                 );
             }
+            if (bundle.price_available !== true) {
+                throw new SavanaIntegrationError(
+                    'The selected central bundle has no available price',
+                    409,
+                    'central_bundle_price_unavailable'
+                );
+            }
+            billingPeriod = bundle.billing_period;
             offer = { bundle_id: bundle.id };
         }
 
+        const periodDays = billingPeriod === 'monthly' ? 30
+            : billingPeriod === 'yearly' ? 365 : null;
+        if (!periodDays) {
+            throw new SavanaIntegrationError(
+                'The selected offer has no supported billing period',
+                409,
+                'central_billing_period_unavailable'
+            );
+        }
+
+        return {
+            organizationId: context.organization.id,
+            offer,
+            periodDays,
+        };
+    }
+
+    async subscriptionCheckoutQuote(tenantId, payload = {}) {
+        const { organizationId, offer, periodDays } = await this.resolveSubscriptionCheckout(
+            tenantId, payload,
+        );
         return this.requestJson(
             'subscriptions',
             'POST',
-            `/v1/organizations/${encodeURIComponent(context.organization.id)}/checkout`,
+            `/v1/organizations/${encodeURIComponent(organizationId)}/checkout-quote`,
+            {
+                platform_code: 'wa_savana',
+                period_days: periodDays,
+                ...offer,
+            },
+        );
+    }
+
+    async subscriptionCheckout(tenantId, payload = {}, actorId = 'tenant') {
+        const { organizationId, offer, periodDays } = await this.resolveSubscriptionCheckout(
+            tenantId, payload,
+        );
+        const expectedTotalMinor = payload.expected_total_minor;
+        if (expectedTotalMinor !== undefined && (
+            !Number.isSafeInteger(expectedTotalMinor) || expectedTotalMinor < 0
+        )) {
+            throw new SavanaIntegrationError(
+                'The expected checkout total must be a nonnegative integer',
+                400,
+                'invalid_expected_checkout_total'
+            );
+        }
+        return this.requestJson(
+            'subscriptions',
+            'POST',
+            `/v1/organizations/${encodeURIComponent(organizationId)}/checkout`,
             {
                 platform_code: 'wa_savana',
                 actor_id: String(actorId || 'tenant'),
-                period_days: Math.min(366, Math.max(1, Number(payload.period_days || 30))),
+                period_days: periodDays,
+                ...(expectedTotalMinor === undefined
+                    ? {} : { expected_total_minor: expectedTotalMinor }),
                 idempotency_key: String(
                     payload.idempotency_key || `wa-savana-checkout-${crypto.randomUUID()}`
                 ),

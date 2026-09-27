@@ -672,6 +672,127 @@ test('central plan checkout is validated locally and delegated idempotently', as
         price_id: priceId,
         quantity: 1,
     }]);
+    assert.equal(checkoutPayload.period_days, 30);
+    database.close();
+});
+
+test('central checkout derives annual and bundle periods from central pricing', async () => {
+    const database = createDatabase();
+    const planId = crypto.randomUUID();
+    const priceId = crypto.randomUUID();
+    const bundleId = crypto.randomUUID();
+    const checkoutPayloads = [];
+    const quotePayloads = [];
+    let bundlePeriod = 'monthly';
+    let bundlePriceAvailable = true;
+    const service = new SavanaIntegrationService({
+        database,
+        config: { ...config, subscriptionsMode: 'central' },
+        fetchImpl: async (url, options = {}) => {
+            const path = new URL(url).pathname;
+            if (path === '/v1/platform-bindings') {
+                return Response.json([{
+                    id: crypto.randomUUID(),
+                    organization_id: organizationId,
+                    platform_code: 'wa_savana',
+                    external_tenant_id: 'wa_savana:tenant:1',
+                }]);
+            }
+            if (path.endsWith('/subscription-context/wa_savana')) {
+                return Response.json({ data: {
+                    managed_centrally: true,
+                    organization: { id: organizationId },
+                    platform_code: 'wa_savana',
+                    plans: [{ id: planId, prices: [{
+                        id: priceId, active: true, billing_period: 'yearly',
+                    }] }],
+                    bundles: [{ id: bundleId, active: true,
+                        price_available: bundlePriceAvailable,
+                        billing_period: bundlePeriod }],
+                } });
+            }
+            if (path.endsWith('/checkout-quote')) {
+                quotePayloads.push(JSON.parse(options.body));
+                return Response.json({ data: {
+                    base_amount_minor: 8000,
+                    upgrade_credit_minor: 2000,
+                    subtotal_minor: 6000,
+                    discount_minor: 0,
+                    tax_minor: 0,
+                    total_minor: 6000,
+                    currency: 'LYD',
+                } });
+            }
+            if (path.endsWith('/checkout')) {
+                checkoutPayloads.push(JSON.parse(options.body));
+                return Response.json({ data: { invoice: { number: 'SAV-TEST' } } }, { status: 201 });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+    });
+
+    const annualQuote = await service.subscriptionCheckoutQuote(1, {
+        plan_id: planId,
+        price_id: priceId,
+        period_days: 1,
+    });
+    assert.equal(annualQuote.total_minor, 6000);
+    assert.equal(quotePayloads[0].period_days, 365);
+    assert.deepEqual(quotePayloads[0].items, [{
+        plan_id: planId, price_id: priceId, quantity: 1,
+    }]);
+    assert.equal('actor_id' in quotePayloads[0], false);
+    assert.equal('idempotency_key' in quotePayloads[0], false);
+    assert.equal(checkoutPayloads.length, 0);
+
+    await service.subscriptionCheckout(1, {
+        plan_id: planId,
+        price_id: priceId,
+        period_days: 1,
+        expected_total_minor: annualQuote.total_minor,
+        idempotency_key: 'annual-checkout-test',
+    });
+    assert.equal(checkoutPayloads[0].period_days, 365);
+    assert.equal(checkoutPayloads[0].expected_total_minor, annualQuote.total_minor);
+    assert.deepEqual(checkoutPayloads[0].items, quotePayloads[0].items);
+
+    await service.subscriptionCheckoutQuote(1, {
+        bundle_id: bundleId,
+        period_days: 1,
+    });
+    assert.equal(quotePayloads[1].bundle_id, bundleId);
+    assert.equal(quotePayloads[1].period_days, 30);
+    await service.subscriptionCheckout(1, {
+        bundle_id: bundleId,
+        period_days: 1,
+        expected_total_minor: 0,
+        idempotency_key: 'bundle-checkout-test',
+    });
+    assert.equal(checkoutPayloads[1].bundle_id, bundleId);
+    assert.equal(checkoutPayloads[1].period_days, 30);
+    assert.equal(checkoutPayloads[1].expected_total_minor, 0);
+
+    await assert.rejects(
+        () => service.subscriptionCheckout(1, {
+            bundle_id: bundleId, expected_total_minor: -1,
+        }),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'invalid_expected_checkout_total',
+    );
+
+    bundlePeriod = null;
+    await assert.rejects(
+        () => service.subscriptionCheckout(1, { bundle_id: bundleId }),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'central_billing_period_unavailable',
+    );
+    bundlePriceAvailable = false;
+    await assert.rejects(
+        () => service.subscriptionCheckout(1, { bundle_id: bundleId }),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'central_bundle_price_unavailable',
+    );
+    assert.equal(checkoutPayloads.length, 2);
     database.close();
 });
 
