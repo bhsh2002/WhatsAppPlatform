@@ -52,6 +52,9 @@ backup_archive="$data_dir/backups/${container_archive##*/}"
   printf 'Verified backup archive is not available on the host bind mount\n' >&2
   exit 3
 }
+# The application writes the archive as UID 1000 with mode 0600. The host
+# operator has a different UID but shares the backup directory's group.
+docker exec wa-savana-server chmod 0640 "$container_archive"
 actual_sha="$(sha256sum "$backup_archive" | awk '{ print $1 }')"
 [[ "$actual_sha" == "$reported_sha" ]] || {
   printf 'Verified backup archive checksum changed after creation\n' >&2
