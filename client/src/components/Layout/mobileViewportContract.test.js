@@ -17,6 +17,21 @@ test('mobile layout owns the header and dynamic viewport height calculation', ()
   assert.match(layout, /overflowY: \{ xs: 'hidden', md: 'visible' \}/);
   assert.match(layout, /pt: \{ xs: 'var\(--wa-mobile-header-height\)', md: 0 \}/);
   assert.match(layout, /height: \{ xs: 'calc\(100dvh - var\(--wa-mobile-header-height\)\)', md: 'auto' \}/);
+  assert.match(
+    layout,
+    /data-testid="app-main-shell"[\s\S]*?overflow: \{ xs: 'clip', md: 'visible' \}/,
+  );
+  assert.match(
+    layout,
+    /data-testid="app-content-scroll-root"[\s\S]*?overflowY: \{ xs: fullHeight \? 'hidden' : 'auto', md: 'visible' \}/,
+  );
+});
+
+test('active inbox routes opt into internal-only scrolling', () => {
+  const app = source('../../App.jsx');
+
+  assert.match(app, /path="\/inbox"[\s\S]*?<MainLayout fullHeight><UnifiedInbox \/><\/MainLayout>/);
+  assert.match(app, /path="\/portal\/inbox"[\s\S]*?<MainLayout fullHeight><TenantInbox \/><\/MainLayout>/);
 });
 
 test('full-height conversation pages consume their parent height on mobile', () => {

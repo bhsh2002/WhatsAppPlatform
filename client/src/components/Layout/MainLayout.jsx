@@ -12,7 +12,7 @@ const drawerWidth = 280;
 const mobileHeaderHeight = 48;
 const mobileDrawerId = 'main-mobile-navigation';
 
-const MainLayout = ({ children }) => {
+const MainLayout = ({ children, fullHeight = false }) => {
     const theme = useTheme();
     const { direction, t } = useLanguage();
     const { isTenant } = useAuth();
@@ -111,6 +111,7 @@ const MainLayout = ({ children }) => {
 
             <Box
                 component="main"
+                data-testid="app-main-shell"
                 sx={{
                     flex: 1,
                     minWidth: 0,
@@ -120,14 +121,15 @@ const MainLayout = ({ children }) => {
                     minHeight: { xs: 0, md: '100dvh' },
                     boxSizing: 'border-box',
                     position: 'relative',
-                    overflowX: 'hidden',
-                    overflowY: { xs: 'auto', md: 'visible' },
+                    overflow: { xs: 'clip', md: 'visible' },
+                    overflowX: { md: 'hidden' },
                     pt: { xs: 'var(--wa-mobile-header-height)', md: 0 },
                     background: 'linear-gradient(180deg, #f7f2e8 0%, #f3ecdf 100%)',
                 }}
             >
                 <Box
                     key={isTenant ? selectedPhoneNumberId || 'no-whatsapp-number' : 'admin'}
+                    data-testid="app-content-scroll-root"
                     sx={{
                         height: { xs: 'calc(100dvh - var(--wa-mobile-header-height))', md: 'auto' },
                         minHeight: 0,
@@ -135,6 +137,7 @@ const MainLayout = ({ children }) => {
                         maxWidth: '100%',
                         flexShrink: 0,
                         overflowX: 'hidden',
+                        overflowY: { xs: fullHeight ? 'hidden' : 'auto', md: 'visible' },
                     }}
                 >
                     {children}
