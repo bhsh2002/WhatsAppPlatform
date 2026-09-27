@@ -9,6 +9,7 @@ import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
 import WhatsAppNumberSelector from '../WhatsApp/WhatsAppNumberSelector';
 
 const drawerWidth = 280;
+const mobileHeaderHeight = 48;
 const mobileDrawerId = 'main-mobile-navigation';
 
 const MainLayout = ({ children }) => {
@@ -30,12 +31,15 @@ const MainLayout = ({ children }) => {
             dir={direction}
             style={{ direction }}
             sx={{
+                '--wa-mobile-header-height': `${mobileHeaderHeight}px`,
                 display: 'flex',
                 flexDirection: 'row',
                 minHeight: '100dvh',
+                height: { xs: '100dvh', md: 'auto' },
                 width: '100%',
                 maxWidth: '100vw',
                 overflowX: 'hidden',
+                overflowY: { xs: 'hidden', md: 'visible' },
                 bgcolor: 'background.default',
             }}
         >
@@ -50,7 +54,7 @@ const MainLayout = ({ children }) => {
                     maxWidth: '100vw',
                     overflow: 'hidden',
                 }}>
-                    <Toolbar sx={{ height: 48, minHeight: 48, py: 0, px: { xs: 1, sm: 2 }, gap: 1, minWidth: 0 }}>
+                    <Toolbar sx={{ height: 'var(--wa-mobile-header-height)', minHeight: 'var(--wa-mobile-header-height)', py: 0, px: { xs: 1, sm: 2 }, gap: 1, minWidth: 0 }}>
                         <IconButton
                             color="primary"
                             onClick={handleDrawerToggle}
@@ -112,17 +116,26 @@ const MainLayout = ({ children }) => {
                     minWidth: 0,
                     width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
                     maxWidth: { xs: '100vw', md: `calc(100vw - ${drawerWidth}px)` },
-                    minHeight: '100dvh',
+                    height: { xs: '100%', md: 'auto' },
+                    minHeight: { xs: 0, md: '100dvh' },
                     boxSizing: 'border-box',
                     position: 'relative',
                     overflowX: 'hidden',
-                    pt: { xs: '48px', md: 0 },
+                    overflowY: { xs: 'auto', md: 'visible' },
+                    pt: { xs: 'var(--wa-mobile-header-height)', md: 0 },
                     background: 'linear-gradient(180deg, #f7f2e8 0%, #f3ecdf 100%)',
                 }}
             >
                 <Box
                     key={isTenant ? selectedPhoneNumberId || 'no-whatsapp-number' : 'admin'}
-                    sx={{ minWidth: 0, maxWidth: '100%', overflowX: 'hidden' }}
+                    sx={{
+                        height: { xs: 'calc(100dvh - var(--wa-mobile-header-height))', md: 'auto' },
+                        minHeight: 0,
+                        minWidth: 0,
+                        maxWidth: '100%',
+                        flexShrink: 0,
+                        overflowX: 'hidden',
+                    }}
                 >
                     {children}
                 </Box>
