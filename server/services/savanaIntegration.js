@@ -687,19 +687,32 @@ export class SavanaIntegrationService {
                 'invalid_expected_checkout_total'
             );
         }
+        const suppliedKey = payload.idempotency_key;
+        if (suppliedKey !== undefined && (
+            typeof suppliedKey !== 'string'
+            || suppliedKey.trim().length < 8
+            || suppliedKey.trim().length > 255
+        )) {
+            throw new SavanaIntegrationError(
+                'The checkout idempotency key must contain 8 to 255 characters',
+                400,
+                'invalid_idempotency_key'
+            );
+        }
+        const retryKey = suppliedKey?.trim() || crypto.randomUUID();
+        const scopedKey = `wa-savana:tenant:${tenantId}:checkout:${crypto
+            .createHash('sha256').update(retryKey).digest('hex')}`;
         return this.requestJson(
             'subscriptions',
             'POST',
             `/v1/organizations/${encodeURIComponent(organizationId)}/checkout`,
             {
                 platform_code: 'wa_savana',
-                actor_id: String(actorId || 'tenant'),
+                actor_id: `tenant:${tenantId}:user:${String(actorId || 'tenant')}`,
                 period_days: periodDays,
                 ...(expectedTotalMinor === undefined
                     ? {} : { expected_total_minor: expectedTotalMinor }),
-                idempotency_key: String(
-                    payload.idempotency_key || `wa-savana-checkout-${crypto.randomUUID()}`
-                ),
+                idempotency_key: scopedKey,
                 ...offer,
             }
         );

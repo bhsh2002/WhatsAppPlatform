@@ -749,6 +749,69 @@ test('central plan checkout is validated locally and delegated idempotently', as
         quantity: 1,
     }]);
     assert.equal(checkoutPayload.period_days, 30);
+    assert.equal(checkoutPayload.actor_id, 'tenant:1:user:tenant-user');
+    assert.match(checkoutPayload.idempotency_key, /^wa-savana:tenant:1:checkout:[0-9a-f]{64}$/);
+    database.close();
+});
+
+test('central checkout retry keys are stable per tenant and isolated across tenants in one organization', async () => {
+    const database = createDatabase();
+    database.prepare("INSERT INTO tenants (id, name, phone, status) VALUES (2, 'Second Wa tenant', '218910000002', 'Active')").run();
+    const planId = crypto.randomUUID();
+    const priceId = crypto.randomUUID();
+    const checkoutPayloads = [];
+    const service = new SavanaIntegrationService({
+        database,
+        config: { ...config, subscriptionsMode: 'central' },
+        fetchImpl: async (url, options = {}) => {
+            const parsed = new URL(url);
+            if (parsed.pathname === '/v1/platform-bindings') {
+                const externalTenantId = parsed.searchParams.get('external_tenant_id');
+                return Response.json([{
+                    id: crypto.randomUUID(),
+                    organization_id: organizationId,
+                    platform_code: 'wa_savana',
+                    external_tenant_id: externalTenantId,
+                }]);
+            }
+            if (parsed.pathname.endsWith('/subscription-context/wa_savana')) {
+                return Response.json({ data: {
+                    managed_centrally: true,
+                    organization: { id: organizationId },
+                    platform_code: 'wa_savana',
+                    plans: [{ id: planId, prices: [{
+                        id: priceId, active: true, billing_period: 'monthly',
+                    }] }],
+                    bundles: [],
+                } });
+            }
+            if (parsed.pathname.endsWith('/checkout')) {
+                checkoutPayloads.push(JSON.parse(options.body));
+                return Response.json({ data: { invoice: { number: 'SAV-TEST' } } }, { status: 201 });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
+        },
+    });
+    const selection = {
+        plan_id: planId,
+        price_id: priceId,
+        idempotency_key: 'shared-client-retry-key',
+    };
+
+    await service.subscriptionCheckout(1, selection, 'same-user-id');
+    await service.subscriptionCheckout(1, selection, 'same-user-id');
+    await service.subscriptionCheckout(2, selection, 'same-user-id');
+    assert.equal(checkoutPayloads[0].idempotency_key, checkoutPayloads[1].idempotency_key);
+    assert.notEqual(checkoutPayloads[0].idempotency_key, checkoutPayloads[2].idempotency_key);
+    assert.ok(checkoutPayloads.every(item => item.idempotency_key.length <= 255));
+    assert.equal(checkoutPayloads[0].actor_id, 'tenant:1:user:same-user-id');
+    assert.equal(checkoutPayloads[2].actor_id, 'tenant:2:user:same-user-id');
+    await assert.rejects(
+        () => service.subscriptionCheckout(1, { ...selection, idempotency_key: 12345 }),
+        error => error instanceof SavanaIntegrationError
+            && error.code === 'invalid_idempotency_key',
+    );
+    assert.equal(checkoutPayloads.length, 3);
     database.close();
 });
 
