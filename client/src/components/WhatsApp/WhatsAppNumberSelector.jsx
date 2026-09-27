@@ -31,7 +31,9 @@ const WhatsAppNumberSelector = ({ compact = false }) => {
     width: '100%',
     minWidth: 0,
     maxWidth: compact ? '100%' : 420,
-    overflow: 'hidden'
+    mt: compact ? 0.5 : 0,
+    overflowX: 'clip',
+    overflowY: 'visible'
   }}>
     {!compact && <Box sx={{ minWidth: 0, flex: '0 1 180px', overflow: 'hidden' }}>
       <Typography variant="caption" color="text.secondary" display="block">{t('layout.activeWhatsAppNumber')}</Typography>
@@ -39,7 +41,13 @@ const WhatsAppNumberSelector = ({ compact = false }) => {
         {selectedNumber ? numberLabel(selectedNumber) : t('layout.chooseWhatsAppNumber')}
       </Typography>
     </Box>}
-    <FormControl size="small" sx={{ minWidth: 0, maxWidth: '100%', flex: 1, overflow: 'hidden' }}>
+    <FormControl size="small" sx={{
+      minWidth: 0,
+      maxWidth: '100%',
+      flex: 1,
+      overflowX: 'clip',
+      overflowY: 'visible'
+    }}>
       <InputLabel id={`${selectorId}-label`}>{t('layout.whatsAppNumber')}</InputLabel>
       <Select
         labelId={`${selectorId}-label`}
