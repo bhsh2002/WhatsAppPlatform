@@ -143,7 +143,10 @@ export function createFacebookContentPublicationsRouter({
                 ? parsePageLocalDateTime(requestedValue, settings.timezone)
                 : now;
             if (!requestedDate) throw contentError('موعد النشر غير صالح', 400, 'INVALID_DATE');
-            const scheduledFor = requestedDate.getTime() < now.getTime() ? now : requestedDate;
+            if (requestedValue && requestedDate.getTime() < now.getTime()) {
+                throw contentError('اختر موعد نشر لاحقاً للتوقيت الحالي', 400, 'SCHEDULE_IN_PAST');
+            }
+            const scheduledFor = requestedDate;
             let item = null;
             let product = null;
             if (req.body.content_item_id) {

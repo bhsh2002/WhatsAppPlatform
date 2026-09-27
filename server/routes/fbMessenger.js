@@ -18,6 +18,7 @@ import {
 } from '../services/billing.js';
 import { markBotHandoffForConversation } from '../services/messengerBot.js';
 import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
 import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
@@ -268,8 +269,9 @@ router.post('/:linkedPageId/sync', async (req, res) => {
 
         // Fetch conversations from Meta
         const fields = 'participants,updated_time,messages.limit(5){message,from,created_time,mid,attachments}';
-        const response = await fetch(
-            `${META_API_BASE}/${page.page_id}/conversations?fields=${fields}&access_token=${accessToken}`
+        const response = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${encodeURIComponent(page.page_id)}/conversations?fields=${encodeURIComponent(fields)}`,
+            accessToken
         );
         const metaResult = await readMetaResponse(response);
         const data = metaResult.data || {};

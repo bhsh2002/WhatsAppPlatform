@@ -261,6 +261,23 @@ export const translations = {
       appSettings: 'إعدادات التطبيق'
     },
     facebookConnection: {
+      popupBlocked: 'منع المتصفح نافذة ربط Facebook. اسمح بالنوافذ المنبثقة لهذا الموقع ثم أعد المحاولة.',
+      popupClosed: 'أُغلقت نافذة ربط Facebook قبل اكتمال التفويض. يمكنك إعادة المحاولة.',
+      partialSaved: 'تم حفظ بعض الصفحات. راجع الصفحات التي لم يكتمل ربطها أدناه.',
+      linkFailed: 'تعذر إكمال ربط الصفحات المحددة.',
+      missingPermissions: 'لم تُمنح كل صلاحيات Facebook المطلوبة: {permissions}. يمكن متابعة اختيار الصفحات، لكن بعض الوظائف تتطلب إعادة التفويض.',
+      expiringToken: 'رمز الوصول صالح حالياً لكنه يقترب من الانتهاء. أعد التفويض لتجنب توقف الربط.',
+      uncheckedToken: 'تعذر التحقق من صلاحية رمز الوصول. لن تُعد الخدمة جاهزة حتى يكتمل التحقق.',
+      pagesTruncated: 'عُرضت الصفحات التي أمكن التحقق منها ضمن الحد الآمن. أعد المحاولة إذا لم تجد الصفحة المطلوبة.',
+      partialTitle: 'اكتمل الربط جزئياً',
+      failedTitle: 'تعذر إكمال الربط',
+      readyCount: 'أصبحت {ready} من أصل {total} صفحة جاهزة. راجع التفاصيل التالية ثم أعد المحاولة للصفحات المتأثرة.',
+      pageFallback: 'صفحة Facebook',
+      pageNotLinked: 'لم يتم ربط الصفحة.',
+      pageTokenExpiring: 'تم حفظ الصفحة، لكن رمز الوصول يقترب من الانتهاء ويجب تجديد التفويض.',
+      pageTokenUnchecked: 'تم حفظ الصفحة، لكن صلاحية رمز الوصول لم تُتحقق بعد.',
+      webhookFailed: 'تم حفظ الصفحة، لكن تعذر تفعيل استقبال الأحداث.',
+      unavailablePages: 'لم تعد بعض الصفحات المحددة متاحة لهذا الحساب: {pages}.',
       adminDisconnectPartial: 'تم فصل الصفحة محلياً وحفظ بياناتها، لكن تعذر إلغاء اشتراك Webhook لدى Meta. راجع الاتصال من حساب Meta.',
       webhookRecorded: 'اشتراك Webhook مسجل',
       webhookNotRecorded: 'اشتراك Webhook غير مسجل',
@@ -281,6 +298,12 @@ export const translations = {
       reauthorize: 'إعادة التفويض',
       connectedAt: 'تاريخ الربط: {date}',
       disconnectPartial: 'أُوقف ربط الصفحة محلياً وحُفظت محادثاتها، لكن تعذر إلغاء الاشتراك لدى Meta. أعد ربط الصفحة أو تواصل مع الدعم لإكمال الإلغاء.'
+    },
+    facebookInsights: {
+      pagesLoadFailed: 'تعذر تحميل صفحات Facebook. تحقق من الاتصال ثم أعد المحاولة.',
+      overviewLoadFailed: 'تعذر تحميل ملخص الصفحة. أعد المحاولة.',
+      dailyLoadFailed: 'تعذر تحميل الإحصاءات اليومية. أعد المحاولة.',
+      postsLoadFailed: 'تعذر تحميل إحصاءات المنشورات. أعد المحاولة.'
     },
     pwa: {
       title: 'إعدادات التطبيق',
@@ -1184,6 +1207,7 @@ export const translations = {
       publishNow: 'نشر الآن',
       cancelPublication: 'إلغاء',
       scheduledFor: 'موعد النشر',
+      scheduleInFuture: 'اختر موعد نشر لاحقاً للتوقيت الحالي.',
       messageOverride: 'تعديل النص لهذه العملية فقط',
       messageOverrideHint: 'اتركه فارغاً لاستخدام النص المحفوظ في المكتبة أو المنتج.',
       source: 'مصدر المحتوى',
@@ -3023,6 +3047,23 @@ export const translations = {
       appSettings: 'App settings'
     },
     facebookConnection: {
+      popupBlocked: 'Your browser blocked the Facebook connection window. Allow pop-ups for this site and try again.',
+      popupClosed: 'The Facebook connection window closed before authorization was complete. You can try again.',
+      partialSaved: 'Some pages were saved. Review the pages that need attention below.',
+      linkFailed: 'The selected pages could not be connected.',
+      missingPermissions: 'Not all required Facebook permissions were granted: {permissions}. You can select pages, but some features require reconnecting.',
+      expiringToken: 'The access token is valid but will expire soon. Reconnect to avoid an interruption.',
+      uncheckedToken: 'The access token could not be verified. This connection will not be ready until verification succeeds.',
+      pagesTruncated: 'Only pages verified within the safe limit are shown. Try again if the page you need is missing.',
+      partialTitle: 'Connection partially complete',
+      failedTitle: 'Connection could not be completed',
+      readyCount: '{ready} of {total} pages are ready. Review the details below and retry the affected pages.',
+      pageFallback: 'Facebook page',
+      pageNotLinked: 'The page was not connected.',
+      pageTokenExpiring: 'The page was saved, but its access token will expire soon. Reconnect Facebook.',
+      pageTokenUnchecked: 'The page was saved, but its access token has not been verified.',
+      webhookFailed: 'The page was saved, but event delivery could not be enabled.',
+      unavailablePages: 'These selected pages are no longer available to this account: {pages}.',
       adminDisconnectPartial: 'The page was disconnected locally and its data preserved, but Meta did not confirm webhook unsubscription. Check the connection in Meta.',
       webhookRecorded: 'Webhook recorded',
       webhookNotRecorded: 'Webhook not recorded',
@@ -3043,6 +3084,12 @@ export const translations = {
       reauthorize: 'Reconnect Facebook',
       connectedAt: 'Connected: {date}',
       disconnectPartial: 'The page was disconnected locally and its conversations were preserved, but Meta did not confirm the unsubscribe. Reconnect the page or contact support to finish it.'
+    },
+    facebookInsights: {
+      pagesLoadFailed: 'Facebook pages could not be loaded. Check your connection and try again.',
+      overviewLoadFailed: 'The page overview could not be loaded. Try again.',
+      dailyLoadFailed: 'Daily insights could not be loaded. Try again.',
+      postsLoadFailed: 'Post insights could not be loaded. Try again.'
     },
     pwa: {
       title: 'App settings',
@@ -3946,6 +3993,7 @@ export const translations = {
       publishNow: 'Publish now',
       cancelPublication: 'Cancel',
       scheduledFor: 'Publish time',
+      scheduleInFuture: 'Choose a publishing time later than the current time.',
       messageOverride: 'Change the text for this publication only',
       messageOverrideHint: 'Leave blank to use the saved library or product text.',
       source: 'Content source',

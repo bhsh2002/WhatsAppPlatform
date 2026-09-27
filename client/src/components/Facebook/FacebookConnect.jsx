@@ -1,9 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Box, Paper, Typography, Button, CircularProgress, Alert, Stepper, Step, StepLabel, Checkbox, FormControlLabel, Avatar, List, ListItem, ListItemAvatar, ListItemText, ListItemSecondaryAction, Snackbar, Divider } from '@mui/material';
 import { Facebook as FacebookIcon, Link as LinkIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
 const getSteps = () => [tx("auto.k_8c6117b67c8b"), tx("auto.k_5c9ce184e9eb"), tx("auto.k_af9a0b2ae503")];
+const clearPopupWatch = (popupRef, pollRef, closePopup = false) => {
+  if (pollRef.current) window.clearInterval(pollRef.current);
+  pollRef.current = null;
+  if (closePopup && popupRef.current && !popupRef.current.closed) popupRef.current.close();
+  popupRef.current = null;
+};
 const FacebookConnect = ({
   onComplete
 }) => {
@@ -18,6 +24,9 @@ const FacebookConnect = ({
   const [linkState, setLinkState] = useState('');
   const [connectSummary, setConnectSummary] = useState(null);
   const [linkResult, setLinkResult] = useState(null);
+  const [waitingForOAuth, setWaitingForOAuth] = useState(false);
+  const popupRef = useRef(null);
+  const popupPollRef = useRef(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -32,6 +41,8 @@ const FacebookConnect = ({
     const handleMessage = event => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'FB_OAUTH_CALLBACK') {
+        clearPopupWatch(popupRef, popupPollRef);
+        setWaitingForOAuth(false);
         const {
           code: fbCode,
           state: fbState
@@ -40,21 +51,53 @@ const FacebookConnect = ({
         setOauthState(fbState);
         handleConnect(fbCode, fbState);
       } else if (event.data?.type === 'FB_OAUTH_ERROR') {
+        clearPopupWatch(popupRef, popupPollRef);
+        setWaitingForOAuth(false);
+        setActiveStep(0);
         setError(event.data.error_description || event.data.error || tx("auto.k_a95d4366b1ac"));
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearPopupWatch(popupRef, popupPollRef);
+    };
   }, []);
   const handleStartAuth = async () => {
+    // Open in the click handler, before the auth URL request, so popup blockers allow it.
+    let popup;
+    try {
+      popup = window.open('', '_blank', 'width=600,height=700');
+    } catch {
+      popup = null;
+    }
+    if (!popup) {
+      setError(tx('facebookConnection.popupBlocked'));
+      return;
+    }
+    popupRef.current = popup;
     try {
       setLoading(true);
       setError('');
       const data = await api.getFacebookAuthUrl();
+      if (popup.closed) {
+        clearPopupWatch(popupRef, popupPollRef);
+        setError(tx('facebookConnection.popupClosed'));
+        return;
+      }
       setOauthState(data.state);
-      window.open(data.url, '_blank', 'width=600,height=700');
+      popup.location.href = data.url;
+      setWaitingForOAuth(true);
       setActiveStep(1);
+      popupPollRef.current = window.setInterval(() => {
+        if (!popup.closed) return;
+        clearPopupWatch(popupRef, popupPollRef);
+        setWaitingForOAuth(false);
+        setActiveStep(0);
+        setError(tx('facebookConnection.popupClosed'));
+      }, 500);
     } catch (err) {
+      clearPopupWatch(popupRef, popupPollRef, true);
       setError(err.message || tx("auto.k_dca9f4d201f6"));
     } finally {
       setLoading(false);
@@ -62,6 +105,7 @@ const FacebookConnect = ({
   };
   const handleConnect = async (fbCode, fbState) => {
     try {
+      setWaitingForOAuth(false);
       setLoading(true);
       setError('');
       setActiveStep(1);
@@ -78,6 +122,7 @@ const FacebookConnect = ({
         setActiveStep(2);
       } else {
         setError(tx("auto.k_97e20304a7f6"));
+        setActiveStep(0);
       }
     } catch (err) {
       setError(err.message || tx("auto.k_263517a5acf7"));
@@ -99,7 +144,7 @@ const FacebookConnect = ({
       setActiveStep(3);
       setSnackbar({
         open: true,
-        message: result.success ? tx("auto.k_c13056d1a78e") : result.partial_success ? 'تم حفظ بعض الصفحات، وتحتاج بقية خطوات الربط إلى مراجعة.' : 'تعذر إكمال ربط الصفحات المحددة.',
+        message: result.success ? tx("auto.k_c13056d1a78e") : result.partial_success ? tx('facebookConnection.partialSaved') : tx('facebookConnection.linkFailed'),
         severity: result.success ? 'success' : result.partial_success ? 'warning' : 'error'
       });
     } catch (err) {
@@ -117,6 +162,11 @@ const FacebookConnect = ({
       return;
     }
     handleConnect(code, oauthState);
+  };
+  const handleCancelOAuth = () => {
+    clearPopupWatch(popupRef, popupPollRef, true);
+    setWaitingForOAuth(false);
+    setActiveStep(0);
   };
   if (!available) {
     return <Paper sx={{
@@ -209,6 +259,7 @@ const FacebookConnect = ({
         mb: 2
       }} />
                     <Typography>{tx("auto.k_243dd8e4366e")}</Typography>
+                    {waitingForOAuth && <Button sx={{ mt: 2 }} onClick={handleCancelOAuth}>{tx('common.cancel')}</Button>}
                 </Box>}
 
             {activeStep === 2 && <Box>
@@ -216,22 +267,22 @@ const FacebookConnect = ({
                     {connectSummary?.missingScopes?.length > 0 && <Alert severity="warning" sx={{
         mb: 2
       }}>
-                        لم يمنح حساب Facebook كل الصلاحيات المطلوبة. الصلاحيات الناقصة: {connectSummary.missingScopes.join('، ')}. يمكنك متابعة اختيار الصفحات، لكن بعض الوظائف لن تعمل قبل إعادة التفويض.
+                        {tx('facebookConnection.missingPermissions', { permissions: connectSummary.missingScopes.join('، ') })}
                     </Alert>}
                     {connectSummary?.tokenStatus === 'expiring' && <Alert severity="warning" sx={{
         mb: 2
       }}>
-                        رمز الوصول صالح حالياً لكنه يقترب من الانتهاء. أعد التفويض قريباً لتجنب توقف الربط.
+                        {tx('facebookConnection.expiringToken')}
                     </Alert>}
                     {!['valid', 'expiring'].includes(connectSummary?.tokenStatus) && <Alert severity="warning" sx={{
         mb: 2
       }}>
-                        لم نتمكن من التحقق من صلاحية رمز الوصول. لن تُعد الخدمة جاهزة حتى يكتمل التحقق.
+                        {tx('facebookConnection.uncheckedToken')}
                     </Alert>}
                     {connectSummary?.pagesTruncated && <Alert severity="warning" sx={{
         mb: 2
       }}>
-                        لدى الحساب عدد كبير من الصفحات، لذلك عُرضت الصفحات التي أمكن التحقق منها ضمن الحد الآمن. أعد المحاولة إذا لم تجد الصفحة المطلوبة.
+                        {tx('facebookConnection.pagesTruncated')}
                     </Alert>}
                     <List>
                         {pages.map(page => <ListItem key={page.id} dense button onClick={() => togglePage(page.id)}>
@@ -280,7 +331,7 @@ const FacebookConnect = ({
         mb: 2
       }} />}
                     <Typography variant="h6" gutterBottom>
-                        {linkResult?.success ? tx("auto.k_1d13848b5c89") : linkResult?.partial_success ? 'اكتمل الربط جزئياً' : 'تعذر إكمال الربط'}
+                        {linkResult?.success ? tx("auto.k_1d13848b5c89") : linkResult?.partial_success ? tx('facebookConnection.partialTitle') : tx('facebookConnection.failedTitle')}
                     </Typography>
                     {linkResult?.success ? <Typography color="text.secondary">{tx("auto.k_3971687e7824")}
           {selectedPages.length}{tx("auto.k_61e00284d031")}
@@ -292,23 +343,23 @@ const FacebookConnect = ({
                         <Alert severity={linkResult?.partial_success ? 'warning' : 'error'} sx={{
           mb: 2
         }}>
-                            أصبحت {linkResult?.ready_count || 0} من أصل {selectedPages.length} صفحة جاهزة بالكامل. راجع التفاصيل التالية ثم أعد المحاولة للصفحات المتأثرة.
+                            {tx('facebookConnection.readyCount', { ready: linkResult?.ready_count || 0, total: selectedPages.length })}
                         </Alert>
                         {(linkResult?.linked || []).filter(page => !page.page_ready).map(page => <Alert key={page.id || page.name} severity="warning" sx={{
           mb: 1
         }}>
-                            <strong>{page.name || page.id || 'صفحة Facebook'}:</strong>{' '}
+                            <strong>{page.name || page.id || tx('facebookConnection.pageFallback')}:</strong>{' '}
                             {!page.page_linked
-                              ? 'لم يتم ربط الصفحة.'
+                              ? tx('facebookConnection.pageNotLinked')
                               : !['valid'].includes(page.token_status)
                                 ? page.token_status === 'expiring'
-                                  ? 'تم حفظ الصفحة، لكن رمز الوصول يقترب من الانتهاء ويجب تجديد التفويض.'
-                                  : 'تم حفظ الصفحة، لكن صلاحية رمز الوصول لم تُتحقق بعد.'
-                                : 'تم حفظ الصفحة، لكن تعذر تفعيل استقبال الأحداث.'}
+                                  ? tx('facebookConnection.pageTokenExpiring')
+                                  : tx('facebookConnection.pageTokenUnchecked')
+                                : tx('facebookConnection.webhookFailed')}
                             {page.webhook_error ? ` ${page.webhook_error}` : ''}
                         </Alert>)}
                         {(linkResult?.unavailable_page_ids || []).length > 0 && <Alert severity="warning">
-                            لم تعد بعض الصفحات المحددة متاحة لهذا الحساب: {linkResult.unavailable_page_ids.join('، ')}.
+                            {tx('facebookConnection.unavailablePages', { pages: linkResult.unavailable_page_ids.join('، ') })}
                         </Alert>}
                     </Box>}
                     <Button sx={{

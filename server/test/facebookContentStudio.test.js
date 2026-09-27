@@ -827,7 +827,10 @@ test('campaign and publication APIs preserve approval, page and tenant boundarie
         ) VALUES (1, 11, '00:00', '23:59', 0)
     `).run();
     const campaigns = createFacebookContentCampaignsRouter({ database });
-    const publications = createFacebookContentPublicationsRouter({ database });
+    const publications = createFacebookContentPublicationsRouter({
+        database,
+        clock: () => new Date('2026-07-20T07:00:00.000Z'),
+    });
 
     const createdCampaign = await invoke(campaigns, 'post', '/campaigns', {
         body: {
@@ -1149,6 +1152,17 @@ test('publication API uses the page timezone and scopes summary to every active 
         database,
         clock: () => new Date('2026-07-16T07:00:00.000Z'),
     });
+    const past = await invoke(router, 'post', '/publications', {
+        body: {
+            linked_page_id: 11,
+            content_item_id: 501,
+            scheduled_for_local: '2026-07-16T08:00',
+        },
+    });
+    assert.equal(past.statusCode, 400);
+    assert.equal(past.body.code, 'SCHEDULE_IN_PAST');
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM facebook_content_publications WHERE tenant_id = 1 AND linked_page_id = 11').get().count, 0);
+
     const created = await invoke(router, 'post', '/publications', {
         body: {
             linked_page_id: 11,

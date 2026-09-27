@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     Box,
@@ -219,6 +219,8 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
     const [saving, setSaving] = useState(false);
     const [items, setItems] = useState([]);
     const [products, setProducts] = useState([]);
+    const [scheduleTimeZone, setScheduleTimeZone] = useState('Africa/Tripoli');
+    const sourcesRequestId = useRef(0);
     const [form, setForm] = useState({
         linked_page_id: selectedPageId || '',
         source_type: 'item',
@@ -255,9 +257,40 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
         return [...groups.entries()];
     }, [data.publications]);
 
+    const loadScheduleSources = async (pageId, { includeProducts = false } = {}) => {
+        const requestId = ++sourcesRequestId.current;
+        try {
+            setSourcesLoading(true);
+            const [itemResult, productResult, settingsResult] = await Promise.all([
+                api.getPortalContentStudioItems({ status: 'approved', linked_page_id: pageId, limit: 100 }),
+                includeProducts ? api.getPortalContentStudioProducts({ limit: 100 }) : Promise.resolve(null),
+                api.getPortalContentStudioSettings(pageId),
+            ]);
+            if (requestId !== sourcesRequestId.current) return;
+            setItems(itemResult.items || []);
+            if (includeProducts) setProducts(productResult.products || []);
+            const timeZone = settingsResult?.settings?.timezone || 'Africa/Tripoli';
+            setScheduleTimeZone(timeZone);
+            setForm(current => ({
+                ...current,
+                scheduled_for: current.linked_page_id === pageId
+                    ? toZonedDateTimeInput(undefined, timeZone)
+                    : current.scheduled_for,
+            }));
+        } catch (requestError) {
+            if (requestId === sourcesRequestId.current) {
+                notify(requestError.message || t('contentStudio.messages.sourcesLoadFailed'), 'error');
+            }
+        } finally {
+            if (requestId === sourcesRequestId.current) setSourcesLoading(false);
+        }
+    };
+
     const openSchedule = async () => {
         const defaultPageId = selectedPageId || pages[0]?.id || '';
         setDialogOpen(true);
+        setItems([]);
+        setProducts([]);
         setForm({
             linked_page_id: defaultPageId,
             source_type: 'item',
@@ -265,50 +298,24 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
             scheduled_for: toLocalDateTimeInput(),
             message_override: '',
         });
-        try {
-            setSourcesLoading(true);
-            const [itemResult, productResult, settingsResult] = await Promise.all([
-                api.getPortalContentStudioItems({ status: 'approved', limit: 100 }),
-                api.getPortalContentStudioProducts({ limit: 100 }),
-                defaultPageId
-                    ? api.getPortalContentStudioSettings(defaultPageId)
-                    : Promise.resolve(null),
-            ]);
-            setItems(itemResult.items || []);
-            setProducts(productResult.products || []);
-            setForm(current => ({
-                ...current,
-                scheduled_for: toZonedDateTimeInput(
-                    undefined,
-                    settingsResult?.settings?.timezone,
-                ),
-            }));
-        } catch (requestError) {
-            notify(requestError.message || t('contentStudio.messages.sourcesLoadFailed'), 'error');
-        } finally {
-            setSourcesLoading(false);
-        }
+        await loadScheduleSources(defaultPageId, { includeProducts: true });
     };
 
     const changeSchedulePage = async value => {
-        setForm(current => ({ ...current, linked_page_id: value }));
-        try {
-            const result = await api.getPortalContentStudioSettings(value);
-            setForm(current => (
-                current.linked_page_id === value
-                    ? {
-                        ...current,
-                        scheduled_for: toZonedDateTimeInput(undefined, result?.settings?.timezone),
-                    }
-                    : current
-            ));
-        } catch {
-            // Scheduling validation on the server remains authoritative.
-        }
+        setForm(current => ({ ...current, linked_page_id: value, source_id: '' }));
+        setItems([]);
+        await loadScheduleSources(value);
     };
+
+    const scheduleInPast = Boolean(form.scheduled_for
+        && form.scheduled_for <= toZonedDateTimeInput(new Date(), scheduleTimeZone));
 
     const schedule = async () => {
         if (!form.linked_page_id || !form.source_id || !form.scheduled_for) return;
+        if (form.scheduled_for <= toZonedDateTimeInput(new Date(), scheduleTimeZone)) {
+            notify(t('contentStudio.scheduleInFuture'), 'warning');
+            return;
+        }
         try {
             setSaving(true);
             await api.schedulePortalContentStudioPublication({
@@ -467,7 +474,14 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                                 label={t('contentStudio.scheduledFor')}
                                 value={form.scheduled_for}
                                 onChange={event => setForm(current => ({ ...current, scheduled_for: event.target.value }))}
-                                slotProps={{ inputLabel: { shrink: true } }}
+                                error={scheduleInPast}
+                                helperText={scheduleInPast
+                                    ? t('contentStudio.scheduleInFuture')
+                                    : `${t('contentStudio.timezone')}: ${scheduleTimeZone}`}
+                                slotProps={{
+                                    inputLabel: { shrink: true },
+                                    htmlInput: { min: toZonedDateTimeInput(new Date(), scheduleTimeZone) },
+                                }}
                             />
                             <TextField
                                 fullWidth
@@ -483,7 +497,7 @@ function CalendarPanel({ pages, selectedPageId, locale, notify, t, refreshToken 
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setDialogOpen(false)} disabled={saving}>{t('common.cancel')}</Button>
-                    <Button variant="contained" onClick={schedule} disabled={saving || sourcesLoading || !form.linked_page_id || !form.source_id || !form.scheduled_for}>
+                    <Button variant="contained" onClick={schedule} disabled={saving || sourcesLoading || scheduleInPast || !form.linked_page_id || !form.source_id || !form.scheduled_for}>
                         {saving ? <CircularProgress size={20} /> : t('contentStudio.confirmSchedule')}
                     </Button>
                 </DialogActions>
