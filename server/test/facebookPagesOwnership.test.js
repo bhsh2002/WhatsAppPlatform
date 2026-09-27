@@ -175,6 +175,11 @@ test('admin disconnect preserves Messenger and Content Studio records and reacti
     assert.equal(reactivated.body.page_name, 'Updated name');
     assert.equal(reactivated.body.is_active, 1);
     assert.equal(reactivated.body._webhook_subscribed, true);
+    assert.ok(calls.every(call => !call.url.includes('access_token=')));
+    const verifyCall = calls.find(call => call.url.includes('/page-with-history?fields='));
+    assert.equal(verifyCall?.init.headers.Authorization, 'Bearer new-page-token');
+    const subscribeCall = calls.find(call => call.url.endsWith('/page-with-history/subscribed_apps') && call.init.method === 'POST');
+    assert.equal(new URLSearchParams(subscribeCall.init.body).get('access_token'), 'new-page-token');
     assert.equal(
         decrypt(db.prepare('SELECT page_access_token_encrypted FROM tenant_pages WHERE id = 903').get().page_access_token_encrypted),
         'new-page-token'
@@ -230,4 +235,44 @@ test('admin disconnect reports partial success if Meta rejects unsubscribe, whil
         decrypt(db.prepare('SELECT page_access_token_encrypted FROM tenant_pages WHERE id = 904').get().page_access_token_encrypted),
         'new-token-904'
     );
+});
+
+test('admin page verification and subscription requests keep page tokens out of URLs', async (t) => {
+    db.exec(`
+        INSERT INTO tenants (id, name) VALUES (905, 'Token transport test');
+        INSERT INTO tenant_pages (id, tenant_id, page_id, page_name, is_active, subscribed_fields)
+        VALUES (905, 905, 'page/transport', 'Transport page', 1, '["feed","messages"]');
+    `);
+    db.prepare('UPDATE tenant_pages SET page_access_token_encrypted = ? WHERE id = 905')
+        .run(encrypt('transport-page-token'));
+
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init = {}) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify(
+            String(url).includes('/subscribed_apps')
+                ? (init.method === 'POST' ? { success: true } : { data: [] })
+                : { id: 'page/transport', name: 'Transport page' }
+        ), { status: 200 });
+    };
+    t.after(() => { globalThis.fetch = originalFetch; });
+
+    const verified = await invokeRoute('post', '/:id/verify', { params: { id: '905' } });
+    const subscribed = await invokeRoute('post', '/:id/subscribe', { params: { id: '905' } });
+    const status = await invokeRoute('get', '/:id/subscription-status', { params: { id: '905' } });
+
+    assert.equal(verified.body.valid, true);
+    assert.equal(subscribed.body.success, true);
+    assert.equal(status.body.page_id, 'page/transport');
+    assert.equal(calls.length, 3);
+    for (const call of calls) {
+        assert.doesNotMatch(call.url, /access_token=|transport-page-token/);
+        assert.match(call.url, /page%2Ftransport/);
+        if (call.init.method === 'POST') {
+            assert.equal(new URLSearchParams(call.init.body).get('access_token'), 'transport-page-token');
+        } else {
+            assert.equal(call.init.headers.Authorization, 'Bearer transport-page-token');
+        }
+    }
 });

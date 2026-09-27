@@ -18,6 +18,7 @@ import {
 } from '../security/webhookSignature.js';
 import { safeOutboundFetch } from '../security/outboundUrl.js';
 import { readMetaResponse } from '../services/metaHttp.js';
+import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
 import { hasWhatsAppNumbersTable } from '../services/whatsappNumbers.js';
 import { metaWebhookNotificationSource } from '../services/metaWebhookNotifications.js';
 
@@ -308,8 +309,9 @@ const refreshMessengerProfile = ({
 }) => {
     if (!conversationId || !senderId || !pageToken) return;
 
-    void fetch(
-        `${META_API_BASE}/${encodeURIComponent(senderId)}?fields=name,profile_pic&access_token=${encodeURIComponent(pageToken)}`
+    void fetchMetaWithAccessToken(
+        `${META_API_BASE}/${encodeURIComponent(senderId)}?fields=name,profile_pic`,
+        pageToken
     )
         .then(readMetaResponse)
         .then(result => {

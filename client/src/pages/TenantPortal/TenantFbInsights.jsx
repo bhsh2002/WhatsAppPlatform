@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Typography, Paper, Grid, Card, CardContent, CircularProgress, Alert, Snackbar, FormControl, InputLabel, MenuItem, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
 import Select from '../../components/Form/AccessibleSelect';
 import { BarChart as BarChartIcon, Visibility as ViewsIcon, ThumbUp as ReactionsIcon, ChatBubble as CommentsIcon, People as FollowersIcon, Refresh as RefreshIcon, Share as ShareIcon } from '@mui/icons-material';
@@ -10,6 +10,7 @@ const TenantFbInsights = () => {
   const [pages, setPages] = useState([]);
   const [selectedPageId, setSelectedPageId] = useState('');
   const [pagesLoading, setPagesLoading] = useState(true);
+  const [pagesError, setPagesError] = useState('');
   const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewWarning, setOverviewWarning] = useState('');
@@ -25,6 +26,9 @@ const TenantFbInsights = () => {
   const [posts, setPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsWarning, setPostsWarning] = useState('');
+  const overviewRequest = useRef(0);
+  const dailyRequest = useRef(0);
+  const postsRequest = useRef(0);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -33,11 +37,22 @@ const TenantFbInsights = () => {
   const loadPages = useCallback(async () => {
     try {
       setPagesLoading(true);
+      setPagesError('');
       const data = await api.getPortalPages();
-      setPages(Array.isArray(data) ? data : []);
-      setSelectedPageId(prev => prev || (data.length > 0 ? data[0].id : ''));
+      const availablePages = Array.isArray(data) ? data : [];
+      setPages(availablePages);
+      setSelectedPageId(prev => availablePages.some(page => page.id === prev) ? prev : availablePages[0]?.id || '');
     } catch (err) {
       console.error('Failed to load pages:', err);
+      overviewRequest.current += 1;
+      dailyRequest.current += 1;
+      postsRequest.current += 1;
+      setPages([]);
+      setSelectedPageId('');
+      setOverview(null);
+      setDaily([]);
+      setPosts([]);
+      setPagesError(tx('facebookInsights.pagesLoadFailed'));
     } finally {
       setPagesLoading(false);
     }
@@ -46,76 +61,113 @@ const TenantFbInsights = () => {
     loadPages();
   }, [loadPages]);
   const loadOverview = useCallback(async () => {
-    if (!selectedPageId) return;
+    const requestId = ++overviewRequest.current;
+    setOverview(null);
+    setOverviewWarning('');
+    if (!selectedPageId) {
+      setOverviewLoading(false);
+      return;
+    }
     try {
       setOverviewLoading(true);
       const data = await api.getPortalFbOverview(selectedPageId);
+      if (requestId !== overviewRequest.current) return;
       setOverview(data);
       setOverviewWarning(data.insights_error || '');
     } catch (err) {
-      setOverviewWarning('');
+      if (requestId !== overviewRequest.current) return;
+      setOverviewWarning(tx('facebookInsights.overviewLoadFailed'));
       setSnackbar({
         open: true,
         message: err.message || tx("auto.k_89aa354d481e"),
         severity: 'error'
       });
     } finally {
-      setOverviewLoading(false);
+      if (requestId === overviewRequest.current) setOverviewLoading(false);
     }
   }, [selectedPageId]);
   const loadDaily = useCallback(async () => {
-    if (!selectedPageId) return;
+    const requestId = ++dailyRequest.current;
+    setDaily([]);
+    setDailyWarning('');
+    if (!selectedPageId) {
+      setDailyLoading(false);
+      return;
+    }
     try {
       setDailyLoading(true);
       const data = await api.getPortalFbDaily(selectedPageId, {
         since,
         until
       });
+      if (requestId !== dailyRequest.current) return;
       setDaily(data.daily || []);
       setDailyWarning(data.insights_error || '');
     } catch (err) {
-      setDailyWarning('');
+      if (requestId !== dailyRequest.current) return;
+      setDailyWarning(tx('facebookInsights.dailyLoadFailed'));
       setSnackbar({
         open: true,
         message: err.message || tx("auto.k_f2b84148b823"),
         severity: 'error'
       });
     } finally {
-      setDailyLoading(false);
+      if (requestId === dailyRequest.current) setDailyLoading(false);
     }
   }, [selectedPageId, since, until]);
   const loadPosts = useCallback(async () => {
-    if (!selectedPageId) return;
+    const requestId = ++postsRequest.current;
+    setPosts([]);
+    setPostsWarning('');
+    if (!selectedPageId) {
+      setPostsLoading(false);
+      return;
+    }
     try {
       setPostsLoading(true);
       const data = await api.getPortalFbPostInsights(selectedPageId, {
         limit: 10
       });
+      if (requestId !== postsRequest.current) return;
       setPosts(data.posts || []);
       const failedCount = (data.posts || []).filter(post => post.insights_error).length;
       setPostsWarning(failedCount ? tx("auto.k_4feebc41ff55", {
         value1: failedCount
       }) : '');
     } catch (err) {
-      setPostsWarning('');
+      if (requestId !== postsRequest.current) return;
+      setPostsWarning(tx('facebookInsights.postsLoadFailed'));
       setSnackbar({
         open: true,
         message: err.message || tx("auto.k_9b52ef1426d6"),
         severity: 'error'
       });
     } finally {
-      setPostsLoading(false);
+      if (requestId === postsRequest.current) setPostsLoading(false);
     }
   }, [selectedPageId]);
   useEffect(() => {
-    if (selectedPageId) loadOverview();
-  }, [selectedPageId, loadOverview]);
+    loadOverview();
+  }, [loadOverview]);
   useEffect(() => {
-    if (selectedPageId) loadDaily();
-  }, [selectedPageId, loadDaily]);
+    loadDaily();
+  }, [loadDaily]);
   useEffect(() => {
-    if (selectedPageId) loadPosts();
-  }, [selectedPageId, loadPosts]);
+    loadPosts();
+  }, [loadPosts]);
+  const handlePageChange = pageId => {
+    // Clear the previous page's values before the new requests begin.
+    overviewRequest.current += 1;
+    dailyRequest.current += 1;
+    postsRequest.current += 1;
+    setOverview(null);
+    setDaily([]);
+    setPosts([]);
+    setOverviewWarning('');
+    setDailyWarning('');
+    setPostsWarning('');
+    setSelectedPageId(pageId);
+  };
   const refreshAll = () => {
     if (selectedPageId) {
       loadOverview();
@@ -213,7 +265,7 @@ const TenantFbInsights = () => {
           minWidth: 250
         }}>
                         <InputLabel>{tx("auto.k_338c505c00b5")}</InputLabel>
-                        <Select value={selectedPageId} onChange={e => setSelectedPageId(e.target.value)} label={tx("auto.k_338c505c00b5")}>
+                        <Select value={selectedPageId} onChange={e => handlePageChange(e.target.value)} label={tx("auto.k_338c505c00b5")}>
                             {pages.length === 0 ? <MenuItem value="" disabled>{tx("auto.k_43a46f260ab6")}</MenuItem> : pages.map(page => <MenuItem key={page.id} value={page.id}>
                                         {page.page_name || page.page_id}
                                     </MenuItem>)}
@@ -224,6 +276,8 @@ const TenantFbInsights = () => {
           </Button>
                 </Box>
             </Box>
+
+            {pagesError && <Alert severity="error" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={loadPages}>{tx('common.retry')}</Button>}>{pagesError}</Alert>}
 
             {selectedPageId && <>
                     {overviewWarning && <Alert severity="warning" sx={{
@@ -406,7 +460,7 @@ const TenantFbInsights = () => {
                     </Paper>
                 </>}
 
-            {!selectedPageId && pages.length === 0 && <Paper sx={{
+            {!selectedPageId && pages.length === 0 && !pagesError && <Paper sx={{
       p: 6,
       textAlign: 'center'
     }}>

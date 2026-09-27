@@ -13,6 +13,7 @@ import {
     parseStoredArray,
 } from '../services/metaReadiness.js';
 import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
 import { parseListPagination } from '../services/pagination.js';
 
 const router = express.Router();
@@ -192,8 +193,9 @@ router.post('/tenant/:tenantId', async (req, res) => {
 
         // Verify the page token by fetching page info from Meta
         const fields = 'name,category,picture.width(100).height(100)';
-        const verifyResponse = await fetch(
-            `${META_API_BASE}/${page_id}?fields=${fields}&access_token=${page_access_token}`
+        const verifyResponse = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${encodeURIComponent(page_id)}?fields=${fields}`,
+            page_access_token
         );
         const verifyResult = await readMetaResponse(verifyResponse);
         const verifyData = verifyResult.data || {};
@@ -264,8 +266,9 @@ router.post('/tenant/:tenantId', async (req, res) => {
         if (META_APP_ID && META_APP_SECRET) {
             try {
                 const appAccessToken = `${META_APP_ID}|${META_APP_SECRET}`;
-                const debugResponse = await fetch(
-                    `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(page_access_token)}&access_token=${encodeURIComponent(appAccessToken)}`
+                const debugResponse = await fetchMetaWithAccessToken(
+                    `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(page_access_token)}`,
+                    appAccessToken
                 );
                 const debugResult = await readMetaResponse(debugResponse);
                 if (debugResult.ok) {
@@ -298,7 +301,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
             const subscribedFields = parseStoredFields(newPage.subscribed_fields || JSON.stringify(FACEBOOK_WEBHOOK_FIELDS));
             const fieldsString = subscribedFields.length ? subscribedFields.join(',') : FACEBOOK_WEBHOOK_FIELDS.join(',');
             const subscribeResponse = await fetch(
-                `${META_API_BASE}/${page_id}/subscribed_apps`,
+                `${META_API_BASE}/${encodeURIComponent(page_id)}/subscribed_apps`,
                 {
                     method: 'POST',
                     headers: {
@@ -518,8 +521,9 @@ router.post('/:id/verify', async (req, res) => {
         }
 
         const fields = 'name,category,picture.width(100).height(100)';
-        const response = await fetch(
-            `${META_API_BASE}/${existing.page_id}?fields=${fields}&access_token=${accessToken}`
+        const response = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${encodeURIComponent(existing.page_id)}?fields=${fields}`,
+            accessToken
         );
         const metaResult = await readMetaResponse(response);
         const data = metaResult.data || {};
@@ -589,7 +593,7 @@ router.post('/:id/subscribe', async (req, res) => {
         const fieldsString = subscribedFields.length ? subscribedFields.join(',') : FACEBOOK_WEBHOOK_FIELDS.join(',');
 
         const response = await fetch(
-            `${META_API_BASE}/${existing.page_id}/subscribed_apps`,
+            `${META_API_BASE}/${encodeURIComponent(existing.page_id)}/subscribed_apps`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -634,8 +638,9 @@ router.get('/:id/subscription-status', async (req, res) => {
             return res.status(400).json({ error: 'رمز الوصول غير متوفر' });
         }
 
-        const response = await fetch(
-            `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${accessToken}`
+        const response = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${encodeURIComponent(page.page_id)}/subscribed_apps`,
+            accessToken
         );
         const metaResult = await readMetaResponse(response);
         const data = metaResult.data || {};
@@ -679,7 +684,10 @@ router.get('/webhook-diagnostic', async (req, res) => {
         };
 
         // 1. Check app-level subscriptions
-        const subsRes = await fetch(`${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`);
+        const subsRes = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${encodeURIComponent(appId)}/subscriptions`,
+            appAccessToken
+        );
         const subscriptionsResult = await readMetaResponse(subsRes);
         results.app_subscriptions = subscriptionsResult.ok
             ? subscriptionsResult.data
@@ -715,8 +723,9 @@ router.get('/webhook-diagnostic', async (req, res) => {
 
             if (pageToken) {
                 // Check page-level subscription
-                const pageSubRes = await fetch(
-                    `${META_API_BASE}/${page.page_id}/subscribed_apps?access_token=${pageToken}`
+                const pageSubRes = await fetchMetaWithAccessToken(
+                    `${META_API_BASE}/${encodeURIComponent(page.page_id)}/subscribed_apps`,
+                    pageToken
                 );
                 const pageSubscriptionResult = await readMetaResponse(pageSubRes);
                 pageInfo.page_subscription = pageSubscriptionResult.ok
@@ -725,8 +734,9 @@ router.get('/webhook-diagnostic', async (req, res) => {
                 pageInfo.page_subscription_summary = summarizePageSubscription(pageInfo.page_subscription);
 
                 // Check token permissions
-                const debugRes = await fetch(
-                    `${META_API_BASE}/debug_token?input_token=${pageToken}&access_token=${appAccessToken}`
+                const debugRes = await fetchMetaWithAccessToken(
+                    `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(pageToken)}`,
+                    appAccessToken
                 );
                 const debugResult = await readMetaResponse(debugRes);
                 const debugData = debugResult.ok ? (debugResult.data?.data || {}) : {};
@@ -852,7 +862,7 @@ router.post('/setup-app-webhook', async (req, res) => {
 
         // Subscribe to Page object
         const subscribeRes = await fetch(
-            `${META_API_BASE}/${appId}/subscriptions`,
+            `${META_API_BASE}/${encodeURIComponent(appId)}/subscriptions`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -878,8 +888,9 @@ router.post('/setup-app-webhook', async (req, res) => {
         }
 
         // Verify it was set correctly
-        const verifyRes = await fetch(
-            `${META_API_BASE}/${appId}/subscriptions?access_token=${appAccessToken}`
+        const verifyRes = await fetchMetaWithAccessToken(
+            `${META_API_BASE}/${encodeURIComponent(appId)}/subscriptions`,
+            appAccessToken
         );
         const verifyResult = await readMetaResponse(verifyRes);
         if (!verifyResult.ok) {
