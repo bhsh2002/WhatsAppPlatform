@@ -61,6 +61,40 @@ function createDatabase() {
             UNIQUE (tenant_id, page_id),
             UNIQUE (page_id)
         );
+        CREATE TABLE fb_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            linked_page_id INTEGER NOT NULL,
+            page_id TEXT NOT NULL,
+            user_psid TEXT NOT NULL,
+            last_message TEXT
+        );
+        CREATE TABLE fb_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL,
+            tenant_id INTEGER NOT NULL,
+            direction TEXT NOT NULL,
+            message_text TEXT
+        );
+        CREATE TABLE facebook_content_campaigns (
+            id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            linked_page_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            next_run_at TEXT,
+            last_error TEXT,
+            updated_at TEXT
+        );
+        CREATE TABLE facebook_content_publications (
+            id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            linked_page_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            next_attempt_at TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            updated_at TEXT
+        );
         INSERT INTO tenants (id, name) VALUES (1, 'Tenant A'), (2, 'Tenant B');
     `);
     return db;
@@ -241,6 +275,80 @@ test('Facebook OAuth state is tenant-bound and page tokens never return to the b
     assert.equal(calls[4].init.headers.Authorization, 'Bearer long-token');
 });
 
+test('Facebook account discovery follows bounded cursor pagination without putting tokens in URLs', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const calls = [];
+    const requestMeta = async (url, init = {}) => {
+        calls.push({ url, init });
+        if (url.endsWith('/oauth/access_token')) {
+            const values = new URLSearchParams(init.body);
+            return values.get('grant_type') === 'fb_exchange_token'
+                ? { ok: true, status: 200, data: { access_token: 'long-token' } }
+                : { ok: true, status: 200, data: { access_token: 'short-token' } };
+        }
+        if (url.includes('/debug_token')) {
+            return {
+                ok: true,
+                status: 200,
+                data: { data: { is_valid: true, scopes: config.reviewScopes, app_id: 'app-id' } },
+            };
+        }
+        if (url.includes('/me?fields=')) {
+            return { ok: true, status: 200, data: { id: 'user-1', name: 'User One' } };
+        }
+        if (url.includes('/me/accounts?')) {
+            const after = new URL(url).searchParams.get('after');
+            if (!after) {
+                return {
+                    ok: true,
+                    status: 200,
+                    data: {
+                        data: [{ id: 'page-1', name: 'Page One', access_token: 'page-token-1' }],
+                        paging: {
+                            cursors: { after: 'cursor-1' },
+                            next: 'https://graph.test/v25.0/me/accounts?after=cursor-1&access_token=must-not-be-replayed',
+                        },
+                    },
+                };
+            }
+            assert.equal(after, 'cursor-1');
+            return {
+                ok: true,
+                status: 200,
+                data: { data: [{ id: 'page-2', name: 'Page Two', access_token: 'page-token-2' }] },
+            };
+        }
+        if (url.endsWith('/page-2/subscribed_apps')) {
+            return { ok: true, status: 200, data: { success: true } };
+        }
+        return assert.fail(`Unexpected Meta request: ${url}`);
+    };
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({ requestMeta }),
+    });
+
+    const connected = await connectFacebook(router);
+    assert.equal(connected.statusCode, 200);
+    assert.deepEqual(connected.body.pages.map(page => page.id), ['page-1', 'page-2']);
+    assert.equal(connected.body.pages_truncated, false);
+
+    const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
+        user: { tenant_id: 1 },
+        body: { link_state: connected.body.link_state, page_ids: ['page-2'] },
+    });
+    assert.equal(linked.statusCode, 200);
+    assert.equal(linked.body.success, true);
+    assert.equal(linked.body.ready_count, 1);
+
+    const accountCalls = calls.filter(call => call.url.includes('/me/accounts?'));
+    assert.equal(accountCalls.length, 4);
+    assert.ok(accountCalls.every(call => call.init.headers.Authorization === 'Bearer long-token'));
+    assert.ok(accountCalls.every(call => !call.url.includes('access_token=')));
+    assert.ok(accountCalls.every(call => Number(new URL(call.url).searchParams.get('limit')) === 100));
+});
+
 test('Facebook diagnostics and Meta review snapshots remain tenant-scoped and bounded', async (t) => {
     const db = createDatabase();
     t.after(() => db.close());
@@ -358,10 +466,31 @@ test('page linking keeps tokens server-side, subscribes by authorization and dis
     assert.equal(linked.statusCode, 200);
     assert.equal(linked.body.linked[0].webhook_subscribed, true);
     assert.deepEqual(linked.body.unavailable_page_ids, ['missing-page']);
+    assert.equal(linked.body.success, false);
+    assert.equal(linked.body.partial_success, true);
+    assert.equal(linked.body.ready_count, 1);
     assert.equal(accountCalls, 2);
     const page = db.prepare('SELECT * FROM tenant_pages WHERE tenant_id = 1').get();
     assert.equal(page.page_access_token_encrypted, 'encrypted:page-token');
     assert.equal(page.webhook_subscribed, 1);
+    const conversationId = db.prepare(`
+        INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, last_message)
+        VALUES (1, ?, 'page/1', 'user-1', 'رسالة محفوظة')
+    `).run(page.id).lastInsertRowid;
+    db.prepare(`
+        INSERT INTO fb_messages (conversation_id, tenant_id, direction, message_text)
+        VALUES (?, 1, 'incoming', 'رسالة محفوظة')
+    `).run(conversationId);
+    db.prepare(`
+        INSERT INTO facebook_content_campaigns
+            (tenant_id, linked_page_id, status, next_run_at)
+        VALUES (1, ?, 'active', '2026-10-01T09:00:00.000Z')
+    `).run(page.id);
+    db.prepare(`
+        INSERT INTO facebook_content_publications
+            (tenant_id, linked_page_id, status, next_attempt_at)
+        VALUES (1, ?, 'pending', '2026-10-01T09:00:00.000Z')
+    `).run(page.id);
     assert.deepEqual(JSON.parse(page.subscribed_fields), ['messages', 'feed']);
     assert.equal(db.prepare("SELECT COUNT(*) count FROM activity_logs WHERE event_type = 'page_linked'").get().count, 1);
     const subscribeCall = calls.find(call => call.url.endsWith('/page%2F1/subscribed_apps') && call.init.method === 'POST');
@@ -382,8 +511,143 @@ test('page linking keeps tokens server-side, subscribes by authorization and dis
     assert.equal(calls.length, callCountBeforeOwnerDelete + 1);
     assert.equal(calls.at(-1).init.method, 'DELETE');
     assert.equal(calls.at(-1).init.headers.Authorization, 'Bearer page-token');
-    assert.equal(db.prepare('SELECT COUNT(*) count FROM tenant_pages').get().count, 0);
+    assert.equal(disconnected.body.success, true);
+    assert.equal(disconnected.body.data_preserved, true);
+    const disconnectedPage = db.prepare(`
+        SELECT is_active, webhook_subscribed, page_access_token_encrypted, token_status
+        FROM tenant_pages WHERE id = ?
+    `).get(page.id);
+    assert.deepEqual(disconnectedPage, {
+        is_active: 0,
+        webhook_subscribed: 0,
+        page_access_token_encrypted: null,
+        token_status: 'unchecked',
+    });
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_conversations').get().count, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_messages').get().count, 1);
+    assert.equal(db.prepare('SELECT status FROM facebook_content_campaigns').get().status, 'paused');
+    assert.equal(db.prepare('SELECT status FROM facebook_content_publications').get().status, 'cancelled');
     assert.equal(db.prepare("SELECT COUNT(*) count FROM activity_logs WHERE event_type = 'page_unlinked'").get().count, 1);
+
+    const reconnected = await connectFacebook(router);
+    const relinked = await invokeRoute(router, 'post', '/facebook/link-pages', {
+        user: { tenant_id: 1 },
+        body: { link_state: reconnected.body.link_state, page_ids: ['page/1'] },
+    });
+    assert.equal(relinked.body.success, true);
+    assert.deepEqual(
+        db.prepare('SELECT id, is_active, webhook_subscribed FROM tenant_pages WHERE page_id = ?').get('page/1'),
+        { id: page.id, is_active: 1, webhook_subscribed: 1 }
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_conversations').get().count, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_messages').get().count, 1);
+});
+
+test('Facebook disconnect reports a partial result when Meta unsubscribe fails while preserving data', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const pageId = db.prepare(`
+        INSERT INTO tenant_pages (
+            tenant_id, page_id, page_name, page_access_token_encrypted,
+            subscribed_fields, webhook_subscribed, token_status
+        ) VALUES (1, 'page-failure', 'Page Failure', 'encrypted:page-token', '["messages"]', 1, 'valid')
+    `).run().lastInsertRowid;
+    const conversationId = db.prepare(`
+        INSERT INTO fb_conversations (tenant_id, linked_page_id, page_id, user_psid, last_message)
+        VALUES (1, ?, 'page-failure', 'user-1', 'رسالة محفوظة')
+    `).run(pageId).lastInsertRowid;
+    db.prepare(`
+        INSERT INTO fb_messages (conversation_id, tenant_id, direction, message_text)
+        VALUES (?, 1, 'incoming', 'رسالة محفوظة')
+    `).run(conversationId);
+
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({
+            requestMeta: async () => ({
+                ok: false,
+                status: 503,
+                error: { message: 'Meta unavailable' },
+            }),
+        }),
+    });
+    const disconnected = await invokeRoute(router, 'delete', '/facebook/disconnect/:linkedPageId', {
+        user: { tenant_id: 1 },
+        params: { linkedPageId: String(pageId) },
+    });
+
+    assert.equal(disconnected.statusCode, 200);
+    assert.equal(disconnected.body.success, false);
+    assert.equal(disconnected.body.partial_success, true);
+    assert.equal(disconnected.body.local_disconnected, true);
+    assert.equal(disconnected.body.webhook_unsubscribed, false);
+    assert.equal(disconnected.body.webhook_error, 'Meta unavailable');
+    assert.equal(disconnected.body.data_preserved, true);
+    assert.equal(db.prepare('SELECT is_active FROM tenant_pages WHERE id = ?').get(pageId).is_active, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_conversations').get().count, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_messages').get().count, 1);
+    assert.equal(
+        db.prepare("SELECT status FROM activity_logs WHERE event_type = 'page_unlinked'").get().status,
+        'failed'
+    );
+});
+
+test('page linking returns a partial result and the webhook error when subscription fails', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const requestMeta = async (url, init = {}) => {
+        if (url.endsWith('/oauth/access_token')) {
+            const values = new URLSearchParams(init.body);
+            return values.get('grant_type') === 'fb_exchange_token'
+                ? { ok: true, status: 200, data: { access_token: 'long-token' } }
+                : { ok: true, status: 200, data: { access_token: 'short-token' } };
+        }
+        if (url.includes('/debug_token')) {
+            return { ok: true, status: 200, data: { data: { is_valid: true, scopes: config.reviewScopes } } };
+        }
+        if (url.includes('/me?fields=')) {
+            return { ok: true, status: 200, data: { id: 'user-1', name: 'User One' } };
+        }
+        if (url.includes('/me/accounts?')) {
+            return {
+                ok: true,
+                status: 200,
+                data: { data: [{ id: 'page-1', name: 'Page One', access_token: 'page-token' }] },
+            };
+        }
+        if (url.endsWith('/page-1/subscribed_apps')) {
+            return { ok: false, status: 403, error: { message: 'Webhook permission denied' } };
+        }
+        return assert.fail(`Unexpected Meta request: ${url}`);
+    };
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({ requestMeta }),
+    });
+    const connected = await connectFacebook(router);
+    const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
+        user: { tenant_id: 1 },
+        body: { link_state: connected.body.link_state, page_ids: ['page-1'] },
+    });
+
+    assert.equal(linked.statusCode, 200);
+    assert.equal(linked.body.success, false);
+    assert.equal(linked.body.partial_success, true);
+    assert.equal(linked.body.saved_count, 1);
+    assert.equal(linked.body.ready_count, 0);
+    assert.deepEqual(linked.body.linked, [{
+        id: 'page-1',
+        name: 'Page One',
+        page_linked: true,
+        token_status: 'valid',
+        page_ready: false,
+        webhook_subscribed: false,
+        webhook_error: 'Webhook permission denied',
+    }]);
+    assert.deepEqual(
+        db.prepare('SELECT is_active, webhook_subscribed, subscribed_fields FROM tenant_pages').get(),
+        { is_active: 1, webhook_subscribed: 0, subscribed_fields: '[]' }
+    );
 });
 
 test('page linking rejects ownership by another tenant without exposing that tenant', async (t) => {
@@ -442,9 +706,13 @@ test('page linking rejects ownership by another tenant without exposing that ten
     assert.deepEqual(linked.body.linked, [{
         id: 'page-owned',
         name: 'Presented page',
+        page_linked: false,
         webhook_subscribed: false,
         webhook_error: 'هذه الصفحة غير متاحة للربط',
     }]);
+    assert.equal(linked.body.success, false);
+    assert.equal(linked.body.partial_success, false);
+    assert.equal(linked.body.failed_count, 1);
     assert.doesNotMatch(JSON.stringify(linked.body), /Private owner page|owner-token|Tenant A|tenant_id/);
     assert.equal(calls.some(call => call.url.endsWith('/page-owned/subscribed_apps')), false);
     assert.deepEqual(

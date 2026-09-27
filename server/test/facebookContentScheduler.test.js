@@ -340,3 +340,60 @@ test('retryable publication failures back off then pause the campaign at its thr
         FROM facebook_content_campaigns WHERE id = 403
     `).get(), { status: 'paused', consecutive_failures: 2 });
 });
+
+test('publication worker defers outside the page window without consuming an attempt', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    database.prepare(`
+        INSERT INTO facebook_content_settings (
+            tenant_id, linked_page_id, timezone, allowed_days_json,
+            posting_start_time, posting_end_time, daily_post_limit, no_repeat_days
+        ) VALUES (1, 11, 'Africa/Tripoli', '[4]', '09:00', '11:00', 3, 14)
+    `).run();
+    const publication = createContentPublication(database, {
+        tenantId: 1,
+        linkedPageId: 11,
+        contentItemId: 301,
+        scheduledFor: new Date('2026-07-16T12:00:00.000Z'),
+        renderedMessage: 'Defer until the next window',
+        idempotencyKey: 'deferred-window',
+    });
+    let publishCalls = 0;
+    const deferred = await processDuePublications(database, {
+        now: new Date('2026-07-16T12:00:00.000Z'),
+        publish: async () => {
+            publishCalls += 1;
+            return { post_id: 'must-not-run' };
+        },
+    });
+    assert.equal(deferred.deferred, 1);
+    assert.equal(deferred.processed, 0);
+    assert.equal(publishCalls, 0);
+    assert.deepEqual(database.prepare(`
+        SELECT status, attempts, next_attempt_at, error_code
+        FROM facebook_content_publications WHERE id = ?
+    `).get(publication.id), {
+        status: 'pending',
+        attempts: 0,
+        next_attempt_at: '2026-07-23T07:00:00.000Z',
+        error_code: 'CONTENT_POSTING_WINDOW_CLOSED',
+    });
+
+    const resumed = await processDuePublications(database, {
+        now: new Date('2026-07-23T07:00:00.000Z'),
+        publish: async () => {
+            publishCalls += 1;
+            return { post_id: 'published-in-window' };
+        },
+    });
+    assert.equal(resumed.published, 1);
+    assert.equal(publishCalls, 1);
+    assert.deepEqual(database.prepare(`
+        SELECT status, attempts, meta_post_id
+        FROM facebook_content_publications WHERE id = ?
+    `).get(publication.id), {
+        status: 'published',
+        attempts: 1,
+        meta_post_id: 'published-in-window',
+    });
+});

@@ -1,8 +1,9 @@
 import express from 'express';
 
-import { META_API_BASE } from '../config/index.js';
+import { META_API_BASE, META_APP_ID } from '../config/index.js';
 import { insertMessengerMessage, normalizeMessengerTimestamp } from '../services/messengerMessages.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
+import { FACEBOOK_WEBHOOK_FIELDS } from '../services/metaReadiness.js';
 import { parseListPagination } from '../services/pagination.js';
 
 const VALID_MESSAGE_TAGS = Object.freeze(['HUMAN_AGENT']);
@@ -49,7 +50,8 @@ export function createTenantFacebookMessagingRouter({
             const pages = database.prepare(`
                 SELECT id, tenant_id, platform, page_id, page_name, page_category,
                        page_picture_url, is_active, subscribed_fields,
-                       webhook_subscribed, created_at, updated_at
+                       webhook_subscribed, token_status, token_expires_at,
+                       token_checked_at, created_at, updated_at
                 FROM tenant_pages
                 WHERE tenant_id = ?
                 ORDER BY created_at DESC, id DESC
@@ -76,15 +78,59 @@ export function createTenantFacebookMessagingRouter({
                 { headers: { Authorization: `Bearer ${accessToken}` } }
             );
             if (!result.ok) return sendMetaFailure(res, result, 'فشل جلب حالة الاشتراك');
+            const subscribedApps = Array.isArray(result.data?.data) ? result.data.data : [];
             return res.json({
                 page_id: page.page_id,
                 page_name: page.page_name,
                 webhook_subscribed_in_db: !!page.webhook_subscribed,
+                webhook_subscribed_in_meta: META_APP_ID
+                    ? subscribedApps.some(app => String(app.id) === String(META_APP_ID))
+                    : null,
                 meta_response: result.data || {},
             });
         } catch (error) {
             console.error('[TenantFacebookMessaging] Subscription status error:', error);
             return res.status(500).json({ error: 'فشل جلب حالة الاشتراك' });
+        }
+    });
+
+    router.post('/pages/:id/repair-webhook', async (req, res) => {
+        try {
+            const { page, accessToken, error, status } = resolveTenantPage(
+                database,
+                decryptToken,
+                req.params.id,
+                req.user.tenant_id
+            );
+            if (error) return res.status(status).json({ error });
+            const result = await requestMeta(
+                `${META_API_BASE}/${encodeURIComponent(page.page_id)}/subscribed_apps`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        subscribed_fields: FACEBOOK_WEBHOOK_FIELDS.join(','),
+                    }).toString(),
+                }
+            );
+            if (!result.ok || result.data?.success === false) {
+                return sendMetaFailure(res, result.ok
+                    ? { status: 502, error: { message: 'لم تؤكد Meta تجديد الاشتراك' } }
+                    : result, 'تعذر تجديد اشتراك الصفحة');
+            }
+            database.prepare(`
+                UPDATE tenant_pages
+                SET webhook_subscribed = 1, subscribed_fields = ?,
+                    updated_at = datetime('now', 'localtime')
+                WHERE id = ? AND tenant_id = ?
+            `).run(JSON.stringify(FACEBOOK_WEBHOOK_FIELDS), page.id, req.user.tenant_id);
+            return res.json({ success: true, webhook_subscribed: true });
+        } catch (error) {
+            console.error('[TenantFacebookMessaging] Webhook repair error:', error);
+            return res.status(500).json({ error: 'تعذر تجديد اشتراك الصفحة' });
         }
     });
 

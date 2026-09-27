@@ -1,10 +1,15 @@
 import express from 'express';
 import fs from 'fs';
 import { Blob } from 'buffer';
+import crypto from 'node:crypto';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
 import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import {
+    assertFacebookContentPublishingPolicy,
+} from '../services/facebookContentPolicy.js';
+import { createContentPublication } from '../services/facebookContentScheduler.js';
 import { imageUpload, cleanupFile } from '../config/upload.js';
 import {
     BILLING_OPERATIONS,
@@ -78,19 +83,54 @@ const normalizeLimit = (value, fallback = 25, max = 100) => {
     return Math.min(parsed, max);
 };
 
-const normalizeScheduledPublishTime = (value) => {
-    if (!value) return null;
-    if (Number.isFinite(Number(value))) return Math.floor(Number(value));
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        const error = new Error('وقت الجدولة غير صالح');
-        error.status = 400;
-        throw error;
+const recordDirectPublication = (page, {
+    message = null,
+    linkUrl = null,
+    mediaUrl = null,
+    metaPostId = null,
+    publishedAt = new Date(),
+    createdBy = null,
+} = {}) => {
+    try {
+        const normalizedMessage = String(message || '').trim() || null;
+        const normalizedLink = String(linkUrl || '').trim() || null;
+        const normalizedMedia = String(mediaUrl || '').trim() || null;
+        const publication = createContentPublication(db, {
+            tenantId: page.tenant_id,
+            linkedPageId: page.id,
+            scheduledFor: publishedAt,
+            renderedMessage: normalizedMessage,
+            linkUrl: normalizedLink,
+            mediaUrl: normalizedMedia,
+            createdBy,
+            idempotencyKey: `facebook-direct:${metaPostId || crypto.randomUUID()}`,
+        });
+        db.prepare(`
+            UPDATE facebook_content_publications
+            SET status = 'published', meta_post_id = ?, published_at = ?,
+                next_attempt_at = NULL, updated_at = datetime('now')
+            WHERE id = ?
+        `).run(metaPostId, publishedAt.toISOString(), publication.id);
+    } catch (error) {
+        console.error('[FBContent] Failed to record direct publication:', error.message);
     }
-
-    return Math.floor(parsed.getTime() / 1000);
 };
+
+const assertDirectPublishingPolicy = (page, {
+    at,
+    message = null,
+    linkUrl = null,
+    mediaUrl = null,
+    mode = 'publish',
+} = {}) => assertFacebookContentPublishingPolicy(db, {
+    tenantId: page.tenant_id,
+    linkedPageId: page.id,
+    renderedMessage: message,
+    linkUrl,
+    mediaUrl,
+    at,
+    mode,
+});
 
 const normalizePostDateBoundary = (value, field) => {
     if (value === undefined || value === null || value === '') return null;
@@ -195,15 +235,27 @@ router.post('/:linkedPageId/posts', async (req, res) => {
         if (!message && !link) {
             return res.status(400).json({ error: 'نص المنشور أو الرابط مطلوب' });
         }
+        if (published === false && scheduled_publish_time) {
+            return res.status(409).json({
+                error: 'استخدم جدولة استوديو المحتوى حتى تُحتسب الحدود اليومية ومنع التكرار بصورة صحيحة.',
+                code: 'USE_CONTENT_STUDIO_SCHEDULER',
+            });
+        }
 
         const body = {};
         if (message) body.message = message;
         if (link) body.link = link;
         if (published === false) {
             body.published = false;
-            if (scheduled_publish_time) {
-                body.scheduled_publish_time = normalizeScheduledPublishTime(scheduled_publish_time);
-            }
+        }
+
+        if (published !== false) {
+            assertDirectPublishingPolicy(page, {
+                at: new Date(),
+                message,
+                linkUrl: link,
+                mode: 'publish',
+            });
         }
 
         billingReservation = reserveBilling({
@@ -230,6 +282,15 @@ router.post('/:linkedPageId/posts', async (req, res) => {
 
         logFacebookActivity(page, 'fb_post_created', `إنشاء منشور على صفحة ${page.page_name || page.page_id}`);
 
+        if (published !== false) {
+            recordDirectPublication(page, {
+                message,
+                linkUrl: link,
+                metaPostId: data.id || null,
+                createdBy: req.user?.id || null,
+            });
+        }
+
         res.status(201).json({ id: data.id });
     } catch (error) {
         if (billingReservation) {
@@ -240,7 +301,13 @@ router.post('/:linkedPageId/posts', async (req, res) => {
             }
         }
         if (handleBillingError(res, error)) return;
-        if (error.status) return res.status(error.status).json({ error: error.message });
+        if (error.status) {
+            return res.status(error.status).json({
+                error: error.message,
+                code: error.code,
+                ...(error.details ? { details: error.details } : {}),
+            });
+        }
         console.error('[FBContent] Create post error:', error);
         res.status(500).json({ error: 'فشل إنشاء المنشور' });
     }
@@ -266,6 +333,13 @@ router.post('/:linkedPageId/posts/photo', imageUpload.single('source'), async (r
         if (!isFileUpload && !url) {
             return res.status(400).json({ error: 'رابط الصورة أو ملف الصورة مطلوب' });
         }
+
+        assertDirectPublishingPolicy(page, {
+            at: new Date(),
+            message: caption,
+            mediaUrl: isFileUpload ? null : url,
+            mode: 'publish',
+        });
 
         billingReservation = reserveBilling({
             tenantId: page.tenant_id,
@@ -309,6 +383,13 @@ router.post('/:linkedPageId/posts/photo', imageUpload.single('source'), async (r
 
         logFacebookActivity(page, 'fb_post_created', `إنشاء منشور صورة على صفحة ${page.page_name || page.page_id}`);
 
+        recordDirectPublication(page, {
+            message: caption,
+            mediaUrl: isFileUpload ? null : url,
+            metaPostId: data.post_id || data.id || null,
+            createdBy: req.user?.id || null,
+        });
+
         res.status(201).json({ id: data.id, post_id: data.post_id || null });
     } catch (error) {
         if (billingReservation) {
@@ -319,6 +400,13 @@ router.post('/:linkedPageId/posts/photo', imageUpload.single('source'), async (r
             }
         }
         if (handleBillingError(res, error)) return;
+        if (error.status) {
+            return res.status(error.status).json({
+                error: error.message,
+                code: error.code,
+                ...(error.details ? { details: error.details } : {}),
+            });
+        }
         console.error('[FBContent] Photo post error:', error);
         res.status(500).json({ error: 'فشل إنشاء منشور الصورة' });
     } finally {

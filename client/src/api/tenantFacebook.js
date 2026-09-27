@@ -10,6 +10,12 @@ export const tenantFacebookMethods = {
         return this.request(`/api/portal/pages/${pageId}/subscription-status`);
     },
 
+    async repairPortalPageWebhook(pageId) {
+        return this.request(`/api/portal/pages/${pageId}/repair-webhook`, {
+            method: 'POST',
+        });
+    },
+
     // ============================================
     // Portal: Tenant Content Management
     // ============================================

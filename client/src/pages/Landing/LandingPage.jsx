@@ -14,7 +14,7 @@ import {
     AllInbox as InboxIcon,
     ArrowBack as ArrowBackIcon,
     ArrowOutward as ArrowOutwardIcon,
-    AutoAwesome as AutomationIcon,
+    Rule as AutomationIcon,
     Bolt as BoltIcon,
     Campaign as CampaignIcon,
     CheckRounded as CheckIcon,
@@ -28,7 +28,7 @@ import {
     PasswordOutlined as OtpIcon,
     QrCode2 as QrCodeIcon,
     SecurityOutlined as SecurityIcon,
-    SmartToyOutlined as BotIcon,
+    AccountTree as BotIcon,
     WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';

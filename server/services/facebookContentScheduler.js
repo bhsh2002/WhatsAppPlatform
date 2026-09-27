@@ -12,6 +12,7 @@ import {
     parseStoredList,
     zonedDayBounds,
 } from './facebookContentSchedule.js';
+import { evaluateFacebookContentPublishingPolicy } from './facebookContentPolicy.js';
 import { publishFacebookContent } from './facebookContentPublisher.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -280,13 +281,38 @@ export const materializeDueCampaigns = (database, {
                 );
                 return null;
             }
+            const publicationTime = scheduledSlot.getTime() < now.getTime() ? now : scheduledSlot;
+            const policy = evaluateFacebookContentPublishingPolicy(database, {
+                tenantId: campaign.tenant_id,
+                linkedPageId: campaign.linked_page_id,
+                contentItemId: source.content_item_id,
+                productId: source.product_id,
+                renderedMessage: source.rendered_message,
+                linkUrl: source.link_url,
+                mediaUrl: source.media_url,
+                at: publicationTime,
+                mode: 'schedule',
+            });
+            if (!policy.allowed) {
+                const resumeFrom = new Date(policy.next_allowed_at || nextRun);
+                const nextEligibleCampaignRun = nextRunForCampaign(
+                    campaign,
+                    new Date(Math.max(now.getTime(), resumeFrom.getTime()) - 60 * 1000),
+                );
+                database.prepare(`
+                    UPDATE facebook_content_campaigns
+                    SET next_run_at = ?, last_error = ?, updated_at = datetime('now')
+                    WHERE id = ?
+                `).run(nextEligibleCampaignRun.toISOString(), policy.message, campaign.id);
+                return null;
+            }
             const publication = createContentPublication(database, {
                 tenantId: campaign.tenant_id,
                 linkedPageId: campaign.linked_page_id,
                 campaignId: campaign.id,
                 contentItemId: source.content_item_id,
                 productId: source.product_id,
-                scheduledFor: scheduledSlot.getTime() < now.getTime() ? now : scheduledSlot,
+                scheduledFor: publicationTime,
                 renderedMessage: source.rendered_message,
                 linkUrl: source.link_url,
                 mediaUrl: source.media_url,
@@ -377,14 +403,21 @@ export const processDuePublications = async (database, {
         ORDER BY scheduled_for ASC, id ASC
         LIMIT ?
     `).all(iso(now), iso(now), limit).map(row => row.id);
-    const result = { recovered, processed: 0, published: 0, retried: 0, failed: 0 };
+    const result = {
+        recovered,
+        processed: 0,
+        published: 0,
+        retried: 0,
+        failed: 0,
+        deferred: 0,
+    };
 
     for (const publicationId of dueIds) {
         const claim = database.transaction(() => {
             const update = database.prepare(`
                 UPDATE facebook_content_publications
-                SET status = 'processing', attempts = attempts + 1,
-                    claimed_at = ?, claimed_by = ?, updated_at = datetime('now')
+                SET status = 'processing', claimed_at = ?, claimed_by = ?,
+                    updated_at = datetime('now')
                 WHERE id = ? AND status = 'pending'
                   AND scheduled_for <= ?
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
@@ -395,6 +428,44 @@ export const processDuePublications = async (database, {
             `).get(publicationId);
         }).immediate();
         if (!claim) continue;
+
+        const policy = evaluateFacebookContentPublishingPolicy(database, {
+            tenantId: claim.tenant_id,
+            linkedPageId: claim.linked_page_id,
+            contentItemId: claim.content_item_id,
+            productId: claim.product_id,
+            renderedMessage: claim.rendered_message,
+            linkUrl: claim.link_url,
+            mediaUrl: claim.media_url,
+            at: now,
+            excludePublicationId: claim.id,
+            mode: 'publish',
+        });
+        if (!policy.allowed) {
+            database.prepare(`
+                UPDATE facebook_content_publications
+                SET status = 'pending', next_attempt_at = ?, error_code = ?,
+                    error_message = ?, claimed_at = NULL, claimed_by = NULL,
+                    updated_at = datetime('now')
+                WHERE id = ? AND status = 'processing' AND claimed_by = ?
+            `).run(
+                policy.next_allowed_at,
+                policy.code,
+                policy.message,
+                claim.id,
+                workerId,
+            );
+            result.deferred += 1;
+            continue;
+        }
+
+        database.prepare(`
+            UPDATE facebook_content_publications
+            SET attempts = attempts + 1, error_code = NULL, error_message = NULL,
+                updated_at = datetime('now')
+            WHERE id = ? AND status = 'processing' AND claimed_by = ?
+        `).run(claim.id, workerId);
+        claim.attempts += 1;
         result.processed += 1;
 
         try {

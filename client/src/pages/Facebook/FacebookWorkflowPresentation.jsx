@@ -22,7 +22,7 @@ import {
   Typography,
 } from '@mui/material';
 import {
-  AutoAwesome as AiIcon,
+  EditNote as WritingAssistantIcon,
   CampaignOutlined as CampaignIcon,
   ContentCopyOutlined as CopyIcon,
   DeleteOutline as DeleteIcon,
@@ -73,7 +73,7 @@ export const FacebookPostToolsButton = ({ post, t, workflows }) => {
             key={action}
             onClick={closeMenuAction(close, () => workflows.openAi(post, action))}
           >
-            <AiIcon fontSize="small" sx={{ mr: 1 }} />
+            <WritingAssistantIcon fontSize="small" sx={{ mr: 1 }} />
             {t(`facebookContent.aiActions.${action}`)}
           </MenuItem>
         ))}
@@ -199,7 +199,7 @@ export const FacebookPostWorkflowDialogs = ({ t, workflows }) => (
           variant="contained"
           onClick={workflows.runAi}
           disabled={workflows.ai.loading}
-          startIcon={workflows.ai.loading ? <CircularProgress size={18} /> : <AiIcon />}
+          startIcon={workflows.ai.loading ? <CircularProgress size={18} /> : <WritingAssistantIcon />}
         >
           {t('facebookContent.runAiTool')}
         </Button>

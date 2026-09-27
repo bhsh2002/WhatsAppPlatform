@@ -1,5 +1,6 @@
 import express from 'express';
 
+import { assertFacebookContentPublishingPolicy } from '../services/facebookContentPolicy.js';
 import {
     createContentPublication,
     selectCampaignSource,
@@ -159,7 +160,10 @@ const normalizeCampaign = (body, current = {}) => {
     };
 };
 
-export function createFacebookContentCampaignsRouter({ database } = {}) {
+export function createFacebookContentCampaignsRouter({
+    database,
+    clock = () => new Date(),
+} = {}) {
     if (!database) throw new TypeError('database is required');
     const router = express.Router();
 
@@ -353,15 +357,24 @@ export function createFacebookContentCampaignsRouter({ database } = {}) {
             const tenant = requireContentTenant(database, req, res);
             if (!tenant) return;
             const campaign = loadCampaign(database, tenant.id, req.params.id);
-            const source = selectCampaignSource(database, campaign, { now: new Date() });
+            const now = clock();
+            const source = selectCampaignSource(database, campaign, { now });
             if (!source) throw contentError('لا يوجد محتوى مؤهل وغير مكرر للنشر', 409, 'NO_ELIGIBLE_CONTENT');
+            assertFacebookContentPublishingPolicy(database, {
+                tenantId: tenant.id,
+                linkedPageId: campaign.linked_page_id,
+                contentItemId: source.content_item_id,
+                productId: source.product_id,
+                at: now,
+                mode: 'publish',
+            });
             const publication = createContentPublication(database, {
                 tenantId: tenant.id,
                 linkedPageId: campaign.linked_page_id,
                 campaignId: campaign.id,
                 contentItemId: source.content_item_id,
                 productId: source.product_id,
-                scheduledFor: new Date(),
+                scheduledFor: now,
                 renderedMessage: source.rendered_message,
                 linkUrl: source.link_url,
                 mediaUrl: source.media_url,

@@ -263,6 +263,9 @@ const alertDestination = (code, role) => {
         || normalizedCode === 'META_ACCOUNT_ALERT') {
         return role === 'admin' ? '/whatsapp' : '/portal/meta-review';
     }
+    if (normalizedCode === 'FACEBOOK_AUTH_RENEWAL_REQUIRED') {
+        return role === 'admin' ? '/tenants' : '/portal/fb-pages';
+    }
     return role === 'admin' ? '/settings' : '/portal';
 };
 

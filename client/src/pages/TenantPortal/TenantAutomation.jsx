@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Paper, Typography, Button, IconButton, Chip, Card, CardContent, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Switch, FormControlLabel, Checkbox, FormGroup, Alert, CircularProgress, Divider, Grid, InputLabel, FormControl, RadioGroup, Radio, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip } from '@mui/material';
 import Select from '../../components/Form/AccessibleSelect';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, SmartToy as SmartToyIcon, VpnKey as KeywordIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, CheckCircle as CheckCircleIcon, Cancel as CancelIcon, Science as ScienceIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Rule as RuleIcon, VpnKey as KeywordIcon, PlayArrow as TestIcon, Refresh as RefreshIcon, CheckCircle as CheckCircleIcon, Cancel as CancelIcon, Science as ScienceIcon } from '@mui/icons-material';
 import api from '../../api';
 import { tx } from "../../i18n/tx";
 import {
@@ -223,7 +223,7 @@ const TenantAutomation = () => {
         alignItems: 'center',
         gap: 1
       }}>
-                    <SmartToyIcon sx={{
+                    <RuleIcon sx={{
           fontSize: 32,
           color: 'primary.main'
         }} />
@@ -240,7 +240,7 @@ const TenantAutomation = () => {
                     {[{
         label: tx("auto.k_0b3adc2f9b12"),
         value: summary.total,
-        icon: <SmartToyIcon />,
+        icon: <RuleIcon />,
         color: '#6366f1'
       }, {
         label: tx("auto.k_6cf44b8c32d1"),
@@ -322,7 +322,7 @@ const TenantAutomation = () => {
       p: 4,
       textAlign: 'center'
     }}>
-                    <SmartToyIcon sx={{
+                    <RuleIcon sx={{
         fontSize: 60,
         color: 'grey.300',
         mb: 2

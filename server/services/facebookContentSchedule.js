@@ -47,7 +47,7 @@ export const parseStoredList = (value, fallback = []) => {
     }
 };
 
-const zonedDateTimeParts = (date, timeZone = DEFAULT_TIMEZONE) => {
+export const zonedDateTimeParts = (date, timeZone = DEFAULT_TIMEZONE) => {
     const formatter = new Intl.DateTimeFormat('en-GB', {
         timeZone: normalizeTimeZone(timeZone),
         year: 'numeric',
@@ -195,11 +195,64 @@ export const isWithinPostingWindow = ({
     endTime = '22:00',
 } = {}) => {
     const parts = zonedMinuteParts(date instanceof Date ? date : new Date(date), timeZone);
-    if (!normalizeScheduleDays(days).includes(parts.day)) return false;
+    const allowedDays = normalizeScheduleDays(days);
     const normalizedStart = normalizeScheduleTimes([startTime])[0];
     const normalizedEnd = normalizeScheduleTimes([endTime])[0];
     if (normalizedStart <= normalizedEnd) {
-        return parts.time >= normalizedStart && parts.time <= normalizedEnd;
+        return allowedDays.includes(parts.day)
+            && parts.time >= normalizedStart
+            && parts.time <= normalizedEnd;
     }
-    return parts.time >= normalizedStart || parts.time <= normalizedEnd;
+    if (parts.time >= normalizedStart) return allowedDays.includes(parts.day);
+    if (parts.time <= normalizedEnd) {
+        return allowedDays.includes((parts.day + 6) % 7);
+    }
+    return false;
+};
+
+export const nextPostingWindow = ({
+    from = new Date(),
+    timeZone = DEFAULT_TIMEZONE,
+    days = DEFAULT_DAYS,
+    startTime = '08:00',
+    endTime = '22:00',
+} = {}) => {
+    const origin = from instanceof Date ? from : new Date(from);
+    if (Number.isNaN(origin.getTime())) throw new TypeError('from must be a valid date');
+    const normalizedTimeZone = normalizeTimeZone(timeZone);
+    const allowedDays = new Set(normalizeScheduleDays(days));
+    const normalizedStart = normalizeScheduleTimes([startTime])[0];
+    const normalizedEnd = normalizeScheduleTimes([endTime])[0];
+
+    if (isWithinPostingWindow({
+        date: origin,
+        timeZone: normalizedTimeZone,
+        days: [...allowedDays],
+        startTime: normalizedStart,
+        endTime: normalizedEnd,
+    })) {
+        return origin;
+    }
+
+    const localOrigin = zonedDateTimeParts(origin, normalizedTimeZone);
+    for (let dayOffset = 0; dayOffset < MAX_LOOKAHEAD_DAYS; dayOffset += 1) {
+        const localDate = new Date(Date.UTC(
+            localOrigin.year,
+            localOrigin.month - 1,
+            localOrigin.date + dayOffset,
+        ));
+        if (!allowedDays.has(localDate.getUTCDay())) continue;
+        const [hour, minute] = normalizedStart.split(':').map(Number);
+        const candidate = localDateTimeToUtc({
+            year: localDate.getUTCFullYear(),
+            month: localDate.getUTCMonth() + 1,
+            date: localDate.getUTCDate(),
+            hour,
+            minute,
+            timeZone: normalizedTimeZone,
+        });
+        if (candidate && candidate.getTime() >= origin.getTime()) return candidate;
+    }
+
+    throw new Error('Unable to find the next posting window');
 };

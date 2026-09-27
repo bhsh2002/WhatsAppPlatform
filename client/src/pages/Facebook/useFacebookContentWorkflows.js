@@ -238,7 +238,7 @@ export const useFacebookPostWorkflows = ({
       await adapter.schedulePublication({
         linked_page_id: linkedPageId,
         content_item_id: item.id,
-        scheduled_for: new Date(schedule.scheduledFor).toISOString(),
+        scheduled_for_local: schedule.scheduledFor,
       });
       setSchedule(current => ({ ...current, open: false, loading: false }));
       notify(t('facebookContent.messages.postScheduledAgain'), 'success');

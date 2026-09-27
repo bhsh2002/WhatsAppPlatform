@@ -55,6 +55,7 @@ const TenantList = () => {
   const [fbPages, setFbPages] = useState([]);
   const [fbPagesLoading, setFbPagesLoading] = useState(false);
   const [fbPagesError, setFbPagesError] = useState(null);
+  const [fbPagesNotice, setFbPagesNotice] = useState(null);
   const [fbLinkMode, setFbLinkMode] = useState(false);
   const [fbLinking, setFbLinking] = useState(false);
   const [fbLinkForm, setFbLinkForm] = useState({
@@ -338,7 +339,11 @@ const TenantList = () => {
   const handleUnlinkFbPage = async pageId => {
     if (!window.confirm(tx("auto.k_0fda0f3353a4"))) return;
     try {
-      await api.unlinkTenantPage(pageId);
+      setFbPagesError(null);
+      const result = await api.unlinkTenantPage(pageId);
+      setFbPagesNotice(result?.success === false
+        ? tx('facebookConnection.adminDisconnectPartial')
+        : null);
       await loadFbPages();
     } catch (err) {
       setFbPagesError(err.message || tx("auto.k_1eac1b60549f"));
@@ -377,6 +382,7 @@ const TenantList = () => {
   };
   const openFbPagesFromEdit = async tenantId => {
     setFbPagesError(null);
+    setFbPagesNotice(null);
     setFbLinkMode(false);
     setFbLinkForm({
       page_id: '',
@@ -965,6 +971,9 @@ const TenantList = () => {
         }} onClose={() => setFbPagesError(null)}>
                             {fbPagesError}
                         </Alert>}
+                    {fbPagesNotice && <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setFbPagesNotice(null)}>
+                            {fbPagesNotice}
+                        </Alert>}
 
                     {!fbLinkMode ? <Box>
                             {fbPages.length === 0 && !fbPagesLoading ? <Box sx={{
@@ -1033,22 +1042,26 @@ const TenantList = () => {
                 flexShrink: 0,
                 flexWrap: 'wrap'
               }}>
-                                                <Chip label={page.webhook_subscribed ? 'Webhook ✓' : 'Webhook ✗'} size="small" color={page.webhook_subscribed ? 'success' : 'default'} variant={page.webhook_subscribed ? 'filled' : 'outlined'} />
+                                                <Chip label={page.webhook_subscribed ? tx('facebookConnection.webhookRecorded') : tx('facebookConnection.webhookNotRecorded')} size="small" color={page.webhook_subscribed ? 'success' : 'default'} variant={page.webhook_subscribed ? 'filled' : 'outlined'} />
 
                                                 <Chip label={page.is_active ? tx("auto.k_6cf44b8c32d1") : tx("auto.k_7ac8f21ec817")} size="small" color={page.is_active ? 'success' : 'error'} />
 
-                                                <Button size="small" onClick={() => handleVerifyFbPage(page.id)} variant="outlined">{tx("auto.k_fe79250b3ff2")}
-
-                  </Button>
-                                                {!page.webhook_subscribed && <Button size="small" onClick={() => handleSubscribeFbPage(page.id)} variant="outlined">{tx("auto.k_c5822564f83f")}
+                                                {!!page.page_access_token_present && <Button size="small" onClick={() => handleVerifyFbPage(page.id)} variant="outlined">{tx("auto.k_fe79250b3ff2")}
 
                   </Button>}
-                                                <Button size="small" onClick={() => handleToggleFbPageActive(page.id, page.is_active)} variant="outlined" color={page.is_active ? 'warning' : 'success'}>
-                                                    {page.is_active ? tx("auto.k_f0dbb04f3319") : tx("auto.k_c08b684fee53")}
-                                                </Button>
-                                                <Button size="small" onClick={() => handleUnlinkFbPage(page.id)} variant="outlined" color="error">{tx("auto.k_7dfff2403f93")}
+                                                {!!page.page_access_token_present && !page.webhook_subscribed && <Button size="small" onClick={() => handleSubscribeFbPage(page.id)} variant="outlined">{tx("auto.k_c5822564f83f")}
 
-                  </Button>
+                  </Button>}
+                                                {!!page.page_access_token_present && <Button size="small" onClick={() => handleToggleFbPageActive(page.id, page.is_active)} variant="outlined" color={page.is_active ? 'warning' : 'success'}>
+                                                    {page.is_active ? tx("auto.k_f0dbb04f3319") : tx("auto.k_c08b684fee53")}
+                                                </Button>}
+                                                {!page.page_access_token_present && <Button size="small" variant="outlined" onClick={() => {
+                  setFbLinkForm({ page_id: page.page_id, page_access_token: '' });
+                  setFbLinkMode(true);
+                }}>{tx('facebookConnection.reconnectPage')}</Button>}
+                                                {!!page.page_access_token_present && <Button size="small" onClick={() => handleUnlinkFbPage(page.id)} variant="outlined" color="error">{tx("auto.k_7dfff2403f93")}
+
+                  </Button>}
                                             </Box>
                                         </Paper>)}
                                 </Box>}

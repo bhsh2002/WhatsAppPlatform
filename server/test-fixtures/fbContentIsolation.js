@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import fbContentRouter from '../routes/fbContent.js';
 import fbInsightsRouter from '../routes/fbInsights.js';
 import { encrypt, initEncryption } from '../services/encryption.js';
+import { zonedMinuteParts } from '../services/facebookContentSchedule.js';
 
 initEncryption();
 
@@ -41,16 +42,21 @@ const listPostsLayer = fbContentRouter.stack.find(layer => (
 ));
 assert.ok(listPostsLayer, 'list posts route must be registered');
 const listPostsHandler = listPostsLayer.route.stack.at(-1).handle;
+const createPostLayer = fbContentRouter.stack.find(layer => (
+    layer.route?.path === '/:linkedPageId/posts' && layer.route.methods.post
+));
+assert.ok(createPostLayer, 'create post route must be registered');
+const createPostHandler = createPostLayer.route.stack.at(-1).handle;
 const overviewLayer = fbInsightsRouter.stack.find(layer => (
     layer.route?.path === '/:linkedPageId/overview' && layer.route.methods.get
 ));
 assert.ok(overviewLayer, 'insights overview route must be registered');
 const overviewHandler = overviewLayer.route.stack.at(-1).handle;
 
-const invokeHandler = async (handler, linkedPageId, user, query = {}) => {
+const invokeHandler = async (handler, linkedPageId, user, query = {}, requestBody = {}) => {
     let status = 200;
     let body;
-    const req = { params: { linkedPageId: String(linkedPageId) }, query, user };
+    const req = { params: { linkedPageId: String(linkedPageId) }, query, body: requestBody, user };
     const res = {
         status(value) {
             status = value;
@@ -103,6 +109,35 @@ try {
     const admin = await invokeHandler(listPostsHandler, pageTwo, { role: 'admin' });
     assert.equal(admin.status, 401);
     assert.equal(metaRequestCount, 3);
+
+    const legacySchedule = await invokeHandler(
+        createPostHandler,
+        pageOne,
+        { role: 'tenant', tenant_id: tenantOne },
+        {},
+        { message: 'Untracked scheduled post', published: false, scheduled_publish_time: '2026-12-01T10:00' },
+    );
+    assert.equal(legacySchedule.status, 409);
+    assert.equal(legacySchedule.body.code, 'USE_CONTENT_STUDIO_SCHEDULER');
+    assert.equal(metaRequestCount, 3, 'untracked Meta scheduling must not bypass local policy');
+
+    const tripoliDay = zonedMinuteParts(new Date(), 'Africa/Tripoli').day;
+    db.prepare(`
+        INSERT INTO facebook_content_settings (
+            tenant_id, linked_page_id, timezone, allowed_days_json,
+            posting_start_time, posting_end_time
+        ) VALUES (?, ?, 'Africa/Tripoli', ?, '00:00', '23:59')
+    `).run(tenantOne, pageOne, JSON.stringify([(tripoliDay + 1) % 7]));
+    const policyDenied = await invokeHandler(
+        createPostHandler,
+        pageOne,
+        { role: 'tenant', tenant_id: tenantOne },
+        {},
+        { message: 'Blocked outside the configured day' },
+    );
+    assert.equal(policyDenied.status, 409);
+    assert.equal(policyDenied.body.code, 'CONTENT_POSTING_WINDOW_CLOSED');
+    assert.equal(metaRequestCount, 3, 'publishing policy must fail before contacting Meta');
 
     const deniedInsights = await invokeHandler(overviewHandler, pageTwo, { role: 'tenant', tenant_id: tenantOne });
     assert.equal(deniedInsights.status, 404);

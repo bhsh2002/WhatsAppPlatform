@@ -19,6 +19,7 @@ const TenantFacebookPages = () => {
   const [subStatusPage, setSubStatusPage] = useState(null);
   const [subStatusData, setSubStatusData] = useState(null);
   const [subStatusLoading, setSubStatusLoading] = useState(false);
+  const [repairingPage, setRepairingPage] = useState(null);
   const [disconnectDialog, setDisconnectDialog] = useState(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
@@ -42,6 +43,7 @@ const TenantFacebookPages = () => {
     try {
       setSubStatusLoading(true);
       setSubStatusPage(page.id);
+      setSubStatusData(null);
       const data = await api.getPortalPageSubscriptionStatus(page.id);
       setSubStatusData(data);
     } catch (err) {
@@ -54,17 +56,35 @@ const TenantFacebookPages = () => {
       setSubStatusLoading(false);
     }
   };
+  const repairWebhook = async page => {
+    try {
+      setRepairingPage(page.id);
+      await api.repairPortalPageWebhook(page.id);
+      setSubStatusPage(null);
+      setSubStatusData(null);
+      setSnackbar({ open: true, message: tx('facebookConnection.repairSuccess'), severity: 'success' });
+      await fetchPages();
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.message || tx('facebookConnection.repairFailed'),
+        severity: 'error'
+      });
+    } finally {
+      setRepairingPage(null);
+    }
+  };
   const handleDisconnect = async () => {
     if (!disconnectDialog) return;
     try {
       setDisconnecting(true);
-      await api.disconnectFacebookPage(disconnectDialog.id);
+      const result = await api.disconnectFacebookPage(disconnectDialog.id);
       setSnackbar({
         open: true,
-        message: tx("auto.k_ea239141895e", {
+        message: result?.success ? tx("auto.k_ea239141895e", {
           value1: disconnectDialog.page_name
-        }),
-        severity: 'success'
+        }) : tx('facebookConnection.disconnectPartial'),
+        severity: result?.success ? 'success' : 'warning'
       });
       setDisconnectDialog(null);
       fetchPages();
@@ -183,9 +203,14 @@ const TenantFacebookPages = () => {
                     <Typography variant="body2" fontWeight={600}>{tx("auto.k_8239ec41f9b5")}
           {diagnostics.missing_scopes?.length ? tx("auto.k_6d25b66d46ed") : tx("auto.k_439f7dbbbbf8")}
                     </Typography>
-                    <Typography variant="caption" component="div">{tx("auto.k_3516d6abe9bc")}
-          {diagnostics.granted_scopes?.length || 0} / {diagnostics.requested_scopes?.length || 0}
+                    <Typography variant="caption" component="div">{tx('facebookConnection.requiredPermissions', {
+                      granted: Math.max(0, (diagnostics.requested_scopes?.length || 0) - (diagnostics.missing_scopes?.length || 0)),
+                      required: diagnostics.requested_scopes?.length || 0
+                    })}
                     </Typography>
+                    {(diagnostics.granted_scopes?.length || 0) > (diagnostics.requested_scopes?.length || 0) && <Typography variant="caption" component="div">{tx('facebookConnection.additionalPermissions', {
+                      count: diagnostics.granted_scopes.length - diagnostics.requested_scopes.length
+                    })}</Typography>}
                     {diagnostics.missing_scopes?.length > 0 && <Typography variant="caption" component="div">{tx("auto.k_9acb2d123c61")}
           {diagnostics.missing_scopes.join(', ')}
                         </Typography>}
@@ -254,7 +279,7 @@ const TenantFacebookPages = () => {
                 </Paper> : <Grid container spacing={3}>
                     {pages.map(page => <Grid size={{
         xs: 12,
-        md: 6
+        md: pages.length === 1 ? 12 : 6
       }} key={page.id}>
                             <Card sx={{
           height: '100%'
@@ -262,37 +287,64 @@ const TenantFacebookPages = () => {
                                 <CardContent>
                                     <Box sx={{
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: { xs: 'column', sm: 'row' },
+              alignItems: { xs: 'stretch', sm: 'center' },
               gap: 2,
               mb: 2
             }}>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, flex: 1 }}>
                                         <Avatar src={page.page_picture_url} sx={{
                 width: 56,
                 height: 56,
+                flexShrink: 0,
                 bgcolor: '#1877f2'
               }}>
 
                                             <FacebookIcon />
                                         </Avatar>
                                         <Box sx={{
-                flex: 1
+                flex: 1,
+                minWidth: 0
               }}>
-                                            <Typography component="h3" variant="h6" fontWeight={600}>
+                                            <Typography component="h3" variant="h6" fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>
                                                 {page.page_name || page.page_id}
                                             </Typography>
                                             {page.page_category && <Typography variant="body2" color="text.secondary">
                                                     {page.page_category}
                                                 </Typography>}
                                         </Box>
+                                      </Box>
                                         <Box sx={{
                 display: 'flex',
-                flexDirection: 'column',
+                flexDirection: { xs: 'row', sm: 'column' },
                 gap: 0.5,
-                alignItems: 'flex-end'
+                alignItems: { xs: 'flex-start', sm: 'flex-end' },
+                flexWrap: 'wrap'
               }}>
                                             {page.is_active ? <Chip icon={<CheckCircleIcon />} label={tx("auto.k_c9734087a2e1")} size="small" color="success" /> : <Chip icon={<CancelIcon />} label={tx("auto.k_7ac8f21ec817")} size="small" color="error" />}
                                             {page.webhook_subscribed ? <Chip icon={<CloudDoneIcon />} label={tx("auto.k_a57e024a0c7b")} size="small" color="primary" variant="outlined" /> : <Chip icon={<CloudOffIcon />} label={tx("auto.k_20f15d4c0ce9")} size="small" color="warning" variant="outlined" />}
                                         </Box>
+                                    </Box>
+
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5 }}>
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        color={page.token_status === 'valid' ? 'success' : ['expired', 'invalid'].includes(page.token_status) ? 'error' : 'warning'}
+                                        label={tx(page.token_status === 'valid'
+                                          ? 'facebookConnection.tokenValid'
+                                          : page.token_status === 'expiring'
+                                            ? 'facebookConnection.tokenExpiring'
+                                            : ['expired', 'invalid'].includes(page.token_status)
+                                              ? 'facebookConnection.tokenUnavailable'
+                                              : 'facebookConnection.tokenUnchecked')}
+                                      />
+                                      {page.token_expires_at && <Typography variant="caption" color="text.secondary">
+                                        {tx('facebookConnection.tokenExpires', { date: formatDate(page.token_expires_at) })}
+                                      </Typography>}
+                                      {page.token_checked_at && <Typography variant="caption" color="text.secondary">
+                                        {tx('facebookConnection.tokenChecked', { date: formatDate(page.token_checked_at) })}
+                                      </Typography>}
                                     </Box>
 
                                     <Divider sx={{
@@ -301,24 +353,32 @@ const TenantFacebookPages = () => {
 
                                     <Box sx={{
               display: 'flex',
+              flexDirection: { xs: 'column', sm: 'row' },
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: { xs: 'stretch', sm: 'center' },
+              gap: 1
             }}>
-                                        <Typography variant="caption" color="text.secondary">{tx("auto.k_8b2cd5c320e0")}
-                  {formatDate(page.created_at)}
+                                        <Typography variant="caption" color="text.secondary">{tx('facebookConnection.connectedAt', { date: formatDate(page.created_at) })}
                                         </Typography>
                                         <Box sx={{
                 display: 'flex',
-                gap: 1
+                gap: 1,
+                flexWrap: 'wrap'
               }}>
                                             <Button size="small" variant="text" onClick={() => checkSubscription(page)} disabled={subStatusLoading && subStatusPage === page.id}>
 
                                                 {subStatusLoading && subStatusPage === page.id ? tx("auto.k_a786bc53bb3e") : tx("auto.k_82c319206e6b")}
                                             </Button>
-                                            <Button size="small" variant="text" color="error" startIcon={<DeleteIcon />} onClick={() => setDisconnectDialog(page)}>{tx("auto.k_1d0dc1931d03")}
+                                            {page.is_active && (!page.webhook_subscribed || (subStatusPage === page.id && subStatusData?.webhook_subscribed_in_meta === false)) && !['expired', 'invalid'].includes(page.token_status) && <Button size="small" variant="outlined" onClick={() => repairWebhook(page)} disabled={repairingPage === page.id}>
+                                              {repairingPage === page.id ? <CircularProgress size={16} /> : tx('facebookConnection.repairWebhook')}
+                                            </Button>}
+                                            {(!page.is_active || ['expired', 'invalid'].includes(page.token_status)) && <Button size="small" variant="outlined" onClick={() => setShowConnect(true)}>
+                                              {tx('facebookConnection.reauthorize')}
+                                            </Button>}
+                                            {page.is_active && <Button size="small" variant="text" color="error" startIcon={<DeleteIcon />} onClick={() => setDisconnectDialog(page)}>{tx("auto.k_1d0dc1931d03")}
 
 
-                  </Button>
+                  </Button>}
                                         </Box>
                                     </Box>
 
@@ -329,6 +389,9 @@ const TenantFacebookPages = () => {
                                             <Typography variant="caption" component="div">{tx("auto.k_7c4878a98b0e")}
                   {subStatusData.webhook_subscribed_in_db ? tx("auto.k_6e73793ec3cc") : tx("auto.k_17ce54039308")}
                                             </Typography>
+                                            {subStatusData.webhook_subscribed_in_meta === false && <Typography variant="caption" component="div" color="error">
+                                              {tx('facebookConnection.webhookMissingLive')}
+                                            </Typography>}
                                             {subStatusData.meta_response?.data?.length > 0 && <Typography variant="caption" component="div" sx={{
                 mt: 0.5
               }}>{tx("auto.k_48916fb64987")}

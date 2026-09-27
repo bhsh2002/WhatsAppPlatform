@@ -3,7 +3,7 @@ import {
   ChatBubble as CommentReplyIcon,
   Facebook as FacebookIcon,
   NightsStay as AwayIcon,
-  SmartToy as SmartToyIcon,
+  Rule as RuleIcon,
   VpnKey as KeywordIcon,
   WavingHand as WelcomeIcon,
   WhatsApp as WhatsAppIcon
@@ -17,7 +17,7 @@ export const AutomationRuleTypeIcon = ({ type }) => {
     away: AwayIcon,
     comment_reply: CommentReplyIcon
   };
-  const Icon = icons[type] || SmartToyIcon;
+  const Icon = icons[type] || RuleIcon;
   return <Icon sx={{ fontSize: 18 }} />;
 };
 

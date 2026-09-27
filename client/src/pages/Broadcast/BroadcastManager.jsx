@@ -337,7 +337,7 @@ const BroadcastManager = () => {
         }}>
                             <InputLabel>{tx("auto.k_a63d4f7fb41e")}</InputLabel>
                             <Select value={config.field} label={tx("auto.k_a63d4f7fb41e")} onChange={e => handleConfigChange('header_MEDIA_LINK', 'field', e.target.value)}>
-                                {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
                             </Select>
                         </FormControl>
                         <TextField label={tx("auto.k_f473cee84052")} value={config.fallback} onChange={e => handleConfigChange('header_MEDIA_LINK', 'fallback', e.target.value)} size="small" sx={{
@@ -553,7 +553,7 @@ const BroadcastManager = () => {
                 }}>
                                                         <InputLabel>{tx("auto.k_0f05187d2257")}</InputLabel>
                                                         <Select value={config.field} label={tx("auto.k_0f05187d2257")} onChange={e => handleConfigChange(varNum, 'field', e.target.value)}>
-                                                            {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.icon} {f.label}</MenuItem>)}
+                                                            {getBroadcastContactFields().map(f => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
                                                         </Select>
                                                     </FormControl>
                                                     <TextField label={tx("auto.k_b895ad8558e1")} value={config.fallback} onChange={e => handleConfigChange(varNum, 'fallback', e.target.value)} size="small" sx={{

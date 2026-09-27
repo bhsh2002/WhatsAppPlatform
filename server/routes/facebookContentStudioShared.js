@@ -303,6 +303,7 @@ export const sendContentError = (res, error, fallback = 'فشلت عملية ا�
         return res.status(error.status).json({
             error: error.message,
             code: error.code || 'CONTENT_STUDIO_ERROR',
+            ...(error.details ? { details: error.details } : {}),
         });
     }
     console.error('[FacebookContentStudio]', error);

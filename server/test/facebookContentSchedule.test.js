@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     isValidTimeZone,
     isWithinPostingWindow,
+    nextPostingWindow,
     nextCampaignRun,
     normalizeScheduleDays,
     normalizeScheduleTimes,
@@ -66,6 +67,20 @@ test('posting windows support ordinary and overnight ranges', () => {
         startTime: '08:00',
         endTime: '22:00',
     }), false);
+    assert.equal(isWithinPostingWindow({
+        date: new Date('2026-07-16T23:30:00.000Z'),
+        timeZone: 'Africa/Tripoli',
+        days: [4],
+        startTime: '22:00',
+        endTime: '03:00',
+    }), true, 'after-midnight time belongs to the previous allowed day');
+    assert.equal(nextPostingWindow({
+        from: new Date('2026-07-16T12:00:00.000Z'),
+        timeZone: 'Africa/Tripoli',
+        days: [5],
+        startTime: '09:00',
+        endTime: '11:00',
+    }).toISOString(), '2026-07-17T07:00:00.000Z');
 });
 
 test('timezone day bounds remain UTC-safe', () => {
