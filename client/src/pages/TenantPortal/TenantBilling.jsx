@@ -46,11 +46,17 @@ import {
     isCentralCheckoutQuote,
     selectCentralPlanPrice,
 } from './centralOfferPresentation';
-import { availableCentralPaymentMethods, centralInvoiceIsPaid, centralInvoicePaymentState } from './paymentMethods';
+import {
+    availableCentralPaymentMethods,
+    centralInvoiceCheckoutExpired,
+    centralInvoiceIsPaid,
+    centralInvoicePaymentState,
+} from './paymentMethods';
 
 const PAYMENT_RETURN_INVOICE_KEY = 'wa-savana-payment-return-invoice';
 const PAYMENT_POLL_ATTEMPTS = 6;
 const PAYMENT_POLL_INTERVAL_MS = 2000;
+const EXPIRED_UPGRADE_MESSAGE = 'انتهت صلاحية عرض الترقية. تواصل مع الإدارة لإلغاء الطلب وإصدار عرض جديد قبل الدفع.';
 
 const rememberPaymentInvoice = (invoiceId, checkoutUrl) => {
     try {
@@ -119,6 +125,7 @@ const TenantBilling = () => {
     const [checkoutPreviewChanged, setCheckoutPreviewChanged] = useState(false);
     const [checkoutPreviewError, setCheckoutPreviewError] = useState('');
     const [paymentWorking, setPaymentWorking] = useState('');
+    const [paymentClock, setPaymentClock] = useState(() => Date.now());
     const [checkoutMessage, setCheckoutMessage] = useState('');
     const [paymentReturn, setPaymentReturn] = useState(returnedPayment);
 
@@ -162,6 +169,11 @@ const TenantBilling = () => {
     useEffect(() => {
         fetchBilling();
     }, [fetchBilling]);
+
+    useEffect(() => {
+        const timerId = window.setInterval(() => setPaymentClock(Date.now()), 5000);
+        return () => window.clearInterval(timerId);
+    }, []);
 
     useEffect(() => {
         if (loading || paymentReturn?.status !== 'checking') return undefined;
@@ -210,11 +222,22 @@ const TenantBilling = () => {
     }, [loading, paymentReturn?.invoiceId, paymentReturn?.status]);
 
     const resumeMoamalatPayment = (invoiceId, checkoutUrl) => {
+        const invoice = invoices.find(item => item.id === invoiceId);
+        if (centralInvoiceCheckoutExpired(invoice)) {
+            setError(EXPIRED_UPGRADE_MESSAGE);
+            setPaymentClock(Date.now());
+            return;
+        }
         rememberPaymentInvoice(invoiceId, checkoutUrl);
         window.location.assign(checkoutUrl);
     };
 
     const startPayment = async (invoiceId, provider) => {
+        if (centralInvoiceCheckoutExpired(invoices.find(item => item.id === invoiceId))) {
+            setError(EXPIRED_UPGRADE_MESSAGE);
+            setPaymentClock(Date.now());
+            return;
+        }
         setPaymentWorking(`${provider}:${invoiceId}`);
         setError(null);
         try {
@@ -356,10 +379,13 @@ const TenantBilling = () => {
     const renderInvoicePayment = (invoice) => {
         if (invoice.status !== 'open') return null;
         const paymentState = centralInvoicePaymentState(
-            centralSubscription?.payment_intents, invoice.id,
+            centralSubscription?.payment_intents, invoice.id, invoice, paymentClock,
         );
         if (paymentState.kind === 'cash_pending') {
             return <Chip size="small" color="warning" label="السداد النقدي بانتظار تأكيد الإدارة" />;
+        }
+        if (paymentState.kind === 'quote_expired') {
+            return <Typography variant="body2" color="warning.main">{EXPIRED_UPGRADE_MESSAGE}</Typography>;
         }
         if (paymentState.kind === 'moamalat_resume') {
             return <Button size="small" variant="contained" onClick={() => resumeMoamalatPayment(invoice.id, paymentState.intent.checkout_url)}>متابعة الدفع عبر معاملات</Button>;
