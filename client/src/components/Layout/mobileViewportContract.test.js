@@ -11,7 +11,7 @@ const source = relativePath => readFileSync(
 test('mobile layout owns the header and dynamic viewport height calculation', () => {
   const layout = source('./MainLayout.jsx');
 
-  assert.match(layout, /const mobileHeaderHeight = 48;/);
+  assert.match(layout, /const mobileHeaderHeight = 56;/);
   assert.match(layout, /'--wa-mobile-header-height': `\$\{mobileHeaderHeight\}px`/);
   assert.match(layout, /height: \{ xs: '100dvh', md: 'auto' \}/);
   assert.match(layout, /overflowY: \{ xs: 'hidden', md: 'visible' \}/);
@@ -25,6 +25,16 @@ test('mobile layout owns the header and dynamic viewport height calculation', ()
     layout,
     /data-testid="app-content-scroll-root"[\s\S]*?overflowY: \{ xs: fullHeight \? 'hidden' : 'auto', md: 'visible' \}/,
   );
+});
+
+test('compact WhatsApp selector keeps its floating label inside the mobile header', () => {
+  const selector = source('../WhatsApp/WhatsAppNumberSelector.jsx');
+  const visibleOverflowPairs = selector.match(
+    /overflowX: 'clip',\s*overflowY: 'visible'/g,
+  ) || [];
+
+  assert.match(selector, /mt: compact \? 0\.5 : 0/);
+  assert.equal(visibleOverflowPairs.length, 2);
 });
 
 test('active inbox routes opt into internal-only scrolling', () => {

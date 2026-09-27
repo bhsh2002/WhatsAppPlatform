@@ -9,7 +9,7 @@ import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
 import WhatsAppNumberSelector from '../WhatsApp/WhatsAppNumberSelector';
 
 const drawerWidth = 280;
-const mobileHeaderHeight = 48;
+const mobileHeaderHeight = 56;
 const mobileDrawerId = 'main-mobile-navigation';
 
 const MainLayout = ({ children, fullHeight = false }) => {
