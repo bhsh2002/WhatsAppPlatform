@@ -5,6 +5,7 @@ import {
     integrationCandidatesForPlatform,
     integrationIsConnectable,
     integrationLoadIsCurrent,
+    integrationSubscriptionBadge,
     resolveAvailablePlatform,
     shouldRequestIntegrationCandidates,
 } from './integrationPlatformAvailability.js';
@@ -14,6 +15,21 @@ const integrations = [
     { platform_code: 'catalog', available: false, status: 'disconnected' },
     { platform_code: 'sawemly', available: true, status: 'disconnected' },
 ];
+
+test('subscription badge separates Wa entitlement from connection status', () => {
+    assert.deepEqual(integrationSubscriptionBadge(true, true), {
+        label: 'اشتراك Wa Savana يشمل الربط',
+        color: 'success',
+    });
+    assert.deepEqual(integrationSubscriptionBadge(false, true), {
+        label: 'اشتراك Wa Savana لا يشمل الربط',
+        color: 'warning',
+    });
+    assert.deepEqual(integrationSubscriptionBadge(null, true), {
+        label: 'تعذر التحقق من الاشتراك',
+        color: 'default',
+    });
+});
 
 test('the first available platform replaces an unavailable selection', () => {
     assert.equal(resolveAvailablePlatform(integrations, 'catalog'), 'sawemly');

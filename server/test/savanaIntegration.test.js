@@ -40,7 +40,11 @@ const createDatabase = () => {
     return database;
 };
 
-const entitlementSnapshot = ({ entitled = true, secret = signingSecret } = {}) => {
+const entitlementSnapshot = ({
+    entitled = true,
+    integrationsEnabled = undefined,
+    secret = signingSecret,
+} = {}) => {
     const payload = {
         spec_version: '1.0',
         organization_id: organizationId,
@@ -53,6 +57,9 @@ const entitlementSnapshot = ({ entitled = true, secret = signingSecret } = {}) =
             'wa_savana.integration.pos.enabled': entitled,
             'wa_savana.integration.catalog.enabled': entitled,
             'wa_savana.integration.sawemly.enabled': entitled,
+            ...(integrationsEnabled === undefined
+                ? {}
+                : { 'savana.integrations.enabled': integrationsEnabled }),
             'wa_savana.credits.monthly': 10000,
             'wa_savana.credit_limit.default': 250,
         },
@@ -202,17 +209,32 @@ test('production integration policy requires distinct secrets and trusted servic
 
 test('tenant platform list reflects the targets enabled by Savana Connect', async (t) => {
     const database = createDatabase();
+    const snapshot = entitlementSnapshot({ entitled: false, integrationsEnabled: true });
     let targetRequest;
     const service = new SavanaIntegrationService({
         database,
         config,
         fetchImpl: async (url, options) => {
-            targetRequest = { url: new URL(url), options };
-            return Response.json([
-                { code: 'sawemly', display_name: 'Sawemly' },
-                { code: 'wa_savana', display_name: 'Wa Savana' },
-                { code: 'future_platform', display_name: 'Future platform' },
-            ]);
+            const pathName = new URL(url).pathname;
+            if (pathName === '/v1/platform-targets') {
+                targetRequest = { url: new URL(url), options };
+                return Response.json([
+                    { code: 'sawemly', display_name: 'Sawemly' },
+                    { code: 'wa_savana', display_name: 'Wa Savana' },
+                    { code: 'future_platform', display_name: 'Future platform' },
+                ]);
+            }
+            if (pathName === '/v1/platform-bindings') {
+                return Response.json([{ organization_id: organizationId }]);
+            }
+            if (pathName.endsWith('/subscription-context/wa_savana')) {
+                return Response.json({ data: {
+                    managed_centrally: true,
+                    organization: { id: organizationId },
+                    entitlement_snapshot: snapshot,
+                } });
+            }
+            return Response.json({ error: 'unexpected request' }, { status: 500 });
         },
     });
     const app = express();
@@ -243,13 +265,67 @@ test('tenant platform list reflects the targets enabled by Savana Connect', asyn
         config.connectPlatformToken
     );
     assert.deepEqual(
-        body.data.map(item => [item.platform_code, item.available]),
+        body.data.map(item => [item.platform_code, item.available, item.subscription_entitled]),
         [
-            ['pos', false],
-            ['catalog', false],
-            ['sawemly', true],
+            ['pos', false, true],
+            ['catalog', false, true],
+            ['sawemly', true, true],
         ]
     );
+    assert.equal(body.data.find(item => item.platform_code === 'sawemly').status, 'disconnected');
+    assert.equal(database.prepare('SELECT COUNT(*) AS count FROM savana_integrations').get().count, 0);
+});
+
+test('subscription entitlement is unknown when unbound or the central source fails', async (t) => {
+    const database = createDatabase();
+    const snapshot = entitlementSnapshot({ entitled: false });
+    const service = new SavanaIntegrationService({
+        database,
+        config,
+        fetchImpl: async (url) => {
+            const pathName = new URL(url).pathname;
+            if (pathName === '/v1/platform-targets') {
+                return Response.json([{ code: 'sawemly' }]);
+            }
+            throw new Error('central service unavailable');
+        },
+    });
+    t.after(() => database.close());
+    assert.equal(service.subscriptionIntegrationEntitlement({
+        managed_centrally: true,
+        bound: false,
+    }, 'sawemly'), null);
+    assert.equal(service.subscriptionIntegrationEntitlement({
+        managed_centrally: true,
+        bound: true,
+        entitlement_snapshot: snapshot,
+    }, 'sawemly'), false);
+    assert.equal(service.subscriptionIntegrationEntitlement({
+        managed_centrally: true,
+        bound: true,
+    }, 'sawemly'), null);
+
+    const app = express();
+    app.use((req, _res, next) => {
+        req.user = { id: 'tenant-user', tenant_id: 1 };
+        next();
+    });
+    app.use('/integrations', createTenantIntegrationsRouter({ database, service }));
+    const server = app.listen(0);
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+        const response = await fetch(
+            `http://127.0.0.1:${server.address().port}/integrations/platforms`
+        );
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.equal(body.data.find(item => item.platform_code === 'sawemly').subscription_entitled, null);
+    } finally {
+        console.warn = originalWarn;
+    }
 });
 
 test('malformed platform target discovery preserves the local list as unavailable', async () => {

@@ -956,17 +956,31 @@ export class SavanaIntegrationService {
         return { payload, signature };
     }
 
-    hasEntitlement(item) {
-        const payload = parseJson(item?.entitlement_payload_json, {});
-        if (!item?.entitlement_valid_until || Date.parse(item.entitlement_valid_until) <= Date.now()) {
+    integrationEntitled(payload, platformCode, validUntil = payload?.valid_until) {
+        if (!payload || typeof payload !== 'object') return false;
+        const expiresAt = Date.parse(validUntil);
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
             return false;
         }
         if (!ACTIVE_SUBSCRIPTION_STATUSES.has(payload.subscription_status)) return false;
         const entitlements = payload.entitlements || {};
-        const key = `wa_savana.integration.${item.platform_code}.enabled`;
+        const key = `wa_savana.integration.${platformCode}.enabled`;
         return entitlements['savana.integrations.enabled'] === true
             || entitlements[key] === true
             || entitlements[key.replace('.integration.', '.integrations.')] === true;
+    }
+
+    hasEntitlement(item) {
+        const payload = parseJson(item?.entitlement_payload_json, {});
+        return this.integrationEntitled(payload, item?.platform_code, item?.entitlement_valid_until);
+    }
+
+    subscriptionIntegrationEntitlement(context, platformCode) {
+        if (!context?.managed_centrally) return null;
+        if (!context.bound) return null;
+        const payload = context.entitlement_snapshot?.payload;
+        if (!payload) return null;
+        return this.integrationEntitled(payload, platformCode);
     }
 
     async refreshEntitlement(item) {

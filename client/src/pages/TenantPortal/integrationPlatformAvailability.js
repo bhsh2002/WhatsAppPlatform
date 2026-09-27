@@ -13,6 +13,25 @@ export const integrationIsConnectable = integration => Boolean(
     )
 );
 
+export const integrationSubscriptionBadge = (entitled, ar) => {
+    if (entitled === true) {
+        return {
+            label: ar ? 'اشتراك Wa Savana يشمل الربط' : 'Wa Savana subscription includes integration',
+            color: 'success',
+        };
+    }
+    if (entitled === false) {
+        return {
+            label: ar ? 'اشتراك Wa Savana لا يشمل الربط' : 'Wa Savana subscription does not include integration',
+            color: 'warning',
+        };
+    }
+    return {
+        label: ar ? 'تعذر التحقق من الاشتراك' : 'Subscription status unavailable',
+        color: 'default',
+    };
+};
+
 export const resolveAvailablePlatform = (integrations, selectedPlatform) => {
     const available = (integrations || []).filter(
         integration => integration?.available === true && integration.platform_code

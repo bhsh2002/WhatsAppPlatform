@@ -158,10 +158,19 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 service.list(req.user.tenant_id).map(item => [item.platform_code, item])
             );
             const available = new Set(await service.availablePlatforms());
+            let subscriptionContext = null;
+            try {
+                subscriptionContext = await service.subscriptionContext(req.user.tenant_id);
+            } catch (error) {
+                console.warn('[SavanaIntegrations] Subscription entitlement lookup failed:', error.message);
+            }
             return res.json({
                 data: service.knownPlatforms().map(platformCode => ({
                     ...service.serialize(existing.get(platformCode), platformCode),
                     available: available.has(platformCode),
+                    subscription_entitled: service.subscriptionIntegrationEntitlement(
+                        subscriptionContext, platformCode
+                    ),
                 })),
             });
         } catch (error) {

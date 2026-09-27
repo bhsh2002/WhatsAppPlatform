@@ -21,6 +21,7 @@ import {
     integrationCandidatesForPlatform,
     integrationIsConnectable,
     integrationLoadIsCurrent,
+    integrationSubscriptionBadge,
     resolveAvailablePlatform,
     shouldRequestIntegrationCandidates,
 } from './integrationPlatformAvailability';
@@ -279,6 +280,7 @@ const TenantPosIntegration = () => {
 
     const status = integration.status || 'disconnected';
     const platformAvailable = integration.available === true;
+    const entitlementBadge = integrationSubscriptionBadge(integration.subscription_entitled, ar);
     const canConnect = integrationIsConnectable(integration);
     const counts = diagnostics?.counts || {};
     const outboxCounts = diagnostics?.outbox?.counts || {};
@@ -423,7 +425,7 @@ const TenantPosIntegration = () => {
                         </Stack>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                             <Chip label={ar ? STATUS_AR[status] : status} color={STATUS_COLORS[status] || 'default'} />
-                            <Chip label={integration.entitled || integration.pos_entitled ? (ar ? 'الاشتراك يشمل الربط' : 'Subscription entitled') : (ar ? 'غير مشمول بالاشتراك' : 'Not entitled')} color={integration.entitled || integration.pos_entitled ? 'success' : 'warning'} variant="outlined" />
+                            <Chip label={entitlementBadge.label} color={entitlementBadge.color} variant="outlined" />
                         </Stack>
                     </Stack>
 
