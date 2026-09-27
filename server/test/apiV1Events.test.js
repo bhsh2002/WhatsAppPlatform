@@ -188,7 +188,7 @@ test('API v1 events persist normalized Meta failures and release transport failu
         body: { events: [purchase()] },
     });
     assert.equal(metaFailure.statusCode, 429);
-    assert.equal(metaFailure.body.error, 'Rate limited');
+    assert.equal(metaFailure.body.error, 'Meta rate limit reached');
 
     const transportFailure = await invoke(h.router, 'post', '/events', {
         body: { events: [purchase()] },
@@ -234,7 +234,7 @@ test('API v1 event history is paginated, tenant-scoped and sanitizes legacy Meta
     assert.equal(result.body.events.length, 1);
     assert.equal(result.body.events[0].tenant_id, 1);
     const safeMeta = JSON.parse(result.body.events[0].meta_response);
-    assert.equal(safeMeta.error.message, 'Rejected');
+    assert.equal(safeMeta.error.message, 'Meta rejected the request');
     assert.equal(safeMeta.error.code, 100);
     assert.doesNotMatch(JSON.stringify(safeMeta), /private-trace|error_data|secret/);
 

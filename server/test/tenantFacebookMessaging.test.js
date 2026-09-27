@@ -335,7 +335,7 @@ test('utility messages validate tenant ownership and settle billing on Meta succ
         body: { message: 'Second message', tag: 'HUMAN_AGENT' },
     });
     assert.equal(failure.statusCode, 503);
-    assert.equal(failure.body.error, 'Meta unavailable');
+    assert.equal(failure.body.error, 'خدمة Meta غير متاحة مؤقتاً');
     assert.equal(failure.body.details.code, 2);
     assert.equal(billing.calls.reserves.length, 2);
     assert.equal(billing.calls.commits.length, 1);

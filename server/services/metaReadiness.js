@@ -3,6 +3,7 @@ import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js'
 import { getAccessToken } from './credentials.js';
 import { decryptIfEncrypted } from './encryption.js';
 import { readMetaResponse, sanitizeStoredMetaResponse } from './metaHttp.js';
+import { fetchMetaWithAccessToken } from './metaAuthorizedFetch.js';
 import {
     classifyMetaTokenStatus,
     isMetaTokenExpiring,
@@ -403,8 +404,9 @@ export const debugFacebookUserToken = async (tenant) => {
     }
 
     const appAccessToken = `${META_APP_ID}|${META_APP_SECRET}`;
-    const response = await fetch(
-        `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(appAccessToken)}`,
+    const response = await fetchMetaWithAccessToken(
+        `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(token)}`,
+        appAccessToken,
         { signal: AbortSignal.timeout(8000) }
     );
     const metaResult = await readMetaResponse(response);
@@ -501,13 +503,13 @@ export const buildMetaReviewReadiness = async (tenantId) => {
         if (liveFacebookUserToken.scopes?.length) {
             grantedScopes = liveFacebookUserToken.scopes;
         }
-    } catch (err) {
+    } catch {
         liveFacebookUserToken = {
             checked: false,
             status: 'unavailable',
             scopes: grantedScopes,
             app_id: tenant.facebook_user_token_app_id || null,
-            error: err.message,
+            error: 'facebook_user_token_check_failed',
             retryable: true,
         };
     }

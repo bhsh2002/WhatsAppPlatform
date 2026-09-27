@@ -10,6 +10,7 @@ import {
     WA_EMBEDDED_SIGNUP_CONFIG_ID,
 } from '../config/index.js';
 import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
+import { safeMetaNextPageUrl } from '../services/metaPagination.js';
 import { classifyMetaTokenStatus, isMetaTokenReady } from '../services/metaTokenStatus.js';
 import { parseListPagination } from '../services/pagination.js';
 import {
@@ -23,6 +24,30 @@ const FACEBOOK_ACCOUNTS_FIELDS = 'id,name,category,picture.width(100).height(100
 const FACEBOOK_ACCOUNTS_PAGE_SIZE = 100;
 const MAX_FACEBOOK_ACCOUNT_REQUESTS = 10;
 const MAX_FACEBOOK_ACCOUNTS = 1000;
+const PAGE_WEBHOOK_SUBSCRIBE_FAILURE = 'تعذر تفعيل استقبال أحداث الصفحة لدى Meta. تحقق من الصلاحيات ثم أعد المحاولة.';
+const PAGE_WEBHOOK_UNSUBSCRIBE_FAILURE = 'تعذر إلغاء اشتراك Webhook لدى Meta';
+const SAFE_ONBOARDING_ERROR_CODES = new Set([
+    'ECONNREFUSED', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND', 'ETIMEDOUT',
+    'SQLITE_BUSY', 'SQLITE_CONSTRAINT', 'SQLITE_CONSTRAINT_UNIQUE', 'SQLITE_ERROR',
+    'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+const safeFailureStatus = error => (
+    Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599
+        ? error.status
+        : 500
+);
+
+const logOnboardingFailure = (operation, error, level = 'error') => {
+    const rawCode = error?.code ?? error?.cause?.code;
+    const code = SAFE_ONBOARDING_ERROR_CODES.has(rawCode)
+        ? rawCode
+        : Number.isInteger(rawCode) && rawCode >= 0 && rawCode <= 9999 ? rawCode : null;
+    console[level](`[TenantMetaOnboarding] ${operation}:`, {
+        code,
+        status: safeFailureStatus(error),
+    });
+};
 
 const normalizeString = (value, maxLength = 500) => {
     if (typeof value !== 'string') return null;
@@ -339,7 +364,7 @@ export function createTenantMetaOnboardingRouter({
                         tokenAppId = debugTokenData.app_id || null;
                     }
                 } catch (error) {
-                    console.warn('[TenantMetaOnboarding] Facebook token debug failed:', error.message);
+                    logOnboardingFailure('Facebook token debug failed', error, 'warn');
                 }
             }
 
@@ -357,14 +382,13 @@ export function createTenantMetaOnboardingRouter({
                         picture_url: profileData.picture?.data?.url || null,
                     };
                 } else {
-                    console.warn(
-                        '[TenantMetaOnboarding] Facebook profile fetch failed:',
-                        profileResult.status,
-                        profileResult.error?.code
-                    );
+                    logOnboardingFailure('Facebook profile fetch failed', {
+                        status: profileResult.status,
+                        code: profileResult.error?.code,
+                    }, 'warn');
                 }
             } catch (error) {
-                console.warn('[TenantMetaOnboarding] Facebook profile fetch failed:', error.message);
+                logOnboardingFailure('Facebook profile fetch failed', error, 'warn');
             }
 
             database.transaction(() => {
@@ -434,7 +458,7 @@ export function createTenantMetaOnboardingRouter({
                 pages_pagination_warning: accountsResult.paginationWarning,
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Facebook connect error:', error);
+            logOnboardingFailure('Facebook connect error', error);
             return res.status(500).json({ error: 'فشل ربط فيسبوك' });
         }
     });
@@ -489,7 +513,7 @@ export function createTenantMetaOnboardingRouter({
                 pages,
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Facebook diagnostics error:', error);
+            logOnboardingFailure('Facebook diagnostics error', error);
             return res.status(500).json({ error: 'فشل جلب تشخيص فيسبوك' });
         }
     });
@@ -498,8 +522,8 @@ export function createTenantMetaOnboardingRouter({
         try {
             return res.json(await buildReadiness(req.user.tenant_id));
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Meta review readiness error:', error);
-            return res.status(error.status || 500).json({ error: 'فشل جلب جاهزية مراجعة Meta' });
+            logOnboardingFailure('Meta review readiness error', error);
+            return res.status(safeFailureStatus(error)).json({ error: 'فشل جلب جاهزية مراجعة Meta' });
         }
     });
 
@@ -508,7 +532,7 @@ export function createTenantMetaOnboardingRouter({
             const { limit } = parseListPagination(req.query, { defaultLimit: 10, maxLimit: 50 });
             return res.json({ snapshots: listSnapshots(req.user.tenant_id, limit) });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Meta review snapshots error:', error);
+            logOnboardingFailure('Meta review snapshots error', error);
             return res.status(500).json({ error: 'فشل جلب لقطات جاهزية Meta' });
         }
     });
@@ -520,8 +544,8 @@ export function createTenantMetaOnboardingRouter({
             const snapshot = saveSnapshot(tenantId, readiness);
             return res.status(201).json({ snapshot, readiness });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Meta review snapshot error:', error);
-            return res.status(error.status || 500).json({ error: 'فشل حفظ لقطة جاهزية Meta' });
+            logOnboardingFailure('Meta review snapshot error', error);
+            return res.status(safeFailureStatus(error)).json({ error: 'فشل حفظ لقطة جاهزية Meta' });
         }
     });
 
@@ -661,7 +685,7 @@ export function createTenantMetaOnboardingRouter({
                             );
                         }
                     } catch (error) {
-                        console.warn('[TenantMetaOnboarding] Page token debug failed:', pageId, error.message);
+                        logOnboardingFailure('Page token debug failed', error, 'warn');
                     }
                 }
 
@@ -684,9 +708,10 @@ export function createTenantMetaOnboardingRouter({
                     webhookSubscribed = subscribeResult.ok && subscribeResult.data?.success !== false;
                     webhookError = webhookSubscribed
                         ? null
-                        : subscribeResult.error?.message || 'فشل اشتراك Webhook';
+                        : PAGE_WEBHOOK_SUBSCRIBE_FAILURE;
                 } catch (error) {
-                    webhookError = error.message;
+                    logOnboardingFailure('Page webhook subscription failed', error, 'warn');
+                    webhookError = PAGE_WEBHOOK_SUBSCRIBE_FAILURE;
                 }
 
                 database.transaction(() => {
@@ -741,7 +766,7 @@ export function createTenantMetaOnboardingRouter({
                 pages_pagination_warning: accountsResult.paginationWarning,
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Facebook link-pages error:', error);
+            logOnboardingFailure('Facebook link-pages error', error);
             return res.status(500).json({ error: 'فشل ربط الصفحات' });
         }
     });
@@ -769,11 +794,11 @@ export function createTenantMetaOnboardingRouter({
                     );
                     webhookUnsubscribed = unsubscribeResult.ok && unsubscribeResult.data?.success !== false;
                     if (!webhookUnsubscribed) {
-                        unsubscribeError = unsubscribeResult.error?.message || 'تعذر إلغاء اشتراك Webhook لدى Meta';
+                        unsubscribeError = PAGE_WEBHOOK_UNSUBSCRIBE_FAILURE;
                     }
                 } catch (error) {
-                    console.warn('[TenantMetaOnboarding] Webhook unsubscribe failed:', error.message);
-                    unsubscribeError = error.message || 'تعذر إلغاء اشتراك Webhook لدى Meta';
+                    logOnboardingFailure('Webhook unsubscribe failed', error, 'warn');
+                    unsubscribeError = PAGE_WEBHOOK_UNSUBSCRIBE_FAILURE;
                 }
             } else {
                 unsubscribeError = 'رمز وصول الصفحة غير متاح لإلغاء اشتراك Webhook لدى Meta';
@@ -832,7 +857,7 @@ export function createTenantMetaOnboardingRouter({
                 data_preserved: true,
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] Facebook disconnect error:', error);
+            logOnboardingFailure('Facebook disconnect error', error);
             return res.status(500).json({ error: 'فشل إلغاء ربط الصفحة' });
         }
     });
@@ -841,7 +866,7 @@ export function createTenantMetaOnboardingRouter({
         try {
             return res.json(getTenantWhatsAppStatus(req.user.tenant_id));
         } catch (error) {
-            console.error('[TenantMetaOnboarding] WhatsApp status error:', error);
+            logOnboardingFailure('WhatsApp status error', error);
             return res.status(500).json({ error: 'فشل جلب حالة ربط واتساب' });
         }
     });
@@ -856,7 +881,7 @@ export function createTenantMetaOnboardingRouter({
                     || null,
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] WhatsApp numbers error:', error);
+            logOnboardingFailure('WhatsApp numbers error', error);
             return res.status(500).json({ error: 'فشل جلب أرقام WhatsApp' });
         }
     });
@@ -885,7 +910,7 @@ export function createTenantMetaOnboardingRouter({
                 .find(item => item.phone_number_id === phoneNumberId);
             return res.json(number);
         } catch (error) {
-            console.error('[TenantMetaOnboarding] WhatsApp number update error:', error);
+            logOnboardingFailure('WhatsApp number update error', error);
             return res.status(500).json({ error: 'فشل تحديث رقم WhatsApp' });
         }
     });
@@ -903,7 +928,7 @@ export function createTenantMetaOnboardingRouter({
             logWhatsAppActivity(req.user.tenant_id, 'whatsapp_default_changed', `تعيين رقم WhatsApp الافتراضي: ${phoneNumberId}`);
             return res.json({ success: true, number });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] WhatsApp default number error:', error);
+            logOnboardingFailure('WhatsApp default number error', error);
             return res.status(500).json({ error: 'فشل تعيين رقم WhatsApp الافتراضي' });
         }
     });
@@ -946,7 +971,7 @@ export function createTenantMetaOnboardingRouter({
                 default_phone_number_id: current.find(number => number.is_default)?.phone_number_id || null,
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] WhatsApp number delete error:', error);
+            logOnboardingFailure('WhatsApp number delete error', error);
             return res.status(500).json({ error: 'فشل حذف رقم WhatsApp' });
         }
     });
@@ -990,7 +1015,8 @@ export function createTenantMetaOnboardingRouter({
             if (!accessToken) return res.status(502).json({ error: 'Token exchange returned no access token' });
 
             const authorizedPhones = [];
-            let phoneNumbersUrl = `${meta.apiBase}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,status,name_status&limit=100`;
+            const initialPhoneNumbersUrl = `${meta.apiBase}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,status,name_status&limit=100`;
+            let phoneNumbersUrl = initialPhoneNumbersUrl;
             for (let page = 0; phoneNumbersUrl && page < 10; page += 1) {
                 const phoneNumbersResult = await requestMeta(
                     phoneNumbersUrl,
@@ -1005,7 +1031,7 @@ export function createTenantMetaOnboardingRouter({
                 authorizedPhones.push(...pageRows.slice(0, Math.max(0, 1000 - authorizedPhones.length)));
                 if (authorizedPhones.length >= 1000) break;
                 const nextValue = phoneNumbersResult.data?.paging?.next;
-                const next = normalizeMetaNextUrl(nextValue, meta.apiBase);
+                const next = safeMetaNextPageUrl(nextValue, initialPhoneNumbersUrl);
                 if (nextValue && !next) {
                     return res.status(502).json({ error: 'Meta returned an invalid pagination URL' });
                 }
@@ -1097,13 +1123,13 @@ export function createTenantMetaOnboardingRouter({
                     { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
                 );
                 if (!subscribeResult.ok) {
-                    console.warn(
-                        '[TenantMetaOnboarding] WABA webhook subscription failed:',
-                        subscribeResult.error?.message
-                    );
+                    logOnboardingFailure('WABA webhook subscription failed', {
+                        status: subscribeResult.status,
+                        code: subscribeResult.error?.code,
+                    }, 'warn');
                 }
             } catch (error) {
-                console.warn('[TenantMetaOnboarding] WABA webhook subscription failed:', error.message);
+                logOnboardingFailure('WABA webhook subscription failed', error, 'warn');
             }
 
             return res.json({
@@ -1114,7 +1140,7 @@ export function createTenantMetaOnboardingRouter({
                 status: getTenantWhatsAppStatus(tenantId),
             });
         } catch (error) {
-            console.error('[TenantMetaOnboarding] WhatsApp connect error:', error);
+            logOnboardingFailure('WhatsApp connect error', error);
             return res.status(500).json({ error: 'فشل ربط واتساب' });
         }
     });

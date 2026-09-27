@@ -17,7 +17,7 @@ import {
     reserve as reserveBilling,
 } from '../services/billing.js';
 import { markBotHandoffForConversation } from '../services/messengerBot.js';
-import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { readMetaResponse, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
 import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
 import { parseListPagination } from '../services/pagination.js';
 
@@ -65,7 +65,7 @@ router.get('/:linkedPageId/conversations', (req, res) => {
 
         res.json(conversations);
     } catch (error) {
-        console.error('[FBMessenger] List conversations error:', error);
+        console.error('[FBMessenger] List conversations error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب المحادثات' });
     }
 });
@@ -104,7 +104,7 @@ router.get('/:linkedPageId/conversations/:conversationId/messages', (req, res) =
         // Return in chronological order (oldest first)
         res.json(messages);
     } catch (error) {
-        console.error('[FBMessenger] Get messages error:', error);
+        console.error('[FBMessenger] Get messages error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب الرسائل' });
     }
 });
@@ -156,7 +156,7 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
         const sendData = sendResult.data || {};
 
         if (!sendResult.ok) {
-            releaseBilling(billingReservation, sendResult.error?.message || 'Meta Messenger reply failed');
+            releaseBilling(billingReservation, 'Meta Messenger reply failed');
             // Outside 24-hour messaging window
             if (sendResult.error?.code === 10) {
                 return res.status(403).json({
@@ -225,13 +225,13 @@ router.post('/:linkedPageId/conversations/:conversationId/send', async (req, res
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Messenger reply failed');
             } catch (releaseError) {
-                console.error('[FBMessenger] Billing release error:', releaseError);
+                console.error('[FBMessenger] Billing release error:', summarizeMetaException(releaseError));
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBMessenger] Send message error:', error);
+        console.error('[FBMessenger] Send message error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }
 });
@@ -253,7 +253,7 @@ router.post('/:linkedPageId/conversations/:conversationId/read', (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('[FBMessenger] Mark read error:', error);
+        console.error('[FBMessenger] Mark read error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل تحديث حالة القراءة' });
     }
 });
@@ -361,7 +361,7 @@ router.post('/:linkedPageId/sync', async (req, res) => {
             synced_messages: syncedMessages,
         });
     } catch (error) {
-        console.error('[FBMessenger] Sync error:', error);
+        console.error('[FBMessenger] Sync error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل مزامنة المحادثات' });
     }
 });
@@ -428,7 +428,7 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
         const sendData = sendResult.data || {};
 
         if (!sendResult.ok) {
-            releaseBilling(billingReservation, sendResult.error?.message || 'Meta Messenger utility failed');
+            releaseBilling(billingReservation, 'Meta Messenger utility failed');
             return sendMetaFailure(res, sendResult, 'فشل إرسال الرسالة');
         }
 
@@ -480,13 +480,13 @@ router.post('/:linkedPageId/conversations/:conversationId/utility-message', asyn
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Messenger utility message failed');
             } catch (releaseError) {
-                console.error('[FBMessenger] Utility billing release error:', releaseError);
+                console.error('[FBMessenger] Utility billing release error:', summarizeMetaException(releaseError));
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBMessenger] Utility message error:', error);
+        console.error('[FBMessenger] Utility message error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل إرسال الرسالة' });
     }
 });

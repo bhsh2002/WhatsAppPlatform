@@ -207,3 +207,37 @@ test('Messenger sync rejects cross-origin Meta pagination without following it',
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /^https:\/\/graph\.test/);
 });
+
+test('Messenger sync rebuilds the next-page URL without Meta-provided tokens', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const calls = [];
+    const router = createTenantMessengerSyncRouter({
+        database: db,
+        decryptToken: () => 'token-a',
+        requestMeta: async (url, init) => {
+            calls.push({ url, init });
+            return calls.length === 1
+                ? {
+                    ok: true,
+                    status: 200,
+                    data: {
+                        data: [],
+                        paging: {
+                            next: 'https://graph.test/v25.0/page%2FA/conversations?after=cursor-2&access_token=private-token',
+                        },
+                    },
+                }
+                : { ok: true, status: 200, data: { data: [] } };
+        },
+        apiBase: 'https://graph.test/v25.0',
+    });
+    const result = await invoke(router, 1);
+    assert.equal(result.body.success, true);
+    assert.equal(calls.length, 2);
+    const next = new URL(calls[1].url);
+    assert.equal(next.pathname, '/v25.0/page%2FA/conversations');
+    assert.equal(next.searchParams.get('after'), 'cursor-2');
+    assert.equal(next.searchParams.get('access_token'), null);
+    assert.ok(calls.every(call => call.init.headers.Authorization === 'Bearer token-a'));
+});

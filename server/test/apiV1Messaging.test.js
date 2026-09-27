@@ -277,7 +277,7 @@ test('API v1 text and approved templates normalize payloads, enforce variables a
         body: { recipient: '218910000001', message: 'Retry later' },
     });
     assert.equal(failedText.statusCode, 429);
-    assert.equal(failedText.body.error, 'Rate limited');
+    assert.equal(failedText.body.error, 'Meta rate limit reached');
 
     assert.equal(h.requests.length, 3);
     assert.equal(h.billing.calls.commits.length, 2);
@@ -323,7 +323,7 @@ test('API v1 URL media validates public HTTPS input and settles successful and f
         },
     });
     assert.equal(document.statusCode, 400);
-    assert.equal(document.body.error, 'Document rejected');
+    assert.equal(document.body.error, 'Meta rejected the request');
     assert.equal(JSON.parse(h.requests[1].init.body).document.filename, 'terms.pdf');
 
     assert.equal(h.billing.calls.commits.length, 1);
@@ -370,14 +370,14 @@ test('API v1 document upload cleans files and only bills the downstream message 
         file: file('/tmp/doc-upload-failure.pdf'),
     });
     assert.equal(uploadFailure.statusCode, 503);
-    assert.equal(uploadFailure.body.error, 'Upload unavailable');
+    assert.equal(uploadFailure.body.error, 'Meta service is temporarily unavailable');
 
     const sendFailure = await invoke(h.router, 'post', '/messages/send-document', {
         body: { recipient: '218910000001' },
         file: file('/tmp/doc-send-failure.pdf'),
     });
     assert.equal(sendFailure.statusCode, 400);
-    assert.equal(sendFailure.body.error, 'Send rejected');
+    assert.equal(sendFailure.body.error, 'Meta rejected the request');
 
     assert.deepEqual(h.cleaned, [
         '/tmp/doc-success.pdf',
@@ -437,7 +437,7 @@ test('API v1 interactive messages use shared limits, window checks and normalize
         },
     });
     assert.equal(list.statusCode, 502);
-    assert.equal(list.body.error, 'Interactive unavailable');
+    assert.equal(list.body.error, 'Meta service is temporarily unavailable');
     assert.equal(JSON.parse(h.requests[1].init.body).interactive.action.button, 'Options');
 
     assert.equal(h.requests.length, 2);

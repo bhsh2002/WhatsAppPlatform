@@ -4,19 +4,33 @@ import {
     normalizePricingType,
     toInt,
 } from './billingCore.js';
-import { readMetaResponse } from './metaHttp.js';
+import { normalizePublicMetaError, readMetaResponse } from './metaHttp.js';
+import { fetchMetaWithAccessToken } from './metaAuthorizedFetch.js';
 
-export function buildWabaFieldUrl(wabaId, field, accessToken) {
+export function buildWabaFieldUrl(wabaId, field, _accessToken) {
     const params = new URLSearchParams({
         fields: field,
-        access_token: accessToken,
     });
     return `${META_API_BASE}/${wabaId}?${params.toString()}`;
 }
 
 export async function fetchWabaField(wabaId, field, accessToken, fetchImpl = globalThis.fetch) {
-    const response = await fetchImpl(buildWabaFieldUrl(wabaId, field, accessToken));
-    const metaResult = await readMetaResponse(response);
+    let metaResult;
+    try {
+        const response = await fetchMetaWithAccessToken(
+            buildWabaFieldUrl(wabaId, field, accessToken),
+            accessToken,
+            {},
+            fetchImpl
+        );
+        metaResult = await readMetaResponse(response);
+    } catch {
+        const details = normalizePublicMetaError(null, 503);
+        const error = new Error(details.message);
+        error.status = details.status;
+        error.data = details;
+        throw error;
+    }
     if (!metaResult.ok) {
         const error = new Error(metaResult.error?.message || 'Meta analytics request failed');
         error.status = metaResult.status;

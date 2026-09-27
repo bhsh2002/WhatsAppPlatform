@@ -2,7 +2,7 @@ import express from 'express';
 
 import { META_API_BASE, META_APP_ID } from '../config/index.js';
 import { insertMessengerMessage, normalizeMessengerTimestamp } from '../services/messengerMessages.js';
-import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
+import { requestMetaJson, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
 import { FACEBOOK_WEBHOOK_FIELDS } from '../services/metaReadiness.js';
 import { parseListPagination } from '../services/pagination.js';
 
@@ -59,7 +59,7 @@ export function createTenantFacebookMessagingRouter({
             `).all(req.user.tenant_id, limit, offset);
             return res.json(pages);
         } catch (error) {
-            console.error('[TenantFacebookMessaging] Pages list error:', error);
+            console.error('[TenantFacebookMessaging] Pages list error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل جلب صفحات فيسبوك' });
         }
     });
@@ -89,7 +89,7 @@ export function createTenantFacebookMessagingRouter({
                 meta_response: result.data || {},
             });
         } catch (error) {
-            console.error('[TenantFacebookMessaging] Subscription status error:', error);
+            console.error('[TenantFacebookMessaging] Subscription status error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل جلب حالة الاشتراك' });
         }
     });
@@ -129,7 +129,7 @@ export function createTenantFacebookMessagingRouter({
             `).run(JSON.stringify(FACEBOOK_WEBHOOK_FIELDS), page.id, req.user.tenant_id);
             return res.json({ success: true, webhook_subscribed: true });
         } catch (error) {
-            console.error('[TenantFacebookMessaging] Webhook repair error:', error);
+            console.error('[TenantFacebookMessaging] Webhook repair error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'تعذر تجديد اشتراك الصفحة' });
         }
     });
@@ -203,7 +203,7 @@ export function createTenantFacebookMessagingRouter({
                 }
             );
             if (!result.ok) {
-                billing.release(billingReservation, result.error?.message || 'Meta Messenger utility failed');
+                billing.release(billingReservation, 'Meta Messenger utility failed');
                 return sendMetaFailure(res, result, 'فشل إرسال الرسالة');
             }
 
@@ -253,13 +253,13 @@ export function createTenantFacebookMessagingRouter({
         } catch (error) {
             if (billingReservation) {
                 try {
-                    billing.release(billingReservation, error.message);
+                    billing.release(billingReservation, 'Messenger utility message failed');
                 } catch (releaseError) {
-                    console.error('[TenantFacebookMessaging] Billing release error:', releaseError);
+                    console.error('[TenantFacebookMessaging] Billing release error:', summarizeMetaException(releaseError));
                 }
             }
             if (billing.handleError(res, error)) return undefined;
-            console.error('[TenantFacebookMessaging] Utility message error:', error);
+            console.error('[TenantFacebookMessaging] Utility message error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل إرسال الرسالة' });
         }
     });

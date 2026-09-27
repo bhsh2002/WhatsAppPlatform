@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
-import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { readMetaResponse, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
 import {
     assertFacebookContentPublishingPolicy,
 } from '../services/facebookContentPolicy.js';
@@ -20,6 +20,28 @@ import {
 } from '../services/billing.js';
 
 const router = express.Router();
+
+const PUBLIC_CONTENT_POLICY_CODES = new Set([
+    'CONTENT_POSTING_WINDOW_CLOSED',
+    'CONTENT_DAILY_LIMIT_REACHED',
+    'CONTENT_REPEAT_WINDOW_ACTIVE',
+]);
+
+const PUBLIC_CONTENT_ERROR = Symbol('publicContentError');
+const markPublicContentError = error => {
+    error[PUBLIC_CONTENT_ERROR] = true;
+    return error;
+};
+
+const isPublicContentError = error => (
+    error?.[PUBLIC_CONTENT_ERROR] === true
+    && ((error.status === 400 && error.code === 'INVALID_DATE_RANGE')
+        || (error.status === 409 && PUBLIC_CONTENT_POLICY_CODES.has(error.code)))
+);
+
+const logRouteException = (context, error) => {
+    console.error(`[FBContent] ${context}:`, summarizeMetaException(error));
+};
 
 const resolvePageCredentials = (linkedPageId, tenantId = null) => {
     const page = tenantId
@@ -112,7 +134,7 @@ const recordDirectPublication = (page, {
             WHERE id = ?
         `).run(metaPostId, publishedAt.toISOString(), publication.id);
     } catch (error) {
-        console.error('[FBContent] Failed to record direct publication:', error.message);
+        logRouteException('Failed to record direct publication', error);
     }
 };
 
@@ -122,15 +144,24 @@ const assertDirectPublishingPolicy = (page, {
     linkUrl = null,
     mediaUrl = null,
     mode = 'publish',
-} = {}) => assertFacebookContentPublishingPolicy(db, {
-    tenantId: page.tenant_id,
-    linkedPageId: page.id,
-    renderedMessage: message,
-    linkUrl,
-    mediaUrl,
-    at,
-    mode,
-});
+} = {}) => {
+    try {
+        return assertFacebookContentPublishingPolicy(db, {
+            tenantId: page.tenant_id,
+            linkedPageId: page.id,
+            renderedMessage: message,
+            linkUrl,
+            mediaUrl,
+            at,
+            mode,
+        });
+    } catch (error) {
+        if (error?.status === 409 && PUBLIC_CONTENT_POLICY_CODES.has(error.code)) {
+            markPublicContentError(error);
+        }
+        throw error;
+    }
+};
 
 const normalizePostDateBoundary = (value, field) => {
     if (value === undefined || value === null || value === '') return null;
@@ -139,7 +170,7 @@ const normalizePostDateBoundary = (value, field) => {
         const error = new Error(`${field} غير صالح`);
         error.status = 400;
         error.code = 'INVALID_DATE_RANGE';
-        throw error;
+        throw markPublicContentError(error);
     }
     return Math.floor(parsed.getTime() / 1000);
 };
@@ -190,7 +221,7 @@ router.get('/:linkedPageId/posts', async (req, res) => {
             const rangeError = new Error('بداية الفترة يجب أن تسبق نهايتها');
             rangeError.status = 400;
             rangeError.code = 'INVALID_DATE_RANGE';
-            throw rangeError;
+            throw markPublicContentError(rangeError);
         }
         const limit = normalizeLimit(req.query.limit, 25, 50);
         const url = graphUrl(`${page.page_id}/posts`, {
@@ -213,10 +244,10 @@ router.get('/:linkedPageId/posts', async (req, res) => {
 
         res.json({ posts: data.data || [], paging: data.paging || null });
     } catch (error) {
-        if (error.status) {
+        if (isPublicContentError(error)) {
             return res.status(error.status).json({ error: error.message, code: error.code });
         }
-        console.error('[FBContent] List posts error:', error);
+        logRouteException('List posts error', error);
         res.status(500).json({ error: 'فشل جلب المنشورات' });
     }
 });
@@ -271,7 +302,7 @@ router.post('/:linkedPageId/posts', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post create failed');
+            releaseBilling(billingReservation, 'Meta post create failed');
             return sendMetaFailure(res, metaResult, 'فشل إنشاء المنشور');
         }
 
@@ -295,20 +326,20 @@ router.post('/:linkedPageId/posts', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook post creation failed');
             } catch (releaseError) {
-                console.error('[FBContent] Create post billing release error:', releaseError);
+                logRouteException('Create post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        if (error.status) {
+        if (isPublicContentError(error)) {
             return res.status(error.status).json({
                 error: error.message,
                 code: error.code,
                 ...(error.details ? { details: error.details } : {}),
             });
         }
-        console.error('[FBContent] Create post error:', error);
+        logRouteException('Create post error', error);
         res.status(500).json({ error: 'فشل إنشاء المنشور' });
     }
 });
@@ -372,7 +403,7 @@ router.post('/:linkedPageId/posts/photo', imageUpload.single('source'), async (r
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta photo post failed');
+            releaseBilling(billingReservation, 'Meta photo post failed');
             return sendMetaFailure(res, metaResult, 'فشل إنشاء منشور الصورة');
         }
 
@@ -394,20 +425,20 @@ router.post('/:linkedPageId/posts/photo', imageUpload.single('source'), async (r
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook photo post creation failed');
             } catch (releaseError) {
-                console.error('[FBContent] Photo post billing release error:', releaseError);
+                logRouteException('Photo post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        if (error.status) {
+        if (isPublicContentError(error)) {
             return res.status(error.status).json({
                 error: error.message,
                 code: error.code,
                 ...(error.details ? { details: error.details } : {}),
             });
         }
-        console.error('[FBContent] Photo post error:', error);
+        logRouteException('Photo post error', error);
         res.status(500).json({ error: 'فشل إنشاء منشور الصورة' });
     } finally {
         if (filePath) cleanupFile(filePath);
@@ -448,7 +479,7 @@ router.put('/:linkedPageId/posts/:postId', async (req, res) => {
         const metaResult = await readMetaResponse(response);
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post edit failed');
+            releaseBilling(billingReservation, 'Meta post edit failed');
             return sendMetaFailure(res, metaResult, 'فشل تعديل المنشور');
         }
 
@@ -463,13 +494,13 @@ router.put('/:linkedPageId/posts/:postId', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook post editing failed');
             } catch (releaseError) {
-                console.error('[FBContent] Edit post billing release error:', releaseError);
+                logRouteException('Edit post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Edit post error:', error);
+        logRouteException('Edit post error', error);
         res.status(500).json({ error: 'فشل تعديل المنشور' });
     }
 });
@@ -499,7 +530,7 @@ router.delete('/:linkedPageId/posts/:postId', async (req, res) => {
         const metaResult = await readMetaResponse(response);
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post delete failed');
+            releaseBilling(billingReservation, 'Meta post delete failed');
             return sendMetaFailure(res, metaResult, 'فشل حذف المنشور');
         }
 
@@ -514,13 +545,13 @@ router.delete('/:linkedPageId/posts/:postId', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook post deletion failed');
             } catch (releaseError) {
-                console.error('[FBContent] Delete post billing release error:', releaseError);
+                logRouteException('Delete post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Delete post error:', error);
+        logRouteException('Delete post error', error);
         res.status(500).json({ error: 'فشل حذف المنشور' });
     }
 });
@@ -548,7 +579,7 @@ router.post('/:linkedPageId/posts/:postId/like', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post like failed');
+            releaseBilling(billingReservation, 'Meta post like failed');
             return sendMetaFailure(res, metaResult, 'فشل الإعجاب بالمنشور');
         }
 
@@ -562,13 +593,13 @@ router.post('/:linkedPageId/posts/:postId/like', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook post like failed');
             } catch (releaseError) {
-                console.error('[FBContent] Like post billing release error:', releaseError);
+                logRouteException('Like post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Like post error:', error);
+        logRouteException('Like post error', error);
         res.status(500).json({ error: 'فشل الإعجاب بالمنشور' });
     }
 });
@@ -599,7 +630,7 @@ router.delete('/:linkedPageId/posts/:postId/like', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post unlike failed');
+            releaseBilling(billingReservation, 'Meta post unlike failed');
             return sendMetaFailure(res, metaResult, 'فشل إزالة الإعجاب من المنشور');
         }
 
@@ -613,13 +644,13 @@ router.delete('/:linkedPageId/posts/:postId/like', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook post unlike failed');
             } catch (releaseError) {
-                console.error('[FBContent] Unlike post billing release error:', releaseError);
+                logRouteException('Unlike post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Unlike post error:', error);
+        logRouteException('Unlike post error', error);
         res.status(500).json({ error: 'فشل إزالة الإعجاب من المنشور' });
     }
 });
@@ -659,7 +690,7 @@ router.post('/:linkedPageId/posts/:postId/comments', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta post comment failed');
+            releaseBilling(billingReservation, 'Meta post comment failed');
             return sendMetaFailure(res, metaResult, 'فشل إضافة التعليق');
         }
 
@@ -674,13 +705,13 @@ router.post('/:linkedPageId/posts/:postId/comments', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook post comment failed');
             } catch (releaseError) {
-                console.error('[FBContent] Comment on post billing release error:', releaseError);
+                logRouteException('Comment on post billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Comment on post error:', error);
+        logRouteException('Comment on post error', error);
         res.status(500).json({ error: 'فشل إضافة التعليق' });
     }
 });
@@ -720,7 +751,7 @@ router.get('/:linkedPageId/posts/:postId/comments', async (req, res) => {
             summary: data.summary || null,
         });
     } catch (error) {
-        console.error('[FBContent] List comments error:', error);
+        logRouteException('List comments error', error);
         res.status(500).json({ error: 'فشل جلب التعليقات' });
     }
 });
@@ -759,7 +790,7 @@ router.get('/:linkedPageId/comments/:commentId/replies', async (req, res) => {
             summary: data.summary || null,
         });
     } catch (error) {
-        console.error('[FBContent] List replies error:', error);
+        logRouteException('List replies error', error);
         res.status(500).json({ error: 'فشل جلب الردود' });
     }
 });
@@ -799,7 +830,7 @@ router.post('/:linkedPageId/comments/:commentId/reply', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment reply failed');
+            releaseBilling(billingReservation, 'Meta comment reply failed');
             return sendMetaFailure(res, metaResult, 'فشل إرسال الرد');
         }
 
@@ -814,13 +845,13 @@ router.post('/:linkedPageId/comments/:commentId/reply', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook comment reply failed');
             } catch (releaseError) {
-                console.error('[FBContent] Reply billing release error:', releaseError);
+                logRouteException('Reply billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Reply error:', error);
+        logRouteException('Reply error', error);
         res.status(500).json({ error: 'فشل إرسال الرد' });
     }
 });
@@ -859,7 +890,7 @@ router.post('/:linkedPageId/comments/:commentId/hide', async (req, res) => {
         const metaResult = await readMetaResponse(response);
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment hide failed');
+            releaseBilling(billingReservation, 'Meta comment hide failed');
             return sendMetaFailure(res, metaResult, 'فشل تحديث حالة التعليق');
         }
 
@@ -874,13 +905,13 @@ router.post('/:linkedPageId/comments/:commentId/hide', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook comment hide failed');
             } catch (releaseError) {
-                console.error('[FBContent] Hide comment billing release error:', releaseError);
+                logRouteException('Hide comment billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Hide comment error:', error);
+        logRouteException('Hide comment error', error);
         res.status(500).json({ error: 'فشل تحديث حالة التعليق' });
     }
 });
@@ -908,7 +939,7 @@ router.post('/:linkedPageId/comments/:commentId/like', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment like failed');
+            releaseBilling(billingReservation, 'Meta comment like failed');
             return sendMetaFailure(res, metaResult, 'فشل الإعجاب بالتعليق');
         }
 
@@ -922,13 +953,13 @@ router.post('/:linkedPageId/comments/:commentId/like', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook comment like failed');
             } catch (releaseError) {
-                console.error('[FBContent] Like comment billing release error:', releaseError);
+                logRouteException('Like comment billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Like comment error:', error);
+        logRouteException('Like comment error', error);
         res.status(500).json({ error: 'فشل الإعجاب بالتعليق' });
     }
 });
@@ -956,7 +987,7 @@ router.delete('/:linkedPageId/comments/:commentId/like', async (req, res) => {
         const data = metaResult.data || {};
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment unlike failed');
+            releaseBilling(billingReservation, 'Meta comment unlike failed');
             return sendMetaFailure(res, metaResult, 'فشل إزالة الإعجاب');
         }
 
@@ -970,13 +1001,13 @@ router.delete('/:linkedPageId/comments/:commentId/like', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook comment unlike failed');
             } catch (releaseError) {
-                console.error('[FBContent] Unlike comment billing release error:', releaseError);
+                logRouteException('Unlike comment billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Unlike comment error:', error);
+        logRouteException('Unlike comment error', error);
         res.status(500).json({ error: 'فشل إزالة الإعجاب' });
     }
 });
@@ -1006,7 +1037,7 @@ router.delete('/:linkedPageId/comments/:commentId', async (req, res) => {
         const metaResult = await readMetaResponse(response);
 
         if (!metaResult.ok) {
-            releaseBilling(billingReservation, metaResult.error?.message || 'Meta comment delete failed');
+            releaseBilling(billingReservation, 'Meta comment delete failed');
             return sendMetaFailure(res, metaResult, 'فشل حذف التعليق');
         }
 
@@ -1021,13 +1052,13 @@ router.delete('/:linkedPageId/comments/:commentId', async (req, res) => {
     } catch (error) {
         if (billingReservation) {
             try {
-                releaseBilling(billingReservation, error.message);
+                releaseBilling(billingReservation, 'Facebook comment deletion failed');
             } catch (releaseError) {
-                console.error('[FBContent] Delete comment billing release error:', releaseError);
+                logRouteException('Delete comment billing release error', releaseError);
             }
         }
         if (handleBillingError(res, error)) return;
-        console.error('[FBContent] Delete comment error:', error);
+        logRouteException('Delete comment error', error);
         res.status(500).json({ error: 'فشل حذف التعليق' });
     }
 });

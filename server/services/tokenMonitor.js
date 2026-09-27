@@ -2,7 +2,7 @@ import db from '../db/database.js';
 import { META_API_BASE, META_APP_ID, META_APP_SECRET } from '../config/index.js';
 import { decryptIfEncrypted } from './encryption.js';
 import eventBus from './eventBus.js';
-import { requestMetaJson } from './metaHttp.js';
+import { requestMetaJson, summarizeMetaException } from './metaHttp.js';
 import { classifyMetaTokenStatus } from './metaTokenStatus.js';
 
 const TOKEN_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -73,7 +73,7 @@ export async function checkTokenHealth() {
             ).run(status, expiresAtIso(expiresAt), tenant.id);
             checked++;
         } catch (err) {
-            console.error(`[TokenMonitor] Error checking tenant ${tenant.id}:`, err.message);
+            console.error(`[TokenMonitor] Error checking tenant ${tenant.id}:`, summarizeMetaException(err));
             errors++;
         }
     }
@@ -133,7 +133,7 @@ export async function checkTokenHealth() {
             notifyFacebookTokenTransition(tenant, status);
             checked++;
         } catch (err) {
-            console.error(`[TokenMonitor] Error checking Facebook user token for tenant ${tenant.id}:`, err.message);
+            console.error(`[TokenMonitor] Error checking Facebook user token for tenant ${tenant.id}:`, summarizeMetaException(err));
             errors++;
         }
     }
@@ -192,7 +192,7 @@ export async function checkTokenHealth() {
             );
             checked++;
         } catch (err) {
-            console.error(`[TokenMonitor] Error checking page ${page.id}:`, err.message);
+            console.error(`[TokenMonitor] Error checking page ${page.id}:`, summarizeMetaException(err));
         }
     }
 
@@ -249,11 +249,11 @@ export function startTokenHealthScheduler() {
     }
 
     setTimeout(() => {
-        checkTokenHealth().catch(err => console.error('[TokenMonitor] Initial check failed:', err.message));
+        checkTokenHealth().catch(err => console.error('[TokenMonitor] Initial check failed:', summarizeMetaException(err)));
     }, 30000);
 
     const interval = setInterval(() => {
-        checkTokenHealth().catch(err => console.error('[TokenMonitor] Scheduled check failed:', err.message));
+        checkTokenHealth().catch(err => console.error('[TokenMonitor] Scheduled check failed:', summarizeMetaException(err)));
     }, TOKEN_CHECK_INTERVAL_MS);
 
     interval.unref();

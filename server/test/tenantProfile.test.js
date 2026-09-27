@@ -173,6 +173,6 @@ test('business-profile updates allowlist fields, normalize websites and write sc
         body: { description: 'not persisted' },
     });
     assert.equal(failed.res.statusCode, 429);
-    assert.equal(failed.res.body.error, 'Meta rate limit');
+    assert.equal(failed.res.body.error, 'تم تجاوز حد طلبات Meta، حاول لاحقاً');
     assert.equal(db.prepare('SELECT COUNT(*) count FROM activity_logs').get().count, 1);
 });

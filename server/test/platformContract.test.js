@@ -740,6 +740,7 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     const tenantBroadcasts = read('server/routes/tenantBroadcasts.js');
     const tenantTemplates = read('server/routes/tenantTemplates.js');
     const tenantMessengerSync = read('server/routes/tenantMessengerSync.js');
+    const metaPagination = read('server/services/metaPagination.js');
     const tenantUnifiedInbox = read('server/routes/tenantUnifiedInbox.js');
     const tenantWhatsAppMessaging = read('server/routes/tenantWhatsAppMessaging.js');
     const tenantWhatsAppMedia = read('server/routes/tenantWhatsAppMedia.js');
@@ -808,12 +809,13 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     assert.match(portal, /router\.use\('\/', tenantTemplatesRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post|put|delete)\('\/templates/);
     assert.match(tenantTemplates, /WHERE id = \? AND tenant_id = \?/);
-    assert.match(tenantTemplates, /next\.origin === base\.origin/);
+    assert.match(tenantTemplates, /safeMetaNextPageUrl\(nextValue, templatesUrl\)/);
     assert.doesNotMatch(tenantTemplates, /SELECT \* FROM (tenants|templates)/);
     assert.match(portal, /router\.use\('\/', tenantMessengerSyncRouter\)/);
     assert.doesNotMatch(portal, /router\.post\('\/unified\/messenger\/sync'/);
     assert.match(tenantMessengerSync, /WHERE linked_page_id = \? AND user_psid = \? AND tenant_id = \?/);
-    assert.match(tenantMessengerSync, /next\.origin === base\.origin/);
+    assert.match(tenantMessengerSync, /safeMetaNextPageUrl\(nextValue, conversationsUrl\)/);
+    assert.match(metaPagination, /next\.origin !== initial\.origin \|\| next\.pathname !== initial\.pathname/);
     assert.doesNotMatch(tenantMessengerSync, /access_token=/);
     assert.match(portal, /router\.use\('\/', tenantUnifiedInboxRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post)\('\/(mark-read|unified)/);

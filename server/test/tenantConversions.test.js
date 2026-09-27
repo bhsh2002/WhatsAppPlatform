@@ -237,7 +237,7 @@ test('conversion history is paginated, sanitized and isolated with aggregate sta
         local: history.body.stats.localOnlyEvents,
     }, { total: 3, sent: 1, failed: 1, local: 1 });
     assert.equal(history.body.last_success.fbtrace_id, 'trace-a');
-    assert.equal(history.body.last_failure.error_message, 'Denied');
+    assert.equal(history.body.last_failure.error_message, 'Meta permission is missing or denied');
     assert.equal(history.body.last_failure.error_subcode, 33);
     assert.equal(history.body.events_api_ready, true);
     assert.equal(history.body.tenant_whatsapp_token_present, true);
@@ -388,7 +388,7 @@ test('remote conversion delivery uses stored attribution and settles billing on 
         body: { event_name: 'LeadSubmitted', ctwa_clid: 'explicit-clid' },
     });
     assert.equal(failed.statusCode, 503);
-    assert.equal(failed.body.error, 'Meta unavailable');
+    assert.equal(failed.body.error, 'خدمة Meta غير متاحة مؤقتاً');
     assert.equal(failed.body.permission_required, 'whatsapp_business_manage_events');
     assert.equal(failed.body.dataset_id, 'dataset-a');
     assert.equal(billing.calls.releases.length, 1);
