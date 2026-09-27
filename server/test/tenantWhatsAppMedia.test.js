@@ -197,7 +197,7 @@ test('tenant media upload returns Meta ids and always cleans local files', async
         file: file('/tmp/upload-fail.jpg'),
     });
     assert.equal(failure.statusCode, 503);
-    assert.equal(failure.body.error, 'Upload unavailable');
+    assert.equal(failure.body.error, 'خدمة Meta غير متاحة مؤقتاً');
     assert.deepEqual(h.cleaned, ['/tmp/upload.jpg', '/tmp/upload-fail.jpg']);
 });
 
@@ -235,7 +235,7 @@ test('tenant document sends normalize payloads, persist outcomes and settle bill
         file: file('/tmp/doc-2.pdf', 'application/pdf', 'failure.pdf'),
     });
     assert.equal(failure.statusCode, 400);
-    assert.equal(failure.body.error, 'Document rejected');
+    assert.equal(failure.body.error, 'رفضت Meta الطلب');
     assert.equal(h.billing.calls.commits.length, 1);
     assert.equal(h.billing.calls.releases.length, 1);
     assert.equal(h.emitted.length, 2, 'failed sends must not emit realtime success events');

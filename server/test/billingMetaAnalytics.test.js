@@ -102,12 +102,15 @@ test('Meta analytics gateway encodes Graph fields and exposes only normalized er
     const builtUrl = new URL(buildWabaFieldUrl('waba-123', field, 'token-value'));
     assert.equal(builtUrl.pathname.endsWith('/waba-123'), true);
     assert.equal(builtUrl.searchParams.get('fields'), field);
-    assert.equal(builtUrl.searchParams.get('access_token'), 'token-value');
+    assert.equal(builtUrl.searchParams.has('access_token'), false);
+    assert.doesNotMatch(builtUrl.toString(), /token-value/);
 
     let requestedUrl = null;
+    let requestedInit = null;
     await assert.rejects(
-        () => fetchWabaField('waba-123', field, 'token-value', async (url) => {
+        () => fetchWabaField('waba-123', field, 'token-value', async (url, init) => {
             requestedUrl = url;
+            requestedInit = init;
             return new Response(JSON.stringify({
                 error: {
                     message: 'Invalid token',
@@ -118,10 +121,10 @@ test('Meta analytics gateway encodes Graph fields and exposes only normalized er
             }), { status: 401 });
         }),
         (error) => {
-            assert.equal(error.message, 'Invalid token');
+            assert.equal(error.message, 'Meta access token is invalid or expired');
             assert.equal(error.status, 401);
             assert.deepEqual(error.data, {
-                message: 'Invalid token',
+                message: 'Meta access token is invalid or expired',
                 type: null,
                 code: 190,
                 subcode: null,
@@ -134,9 +137,27 @@ test('Meta analytics gateway encodes Graph fields and exposes only normalized er
         }
     );
     assert.equal(requestedUrl, buildWabaFieldUrl('waba-123', field, 'token-value'));
+    assert.equal(requestedInit.headers.Authorization, 'Bearer token-value');
+    assert.doesNotMatch(requestedUrl, /token-value|access_token/);
 
     const success = await fetchWabaField('waba-123', field, 'token-value', async () => (
         new Response(JSON.stringify({ analytics: { data_points: [] } }), { status: 200 })
     ));
     assert.deepEqual(success, { analytics: { data_points: [] } });
+});
+
+test('Meta analytics transport exceptions cannot expose request credentials', async () => {
+    await assert.rejects(
+        () => fetchWabaField('waba-123', 'analytics', 'private-access-token', async () => {
+            throw new TypeError('request failed: access_token=private-access-token');
+        }),
+        (error) => {
+            assert.equal(error.status, 503);
+            assert.equal(error.message, 'Meta service is temporarily unavailable');
+            assert.equal(error.data.retryable, true);
+            assert.doesNotMatch(JSON.stringify({ message: error.message, data: error.data }),
+                /private-access-token|access_token/);
+            return true;
+        }
+    );
 });

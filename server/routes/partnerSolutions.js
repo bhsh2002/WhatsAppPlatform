@@ -3,7 +3,7 @@ import db from '../db/database.js';
 import { getFacebookUserAccessToken } from '../services/credentials.js';
 import { META_API_BASE } from '../config/index.js';
 import { parseStoredArray } from '../services/metaReadiness.js';
-import { readMetaResponse } from '../services/metaHttp.js';
+import { readMetaResponse, summarizeMetaException } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -85,7 +85,7 @@ const classifyPartnerError = (error) => {
     if (/asset|access denied|permission/i.test(message) || error?.type === 'OAuthException') {
         return { code: 'ASSET_ACCESS_OR_PERMISSION_DENIED', label: 'وصول الأصل أو صلاحيات Partner/Business غير كافية' };
     }
-    return { code: 'META_ERROR', label: message || 'خطأ من Meta' };
+    return { code: 'META_ERROR', label: 'خطأ من Meta' };
 };
 
 const getLatestPartnerActivity = (tenantId, eventTypes, status = null) => {
@@ -149,7 +149,7 @@ router.get('/evidence', (req, res) => {
                 : false,
         });
     } catch (error) {
-        console.error('[Partner] Evidence error:', error);
+        console.error('[Partner] Evidence error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب دليل حلول الشركاء' });
     }
 });
@@ -207,7 +207,7 @@ router.get('/clients', async (req, res) => {
             paging: data.paging || null
         });
     } catch (error) {
-        console.error('[Partner] List clients error:', error);
+        console.error('[Partner] List clients error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب العملاء' });
     }
 });
@@ -267,8 +267,8 @@ router.post('/clients', async (req, res) => {
 
         res.json({ success: true, data });
     } catch (error) {
-        console.error('[Partner] Add client error:', error);
-        logPartnerActivity(req.body?.tenant_id, 'partner_client_add_failed', error.message || 'فشل إضافة العميل', 'error');
+        console.error('[Partner] Add client error:', summarizeMetaException(error));
+        logPartnerActivity(req.body?.tenant_id, 'partner_client_add_failed', 'فشل إضافة العميل', 'error');
         res.status(500).json({ error: 'فشل إضافة العميل' });
     }
 });
@@ -318,8 +318,8 @@ router.delete('/clients/:clientBusinessId', async (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('[Partner] Remove client error:', error);
-        logPartnerActivity(req.query?.tenant_id, 'partner_client_remove_failed', error.message || 'فشل إزالة العميل', 'error');
+        console.error('[Partner] Remove client error:', summarizeMetaException(error));
+        logPartnerActivity(req.query?.tenant_id, 'partner_client_remove_failed', 'فشل إزالة العميل', 'error');
         res.status(500).json({ error: 'فشل إزالة العميل' });
     }
 });
@@ -363,7 +363,7 @@ router.get('/clients/:clientBusinessId/waba', async (req, res) => {
             paging: data.paging || null
         });
     } catch (error) {
-        console.error('[Partner] Client WABA error:', error);
+        console.error('[Partner] Client WABA error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب حسابات واتساب للعميل' });
     }
 });
@@ -416,8 +416,8 @@ router.post('/clients/:clientBusinessId/system-user', async (req, res) => {
 
         res.json({ success: true, data });
     } catch (error) {
-        console.error('[Partner] Create system user error:', error);
-        logPartnerActivity(req.body?.tenant_id, 'partner_system_user_failed', error.message || 'فشل إنشاء مستخدم نظام', 'error');
+        console.error('[Partner] Create system user error:', summarizeMetaException(error));
+        logPartnerActivity(req.body?.tenant_id, 'partner_system_user_failed', 'فشل إنشاء مستخدم نظام', 'error');
         res.status(500).json({ error: 'فشل إنشاء مستخدم نظام' });
     }
 });

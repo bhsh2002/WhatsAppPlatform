@@ -79,7 +79,7 @@ try {
 
     const owned = await invokeHandler(listPostsHandler, pageOne, { role: 'tenant', tenant_id: tenantOne });
     assert.equal(owned.status, 401);
-    assert.equal(owned.body.error, 'Invalid page token');
+    assert.equal(owned.body.error, 'رمز وصول Meta غير صالح أو منتهي الصلاحية');
     assert.equal(owned.body.details.code, 190);
     assert.equal(JSON.stringify(owned.body).includes('private-trace'), false);
     assert.equal(JSON.stringify(owned.body).includes('private-token'), false);

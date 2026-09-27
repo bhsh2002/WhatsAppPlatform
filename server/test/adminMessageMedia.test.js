@@ -299,7 +299,7 @@ test('admin upload-to-meta cleans files on success and remote failure', async (t
         file: { path: '/tmp/failing.jpg', originalname: 'failing.jpg', mimetype: 'image/jpeg' },
     });
     assert.equal(failure.statusCode, 503);
-    assert.equal(failure.body.error, 'Meta unavailable');
+    assert.equal(failure.body.error, 'Meta service is temporarily unavailable');
     assert.deepEqual(harness.cleaned, ['/tmp/header.jpg', '/tmp/failing.jpg']);
 });
 
@@ -321,7 +321,7 @@ test('admin media maps incomplete Meta responses and transport failures without 
         params: { mediaId: 'lookup' }, query: { tenant_id: 1 },
     });
     assert.equal(lookupFailure.statusCode, 503);
-    assert.equal(lookupFailure.body.error, 'Lookup unavailable');
+    assert.equal(lookupFailure.body.error, 'Meta service is temporarily unavailable');
 
     const missingUrl = await invokeRoute(harness.router, 'get', '/media/:mediaId/download', {
         params: { mediaId: 'missing-url' }, query: { tenant_id: 1 },
@@ -429,7 +429,7 @@ test('admin URL media sends normalize payloads, persist outcomes and settle bill
         },
     });
     assert.equal(failure.statusCode, 500);
-    assert.equal(failure.body.error, 'Image rejected');
+    assert.equal(failure.body.error, 'Meta service is temporarily unavailable');
     assert.equal(harness.billing.calls.commits.length, 1);
     assert.equal(harness.billing.calls.releases.length, 1);
     const failedRow = harness.database.prepare("SELECT status, error_message FROM messages WHERE message_type = 'image'").get();
@@ -467,7 +467,7 @@ test('admin file media sends clean uploads and distinguish upload from send fail
         file: imageFile('/tmp/photo-2.jpg'),
     });
     assert.equal(uploadFailure.statusCode, 503);
-    assert.equal(uploadFailure.body.error, 'Upload unavailable');
+    assert.equal(uploadFailure.body.error, 'Meta service is temporarily unavailable');
     assert.equal(harness.billing.calls.reserves.length, 1, 'failed uploads must not reserve billing');
 
     const sendFailure = await invokeRoute(harness.router, 'post', '/send-media-file', {
@@ -475,7 +475,7 @@ test('admin file media sends clean uploads and distinguish upload from send fail
         file: imageFile('/tmp/photo-3.jpg'),
     });
     assert.equal(sendFailure.statusCode, 400);
-    assert.equal(sendFailure.body.error, 'Send rejected');
+    assert.equal(sendFailure.body.error, 'Meta rejected the request');
     assert.equal(harness.billing.calls.reserves.length, 2);
     assert.equal(harness.billing.calls.releases.length, 1);
     assert.equal(

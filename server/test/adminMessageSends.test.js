@@ -220,7 +220,7 @@ test('admin text sends normalize Meta requests and settle success and failure on
         body: { tenant_id: 1, recipient: '218910000001', type: 'text', message: 'Again' },
     });
     assert.equal(failure.statusCode, 503);
-    assert.equal(failure.body.error, 'Meta unavailable');
+    assert.equal(failure.body.error, 'Meta service is temporarily unavailable');
     assert.equal(billing.calls.commits.length, 1);
     assert.equal(billing.calls.releases.length, 1);
     assert.equal(database.prepare("SELECT status FROM messages WHERE content = 'Again'").get().status, 'failed');
@@ -342,7 +342,7 @@ test('admin interactive sends validate structures, enforce the window and settle
         },
     });
     assert.equal(list.statusCode, 400);
-    assert.equal(list.body.error, 'List rejected');
+    assert.equal(list.body.error, 'Meta rejected the request');
     assert.equal(billing.calls.commits.length, 1);
     assert.equal(billing.calls.releases.length, 1);
     assert.equal(database.prepare("SELECT status FROM messages WHERE content LIKE '%Pick one%'").get().status, 'failed');

@@ -3,7 +3,7 @@ import db from '../db/database.js';
 import { META_API_BASE } from '../config/index.js';
 import { decrypt } from '../services/encryption.js';
 import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
-import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { readMetaResponse, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
 
 const router = express.Router();
 
@@ -139,7 +139,7 @@ router.get('/:linkedPageId/overview', async (req, res) => {
             insights_error: insightsError || recentEngagement.error,
         });
     } catch (err) {
-        console.error('[FBInsights] Overview error:', err);
+        console.error('[FBInsights] Overview error:', summarizeMetaException(err));
         res.status(500).json({ error: 'فشل جلب بيانات التحليلات' });
     }
 });
@@ -194,7 +194,7 @@ router.get('/:linkedPageId/daily', async (req, res) => {
 
         res.json({ daily, insights_error: null });
     } catch (err) {
-        console.error('[FBInsights] Daily error:', err);
+        console.error('[FBInsights] Daily error:', summarizeMetaException(err));
         res.status(500).json({ error: 'فشل جلب البيانات اليومية' });
     }
 });
@@ -259,7 +259,8 @@ router.get('/:linkedPageId/posts', async (req, res) => {
                         postEntry.insights_error = insightsResult.error?.message || 'تعذر جلب مؤشرات المنشور';
                     }
                 } catch (e) {
-                    postEntry.insights_error = e.message || 'تعذر جلب مؤشرات المنشور';
+                    console.error('[FBInsights] Post insights error:', summarizeMetaException(e));
+                    postEntry.insights_error = 'تعذر جلب مؤشرات المنشور';
                 }
             }
 
@@ -268,7 +269,7 @@ router.get('/:linkedPageId/posts', async (req, res) => {
 
         res.json({ posts: postsWithInsights, paging: postsData.paging || null });
     } catch (err) {
-        console.error('[FBInsights] Posts error:', err);
+        console.error('[FBInsights] Posts error:', summarizeMetaException(err));
         res.status(500).json({ error: 'فشل جلب أداء المنشورات' });
     }
 });

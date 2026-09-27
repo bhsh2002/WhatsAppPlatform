@@ -581,7 +581,7 @@ test('Facebook disconnect reports a partial result when Meta unsubscribe fails w
     assert.equal(disconnected.body.partial_success, true);
     assert.equal(disconnected.body.local_disconnected, true);
     assert.equal(disconnected.body.webhook_unsubscribed, false);
-    assert.equal(disconnected.body.webhook_error, 'Meta unavailable');
+    assert.equal(disconnected.body.webhook_error, 'تعذر إلغاء اشتراك Webhook لدى Meta');
     assert.equal(disconnected.body.data_preserved, true);
     assert.equal(db.prepare('SELECT is_active FROM tenant_pages WHERE id = ?').get(pageId).is_active, 0);
     assert.equal(db.prepare('SELECT COUNT(*) count FROM fb_conversations').get().count, 1);
@@ -590,6 +590,43 @@ test('Facebook disconnect reports a partial result when Meta unsubscribe fails w
         db.prepare("SELECT status FROM activity_logs WHERE event_type = 'page_unlinked'").get().status,
         'failed'
     );
+});
+
+test('Facebook disconnect does not expose a token-bearing transport exception in its response or logs', async (t) => {
+    const db = createDatabase();
+    t.after(() => db.close());
+    const pageId = db.prepare(`
+        INSERT INTO tenant_pages (
+            tenant_id, page_id, page_name, page_access_token_encrypted,
+            subscribed_fields, webhook_subscribed, token_status
+        ) VALUES (1, 'page-private', 'Private Page', 'encrypted:page-token', '["messages"]', 1, 'valid')
+    `).run().lastInsertRowid;
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...parts) => warnings.push(parts);
+    t.after(() => { console.warn = originalWarn; });
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({
+            requestMeta: async () => {
+                const error = new TypeError('fetch failed: https://graph.test/debug_token?input_token=private-token');
+                error.cause = { code: 'ETIMEDOUT' };
+                throw error;
+            },
+        }),
+    });
+
+    const disconnected = await invokeRoute(router, 'delete', '/facebook/disconnect/:linkedPageId', {
+        user: { tenant_id: 1 },
+        params: { linkedPageId: String(pageId) },
+    });
+
+    assert.equal(disconnected.statusCode, 200);
+    assert.equal(disconnected.body.partial_success, true);
+    assert.equal(disconnected.body.webhook_error, 'تعذر إلغاء اشتراك Webhook لدى Meta');
+    assert.equal(warnings.length, 1);
+    assert.deepEqual(warnings[0][1], { code: 'ETIMEDOUT', status: 500 });
+    assert.doesNotMatch(JSON.stringify({ body: disconnected.body, warnings }), /private-token|input_token|debug_token/);
 });
 
 test('page linking returns a partial result and the webhook error when subscription fails', async (t) => {
@@ -616,7 +653,7 @@ test('page linking returns a partial result and the webhook error when subscript
             };
         }
         if (url.endsWith('/page-1/subscribed_apps')) {
-            return { ok: false, status: 403, error: { message: 'Webhook permission denied' } };
+            return { ok: false, status: 403, error: { message: 'Webhook permission denied: access_token=private-token' } };
         }
         return assert.fail(`Unexpected Meta request: ${url}`);
     };
@@ -642,8 +679,9 @@ test('page linking returns a partial result and the webhook error when subscript
         token_status: 'valid',
         page_ready: false,
         webhook_subscribed: false,
-        webhook_error: 'Webhook permission denied',
+        webhook_error: 'تعذر تفعيل استقبال أحداث الصفحة لدى Meta. تحقق من الصلاحيات ثم أعد المحاولة.',
     }]);
+    assert.doesNotMatch(JSON.stringify(linked.body), /private-token|access_token=/);
     assert.deepEqual(
         db.prepare('SELECT is_active, webhook_subscribed, subscribed_fields FROM tenant_pages').get(),
         { is_active: 1, webhook_subscribed: 0, subscribed_fields: '[]' }
@@ -880,4 +918,51 @@ test('WhatsApp onboarding imports every authorized WABA number without replacing
     );
     assert.equal(db.prepare('SELECT phone_number_id FROM tenants WHERE id = 1').get().phone_number_id, 'phone-multi-2');
     assert.doesNotMatch(JSON.stringify(connected.body), /multi-token|encrypted:multi-token/);
+});
+
+test('WhatsApp onboarding follows phone-number pagination using only the cursor', async (t) => {
+    const db = createDatabase();
+    enableMultipleWhatsAppNumbers(db);
+    t.after(() => db.close());
+    const phoneCalls = [];
+    const requestMeta = async (url, init) => {
+        if (url.endsWith('/oauth/access_token')) {
+            return { ok: true, status: 200, data: { access_token: 'paged-token' } };
+        }
+        if (url.includes('/waba-paged/phone_numbers?')) {
+            phoneCalls.push({ url, init });
+            const cursor = new URL(url).searchParams.get('after');
+            if (!cursor) {
+                return {
+                    ok: true,
+                    status: 200,
+                    data: {
+                        data: [{ id: 'phone-1' }],
+                        paging: {
+                            next: 'https://graph.test/v25.0/waba-paged/phone_numbers?after=cursor-2&access_token=private-token',
+                        },
+                    },
+                };
+            }
+            assert.equal(cursor, 'cursor-2');
+            return { ok: true, status: 200, data: { data: [{ id: 'phone-2' }] } };
+        }
+        if (url.endsWith('/waba-paged/subscribed_apps')) {
+            return { ok: true, status: 200, data: { success: true } };
+        }
+        return assert.fail(`Unexpected Meta request: ${url}`);
+    };
+    const router = createTenantMetaOnboardingRouter({
+        database: db,
+        ...createDependencies({ requestMeta }),
+    });
+    const response = await invokeRoute(router, 'post', '/whatsapp/connect', {
+        user: { tenant_id: 1 },
+        body: { code: 'wa-code', waba_id: 'waba-paged', phone_number_id: 'phone-2' },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.imported_count, 2);
+    assert.equal(phoneCalls.length, 2);
+    assert.ok(phoneCalls.every(call => call.init.headers.Authorization === 'Bearer paged-token'));
+    assert.ok(phoneCalls.every(call => !call.url.includes('private-token') && !call.url.includes('access_token')));
 });

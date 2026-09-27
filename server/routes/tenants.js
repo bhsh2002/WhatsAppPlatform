@@ -4,7 +4,8 @@ import { META_API_BASE } from '../config/index.js';
 import { checkSingleTenant } from '../services/tokenMonitor.js';
 import { getAccessToken } from '../services/credentials.js';
 import { encrypt } from '../services/encryption.js';
-import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { readMetaResponse, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
+import { safeMetaNextPageUrl } from '../services/metaPagination.js';
 import { parseListPagination } from '../services/pagination.js';
 import { presentTenant, presentTenants } from '../presenters/tenant.js';
 import {
@@ -138,8 +139,8 @@ router.post('/:id/check-token', async (req, res) => {
         const result = await checkSingleTenant(req.params.id);
         res.json({ success: true, ...result });
     } catch (error) {
-        console.error('Error checking token:', error);
-        res.status(500).json({ error: error.message || 'فشل فحص الرمز' });
+        console.error('Error checking token:', summarizeMetaException(error));
+        res.status(500).json({ error: 'فشل فحص الرمز' });
     }
 });
 
@@ -948,7 +949,7 @@ router.post('/:id/templates/sync', async (req, res) => {
 
                     // Method 2: Try debug_token to get app info
                     const debugResponse = await fetch(
-                        `${META_API_BASE}/debug_token?input_token=${accessToken}`,
+                        `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(accessToken)}`,
                         {
                             headers: { 'Authorization': `Bearer ${accessToken}` }
                         }
@@ -969,7 +970,7 @@ router.post('/:id/templates/sync', async (req, res) => {
                     }
                 }
             } catch (err) {
-                console.error('Error getting WABA ID:', err);
+                console.error('Error getting WABA ID:', summarizeMetaException(err));
             }
         }
 
@@ -981,10 +982,11 @@ router.post('/:id/templates/sync', async (req, res) => {
         }
 
         // Fetch templates from Meta API with pagination
-        let url = `${META_API_BASE}/${wabaId}/message_templates?limit=100&fields=name,language,status,category,components,quality_score,parameter_format`;
+        const templatesUrl = `${META_API_BASE}/${encodeURIComponent(wabaId)}/message_templates?limit=100&fields=name,language,status,category,components,quality_score,parameter_format`;
+        let url = templatesUrl;
         let allMetaTemplates = [];
 
-        while (url) {
+        for (let page = 0; url && page < 20; page += 1) {
             const resp = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
@@ -996,8 +998,16 @@ router.post('/:id/templates/sync', async (req, res) => {
                 return sendMetaFailure(res, metaResult, 'فشل جلب القوالب من WhatsApp');
             }
 
-            allMetaTemplates.push(...(data.data || []));
-            url = data.paging?.next || null;
+            allMetaTemplates.push(...(Array.isArray(data.data) ? data.data : []));
+            const nextValue = data.paging?.next;
+            const next = safeMetaNextPageUrl(nextValue, templatesUrl);
+            if (nextValue && !next) {
+                return res.status(502).json({ error: 'تعذر متابعة صفحات القوالب من Meta' });
+            }
+            url = next;
+        }
+        if (url) {
+            return res.status(502).json({ error: 'تجاوزت القوالب حد صفحات المزامنة' });
         }
 
         let created = 0, updated = 0, unchanged = 0;
@@ -1059,7 +1069,7 @@ router.post('/:id/templates/sync', async (req, res) => {
             ).all(tenantId),
         });
     } catch (error) {
-        console.error('Error syncing templates:', error);
+        console.error('Error syncing templates:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل مزامنة القوالب' });
     }
 });

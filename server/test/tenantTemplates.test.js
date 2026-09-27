@@ -183,7 +183,9 @@ test('template sync follows only same-origin Meta pagination and upserts within 
                     quality_score: { score: 'GREEN' },
                     parameter_format: 'named',
                 }],
-                paging: { next: 'https://graph.test/v25.0/page-2' },
+                paging: {
+                    next: 'https://graph.test/v25.0/waba%2FA/message_templates?after=cursor-2&access_token=private-token',
+                },
             },
         },
         {
@@ -222,7 +224,11 @@ test('template sync follows only same-origin Meta pagination and upserts within 
         unchanged: result.body.unchanged,
     }, { synced: 2, created: 1, updated: 1, unchanged: 0 });
     assert.equal(calls.length, 2);
-    assert.equal(calls[1].url, 'https://graph.test/v25.0/page-2');
+    const secondUrl = new URL(calls[1].url);
+    assert.equal(secondUrl.pathname, '/v25.0/waba%2FA/message_templates');
+    assert.equal(secondUrl.searchParams.get('after'), 'cursor-2');
+    assert.equal(secondUrl.searchParams.get('access_token'), null);
+    assert.ok(!calls[1].url.includes('private-token'));
     assert.ok(calls.every(call => call.init.headers.Authorization === 'Bearer token-1'));
     assert.equal(db.prepare("SELECT body FROM templates WHERE tenant_id = 1 AND name = 'welcome'").get().body, 'Updated from Meta');
     assert.equal(db.prepare("SELECT quality_score FROM templates WHERE tenant_id = 1 AND name = 'welcome'").get().quality_score, 'GREEN');

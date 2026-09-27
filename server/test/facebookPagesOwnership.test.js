@@ -276,3 +276,30 @@ test('admin page verification and subscription requests keep page tokens out of 
         }
     }
 });
+
+test('page-link webhook warning never exposes a token-bearing fetch exception', async (t) => {
+    db.prepare('INSERT INTO tenants (id, name) VALUES (?, ?)').run(907, 'Safe warnings tenant');
+    const originalFetch = globalThis.fetch;
+    const originalWarn = console.warn;
+    const logs = [];
+    globalThis.fetch = async url => {
+        if (String(url).includes('/subscribed_apps')) {
+            throw new TypeError('https://graph.facebook.com/?access_token=private-page-token');
+        }
+        return new Response(JSON.stringify({ id: 'page-907', name: 'Safe page' }), { status: 200 });
+    };
+    console.warn = (...args) => { logs.push(args); };
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+        console.warn = originalWarn;
+    });
+
+    const response = await invokeRoute('post', '/tenant/:tenantId', {
+        params: { tenantId: '907' },
+        body: { page_id: 'page-907', page_access_token: 'private-page-token' },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.body._webhook_subscribed, false);
+    assert.equal(response.body._webhook_warning, 'تعذر الاتصال بـ Meta لإعداد Webhook');
+    assert.doesNotMatch(JSON.stringify({ body: response.body, logs }), /private-page-token|access_token=/);
+});

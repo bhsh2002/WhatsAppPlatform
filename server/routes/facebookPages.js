@@ -12,7 +12,7 @@ import {
     getWebhookEvidence,
     parseStoredArray,
 } from '../services/metaReadiness.js';
-import { readMetaResponse, sendMetaFailure } from '../services/metaHttp.js';
+import { readMetaResponse, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
 import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
 import { parseListPagination } from '../services/pagination.js';
 
@@ -127,7 +127,7 @@ router.get('/', (req, res) => {
         `).all(limit, offset);
         res.json(pages);
     } catch (error) {
-        console.error('[FacebookPages] List all error:', error);
+        console.error('[FacebookPages] List all error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب صفحات فيسبوك' });
     }
 });
@@ -157,7 +157,7 @@ router.get('/tenant/:tenantId', (req, res) => {
 
         res.json(pages);
     } catch (error) {
-        console.error('[FacebookPages] List error:', error);
+        console.error('[FacebookPages] List error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل جلب صفحات فيسبوك' });
     }
 });
@@ -290,7 +290,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
                     );
                 }
             } catch (err) {
-                console.warn('[FacebookPages] Page token debug failed:', err.message);
+                console.warn('[FacebookPages] Page token debug failed:', summarizeMetaException(err));
             }
         }
 
@@ -325,8 +325,8 @@ router.post('/tenant/:tenantId', async (req, res) => {
                 console.warn('[FacebookPages] Webhook subscription failed:', webhookError);
             }
         } catch (err) {
-            webhookError = err.message;
-            console.warn('[FacebookPages] Webhook subscription error:', err.message);
+            webhookError = 'تعذر الاتصال بـ Meta لإعداد Webhook';
+            console.warn('[FacebookPages] Webhook subscription error:', summarizeMetaException(err));
         }
 
         // Log activity
@@ -344,7 +344,7 @@ router.post('/tenant/:tenantId', async (req, res) => {
 
         res.status(existing ? 200 : 201).json(response);
     } catch (error) {
-        console.error('[FacebookPages] Link error:', error);
+        console.error('[FacebookPages] Link error:', summarizeMetaException(error));
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
             return res.status(409).json({ error: 'هذه الصفحة مربوطة بالفعل بهذا العميل' });
         }
@@ -407,7 +407,7 @@ router.put('/:id', (req, res) => {
         const updated = db.prepare('SELECT * FROM tenant_pages WHERE id = ?').get(id);
         res.json(sanitizePage(updated));
     } catch (error) {
-        console.error('[FacebookPages] Update error:', error);
+        console.error('[FacebookPages] Update error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل تحديث الصفحة' });
     }
 });
@@ -438,7 +438,7 @@ router.delete('/:id', async (req, res) => {
                 webhookUnsubscribed = unsubscribeResult.ok && unsubscribeResult.data?.success !== false;
                 if (!webhookUnsubscribed) webhookError = 'تعذر إلغاء اشتراك Webhook لدى Meta';
             } catch (err) {
-                console.warn('[FacebookPages] Failed to unsubscribe webhook on unlink:', err.message);
+                console.warn('[FacebookPages] Failed to unsubscribe webhook on unlink:', summarizeMetaException(err));
                 webhookError = 'تعذر الاتصال بـ Meta لإلغاء اشتراك Webhook';
             }
         } else {
@@ -498,7 +498,7 @@ router.delete('/:id', async (req, res) => {
             cancelled_publications: cancelledPublications,
         });
     } catch (error) {
-        console.error('[FacebookPages] Delete error:', error);
+        console.error('[FacebookPages] Delete error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل فك ربط الصفحة' });
     }
 });
@@ -567,7 +567,7 @@ router.post('/:id/verify', async (req, res) => {
             },
         });
     } catch (error) {
-        console.error('[FacebookPages] Verify error:', error);
+        console.error('[FacebookPages] Verify error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل التحقق من رمز الوصول' });
     }
 });
@@ -619,7 +619,7 @@ router.post('/:id/subscribe', async (req, res) => {
             page: sanitizePage(updated),
         });
     } catch (error) {
-        console.error('[FacebookPages] Subscribe error:', error);
+        console.error('[FacebookPages] Subscribe error:', summarizeMetaException(error));
         res.status(500).json({ error: 'فشل اشتراك Webhook' });
     }
 });
@@ -656,8 +656,8 @@ router.get('/:id/subscription-status', async (req, res) => {
             meta_response: data,
         });
     } catch (error) {
-        console.error('[FacebookPages] Subscription status error:', error);
-        res.status(500).json({ error: error.message });
+        console.error('[FacebookPages] Subscription status error:', summarizeMetaException(error));
+        res.status(500).json({ error: 'فشل جلب حالة الاشتراك' });
     }
 });
 
@@ -831,8 +831,8 @@ router.get('/webhook-diagnostic', async (req, res) => {
 
         res.json(results);
     } catch (error) {
-        console.error('[FacebookPages] Diagnostic error:', error);
-        res.status(500).json({ error: error.message });
+        console.error('[FacebookPages] Diagnostic error:', summarizeMetaException(error));
+        res.status(500).json({ error: 'فشل فحص إعدادات Webhook' });
     }
 });
 
@@ -912,8 +912,8 @@ router.post('/setup-app-webhook', async (req, res) => {
             app_subscription_summary: summarizeAppSubscriptions(verifySubs, callbackUrl),
         });
     } catch (error) {
-        console.error('[FacebookPages] Setup app webhook error:', error);
-        res.status(500).json({ error: error.message });
+        console.error('[FacebookPages] Setup app webhook error:', summarizeMetaException(error));
+        res.status(500).json({ error: 'فشل إعداد Webhook' });
     }
 });
 

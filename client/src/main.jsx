@@ -3,8 +3,12 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/alexandria'
 import { LanguageProvider } from './context/LanguageContext.jsx'
 import AppProviders from './AppProviders.jsx'
+import ChunkLoadBoundary from './components/ChunkLoadBoundary.jsx'
+import { installChunkLoadRecovery } from './pwa/chunkLoadRecovery.js'
 import { registerServiceWorker } from './pwa/registerServiceWorker.js'
 import './index.css'
+
+if (import.meta.env.PROD) installChunkLoadRecovery()
 
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('axe') === '1') {
   import('./accessibility/axeDevAudit.js')
@@ -17,7 +21,9 @@ if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('axe'
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <LanguageProvider>
-      <AppProviders />
+      <ChunkLoadBoundary>
+        <AppProviders />
+      </ChunkLoadBoundary>
     </LanguageProvider>
   </StrictMode>,
 )

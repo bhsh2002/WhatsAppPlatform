@@ -6,18 +6,8 @@ import {
     insertMessengerMessage,
     normalizeMessengerTimestamp,
 } from '../services/messengerMessages.js';
-import { requestMetaJson } from '../services/metaHttp.js';
-
-const normalizeMetaNextUrl = (value, apiBase) => {
-    if (!value) return null;
-    try {
-        const next = new URL(value);
-        const base = new URL(apiBase);
-        return next.protocol === 'https:' && next.origin === base.origin ? next.toString() : null;
-    } catch {
-        return null;
-    }
-};
+import { requestMetaJson, summarizeMetaException } from '../services/metaHttp.js';
+import { safeMetaNextPageUrl } from '../services/metaPagination.js';
 
 export function createTenantMessengerSyncRouter({
     database,
@@ -60,7 +50,8 @@ export function createTenantMessengerSyncRouter({
                     continue;
                 }
                 try {
-                    let url = `${apiBase}/${encodeURIComponent(page.page_id)}/conversations?fields=participants,messages.limit(10){message,from,created_time,mid,attachments},updated_time&limit=25`;
+                    const conversationsUrl = `${apiBase}/${encodeURIComponent(page.page_id)}/conversations?fields=participants,messages.limit(10){message,from,created_time,mid,attachments},updated_time&limit=25`;
+                    let url = conversationsUrl;
                     for (let pageNumber = 0; url && pageNumber < 20; pageNumber += 1) {
                         const result = await requestMeta(url, {
                             headers: { Authorization: `Bearer ${accessToken}` },
@@ -97,7 +88,7 @@ export function createTenantMessengerSyncRouter({
                             } catch (error) {
                                 console.warn(
                                     `[TenantMessengerSync] Profile fetch failed for ${userPsid}:`,
-                                    error.message
+                                    summarizeMetaException(error)
                                 );
                             }
 
@@ -206,7 +197,7 @@ export function createTenantMessengerSyncRouter({
                         }
 
                         const nextValue = result.data?.paging?.next;
-                        const next = normalizeMetaNextUrl(nextValue, apiBase);
+                        const next = safeMetaNextPageUrl(nextValue, conversationsUrl);
                         if (nextValue && !next) {
                             failedPages += 1;
                             break;
@@ -215,7 +206,7 @@ export function createTenantMessengerSyncRouter({
                     }
                 } catch (error) {
                     failedPages += 1;
-                    console.error(`[TenantMessengerSync] Page ${page.page_id} sync failed:`, error);
+                    console.error(`[TenantMessengerSync] Page ${page.page_id} sync failed:`, summarizeMetaException(error));
                 }
             }
 
@@ -226,7 +217,7 @@ export function createTenantMessengerSyncRouter({
                 failed_pages: failedPages,
             });
         } catch (error) {
-            console.error('[TenantMessengerSync] Sync error:', error);
+            console.error('[TenantMessengerSync] Sync error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل مزامنة المحادثات' });
         }
     });

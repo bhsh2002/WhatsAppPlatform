@@ -1,7 +1,8 @@
 import express from 'express';
 
 import { META_API_BASE } from '../config/index.js';
-import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
+import { requestMetaJson, sendMetaFailure, summarizeMetaException } from '../services/metaHttp.js';
+import { safeMetaNextPageUrl } from '../services/metaPagination.js';
 import { parseListPagination } from '../services/pagination.js';
 import { resolveTenantWhatsAppContext } from '../services/whatsappNumbers.js';
 
@@ -70,19 +71,6 @@ const parseMetaComponents = components => {
         }
     }
     return { headerType, headerContent, body, footer, buttons };
-};
-
-const normalizeMetaNextUrl = (value, apiBase) => {
-    if (!value) return null;
-    try {
-        const next = new URL(value);
-        const base = new URL(apiBase);
-        return next.protocol === 'https:' && next.origin === base.origin
-            ? next.toString()
-            : null;
-    } catch {
-        return null;
-    }
 };
 
 export function createTenantTemplatesRouter({
@@ -287,7 +275,7 @@ export function createTenantTemplatesRouter({
             })();
             return res.json({ success: true });
         } catch (error) {
-            console.error('[TenantTemplates] Delete Meta error:', error);
+            console.error('[TenantTemplates] Delete Meta error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل حذف القالب من Meta' });
         }
     });
@@ -348,7 +336,8 @@ export function createTenantTemplatesRouter({
                 });
             }
 
-            let url = `${apiBase}/${encodeURIComponent(wabaId)}/message_templates?limit=100&fields=name,language,status,category,components,quality_score,parameter_format`;
+            const templatesUrl = `${apiBase}/${encodeURIComponent(wabaId)}/message_templates?limit=100&fields=name,language,status,category,components,quality_score,parameter_format`;
+            let url = templatesUrl;
             const metaTemplates = [];
             for (let page = 0; url && page < 20; page += 1) {
                 const result = await requestMeta(url, {
@@ -359,7 +348,7 @@ export function createTenantTemplatesRouter({
                 metaTemplates.push(...rows.slice(0, Math.max(0, 2000 - metaTemplates.length)));
                 if (metaTemplates.length >= 2000) break;
                 const nextValue = result.data?.paging?.next;
-                const next = normalizeMetaNextUrl(nextValue, apiBase);
+                const next = safeMetaNextPageUrl(nextValue, templatesUrl);
                 if (nextValue && !next) {
                     return res.status(502).json({ error: 'Meta returned an invalid pagination URL' });
                 }
@@ -451,7 +440,7 @@ export function createTenantTemplatesRouter({
                 templates,
             });
         } catch (error) {
-            console.error('[TenantTemplates] Sync error:', error);
+            console.error('[TenantTemplates] Sync error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل مزامنة القوالب' });
         }
     });
@@ -544,7 +533,7 @@ export function createTenantTemplatesRouter({
             `).run(tenantId, context.tenant.name, `إنشاء قالب في Meta: ${name}`);
             return res.json({ success: true, data: result.data || {} });
         } catch (error) {
-            console.error('[TenantTemplates] Create Meta error:', error);
+            console.error('[TenantTemplates] Create Meta error:', summarizeMetaException(error));
             return res.status(500).json({ error: 'فشل إنشاء القالب في Meta' });
         }
     });
