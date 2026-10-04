@@ -29,10 +29,10 @@ import {
     QrCode2 as QrCodeIcon,
     SecurityOutlined as SecurityIcon,
     AccountTree as BotIcon,
-    WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import WaBrandMark from '../../components/Brand/WaBrandMark';
 
 const palette = {
     ink: '#16352f',
@@ -152,19 +152,7 @@ const LandingPage = () => {
                 <Container maxWidth="xl">
                     <Box sx={{ minHeight: 72, display: 'flex', alignItems: 'center', gap: { xs: 1, md: 3 } }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, flexShrink: 0 }}>
-                            <Box
-                                sx={{
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: '13px 13px 4px 13px',
-                                    bgcolor: palette.green,
-                                    display: 'grid',
-                                    placeItems: 'center',
-                                    transform: 'rotate(-3deg)',
-                                }}
-                            >
-                                <WhatsAppIcon sx={{ color: 'white', fontSize: 22, transform: 'rotate(3deg)' }} />
-                            </Box>
+                            <WaBrandMark size={38} decorative />
                             <Typography
                                 component="span"
                                 sx={{ fontSize: { xs: '0.95rem', sm: '1.08rem' }, fontWeight: 850, whiteSpace: 'nowrap' }}
@@ -602,9 +590,7 @@ const LandingPage = () => {
                     >
                         <Box sx={{ minWidth: 0, gridColumn: { sm: '1 / -1', md: 'auto' } }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.3, mb: 2, minWidth: 0 }}>
-                                <Box sx={{ width: 38, height: 38, bgcolor: palette.green, borderRadius: '13px 13px 4px 13px', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                                    <WhatsAppIcon sx={{ fontSize: 22 }} />
-                                </Box>
+                                <WaBrandMark size={38} decorative />
                                 <Typography component="span" sx={{ fontWeight: 850, fontSize: '1.1rem', whiteSpace: 'nowrap', wordBreak: 'normal', overflowWrap: 'normal' }}>Wa Savana</Typography>
                             </Box>
                             <Typography sx={{ color: 'rgba(255,255,255,0.62)', lineHeight: 1.9, maxWidth: 430, wordBreak: 'normal', overflowWrap: 'break-word' }}>
