@@ -23,7 +23,6 @@ import {
 import Select from '../Form/AccessibleSelect';
 import {
     Send as SendIcon,
-    WhatsApp as WhatsAppIcon,
     Facebook as FacebookIcon,
     Sms as SmsIcon,
     ArrowBack as ArrowBackIcon,
@@ -33,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';
 import IntegratedProductPicker from './IntegratedProductPicker';
+import WaBrandMark from '../Brand/WaBrandMark';
 
 const formatTime = (dateStr, locale) => {
     if (!dateStr) return '';
@@ -219,7 +219,9 @@ const UnifiedChatWindow = ({
                 bgcolor: 'grey.50',
                 borderBottom: '4px solid #25D366',
             }}>
-                <WhatsAppIcon sx={{ fontSize: 80, color: 'grey.300', mb: 2 }} />
+                <Box sx={{ mb: 2 }}>
+                    <WaBrandMark size={96} />
+                </Box>
                 <Typography component="p" variant="h6" color="text.secondary">{t('inbox.chooseConversation')}</Typography>
             </Box>
         );

@@ -26,11 +26,11 @@ import {
     Login as LoginIcon,
     Business as BusinessIcon,
     Phone as PhoneIcon,
-    Language as LanguageIcon,
-    WhatsApp as WhatsAppIcon
+    Language as LanguageIcon
 } from '@mui/icons-material';
 import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
+import WaBrandMark from '../../components/Brand/WaBrandMark';
 
 const Login = () => {
     const { login, loading, error } = useAuth();
@@ -133,19 +133,7 @@ const Login = () => {
             <Box sx={{ width: '100%', maxWidth: 460, position: 'relative', zIndex: 1 }}>
                 {/* Logo */}
                 <Box component={RouterLink} to="/" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, mb: 3, color: '#16352f', textDecoration: 'none' }}>
-                    <Box sx={{
-                        width: 48,
-                        height: 48,
-                        bgcolor: '#087f5b',
-                        color: 'white',
-                        borderRadius: '16px 16px 5px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transform: 'rotate(-3deg)'
-                    }}>
-                        <WhatsAppIcon sx={{ fontSize: 28, transform: 'rotate(3deg)' }} />
-                    </Box>
+                    <WaBrandMark size={48} decorative />
                     <Box>
                         <Typography component="h1" variant="h5" fontWeight={850}>Wa Savana</Typography>
                         <Typography variant="body2" color="text.secondary">{t('auth.subtitle')}</Typography>

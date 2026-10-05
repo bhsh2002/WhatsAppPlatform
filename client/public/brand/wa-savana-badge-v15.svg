@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="badge-title">
+  <title id="badge-title">Wa Savana notification badge</title>
+  <g transform="translate(-557 -507) scale(1.5)">
+    <path id="badge-silhouette" d="M 879.05 791.13 Q 874 797 870 804 Q 868 806 872 812 L 908 868 Q 916 881 905 877 L 840 849 Q 825.84 837.43 811.56 844.59 A 212 200 0 1 1 879.05 791.13 Z M 896 668 A 184 172 0 1 0 528 668 A 184 172 0 1 0 896 668 Z" fill="#ffffff" fill-rule="evenodd" />
+    <path d="M 704 604 C 759 654 828 662 888 614" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
+    <path d="M 535 704 C 591 668 651 686 704 740" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
+    <circle cx="704" cy="604" r="47" fill="#ffffff" />
+    <circle cx="704" cy="740" r="47" fill="#ffffff" />
+  </g>
+</svg>

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Box, AppBar, Toolbar, IconButton, Typography, Drawer, useMediaQuery, useTheme } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
-import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import Sidebar from './Sidebar';
+import WaBrandMark from '../Brand/WaBrandMark';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
@@ -65,9 +65,7 @@ const MainLayout = ({ children, fullHeight = false }) => {
                         >
                             <MenuIcon />
                         </IconButton>
-                        <Box sx={{ width: 28, height: 28, bgcolor: 'primary.main', color: 'white', borderRadius: '10px 10px 3px 10px', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                            <WhatsAppIcon sx={{ fontSize: 17 }} />
-                        </Box>
+                        <WaBrandMark size={28} />
                         <Typography variant="subtitle1" component="div" fontWeight={800} sx={{ display: { xs: 'none', sm: 'block' }, flexShrink: 0 }}>
                             Wa Savana
                         </Typography>

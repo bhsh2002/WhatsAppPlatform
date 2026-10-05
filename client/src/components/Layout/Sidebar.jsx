@@ -50,6 +50,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useWhatsAppNumbers } from '../../context/WhatsAppNumberContext';
 import WhatsAppNumberSelector from '../WhatsApp/WhatsAppNumberSelector';
+import WaBrandMark from '../Brand/WaBrandMark';
 
 const Sidebar = ({ onNavigate }) => {
     const { user, tenant, logout, isTenant, isAdmin } = useAuth();
@@ -182,20 +183,7 @@ const Sidebar = ({ onNavigate }) => {
                 alignItems: 'center',
                 gap: 2
             }}>
-                <Box sx={{
-                    width: 40,
-                    height: 40,
-                    bgcolor: 'primary.main',
-                    borderRadius: '14px 14px 4px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '1.5rem',
-                    transform: 'rotate(-3deg)'
-                }}>
-                    <WhatsAppIcon sx={{ transform: 'rotate(3deg)' }} />
-                </Box>
+                <WaBrandMark size={40} decorative={!isTenant || !tenant?.name} />
                 <Box>
                     <Typography variant="h6" component="div" fontWeight={700} lineHeight={1.2}>
                         {isTenant ? (tenant?.name || 'Wa Savana') : 'Wa Savana'}
