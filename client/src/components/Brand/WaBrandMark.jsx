@@ -4,7 +4,7 @@ import { Box } from '@mui/material';
 const WaBrandMark = ({ size = 40, alt = 'Wa Savana', decorative = false }) => (
     <Box
         component="img"
-        src="/brand/wa-savana-mark-v9.png"
+        src="/brand/wa-savana-mark-v15.svg"
         alt={decorative ? '' : alt}
         aria-hidden={decorative ? true : undefined}
         width={size}
