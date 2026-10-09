@@ -279,7 +279,7 @@ const buildNotificationPayload = (event, role) => {
             title: 'رسالة جديدة',
             body: `وصلت رسالة جديدة عبر ${channelName(event.channel)}.`,
             tag: event.notification_tag,
-            icon: '/icons/wa-savana-v17-192.png',
+            icon: '/icons/wa-savana-v18-192.png',
             badge: '/icons/wa-savana-badge-v17-96.png',
             url: role === 'admin' ? adminPath : tenantPath,
         };
@@ -290,7 +290,7 @@ const buildNotificationPayload = (event, role) => {
         title: event.severity === 'critical' ? 'تنبيه مهم' : 'تنبيه جديد',
         body: 'يوجد تنبيه جديد يحتاج إلى المراجعة.',
         tag: event.notification_tag,
-        icon: '/icons/wa-savana-v17-192.png',
+        icon: '/icons/wa-savana-v18-192.png',
         badge: '/icons/wa-savana-badge-v17-96.png',
         url: alertDestination(event.alert_code, role),
     };

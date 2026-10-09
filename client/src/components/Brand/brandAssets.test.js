@@ -6,15 +6,17 @@ import { inflateSync } from 'node:zlib';
 
 const publicRoot = new URL('../../../public/', import.meta.url);
 const primaryMark = '/brand/wa-savana-mark-v17.svg';
-const notificationIcon = '/icons/wa-savana-v17-192.png';
+const notificationIcon = '/icons/wa-savana-v18-192.png';
 const notificationBadge = '/icons/wa-savana-badge-v17-96.png';
 const iconBackground = [0xf7, 0xf2, 0xe8];
 const expectedAssets = [
     ['/brand/wa-savana-mark-v17.png', 512, 6],
-    ['/icons/favicon-v17-32.png', 32, 6],
+    ['/icons/favicon-v18-16.png', 16, 6],
+    ['/icons/favicon-v18-32.png', 32, 6],
+    ['/icons/favicon-v18-48.png', 48, 6],
     ['/icons/apple-touch-icon-v17.png', 180, 2],
-    [notificationIcon, 192, 2],
-    ['/icons/wa-savana-v17-512.png', 512, 2],
+    [notificationIcon, 192, 6],
+    ['/icons/wa-savana-v18-512.png', 512, 6],
     ['/icons/wa-savana-maskable-v17-192.png', 192, 2],
     ['/icons/wa-savana-maskable-v17-512.png', 512, 2],
     ['/icons/wa-savana-maskable-v17-1024.png', 1024, 2],
@@ -152,8 +154,9 @@ test('phone icons have opaque warm backgrounds and visible artwork', () => {
     }
 });
 
-test('the platform PNG and favicon retain an opaque cream tile with transparent rounded corners', () => {
-    for (const path of ['/brand/wa-savana-mark-v17.png', '/icons/favicon-v17-32.png']) {
+test('rounded platform, favicon and regular icons retain an opaque cream tile with transparent corners', () => {
+    const roundedAssets = expectedAssets.filter(([path, , colorType]) => colorType === 6 && path !== notificationBadge);
+    for (const [path] of roundedAssets) {
         const { width, height, pixels } = decodePngPixels(path, 6);
         for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
             assert.equal(pixels[(y * width + x) * 4 + 3], 0, `${path} must leave rounded corners outside the tile transparent`);
@@ -164,6 +167,44 @@ test('the platform PNG and favicon retain an opaque cream tile with transparent 
             assert.deepEqual([...pixels.subarray(index, index + 4)], [...iconBackground, 255], `${path} must have a fully opaque cream background within the rounded tile`);
         }
     }
+});
+
+test('the versioned SVG favicon is byte-identical to the platform master', () => {
+    const faviconSource = readFileSync(new URL('icons/favicon-v18.svg', publicRoot));
+    const masterSource = readFileSync(new URL(primaryMark.slice(1), publicRoot));
+    assert.deepEqual(faviconSource, masterSource, 'browser tabs must use the approved platform tile');
+});
+
+test('the ICO favicon contains matching 16, 32 and 48 pixel PNG frames and a matching root alias', () => {
+    const icon = readFileSync(new URL('icons/favicon-v18.ico', publicRoot));
+    assert.ok(icon.length >= 6, 'the ICO must contain a complete directory header');
+    assert.equal(icon.readUInt16LE(0), 0, 'the ICO reserved field must be zero');
+    assert.equal(icon.readUInt16LE(2), 1, 'the directory must describe an icon, not a cursor');
+    assert.equal(icon.readUInt16LE(4), 3, 'the ICO must provide three fallback resolutions');
+    const sizes = [16, 32, 48];
+    let expectedOffset = 6 + sizes.length * 16;
+    assert.ok(icon.length >= expectedOffset, 'the ICO must contain every frame directory entry');
+    for (const [index, size] of sizes.entries()) {
+        const entryOffset = 6 + index * 16;
+        const width = icon[entryOffset] || 256;
+        const height = icon[entryOffset + 1] || 256;
+        assert.deepEqual([width, height], [size, size], 'each ICO directory entry must declare its actual frame resolution');
+        assert.equal(icon[entryOffset + 2], 0, 'RGBA frames must not declare an indexed palette');
+        assert.equal(icon[entryOffset + 3], 0, 'the frame reserved field must be zero');
+        assert.equal(icon.readUInt16LE(entryOffset + 4), 1, 'each frame must declare one color plane');
+        assert.equal(icon.readUInt16LE(entryOffset + 6), 32, 'each frame must preserve RGBA channels');
+        const frameLength = icon.readUInt32LE(entryOffset + 8);
+        const frameOffset = icon.readUInt32LE(entryOffset + 12);
+        assert.equal(frameOffset, expectedOffset, 'ICO frames must follow the directory without overlaps or gaps');
+        assert.ok(frameLength >= 33 && frameOffset + frameLength <= icon.length, 'the ICO must contain the complete PNG frame');
+        const frame = icon.subarray(frameOffset, frameOffset + frameLength);
+        const png = readPng(`/icons/favicon-v18-${size}.png`);
+        assert.deepEqual(frame, png, `the ${size}px ICO frame must match the published PNG fallback`);
+        assert.deepEqual([frame.readUInt32BE(16), frame.readUInt32BE(20)], [width, height], 'the PNG dimensions must match the ICO directory');
+        expectedOffset += frameLength;
+    }
+    assert.equal(expectedOffset, icon.length, 'the ICO must end after the final frame');
+    assert.deepEqual(readFileSync(new URL('favicon.ico', publicRoot)), icon, 'automatic browser requests must receive the same fallback icon');
 });
 
 test('all maskable and Apple icons keep the logo inside the phone launcher safe circle', () => {
@@ -216,22 +257,30 @@ test('the primary SVG is self-contained, square and uses opaque local paints', (
     }
 });
 
-test('the primary and phone icons share approved artwork at their variant-specific centered scales', () => {
+test('primary, rounded and maskable icons share approved artwork at their variant-specific centered scales', () => {
     const appIcon = readPublicSvg('/brand/wa-savana-app-icon-v17.svg');
+    const roundedIcon = readPublicSvg('/brand/wa-savana-rounded-icon-v18.svg');
     assertSafeSquareSvg(appIcon);
+    assertSafeSquareSvg(roundedIcon);
     const primarySvg = readPublicSvg(primaryMark);
     assert.deepEqual(elements(appIcon, 'g'), [{ transform: 'translate(122.88 122.88) scale(0.76)' }], 'the phone artwork must retain its centered launcher-safe scale');
+    assert.deepEqual(elements(roundedIcon, 'g'), [{ transform: 'translate(122.88 122.88) scale(0.76)' }], 'regular phone icons must use the same safe artwork scale as maskable icons');
     assert.deepEqual(elements(primarySvg, 'g'), [{ transform: 'translate(61.44 61.44) scale(0.88)' }], 'the platform artwork must use the larger centered scale within its rounded square');
     const artworkGroup = appIcon.match(/<g\b[^>]*>([\s\S]*?)<\/g>/i);
+    const roundedGroup = roundedIcon.match(/<g\b[^>]*>([\s\S]*?)<\/g>/i);
     const primaryGroup = primarySvg.match(/<g\b[^>]*>([\s\S]*?)<\/g>/i);
-    assert.ok(artworkGroup && primaryGroup, 'both icons must contain the approved artwork');
+    assert.ok(artworkGroup && roundedGroup && primaryGroup, 'all icon variants must contain the approved artwork');
     assert.equal(artworkGroup[1].replace(/\s+/g, ' ').trim(), primaryGroup[1].replace(/\s+/g, ' ').trim(), 'phone exports must reuse all approved shapes and colors without redrawing them');
+    assert.equal(roundedGroup[1].replace(/\s+/g, ' ').trim(), artworkGroup[1].replace(/\s+/g, ' ').trim(), 'regular and maskable phone exports must preserve the same artwork');
     const background = svgArtwork(appIcon.replace(artworkGroup[0], ''));
     assert.deepEqual(elements(background, 'rect'), [{ width: '1024', height: '1024', fill: '#f7f2e8' }], 'the approved artwork must sit on a full opaque cream background');
     assert.match(background, /^<rect\b[^>]*\/?>$/, 'the phone icon must not add artwork outside the scaled group');
     const primaryBackground = svgArtwork(primarySvg.replace(primaryGroup[0], ''));
     assert.deepEqual(elements(primaryBackground, 'rect'), [{ width: '1024', height: '1024', rx: '224', fill: '#f7f2e8' }], 'the platform logo must use the approved rounded cream square');
     assert.match(primaryBackground, /^<rect\b[^>]*\/?>$/, 'the platform logo must not add artwork outside the scaled group');
+    const roundedBackground = svgArtwork(roundedIcon.replace(roundedGroup[0], ''));
+    assert.deepEqual(elements(roundedBackground, 'rect'), [{ width: '1024', height: '1024', rx: '224', fill: '#f7f2e8' }], 'regular phone icons must carry the rounded cream background');
+    assert.match(roundedBackground, /^<rect\b[^>]*\/?>$/, 'regular phone icons must not add artwork outside the scaled group');
 });
 
 test('the monochrome notification badge derives its silhouette and S from the approved primary mark', () => {
@@ -266,7 +315,7 @@ test('the manifest uses versioned icons at their declared resolution and preserv
 
     assert.deepEqual(manifest.icons, [
         { src: notificationIcon, sizes: '192x192', type: 'image/png', purpose: 'any' },
-        { src: '/icons/wa-savana-v17-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: '/icons/wa-savana-v18-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
         { src: '/icons/wa-savana-maskable-v17-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
         { src: '/icons/wa-savana-maskable-v17-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         { src: '/icons/wa-savana-maskable-v17-1024.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
@@ -289,15 +338,52 @@ test('the shared brand component uses the versioned primary SVG', () => {
 
 test('HTML favicon and Apple touch links use the versioned assets and correct sizes', () => {
     const html = readSource('../../../index.html');
-    const links = [...html.matchAll(/<link\b[^>]*>/g)].map(match => match[0]);
-    const linkWithRel = rel => links.find(link => link.includes(`rel="${rel}"`));
+    const links = elements(html, 'link');
+    const icons = links.filter(link => link.rel === 'icon');
+    assert.deepEqual(icons.map(icon => icon.href), [
+        '/icons/favicon-v18.ico',
+        '/icons/favicon-v18-16.png',
+        '/icons/favicon-v18-32.png',
+        '/icons/favicon-v18-48.png',
+        '/icons/favicon-v18.svg',
+    ], 'browser fallbacks must be versioned and the scalable SVG must be the final preferred icon');
+    assert.match(icons[0].type, /^image\/(?:x-icon|vnd\.microsoft\.icon)$/);
+    for (const [index, size] of [16, 32, 48].entries()) {
+        assert.equal(icons[index + 1].sizes, `${size}x${size}`);
+        assert.equal(icons[index + 1].type, 'image/png');
+    }
+    assert.equal(icons.at(-1).sizes, 'any');
+    assert.equal(icons.at(-1).type, 'image/svg+xml');
+    const appleIcon = links.find(link => link.rel === 'apple-touch-icon');
+    assert.equal(appleIcon.href, '/icons/apple-touch-icon-v17.png');
+    assert.equal(appleIcon.sizes, '180x180');
+    assert.equal(links.find(link => link.rel === 'manifest').href, '/manifest.webmanifest');
+});
 
-    assert.match(linkWithRel('icon'), /\bhref="\/icons\/favicon-v17-32\.png"/);
-    assert.match(linkWithRel('icon'), /\bsizes="32x32"/);
-    assert.match(linkWithRel('icon'), /\btype="image\/png"/);
-    assert.match(linkWithRel('apple-touch-icon'), /\bhref="\/icons\/apple-touch-icon-v17\.png"/);
-    assert.match(linkWithRel('apple-touch-icon'), /\bsizes="180x180"/);
-    assert.match(linkWithRel('manifest'), /\bhref="\/manifest\.webmanifest"/);
+test('icon requests return icon files or 404 instead of falling through to the SPA', () => {
+    const config = readSource('../../../nginx.conf');
+    const locationBody = expression => {
+        const opening = config.match(expression);
+        assert.ok(opening, 'the Nginx icon location must be explicitly configured');
+        const start = opening.index + opening[0].length;
+        let end = start;
+        let depth = 1;
+        for (; end < config.length && depth > 0; end++) {
+            if (config[end] === '{') depth++;
+            if (config[end] === '}') depth--;
+        }
+        assert.equal(depth, 0, 'the Nginx icon location must have a complete body');
+        return config.slice(start, end - 1);
+    };
+    const favicon = locationBody(/\blocation\s+=\s+\/favicon\.ico\s*\{/);
+    assert.match(favicon, /\bdefault_type\s+image\/(?:x-icon|vnd\.microsoft\.icon)\s*;/);
+    assert.match(favicon, /\btry_files\s+\$uri\s+=404\s*;/);
+    assert.match(favicon, /\badd_header\s+Cache-Control\s+"[^"\n]*\bno-cache\b[^"\n]*"\s+always\s*;/);
+    const versionedIcons = locationBody(/\blocation\s+\^~\s+\/icons\/\s*\{/);
+    assert.match(versionedIcons, /\btry_files\s+\$uri\s+=404\s*;/);
+    for (const body of [favicon, versionedIcons]) {
+        assert.doesNotMatch(body, /\btry_files\s+[^;]*\/index\.html\b/, 'missing icons must not receive a successful HTML response');
+    }
 });
 
 for (const [label, path] of [
