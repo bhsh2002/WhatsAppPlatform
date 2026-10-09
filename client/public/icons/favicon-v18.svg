@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="brand-title brand-description">
+  <title id="brand-title">Wa Savana</title>
+  <desc id="brand-description">An emerald message page and coral speech bubble carrying Savana's two-node S mark and a curved, rounded tail, set inside a cream rounded-square app tile.</desc>
+  <rect width="1024" height="1024" rx="224" fill="#f7f2e8" />
+  <g transform="translate(61.44 61.44) scale(0.88)">
+    <defs>
+        <linearGradient id="page-fill" x1="104" y1="156" x2="712" y2="868" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#12ad7b" />
+          <stop offset="0.55" stop-color="#09976b" />
+          <stop offset="1" stop-color="#087f5b" />
+        </linearGradient>
+        <linearGradient id="bubble-fill" x1="580" y1="470" x2="930" y2="900" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#ff8258" />
+          <stop offset="0.55" stop-color="#ff633f" />
+          <stop offset="1" stop-color="#f34f32" />
+        </linearGradient>
+      </defs>
+      <rect x="104" y="156" width="608" height="712" rx="88" fill="url(#page-fill)" />
+      <rect x="180" y="312" width="436" height="72" rx="36" fill="#ffffff" />
+      <rect x="180" y="440" width="304" height="72" rx="36" fill="#ffffff" />
+      <path id="bubble-silhouette" d="M 887.76 779.84 C 885.6 803 895.2 824.6 907.2 840.2 C 914.4 849.8 912 859.4 898.8 858.2 C 870 855.8 846 846.2 824.34 837.61 A 212 200 0 1 1 887.76 779.84 Z" fill="url(#bubble-fill)" />
+      <ellipse id="bubble-border" cx="712" cy="668" rx="184" ry="172" fill="none" stroke="#ffffff" stroke-width="28" />
+      <path d="M 704 604 C 759 654 828 662 888 614" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
+      <path d="M 535 704 C 591 668 651 686 704 740" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
+      <circle cx="704" cy="604" r="47" fill="#ffffff" />
+      <circle cx="704" cy="740" r="47" fill="#ffffff" />
+  </g>
+</svg>
