@@ -5,19 +5,19 @@ import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 
 const publicRoot = new URL('../../../public/', import.meta.url);
-const primaryMark = '/brand/wa-savana-mark-v15.svg';
-const notificationIcon = '/icons/wa-savana-v16-192.png';
-const notificationBadge = '/icons/wa-savana-badge-v15-96.png';
+const primaryMark = '/brand/wa-savana-mark-v17.svg';
+const notificationIcon = '/icons/wa-savana-v17-192.png';
+const notificationBadge = '/icons/wa-savana-badge-v17-96.png';
 const iconBackground = [0xf7, 0xf2, 0xe8];
 const expectedAssets = [
-    ['/brand/wa-savana-mark-v15.png', 512, 6],
-    ['/icons/favicon-v16-32.png', 32, 2],
-    ['/icons/apple-touch-icon-v16.png', 180, 2],
+    ['/brand/wa-savana-mark-v17.png', 512, 6],
+    ['/icons/favicon-v17-32.png', 32, 6],
+    ['/icons/apple-touch-icon-v17.png', 180, 2],
     [notificationIcon, 192, 2],
-    ['/icons/wa-savana-v16-512.png', 512, 2],
-    ['/icons/wa-savana-maskable-v16-192.png', 192, 2],
-    ['/icons/wa-savana-maskable-v16-512.png', 512, 2],
-    ['/icons/wa-savana-maskable-v16-1024.png', 1024, 2],
+    ['/icons/wa-savana-v17-512.png', 512, 2],
+    ['/icons/wa-savana-maskable-v17-192.png', 192, 2],
+    ['/icons/wa-savana-maskable-v17-512.png', 512, 2],
+    ['/icons/wa-savana-maskable-v17-1024.png', 1024, 2],
     [notificationBadge, 96, 6],
 ];
 const readSource = path => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -47,6 +47,12 @@ const assertSafeSquareSvg = svg => {
 };
 
 const normalizePath = path => path.replace(/\s+/g, ' ').trim();
+const svgArtwork = svg => svg
+    .replace(/^[\s\S]*?<svg\b[^>]*>/i, '')
+    .replace(/<\/svg>\s*$/i, '')
+    .replace(/<(title|desc)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const readPng = path => {
     const png = readFileSync(new URL(path.slice(1), publicRoot));
@@ -66,14 +72,15 @@ const pngDimensions = path => {
     return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 };
 
-// Read the actual RGB pixels without a native image dependency in CI. Phone
-// icons must be 8-bit, non-interlaced RGB PNGs with no transparency chunk.
-const decodeOpaqueRgbPng = path => {
+// Read actual RGB/RGBA pixels without a native image dependency in CI. RGB
+// phone icons cannot use a transparency chunk; platform tiles retain alpha
+// only outside their rounded background.
+const decodePngPixels = (path, colorType = 2) => {
     const png = readPng(path);
     const width = png.readUInt32BE(16);
     const height = png.readUInt32BE(20);
     assert.equal(png[24], 8, `${path} must use 8-bit channels`);
-    assert.equal(png[25], 2, `${path} must use opaque RGB PNG color type 2`);
+    assert.equal(png[25], colorType, `${path} must use PNG color type ${colorType}`);
     assert.deepEqual([...png.subarray(26, 29)], [0, 0, 0], `${path} must use standard PNG compression and no interlacing`);
     const imageChunks = [];
     let complete = false;
@@ -93,7 +100,8 @@ const decodeOpaqueRgbPng = path => {
     }
     assert.ok(complete && imageChunks.length > 0, `${path} must contain complete pixel data`);
     const filtered = inflateSync(Buffer.concat(imageChunks));
-    const stride = width * 3;
+    const channels = colorType === 6 ? 4 : 3;
+    const stride = width * channels;
     assert.equal(filtered.length, (stride + 1) * height, `${path} must contain every pixel`);
     const pixels = Buffer.alloc(stride * height);
     const paeth = (left, above, upperLeft) => {
@@ -109,15 +117,17 @@ const decodeOpaqueRgbPng = path => {
         assert.ok(filter <= 4, `${path} must use a valid PNG row filter`);
         for (let byte = 0; byte < stride; byte++) {
             const index = y * stride + byte;
-            const left = byte >= 3 ? pixels[index - 3] : 0;
+            const left = byte >= channels ? pixels[index - channels] : 0;
             const above = y > 0 ? pixels[index - stride] : 0;
-            const upperLeft = y > 0 && byte >= 3 ? pixels[index - stride - 3] : 0;
+            const upperLeft = y > 0 && byte >= channels ? pixels[index - stride - channels] : 0;
             const prediction = [0, left, above, Math.floor((left + above) / 2), paeth(left, above, upperLeft)][filter];
             pixels[index] = (filtered[y * (stride + 1) + byte + 1] + prediction) & 0xff;
         }
     }
     return { width, height, pixels };
 };
+
+const decodeOpaqueRgbPng = path => decodePngPixels(path);
 
 for (const [path, size, colorType] of expectedAssets) {
     test(`${path} is a ${size}x${size} PNG`, () => {
@@ -142,22 +152,38 @@ test('phone icons have opaque warm backgrounds and visible artwork', () => {
     }
 });
 
-test('the maskable logo stays inside the phone launcher safe circle', () => {
-    const path = '/icons/wa-savana-maskable-v16-512.png';
-    const { width, height, pixels } = decodeOpaqueRgbPng(path);
-    const radiusSquared = (width * 0.4) ** 2;
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const index = (y * width + x) * 3;
-            if (iconBackground.every((channel, offset) => pixels[index + offset] === channel)) continue;
-            const distanceSquared = (x + 0.5 - width / 2) ** 2 + (y + 0.5 - height / 2) ** 2;
-            assert.ok(distanceSquared <= radiusSquared, `launcher masks must not clip the logo pixel at (${x}, ${y})`);
+test('the platform PNG and favicon retain an opaque cream tile with transparent rounded corners', () => {
+    for (const path of ['/brand/wa-savana-mark-v17.png', '/icons/favicon-v17-32.png']) {
+        const { width, height, pixels } = decodePngPixels(path, 6);
+        for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
+            assert.equal(pixels[(y * width + x) * 4 + 3], 0, `${path} must leave rounded corners outside the tile transparent`);
+        }
+        const inset = Math.max(1, Math.floor(width * 0.05));
+        for (const [x, y] of [[Math.floor(width / 2), inset], [Math.floor(width / 2), height - 1 - inset], [inset, Math.floor(height / 2)], [width - 1 - inset, Math.floor(height / 2)]]) {
+            const index = (y * width + x) * 4;
+            assert.deepEqual([...pixels.subarray(index, index + 4)], [...iconBackground, 255], `${path} must have a fully opaque cream background within the rounded tile`);
         }
     }
 });
 
-test('the public master is byte-identical to the approved v15 SVG preview', () => {
-    const approvedSource = readFileSync(new URL('../../../../docs/branding/wa-savana-mark-v15-preview.svg', import.meta.url));
+test('all maskable and Apple icons keep the logo inside the phone launcher safe circle', () => {
+    const safeCircleAssets = expectedAssets.filter(([path]) => /maskable|apple-touch-icon/.test(path));
+    for (const [path] of safeCircleAssets) {
+        const { width, height, pixels } = decodeOpaqueRgbPng(path);
+        const radiusSquared = (width * 0.4) ** 2;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const index = (y * width + x) * 3;
+                if (iconBackground.every((channel, offset) => pixels[index + offset] === channel)) continue;
+                const distanceSquared = (x + 0.5 - width / 2) ** 2 + (y + 0.5 - height / 2) ** 2;
+                assert.ok(distanceSquared <= radiusSquared, `${path}: launcher masks must not clip the logo pixel at (${x}, ${y})`);
+            }
+        }
+    }
+});
+
+test('the public master is byte-identical to the approved v17 SVG preview', () => {
+    const approvedSource = readFileSync(new URL('../../../../docs/branding/wa-savana-mark-v17-preview.svg', import.meta.url));
     const publicMaster = readFileSync(new URL(primaryMark.slice(1), publicRoot));
     assert.deepEqual(publicMaster, approvedSource, 'adopting the mark must not redraw or alter the approved preview');
 });
@@ -181,7 +207,7 @@ test('the primary SVG is self-contained, square and uses opaque local paints', (
     const paints = svgPaints(svg);
     assert.ok(paints.includes('#ffffff'), 'the message lines and Savana S must stay white');
     for (const paint of paints) {
-        if (paint === '#ffffff' || paint === 'none') continue;
+        if (paint === '#ffffff' || paint === '#f7f2e8' || paint === 'none') continue;
         const reference = paint.match(/^url\(#([a-z][\w-]*)\)$/);
         assert.ok(reference && gradientIds.has(reference[1]), 'colored paints must resolve to a defined local gradient');
     }
@@ -190,8 +216,26 @@ test('the primary SVG is self-contained, square and uses opaque local paints', (
     }
 });
 
+test('the primary and phone icons share approved artwork at their variant-specific centered scales', () => {
+    const appIcon = readPublicSvg('/brand/wa-savana-app-icon-v17.svg');
+    assertSafeSquareSvg(appIcon);
+    const primarySvg = readPublicSvg(primaryMark);
+    assert.deepEqual(elements(appIcon, 'g'), [{ transform: 'translate(122.88 122.88) scale(0.76)' }], 'the phone artwork must retain its centered launcher-safe scale');
+    assert.deepEqual(elements(primarySvg, 'g'), [{ transform: 'translate(61.44 61.44) scale(0.88)' }], 'the platform artwork must use the larger centered scale within its rounded square');
+    const artworkGroup = appIcon.match(/<g\b[^>]*>([\s\S]*?)<\/g>/i);
+    const primaryGroup = primarySvg.match(/<g\b[^>]*>([\s\S]*?)<\/g>/i);
+    assert.ok(artworkGroup && primaryGroup, 'both icons must contain the approved artwork');
+    assert.equal(artworkGroup[1].replace(/\s+/g, ' ').trim(), primaryGroup[1].replace(/\s+/g, ' ').trim(), 'phone exports must reuse all approved shapes and colors without redrawing them');
+    const background = svgArtwork(appIcon.replace(artworkGroup[0], ''));
+    assert.deepEqual(elements(background, 'rect'), [{ width: '1024', height: '1024', fill: '#f7f2e8' }], 'the approved artwork must sit on a full opaque cream background');
+    assert.match(background, /^<rect\b[^>]*\/?>$/, 'the phone icon must not add artwork outside the scaled group');
+    const primaryBackground = svgArtwork(primarySvg.replace(primaryGroup[0], ''));
+    assert.deepEqual(elements(primaryBackground, 'rect'), [{ width: '1024', height: '1024', rx: '224', fill: '#f7f2e8' }], 'the platform logo must use the approved rounded cream square');
+    assert.match(primaryBackground, /^<rect\b[^>]*\/?>$/, 'the platform logo must not add artwork outside the scaled group');
+});
+
 test('the monochrome notification badge derives its silhouette and S from the approved primary mark', () => {
-    const svg = readPublicSvg('/brand/wa-savana-badge-v15.svg');
+    const svg = readPublicSvg('/brand/wa-savana-badge-v17.svg');
     assertSafeSquareSvg(svg);
     assert.doesNotMatch(svg, /<linearGradient\b|url\s*\(/i, 'the badge must not use gradients');
     const paints = svgPaints(svg);
@@ -222,10 +266,10 @@ test('the manifest uses versioned icons at their declared resolution and preserv
 
     assert.deepEqual(manifest.icons, [
         { src: notificationIcon, sizes: '192x192', type: 'image/png', purpose: 'any' },
-        { src: '/icons/wa-savana-v16-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-        { src: '/icons/wa-savana-maskable-v16-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-        { src: '/icons/wa-savana-maskable-v16-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        { src: '/icons/wa-savana-maskable-v16-1024.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
+        { src: '/icons/wa-savana-v17-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: '/icons/wa-savana-maskable-v17-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: '/icons/wa-savana-maskable-v17-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        { src: '/icons/wa-savana-maskable-v17-1024.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
     ]);
     for (const icon of manifest.icons) {
         const { width, height } = pngDimensions(icon.src);
@@ -248,10 +292,10 @@ test('HTML favicon and Apple touch links use the versioned assets and correct si
     const links = [...html.matchAll(/<link\b[^>]*>/g)].map(match => match[0]);
     const linkWithRel = rel => links.find(link => link.includes(`rel="${rel}"`));
 
-    assert.match(linkWithRel('icon'), /\bhref="\/icons\/favicon-v16-32\.png"/);
+    assert.match(linkWithRel('icon'), /\bhref="\/icons\/favicon-v17-32\.png"/);
     assert.match(linkWithRel('icon'), /\bsizes="32x32"/);
     assert.match(linkWithRel('icon'), /\btype="image\/png"/);
-    assert.match(linkWithRel('apple-touch-icon'), /\bhref="\/icons\/apple-touch-icon-v16\.png"/);
+    assert.match(linkWithRel('apple-touch-icon'), /\bhref="\/icons\/apple-touch-icon-v17\.png"/);
     assert.match(linkWithRel('apple-touch-icon'), /\bsizes="180x180"/);
     assert.match(linkWithRel('manifest'), /\bhref="\/manifest\.webmanifest"/);
 });
