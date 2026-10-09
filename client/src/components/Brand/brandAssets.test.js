@@ -2,18 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 
 const publicRoot = new URL('../../../public/', import.meta.url);
 const primaryMark = '/brand/wa-savana-mark-v15.svg';
-const notificationIcon = '/icons/wa-savana-v15-192.png';
+const notificationIcon = '/icons/wa-savana-v16-192.png';
 const notificationBadge = '/icons/wa-savana-badge-v15-96.png';
+const iconBackground = [0xf7, 0xf2, 0xe8];
 const expectedAssets = [
-    ['/brand/wa-savana-mark-v15.png', 512],
-    ['/icons/favicon-v15-32.png', 32],
-    ['/icons/apple-touch-icon-v15.png', 180],
-    [notificationIcon, 192],
-    ['/icons/wa-savana-v15-512.png', 512],
-    [notificationBadge, 96],
+    ['/brand/wa-savana-mark-v15.png', 512, 6],
+    ['/icons/favicon-v16-32.png', 32, 2],
+    ['/icons/apple-touch-icon-v16.png', 180, 2],
+    [notificationIcon, 192, 2],
+    ['/icons/wa-savana-v16-512.png', 512, 2],
+    ['/icons/wa-savana-maskable-v16-192.png', 192, 2],
+    ['/icons/wa-savana-maskable-v16-512.png', 512, 2],
+    ['/icons/wa-savana-maskable-v16-1024.png', 1024, 2],
+    [notificationBadge, 96, 6],
 ];
 const readSource = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const readPublicSvg = path => readFileSync(new URL(path.slice(1), publicRoot), 'utf8');
@@ -43,7 +48,7 @@ const assertSafeSquareSvg = svg => {
 
 const normalizePath = path => path.replace(/\s+/g, ' ').trim();
 
-const pngDimensions = path => {
+const readPng = path => {
     const png = readFileSync(new URL(path.slice(1), publicRoot));
     assert.ok(png.length >= 33, `${path} must contain a complete PNG header`);
     assert.deepEqual(
@@ -53,15 +58,103 @@ const pngDimensions = path => {
     );
     assert.equal(png.readUInt32BE(8), 13, `${path} must have a standard IHDR chunk`);
     assert.equal(png.toString('ascii', 12, 16), 'IHDR', `${path} must start with IHDR`);
-    assert.equal(png[25], 6, `${path} must use RGBA PNG color type 6 to retain alpha`);
+    return png;
+};
+
+const pngDimensions = path => {
+    const png = readPng(path);
     return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 };
 
-for (const [path, size] of expectedAssets) {
+// Read the actual RGB pixels without a native image dependency in CI. Phone
+// icons must be 8-bit, non-interlaced RGB PNGs with no transparency chunk.
+const decodeOpaqueRgbPng = path => {
+    const png = readPng(path);
+    const width = png.readUInt32BE(16);
+    const height = png.readUInt32BE(20);
+    assert.equal(png[24], 8, `${path} must use 8-bit channels`);
+    assert.equal(png[25], 2, `${path} must use opaque RGB PNG color type 2`);
+    assert.deepEqual([...png.subarray(26, 29)], [0, 0, 0], `${path} must use standard PNG compression and no interlacing`);
+    const imageChunks = [];
+    let complete = false;
+    for (let offset = 8; offset < png.length;) {
+        assert.ok(offset + 12 <= png.length, `${path} must contain complete PNG chunks`);
+        const length = png.readUInt32BE(offset);
+        const type = png.toString('ascii', offset + 4, offset + 8);
+        const end = offset + 12 + length;
+        assert.ok(end <= png.length, `${path} must not contain a truncated ${type} chunk`);
+        assert.notEqual(type, 'tRNS', `${path} must not make any RGB pixels transparent`);
+        if (type === 'IDAT') imageChunks.push(png.subarray(offset + 8, offset + 8 + length));
+        if (type === 'IEND') {
+            complete = true;
+            break;
+        }
+        offset = end;
+    }
+    assert.ok(complete && imageChunks.length > 0, `${path} must contain complete pixel data`);
+    const filtered = inflateSync(Buffer.concat(imageChunks));
+    const stride = width * 3;
+    assert.equal(filtered.length, (stride + 1) * height, `${path} must contain every pixel`);
+    const pixels = Buffer.alloc(stride * height);
+    const paeth = (left, above, upperLeft) => {
+        const estimate = left + above - upperLeft;
+        const leftDistance = Math.abs(estimate - left);
+        const aboveDistance = Math.abs(estimate - above);
+        const upperLeftDistance = Math.abs(estimate - upperLeft);
+        if (leftDistance <= aboveDistance && leftDistance <= upperLeftDistance) return left;
+        return aboveDistance <= upperLeftDistance ? above : upperLeft;
+    };
+    for (let y = 0; y < height; y++) {
+        const filter = filtered[y * (stride + 1)];
+        assert.ok(filter <= 4, `${path} must use a valid PNG row filter`);
+        for (let byte = 0; byte < stride; byte++) {
+            const index = y * stride + byte;
+            const left = byte >= 3 ? pixels[index - 3] : 0;
+            const above = y > 0 ? pixels[index - stride] : 0;
+            const upperLeft = y > 0 && byte >= 3 ? pixels[index - stride - 3] : 0;
+            const prediction = [0, left, above, Math.floor((left + above) / 2), paeth(left, above, upperLeft)][filter];
+            pixels[index] = (filtered[y * (stride + 1) + byte + 1] + prediction) & 0xff;
+        }
+    }
+    return { width, height, pixels };
+};
+
+for (const [path, size, colorType] of expectedAssets) {
     test(`${path} is a ${size}x${size} PNG`, () => {
         assert.deepEqual(pngDimensions(path), { width: size, height: size });
+        assert.equal(readPng(path)[25], colorType, `${path} must use the intended opaque or transparent PNG format`);
     });
 }
+
+test('phone icons have opaque warm backgrounds and visible artwork', () => {
+    for (const [path, , colorType] of expectedAssets) {
+        if (colorType !== 2) continue;
+        const { width, height, pixels } = decodeOpaqueRgbPng(path);
+        for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
+            const index = (y * width + x) * 3;
+            assert.deepEqual([...pixels.subarray(index, index + 3)], iconBackground, `${path} must keep its background at every corner`);
+        }
+        let paintedPixels = 0;
+        for (let index = 0; index < pixels.length; index += 3) {
+            if (iconBackground.some((channel, offset) => pixels[index + offset] !== channel)) paintedPixels++;
+        }
+        assert.ok(paintedPixels > width * height * 0.05, `${path} must contain the logo, not just a solid background`);
+    }
+});
+
+test('the maskable logo stays inside the phone launcher safe circle', () => {
+    const path = '/icons/wa-savana-maskable-v16-512.png';
+    const { width, height, pixels } = decodeOpaqueRgbPng(path);
+    const radiusSquared = (width * 0.4) ** 2;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 3;
+            if (iconBackground.every((channel, offset) => pixels[index + offset] === channel)) continue;
+            const distanceSquared = (x + 0.5 - width / 2) ** 2 + (y + 0.5 - height / 2) ** 2;
+            assert.ok(distanceSquared <= radiusSquared, `launcher masks must not clip the logo pixel at (${x}, ${y})`);
+        }
+    }
+});
 
 test('the public master is byte-identical to the approved v15 SVG preview', () => {
     const approvedSource = readFileSync(new URL('../../../../docs/branding/wa-savana-mark-v15-preview.svg', import.meta.url));
@@ -129,7 +222,10 @@ test('the manifest uses versioned icons at their declared resolution and preserv
 
     assert.deepEqual(manifest.icons, [
         { src: notificationIcon, sizes: '192x192', type: 'image/png', purpose: 'any' },
-        { src: '/icons/wa-savana-v15-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: '/icons/wa-savana-v16-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: '/icons/wa-savana-maskable-v16-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: '/icons/wa-savana-maskable-v16-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        { src: '/icons/wa-savana-maskable-v16-1024.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
     ]);
     for (const icon of manifest.icons) {
         const { width, height } = pngDimensions(icon.src);
@@ -152,10 +248,10 @@ test('HTML favicon and Apple touch links use the versioned assets and correct si
     const links = [...html.matchAll(/<link\b[^>]*>/g)].map(match => match[0]);
     const linkWithRel = rel => links.find(link => link.includes(`rel="${rel}"`));
 
-    assert.match(linkWithRel('icon'), /\bhref="\/icons\/favicon-v15-32\.png"/);
+    assert.match(linkWithRel('icon'), /\bhref="\/icons\/favicon-v16-32\.png"/);
     assert.match(linkWithRel('icon'), /\bsizes="32x32"/);
     assert.match(linkWithRel('icon'), /\btype="image\/png"/);
-    assert.match(linkWithRel('apple-touch-icon'), /\bhref="\/icons\/apple-touch-icon-v15\.png"/);
+    assert.match(linkWithRel('apple-touch-icon'), /\bhref="\/icons\/apple-touch-icon-v16\.png"/);
     assert.match(linkWithRel('apple-touch-icon'), /\bsizes="180x180"/);
     assert.match(linkWithRel('manifest'), /\bhref="\/manifest\.webmanifest"/);
 });

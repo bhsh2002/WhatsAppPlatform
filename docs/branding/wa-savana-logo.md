@@ -2,8 +2,8 @@
 
 The approved local master is `/brand/wa-savana-mark-v15.svg`, accepted on
 5 October 2026. It is byte-identical to the approved preview at
-`docs/branding/wa-savana-mark-v15-preview.svg`. This revision has not been
-published to production.
+`docs/branding/wa-savana-mark-v15-preview.svg`. The primary mark was published
+to production on 5 October 2026 (release `16e33edeeeef280217925118743f7ba6d883abb3`).
 
 The emerald page represents content and page management. Its narrower width,
 less-rounded corners and two aligned white message lines balance the prominent
@@ -41,10 +41,14 @@ directly from that source with `sharp`, retaining the composition and alpha:
 | --- | --- | --- |
 | `/brand/wa-savana-mark-v15.svg` | Scalable square | Shared `WaBrandMark` component |
 | `/brand/wa-savana-mark-v15.png` | 512×512 | Raster compatibility export |
-| `/icons/favicon-v15-32.png` | 32×32 | Browser tab |
-| `/icons/apple-touch-icon-v15.png` | 180×180 | Apple home-screen icon |
-| `/icons/wa-savana-v15-192.png` | 192×192 | PWA and notification icon |
-| `/icons/wa-savana-v15-512.png` | 512×512 | PWA icon |
+| `/brand/wa-savana-app-icon-v16.svg` | Scalable square | Opaque, launcher-safe app artwork |
+| `/icons/favicon-v16-32.png` | 32×32 | Opaque browser tab icon, larger mark for legibility |
+| `/icons/apple-touch-icon-v16.png` | 180×180 | Opaque Apple home-screen icon |
+| `/icons/wa-savana-v16-192.png` | 192×192 | Opaque PWA `any` and notification icon |
+| `/icons/wa-savana-v16-512.png` | 512×512 | Opaque PWA `any` icon |
+| `/icons/wa-savana-maskable-v16-192.png` | 192×192 | Opaque adaptive launcher icon |
+| `/icons/wa-savana-maskable-v16-512.png` | 512×512 | Opaque adaptive launcher icon |
+| `/icons/wa-savana-maskable-v16-1024.png` | 1024×1024 | High-resolution adaptive launcher icon |
 | `/icons/wa-savana-badge-v15-96.png` | 96×96 | Monochrome notification badge |
 
 The badge is rendered from `/brand/wa-savana-badge-v15.svg`. This technical
@@ -52,11 +56,28 @@ single-color OS glyph uses the approved speech silhouette, an elliptical
 transparent interior, and the two-node mark. Its filled white contour keeps the
 S arms connected after alpha masking. It is not used as the colored primary logo.
 
-Versioned paths prevent stale image-cache reuse. The existing `/logo.png`,
-`/icons/apple-touch-icon.png`, `/icons/wa-savana-192.png`, and
-`/icons/wa-savana-512.png` aliases also contain the v15 logo for compatibility.
-The PWA identity, start URL, scope, colors and display mode remain unchanged.
-Icons use `purpose: any`; they are not declared maskable.
+On 9 October 2026 the home-screen exports were corrected after launcher masks
+cropped the transparent artwork. The v16 app source adds a full-square, opaque
+cream background (`#f7f2e8`) and scales the complete approved mark to 72% about
+the canvas center. Its furthest artwork pixel lies at approximately 38.1% of the
+canvas width from the center, inside the guaranteed 40%-radius circle. Do not
+pre-round or pre-mask these files: the operating system applies its own shape.
+The `any`, Apple and `maskable` app exports share the same composition. The
+favicon keeps the larger original composition on the same opaque background.
+
+Versioned paths prevent stale image-cache reuse. `/logo.png` remains the v15
+primary mark. The `/icons/apple-touch-icon.png`, `/icons/wa-savana-192.png`, and
+`/icons/wa-savana-512.png` aliases now contain v16 app artwork for compatibility.
+The PWA identity, start URL, scope, theme colors and display mode remain unchanged.
+The manifest declares separate `any` and `maskable` entries.
+
+Already installed apps may require the user to accept an icon update or add the
+home-screen icon again; changing icon URLs makes the new assets discoverable but
+does not force operating systems to replace installed artwork immediately.
+See the [manifest maskable safe zone](https://www.w3.org/TR/appmanifest/#icon-masks),
+[Apple web-app icon setup](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/ConfiguringWebApplications/ConfiguringWebApplications.html),
+[WebKit high-resolution maskable guidance](https://webkit.org/blog/14787/webkit-features-in-safari-17-2/),
+and [Chrome app identity updates](https://developer.chrome.com/blog/improvements-to-web-app-updates).
 
 The shared component is used by the landing header/footer, login/registration,
 admin and customer sidebars, mobile header and empty unified conversation view.
@@ -69,6 +90,6 @@ module available. If it is not on Node's module search path, set
 `SAVANA_SHARP_MODULE` to its installed module path. This tool does not add a
 runtime dependency to the application. Run `npm test`, `npm run lint` and
 `npm run build` from `client/`. Asset checks cover the approved source, PNG
-dimensions and alpha, primary-brand references, notification badge and unchanged
-PWA identity. Review the mark at small sizes and in the local desktop/mobile
-login before publication.
+dimensions, opaque app RGB pixels, maskable pixels inside the safe circle,
+primary-brand references, notification badge and unchanged PWA identity. Review
+launcher circle/rounded-square masks and small sizes before publication.
