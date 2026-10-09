@@ -77,8 +77,8 @@ const notificationOptions = (payload) => {
         : browserLanguage.startsWith('en') ? 'en' : 'ar';
     const options = {
         body: genericBody(category, language),
-        icon: '/icons/wa-savana-v16-192.png',
-        badge: '/icons/wa-savana-badge-v15-96.png',
+        icon: '/icons/wa-savana-v17-192.png',
+        badge: '/icons/wa-savana-badge-v17-96.png',
         data: {
             category,
             url: sameOriginPath(payload?.url),
