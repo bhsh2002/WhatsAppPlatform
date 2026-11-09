@@ -56,7 +56,7 @@ import {
 const PAYMENT_RETURN_INVOICE_KEY = 'wa-savana-payment-return-invoice';
 const PAYMENT_POLL_ATTEMPTS = 6;
 const PAYMENT_POLL_INTERVAL_MS = 2000;
-const EXPIRED_UPGRADE_MESSAGE = 'انتهت صلاحية عرض الترقية. تواصل مع الإدارة لإلغاء الطلب وإصدار عرض جديد قبل الدفع.';
+const EXPIRED_UPGRADE_MESSAGE = 'انتهت صلاحية طلب الترقية. تواصل مع الإدارة لتجديده.';
 
 const rememberPaymentInvoice = (invoiceId, checkoutUrl) => {
     try {
@@ -246,7 +246,7 @@ const TenantBilling = () => {
                 provider,
             });
             if (provider === 'cash') {
-                setCheckoutMessage('تم تسجيل طلب السداد النقدي. ستبقى الفاتورة بانتظار تأكيد الاستلام من الإدارة.');
+                setCheckoutMessage('طلب السداد النقدي بانتظار تأكيد الإدارة.');
                 await fetchBilling();
                 return;
             }
@@ -312,9 +312,9 @@ const TenantBilling = () => {
             setCheckoutMessage(
                 invoice
                     ? currentQuote.payment_required === false
-                        ? `تم تفعيل الاشتراك وإنشاء الفاتورة ${invoice.number} دون مبلغ مستحق.`
-                        : `تم إنشاء طلب الاشتراك والفاتورة ${invoice.number}${invoiceAmount ? ` بقيمة ${invoiceAmount}` : ''}. اختر طريقة الدفع من قائمة الفواتير.`
-                    : 'تم إنشاء طلب الاشتراك المركزي بنجاح.'
+                        ? `تم تفعيل الاشتراك. الفاتورة ${invoice.number} دون مبلغ مستحق.`
+                        : `الفاتورة ${invoice.number}${invoiceAmount ? ` بقيمة ${invoiceAmount}` : ''} جاهزة. اختر طريقة الدفع أدناه.`
+                    : 'تم إنشاء طلب الاشتراك.'
             );
             await fetchBilling();
         } catch (checkoutError) {
@@ -330,7 +330,7 @@ const TenantBilling = () => {
                     // Keep the checkout error visible if the new quote cannot be loaded.
                 }
             }
-            setCheckoutPreviewError(checkoutError.message || 'تعذر إنشاء الاشتراك المركزي.');
+            setCheckoutPreviewError(checkoutError.message || 'تعذر تأكيد الاشتراك.');
         } finally {
             setCheckoutWorking('');
         }
@@ -388,13 +388,13 @@ const TenantBilling = () => {
             return <Typography variant="body2" color="warning.main">{EXPIRED_UPGRADE_MESSAGE}</Typography>;
         }
         if (paymentState.kind === 'moamalat_resume') {
-            return <Button size="small" variant="contained" onClick={() => resumeMoamalatPayment(invoice.id, paymentState.intent.checkout_url)}>متابعة الدفع عبر معاملات</Button>;
+            return <Button size="small" variant="contained" onClick={() => resumeMoamalatPayment(invoice.id, paymentState.intent.checkout_url)}>متابعة الدفع بالبطاقة</Button>;
         }
         if (paymentState.kind === 'moamalat_pending') {
-            return <Button size="small" variant="outlined" disabled={Boolean(paymentWorking)} onClick={() => startPayment(invoice.id, 'moamalat')}>إعادة محاولة رابط معاملات</Button>;
+            return <Button size="small" variant="outlined" disabled={Boolean(paymentWorking)} onClick={() => startPayment(invoice.id, 'moamalat')}>إعادة فتح صفحة الدفع بالبطاقة</Button>;
         }
         if (paymentState.kind === 'needs_review') {
-            return <Typography variant="body2" color="text.secondary">نية الدفع تحتاج مراجعة الإدارة</Typography>;
+            return <Typography variant="body2" color="text.secondary">طلب الدفع يحتاج مراجعة الإدارة</Typography>;
         }
         return (
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -405,7 +405,7 @@ const TenantBilling = () => {
                         disabled={Boolean(paymentWorking)}
                         onClick={() => startPayment(invoice.id, 'moamalat')}
                     >
-                        {paymentWorking === `moamalat:${invoice.id}` ? <CircularProgress size={18} color="inherit" /> : 'الدفع عبر معاملات'}
+                        {paymentWorking === `moamalat:${invoice.id}` ? <CircularProgress size={18} color="inherit" /> : 'الدفع بالبطاقة'}
                     </Button>
                 )}
                 {paymentMethods.includes('cash') && (
@@ -437,10 +437,10 @@ const TenantBilling = () => {
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
             {paymentReturn?.status === 'checking' && (
-                <Alert severity="info" sx={{ mb: 2 }}>جارٍ تحديث الفاتورة من نظام الاشتراكات بعد العودة من معاملات...</Alert>
+                <Alert severity="info" sx={{ mb: 2 }}>جارٍ التحقق من السداد…</Alert>
             )}
             {paymentReturn?.status === 'confirmed' && (
-                <Alert severity="success" sx={{ mb: 2 }}>تأكد سداد الفاتورة في نظام الاشتراكات.</Alert>
+                <Alert severity="success" sx={{ mb: 2 }}>تم تأكيد سداد الفاتورة.</Alert>
             )}
             {paymentReturn?.status === 'timeout' && (
                 <Alert
@@ -448,35 +448,30 @@ const TenantBilling = () => {
                     sx={{ mb: 2 }}
                     action={<Button color="inherit" size="small" onClick={() => setPaymentReturn(current => ({ ...current, status: 'checking' }))}>إعادة التحقق</Button>}
                 >
-                    لم يصل تأكيد سداد الفاتورة إلى نظام الاشتراكات بعد. أعد التحقق بعد قليل؛ ستبقى حالة الفاتورة كما يعرضها النظام.
+                    لم يصل تأكيد السداد بعد. أعد التحقق بعد قليل.
                 </Alert>
             )}
             {paymentReturn?.status === 'unknown_invoice' && (
-                <Alert severity="warning" sx={{ mb: 2 }}>تعذر تحديد الفاتورة المرتبطة بعملية الدفع. راجع حالة الفواتير أدناه أو حدّث الصفحة.</Alert>
+                <Alert severity="warning" sx={{ mb: 2 }}>تحقّق من حالة فاتورتك أدناه.</Alert>
             )}
             {checkoutMessage && (
                 <Alert severity="success" onClose={() => setCheckoutMessage('')} sx={{ mb: 2 }}>
                     {checkoutMessage}
                 </Alert>
             )}
-            {centralSubscription?.managed_centrally && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                    الخطة ودورة الاشتراك والفواتير تدار من نظام اشتراكات سافانا المركزي. تحتفظ Wa Savana بسجل الاستخدام والرصيد التشغيلي فقط.
-                </Alert>
-            )}
             {centralSubscription?.managed_centrally && !centralSubscription?.bound && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                    اربط هذا الحساب بمؤسسة سافانا المركزية أولاً حتى تظهر الباقات ويتاح الاشتراك من داخل المنصة.
+                    اربط حسابك بمؤسستك لعرض الباقات والفواتير.
                 </Alert>
             )}
             {centralSubscription?.pending_checkout && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                    يوجد طلب تغيير باقة قيد السداد. لن يُنشأ طلب آخر حتى يُسدّد أو يُلغى الطلب الحالي.
+                    لديك طلب بانتظار السداد. أكمل فاتورته لتفعيل الباقة.
                 </Alert>
             )}
             {cycleBlocked && (
                 <Alert severity="error" sx={{ mb: 2 }}>
-                    انتهت دورة الاشتراك الحالية، ولا يمكن تنفيذ عمليات جديدة حتى يتم تجديد الباقة من الإدارة.
+                    لا يوجد اشتراك صالح حاليًا. جدّد اشتراكك لمتابعة الاستخدام.
                 </Alert>
             )}
             {lowBalance && (
@@ -493,12 +488,8 @@ const TenantBilling = () => {
             {centralSubscription?.managed_centrally && centralSubscription?.bound && (
                 <Paper sx={{ p: 2, mb: 3 }}>
                     <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 0.5 }}>
-                        باقات سافانا المركزية
+                        الباقات
                     </SectionTitle>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        يمكنك الاشتراك في باقة Wa Savana مستقلة أو اختيار باقة مجمّعة من داخل المنصة.
-                        السعر المعروض أساسي، وتظهر القيمة النهائية بعد الخصومات والضرائب في الفاتورة.
-                    </Typography>
                     <Grid container spacing={2}>
                         {(centralSubscription.plans || []).map(offer => {
                             const price = selectCentralPlanPrice(offer);
@@ -511,12 +502,8 @@ const TenantBilling = () => {
                                 <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
                                     <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'primary.main' : 'divider' }}>
                                         <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                                            <Chip size="small" color="primary" label="باقة Wa Savana" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                             <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
-                                            <Typography variant="body2" color="text.secondary" sx={{ my: 1, flexGrow: 1 }}>
-                                                {offer.description || 'اشتراك مركزي مستقل للمنصة.'}
-                                            </Typography>
-                                            <Typography fontWeight={800} sx={{ mb: 1.5 }}>
+                                            <Typography fontWeight={800} sx={{ my: 1.5 }}>
                                                 {displayPrice || 'السعر غير متاح'}
                                             </Typography>
                                             <Button
@@ -527,14 +514,12 @@ const TenantBilling = () => {
                                                 {checkoutWorking === offer.id
                                                     ? <CircularProgress size={20} color="inherit" />
                                                     : isCurrent
-                                                        ? 'الخطة الحالية'
+                                                        ? 'الباقة الحالية'
                                                         : isIncluded
                                                             ? 'مشمولة في اشتراكك'
                                                             : isPending
-                                                                ? 'يوجد طلب قيد السداد'
-                                                                : centralSubscription.active_plan
-                                                                    ? 'تغيير الباقة'
-                                                                    : 'اشترك الآن'}
+                                                                ? 'بانتظار السداد'
+                                                                : 'اختيار الباقة'}
                                             </Button>
                                         </CardContent>
                                     </Card>
@@ -555,16 +540,10 @@ const TenantBilling = () => {
                             <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'secondary.main' : 'divider' }}>
                                     <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                                        <Chip size="small" color="secondary" label="باقة مجمّعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
+                                        <Chip size="small" color="secondary" label="مجمعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                         <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ my: 1 }}>
-                                            {offer.description || 'اشتراك موحّد لعدة منصات سافانا.'}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, flexGrow: 1 }}>
-                                            {(offer.items || []).map(item => item.plan_name).join(' • ')}
-                                        </Typography>
-                                        <Typography fontWeight={800} sx={{ mb: 1.5 }}>
-                                            {displayPrice ? `السعر الأساسي: ${displayPrice}` : 'السعر غير متاح حالياً'}
+                                        <Typography fontWeight={800} sx={{ my: 1.5 }}>
+                                            {displayPrice || 'السعر غير متاح حاليًا'}
                                         </Typography>
                                         <Button
                                             color="secondary"
@@ -579,10 +558,10 @@ const TenantBilling = () => {
                                                     : isIncluded
                                                         ? 'مشمولة في اشتراكك'
                                                         : isPending
-                                                            ? 'يوجد طلب قيد السداد'
+                                                            ? 'بانتظار السداد'
                                                             : !checkoutPriced
                                                                 ? 'تسعير الباقة غير متاح'
-                                                                : 'الترقية إلى الباقة المجمعة'}
+                                                                : 'اختيار الباقة'}
                                         </Button>
                                     </CardContent>
                                 </Card>
@@ -653,7 +632,7 @@ const TenantBilling = () => {
             </Grid>
 
             <Paper sx={{ p: 2, mb: 3 }}>
-                <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 2 }}>دورة الاشتراك</SectionTitle>
+                <SectionTitle variant="h6" fontWeight={700} sx={{ mb: 2 }}>اشتراكك</SectionTitle>
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <Typography variant="body2" color="text.secondary">تاريخ التفعيل</Typography>
@@ -783,34 +762,35 @@ const TenantBilling = () => {
                 fullWidth
                 maxWidth="sm"
             >
-                <DialogTitle id="central-checkout-preview-title">مراجعة تكلفة الاشتراك</DialogTitle>
+                <DialogTitle id="central-checkout-preview-title">تفاصيل الاشتراك</DialogTitle>
                 <DialogContent dividers>
                     {checkoutPreview && (
                         <Box sx={{ display: 'grid', gap: 1.5 }}>
                             <Typography fontWeight={700}>{checkoutPreview.offer.name}</Typography>
                             <Typography variant="body2" color="text.secondary">
                                 {checkoutPreview.quote.period_starts_after_payment
-                                    ? 'تبدأ دورة الباقة الجديدة بعد تأكيد السداد.'
-                                    : 'تبدأ دورة الباقة الجديدة فور تأكيد الاشتراك.'}
-                                {' '}مدة الدورة {checkoutPreview.quote.period_days} يومًا.
+                                    ? 'تتفعّل الباقة بعد السداد.'
+                                    : 'تتفعّل الباقة عند التأكيد.'}
                             </Typography>
                             {checkoutPreviewChanged && (
                                 <Alert severity="warning">
-                                    تغيرت تكلفة الاشتراك منذ عرضها. راجع المبلغ الجديد ثم أكد مرة أخرى.
+                                    تغيّر السعر. راجع المبلغ الجديد ثم أكد مرة أخرى.
                                 </Alert>
                             )}
                             {checkoutPreviewError && <Alert severity="error">{checkoutPreviewError}</Alert>}
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                                <Typography>السعر الأساسي</Typography>
+                                <Typography>قيمة الباقة</Typography>
                                 <Typography fontWeight={700}>{formatCentralQuoteAmount(checkoutPreview.quote.base_amount_minor, checkoutPreview.quote.currency, locale)}</Typography>
                             </Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                                <Typography>رصيد الأيام غير المستعملة</Typography>
-                                <Typography fontWeight={700}>− {formatCentralQuoteAmount(checkoutPreview.quote.upgrade_credit_minor, checkoutPreview.quote.currency, locale)}</Typography>
-                            </Box>
+                            {checkoutPreview.quote.upgrade_credit_minor > 0 && (
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                                    <Typography>رصيد الفترة المتبقية</Typography>
+                                    <Typography fontWeight={700}>− {formatCentralQuoteAmount(checkoutPreview.quote.upgrade_credit_minor, checkoutPreview.quote.currency, locale)}</Typography>
+                                </Box>
+                            )}
                             {checkoutPreview.quote.discount_minor > 0 && (
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                                    <Typography>خصومات إضافية</Typography>
+                                    <Typography>الخصم</Typography>
                                     <Typography fontWeight={700}>− {formatCentralQuoteAmount(checkoutPreview.quote.discount_minor, checkoutPreview.quote.currency, locale)}</Typography>
                                 </Box>
                             )}
@@ -821,7 +801,7 @@ const TenantBilling = () => {
                                 </Box>
                             )}
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                                <Typography fontWeight={800}>المبلغ المستحق</Typography>
+                                <Typography fontWeight={800}>المطلوب سداده</Typography>
                                 <Typography fontWeight={800}>{formatCentralQuoteAmount(checkoutPreview.quote.total_minor, checkoutPreview.quote.currency, locale)}</Typography>
                             </Box>
                         </Box>
@@ -831,9 +811,9 @@ const TenantBilling = () => {
                     <Button disabled={Boolean(checkoutWorking)} onClick={() => {
                         setCheckoutPreview(null);
                         setCheckoutPreviewError('');
-                    }}>إلغاء</Button>
+                    }}>رجوع</Button>
                     <Button variant="contained" disabled={Boolean(checkoutWorking)} onClick={checkout}>
-                        {checkoutWorking ? <CircularProgress size={20} color="inherit" /> : 'تأكيد الاشتراك'}
+                        {checkoutWorking ? <CircularProgress size={20} color="inherit" /> : 'تأكيد'}
                     </Button>
                 </DialogActions>
             </Dialog>

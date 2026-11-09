@@ -550,8 +550,8 @@ export const translations = {
       orderUpdateFallbackStatus: 'تم تحديث حالته'
     },
     billing: {
-      tenantTitle: 'الرصيد والفوترة',
-      tenantSubtitle: 'ملخص بسيط للباقة، الرصيد المتاح، واستهلاك الشهر.',
+      tenantTitle: 'الاشتراك والرصيد',
+      tenantSubtitle: 'باقتك ورصيدك وفواتيرك.',
       fetchFailed: 'فشل جلب بيانات الرصيد والفوترة',
       lowBalanceWarning: 'الرصيد المتاح منخفض. تواصل مع المدير لإعادة الشحن قبل توقف العمليات الصادرة.',
       creditLimitInfo: 'يتم استخدام السماحية الائتمانية حاليا: {used} من {limit}.',
@@ -3336,8 +3336,8 @@ export const translations = {
       orderUpdateFallbackStatus: 'its status has been updated'
     },
     billing: {
-      tenantTitle: 'Balance & Billing',
-      tenantSubtitle: 'A simple summary of your plan, available balance, and monthly usage.',
+      tenantTitle: 'Subscription & Balance',
+      tenantSubtitle: 'Your plan, balance, and invoices.',
       fetchFailed: 'Failed to load balance and billing data',
       lowBalanceWarning: 'Available balance is low. Contact the admin to recharge before outbound operations stop.',
       creditLimitInfo: 'Credit allowance is currently being used: {used} of {limit}.',

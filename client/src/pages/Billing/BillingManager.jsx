@@ -510,7 +510,7 @@ const BillingManager = () => {
     if (!selectedTenantId) return;
     const price = kind === 'plan' ? offer.prices?.find(item => item.active) : null;
     if (kind === 'plan' && !price) {
-      setError('لا يوجد سعر مركزي فعال لهذه الباقة.');
+      setError('السعر غير متاح لهذه الباقة.');
       return;
     }
     setCentralCheckoutWorking(offer.id);
@@ -531,12 +531,12 @@ const BillingManager = () => {
       const invoiceNumber = result?.invoice?.number;
       setCentralCheckoutMessage(
         invoiceNumber
-          ? `تم إنشاء طلب الاشتراك المركزي والفاتورة ${invoiceNumber}. الطلب الآن قيد المراجعة وبانتظار السداد.`
-          : 'تم إنشاء طلب الاشتراك المركزي، وهو الآن قيد المراجعة.'
+          ? `الفاتورة ${invoiceNumber} جاهزة. طلب الاشتراك بانتظار المراجعة والسداد.`
+          : 'تم إنشاء طلب الاشتراك وهو بانتظار المراجعة.'
       );
       await fetchTenantBilling(selectedTenantId);
     } catch (checkoutError) {
-      setError(checkoutError.message || 'تعذر إنشاء طلب الاشتراك المركزي.');
+      setError(checkoutError.message || 'تعذر إنشاء طلب الاشتراك.');
     } finally {
       setCentralCheckoutWorking('');
     }
@@ -673,10 +673,6 @@ const BillingManager = () => {
             {error && <Alert severity="error" sx={{
       mb: 2
     }}>{error}</Alert>}
-            {centralMode && <Alert severity="info" sx={{ mb: 2 }}>
-                الخطط وحالة الاشتراك ودورته تدار مركزياً. تبقى هنا أدوات الرصيد والاستخدام وتسوية تكلفة Meta فقط.
-            </Alert>}
-
             <Paper sx={{
       mb: 3
     }}>
@@ -738,7 +734,7 @@ const BillingManager = () => {
                                     <MenuItem value="closed">{tx("auto.k_d59687babb13")}</MenuItem>
                                 </Select>
                             </FormControl>
-                            <Button fullWidth variant="contained" startIcon={<SaveIcon />} onClick={saveAccount} disabled={centralMode || saving || !selectedTenantId}>{centralMode ? 'مدار مركزياً' : tx("auto.k_04b4b72720b8")}
+                            <Button fullWidth variant="contained" startIcon={<SaveIcon />} onClick={saveAccount} disabled={centralMode || saving || !selectedTenantId}>{tx("auto.k_04b4b72720b8")}
 
             </Button>
                         </Paper>
@@ -838,7 +834,7 @@ const BillingManager = () => {
             mb: 2
           }}>
                                 <Typography component="h2" variant="h6" fontWeight={700}>دورة الاشتراك</Typography>
-                                <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={centralMode || saving || !selectedTenantId || !cycleRenewDue}>{centralMode ? 'تجدد مركزياً' : 'تجديد الدورة'}</Button>
+                                <Button variant="contained" startIcon={<RefreshIcon />} onClick={renewBillingCycle} disabled={centralMode || saving || !selectedTenantId || !cycleRenewDue}>تجديد الدورة</Button>
                             </Box>
                             {cycleRenewDue ? <Alert severity="warning" sx={{
             mb: 2
@@ -961,9 +957,9 @@ const BillingManager = () => {
         mb: 2
       }}>
                         <Box>
-                            <Typography component="h2" variant="h6" fontWeight={700}>توفير اشتراك مركزي للمستخدم</Typography>
+                            <Typography component="h2" variant="h6" fontWeight={700}>اشتراك المستخدم</Typography>
                             <Typography variant="body2" color="text.secondary">
-                                اختر المستخدم ثم الباقة. يُنشأ الطلب في نظام اشتراكات سافانا المركزي ويظل قيد المراجعة حتى اعتماده أو سداد فاتورته.
+                                اختر المستخدم والباقة لإنشاء طلب الاشتراك.
                             </Typography>
                         </Box>
                         <FormControl sx={{ minWidth: 280 }}>
@@ -981,13 +977,13 @@ const BillingManager = () => {
                     {!selectedTenantId && <Alert severity="warning">اختر مستخدماً أولاً.</Alert>}
 
                     {selectedTenantId && !centralSubscription?.bound && <Alert severity="warning">
-                            يجب ربط مستخدم Wa Savana بمؤسسة سافانا المركزية قبل توفير الاشتراك.
+                            اربط حساب المستخدم بمؤسسته أولًا.
                         </Alert>}
 
                     {selectedTenantId && centralSubscription?.bound && <>
                             <Alert severity={centralSubscription.subscription_status === 'pending_payment' ? 'warning' : 'info'} sx={{ mb: 2 }}>
                                 المستخدم: {selectedTenant?.name || selectedTenantId}
-                                {' — '}الحالة المركزية: {centralSubscription.subscription_status || 'غير مشترك'}
+                                {' — '}حالة الاشتراك: {centralSubscription.subscription_status || 'غير مشترك'}
                                 {' — '}الباقة الحالية: {centralSubscription.active_plan?.name || 'لا توجد باقة نشطة'}.
                             </Alert>
 
@@ -1003,7 +999,7 @@ const BillingManager = () => {
                                                 <Chip size="small" color="primary" label="باقة Wa Savana" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                                 <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
                                                 <Typography variant="body2" color="text.secondary" sx={{ my: 1, flexGrow: 1 }}>
-                                                    {offer.description || 'اشتراك مركزي مستقل لمنصة Wa Savana.'}
+                                                    {offer.description || 'باقة Wa Savana'}
                                                 </Typography>
                                                 <Typography fontWeight={800} sx={{ mb: 1.5 }}>
                                                     {price ? `${money(Number(price.amount_minor) / 100, price.currency)} / ${price.billing_period === 'yearly' ? 'سنة' : 'شهر'}` : 'السعر غير متاح'}
@@ -1039,7 +1035,7 @@ const BillingManager = () => {
                                                 <Chip size="small" color="secondary" label="باقة مجمعة" sx={{ alignSelf: 'flex-start', mb: 1 }} />
                                                 <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
                                                 <Typography variant="body2" color="text.secondary" sx={{ my: 1 }}>
-                                                    {offer.description || 'اشتراك مركزي موحد لعدة منصات سافانا.'}
+                                                    {offer.description || 'باقة مجمعة'}
                                                 </Typography>
                                                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, flexGrow: 1 }}>
                                                     {(offer.items || []).map(item => item.plan_name).join(' • ')}
@@ -1067,7 +1063,7 @@ const BillingManager = () => {
                             </Grid>
 
                             {(centralSubscription.plans || []).length === 0 && (centralSubscription.bundles || []).length === 0 && <Alert severity="info" sx={{ mt: 2 }}>
-                                    لا توجد باقات مركزية متاحة حالياً لـ Wa Savana.
+                                    لا توجد باقات متاحة حاليًا.
                                 </Alert>}
                         </>}
                 </Paper>}

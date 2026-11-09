@@ -32,7 +32,7 @@ const centralSubscriptionsEnabled = () => (
 );
 
 const centralManagedResponse = res => res.status(409).json({
-    error: 'تدار الخطة ودورة الاشتراك من نظام اشتراكات سافانا المركزي',
+    error: 'لتغيير الاشتراك، استخدم خيارات الباقات والفواتير.',
     code: 'central_subscription_managed',
 });
 

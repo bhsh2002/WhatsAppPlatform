@@ -2,9 +2,41 @@ import express from 'express';
 
 import { SavanaIntegrationError } from '../services/savanaIntegration.js';
 
+const customerErrorMessages = {
+    central_subscription_unbound: 'اربط حسابك بمؤسستك أولًا.',
+    central_tenant_unbound: 'اربط حسابك بمؤسستك أولًا.',
+    central_subscription_conflict: 'تعذر تحديد مؤسسة الحساب. تواصل مع الإدارة.',
+    invalid_checkout_offer: 'اختر باقة واحدة.',
+    central_plan_not_found: 'الباقة غير متاحة حاليًا. اختر باقة أخرى.',
+    central_bundle_not_found: 'الباقة غير متاحة حاليًا. اختر باقة أخرى.',
+    central_price_unavailable: 'السعر غير متاح حاليًا. أعد المحاولة.',
+    central_bundle_price_unavailable: 'السعر غير متاح حاليًا. أعد المحاولة.',
+    central_billing_period_unavailable: 'دورة الاشتراك غير متاحة لهذه الباقة.',
+    checkout_quote_changed: 'تغيّر السعر. راجع المبلغ الجديد ثم أكد مرة أخرى.',
+    checkout_period_mismatch: 'تغيّرت دورة الاشتراك. أعد اختيار الباقة.',
+    upgrade_quote_expired: 'انتهت صلاحية طلب الترقية. تواصل مع الإدارة لتجديده.',
+    chained_upgrade_requires_review: 'تحتاج هذه الترقية مراجعة الإدارة.',
+    invoice_not_found: 'الفاتورة غير متاحة لهذا الحساب.',
+    invoice_not_payable: 'الفاتورة غير متاحة للسداد. حدّث البيانات.',
+    invoice_checkout_expired: 'انتهت مهلة سداد الفاتورة. تواصل مع الإدارة.',
+    payment_provider_invalid: 'اختر الدفع بالبطاقة أو السداد النقدي.',
+    payment_provider_not_available: 'طريقة الدفع غير متاحة حاليًا.',
+    payment_method_already_selected: 'للفاتورة طريقة دفع محددة. تواصل مع الإدارة لتغييرها.',
+    payment_intent_needs_review: 'طلب الدفع يحتاج مراجعة الإدارة.',
+    payment_intent_requires_reconciliation: 'طلب الدفع يحتاج مراجعة الإدارة.',
+    payment_return_url_invalid: 'تعذر تجهيز الدفع حاليًا. أعد المحاولة لاحقًا.',
+    idempotency_conflict: 'تغيّرت تفاصيل الطلب. حدّث الصفحة وأعد المحاولة.',
+    entitlement_required: 'باقتك الحالية لا تشمل هذه الخدمة.',
+    control_plane_unavailable: 'الخدمة غير متاحة حاليًا. أعد المحاولة لاحقًا.',
+    invalid_control_plane_response: 'تعذر تحميل البيانات. أعد المحاولة.',
+    control_plane_error: 'تعذر إتمام الطلب حاليًا. أعد المحاولة.',
+};
+
 const respondError = (res, error) => {
     if (error instanceof SavanaIntegrationError) {
-        return res.status(error.statusCode).json({ error: error.message, code: error.code });
+        const message = customerErrorMessages[error.code]
+            || (error.remoteStatus ? 'تعذر إتمام الطلب حاليًا. أعد المحاولة.' : error.message);
+        return res.status(error.statusCode).json({ error: message, code: error.code });
     }
     console.error('[SavanaIntegrations] Unexpected error:', error);
     return res.status(500).json({ error: 'فشل تنفيذ عملية الربط', code: 'integration_failure' });

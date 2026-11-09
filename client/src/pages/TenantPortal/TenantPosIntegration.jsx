@@ -300,12 +300,12 @@ const TenantPosIntegration = () => {
                 <Card variant="outlined" sx={{ mb: 2 }}>
                     <CardContent>
                         <Typography variant="h6" fontWeight={800}>
-                            {ar ? 'انضمام الحساب إلى مؤسسة سافانا' : 'Join a Savana organization'}
+                            {ar ? 'ربط حسابك بمؤسستك' : 'Link your organization'}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ my: 1.5 }}>
                             {ar
-                                ? 'انتقل إلى مركز سافانا، اختر المؤسسة المقصودة ووافق على ربط هذا الحساب. ستعود إلى هنا تلقائيًا.'
-                                : 'Open Savana Control Center, choose the organization, approve, and return here automatically.'}
+                                ? 'سجّل الدخول بحساب سافانا واختر مؤسستك. يمكنك إنشاء حساب إن كانت هذه زيارتك الأولى.'
+                                : 'Sign in to your Savana account and choose your organization. New here? Create an account.'}
                         </Typography>
                         <Stack spacing={1}>
                             <Button
@@ -313,7 +313,7 @@ const TenantPosIntegration = () => {
                                 disabled={working}
                                 onClick={authorizeBinding}
                             >
-                                {ar ? 'ربط بمؤسسة سافانا' : 'Link a Savana organization'}
+                                {ar ? 'ربط الحساب' : 'Link account'}
                             </Button>
                             <Button
                                 size="small"

@@ -830,7 +830,7 @@ export class SavanaIntegrationService {
                 `).run(
                     code,
                     centralPlan.name,
-                    centralPlan.description || 'مرآة اشتراك سافانا المركزي',
+                    centralPlan.description || 'باقة سافانا',
                     Number(price?.amount_minor || 0) / 100,
                     includedCredits,
                     creditLimit,
@@ -918,7 +918,7 @@ export class SavanaIntegrationService {
                             tenant_id, tenant_name, event_type, description, status
                         )
                         SELECT id, name, 'central_subscription_activated',
-                            'تم تفعيل الحساب تلقائياً بعد تفعيل الاشتراك المركزي',
+                            'تم تفعيل الحساب بعد تفعيل الاشتراك',
                             'success'
                         FROM tenants WHERE id = ?
                     `).run(tenantId);
