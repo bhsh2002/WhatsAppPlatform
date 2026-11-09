@@ -854,6 +854,7 @@ test('central checkout derives annual and bundle periods from central pricing', 
                 quotePayloads.push(JSON.parse(options.body));
                 return Response.json({ data: {
                     base_amount_minor: 8000,
+                    catalog_fingerprint: 'a'.repeat(64),
                     upgrade_credit_minor: 2000,
                     subtotal_minor: 6000,
                     discount_minor: 0,
@@ -889,10 +890,12 @@ test('central checkout derives annual and bundle periods from central pricing', 
         price_id: priceId,
         period_days: 1,
         expected_total_minor: annualQuote.total_minor,
+        expected_catalog_fingerprint: annualQuote.catalog_fingerprint,
         idempotency_key: 'annual-checkout-test',
     });
     assert.equal(checkoutPayloads[0].period_days, 365);
     assert.equal(checkoutPayloads[0].expected_total_minor, annualQuote.total_minor);
+    assert.equal(checkoutPayloads[0].expected_catalog_fingerprint, annualQuote.catalog_fingerprint);
     assert.deepEqual(checkoutPayloads[0].items, quotePayloads[0].items);
 
     await service.subscriptionCheckoutQuote(1, {
@@ -910,6 +913,17 @@ test('central checkout derives annual and bundle periods from central pricing', 
     assert.equal(checkoutPayloads[1].bundle_id, bundleId);
     assert.equal(checkoutPayloads[1].period_days, 30);
     assert.equal(checkoutPayloads[1].expected_total_minor, 0);
+    assert.equal('expected_catalog_fingerprint' in checkoutPayloads[1], false);
+
+    for (const fingerprint of [null, 123, '', 'a'.repeat(63), 'A'.repeat(64), 'z'.repeat(64)]) {
+        await assert.rejects(
+            () => service.subscriptionCheckout(1, {
+                bundle_id: bundleId, expected_catalog_fingerprint: fingerprint,
+            }),
+            error => error instanceof SavanaIntegrationError
+                && error.code === 'invalid_expected_catalog_fingerprint',
+        );
+    }
 
     await assert.rejects(
         () => service.subscriptionCheckout(1, {
@@ -943,6 +957,7 @@ test('tenant payment intents use only an open invoice visible to that tenant', a
     const otherOrganizationId = crypto.randomUUID();
     const intentRequests = [];
     let ownInvoiceStatus = 'open';
+    let invoiceDetails = {};
     let visibleIntents = [];
     const service = new SavanaIntegrationService({
         database,
@@ -970,7 +985,7 @@ test('tenant payment intents use only an open invoice visible to that tenant', a
                     platform_code: 'wa_savana',
                     payment_methods: ['moamalat', 'cash'],
                     invoices: [{ id: isOwn ? ownInvoiceId : otherInvoiceId,
-                        status: isOwn ? ownInvoiceStatus : 'open' }],
+                        status: isOwn ? ownInvoiceStatus : 'open', ...invoiceDetails }],
                     payment_intents: isOwn ? visibleIntents : [],
                 } });
             }
@@ -1055,6 +1070,23 @@ test('tenant payment intents use only an open invoice visible to that tenant', a
     }, 'user-1');
     assert.equal(resumed.checkout_url, intent.checkout_url);
     assert.equal(intentRequests.length, 2);
+    for (const details of [
+        { payable: false },
+        ...['cancelled', 'expired', 'void'].map(subscription_status => ({ subscription_status })),
+        { checkout_expires_at: '2020-01-01T00:00:00Z' },
+        { checkout_expires_at: 'invalid' },
+    ]) {
+        invoiceDetails = details;
+        await assert.rejects(
+            () => service.createSubscriptionPaymentIntent(1, {
+                invoice_id: ownInvoiceId, provider: 'moamalat',
+            }, 'user-1'),
+            error => error instanceof SavanaIntegrationError
+                && error.code === (details.checkout_expires_at ? 'invoice_checkout_expired' : 'invoice_not_payable'),
+        );
+        assert.equal(intentRequests.length, 2);
+    }
+    invoiceDetails = {};
     visibleIntents = [];
 
     const cashIntent = await service.createSubscriptionPaymentIntent(1, {
@@ -1078,10 +1110,18 @@ test('tenant payment intents use only an open invoice visible to that tenant', a
 
 test('Wa manager can create a central pending-review subscription for a selected tenant', async (t) => {
     let checkoutCall;
+    let quoteCall;
+    let quoteErrorCode;
     const service = {
         config: {
             enabled: true,
             subscriptionsMode: 'central',
+        },
+        async subscriptionCheckoutQuote(tenantId, payload) {
+            if (quoteErrorCode) throw new SavanaIntegrationError('Internal billing details', 409, quoteErrorCode);
+            quoteCall = { tenantId, payload };
+            return { base_amount_minor: 20000, upgrade_credit_minor: 4000, total_minor: 16000,
+                catalog_fingerprint: 'a'.repeat(64) };
         },
         async subscriptionCheckout(tenantId, payload, actorId) {
             checkoutCall = { tenantId, payload, actorId };
@@ -1109,6 +1149,27 @@ test('Wa manager can create a central pending-review subscription for a selected
     const server = app.listen(0);
     await once(server, 'listening');
     t.after(() => new Promise(resolve => server.close(resolve)));
+
+    const quoteResponse = await fetch(
+        `http://127.0.0.1:${server.address().port}/central-subscriptions/42/checkout-quote`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bundle_id: 'suite-id' }) },
+    );
+    assert.equal(quoteResponse.status, 200);
+    assert.equal((await quoteResponse.json()).total_minor, 16000);
+    assert.deepEqual(quoteCall, { tenantId: '42', payload: { bundle_id: 'suite-id' } });
+    for (const code of ['subscription_downgrade_not_allowed', 'subscription_change_pending',
+        'upgrade_currency_mismatch', 'subscription_payment_required', 'subscription_change_requires_checkout']) {
+        quoteErrorCode = code;
+        const deniedQuote = await fetch(
+            `http://127.0.0.1:${server.address().port}/central-subscriptions/42/checkout-quote`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+        );
+        const denial = await deniedQuote.json();
+        assert.equal(deniedQuote.status, 409);
+        assert.equal(denial.code, code);
+        assert.match(denial.error, /[\u0600-\u06ff]/);
+        assert.equal(denial.error.includes('Internal billing details'), false);
+    }
 
     const response = await fetch(
         `http://127.0.0.1:${server.address().port}/central-subscriptions/42/checkout`,

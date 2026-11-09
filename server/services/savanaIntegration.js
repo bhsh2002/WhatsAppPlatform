@@ -687,6 +687,17 @@ export class SavanaIntegrationService {
                 'invalid_expected_checkout_total'
             );
         }
+        const expectedCatalogFingerprint = payload.expected_catalog_fingerprint;
+        if (expectedCatalogFingerprint !== undefined && (
+            typeof expectedCatalogFingerprint !== 'string'
+            || !/^[0-9a-f]{64}$/.test(expectedCatalogFingerprint)
+        )) {
+            throw new SavanaIntegrationError(
+                'The expected catalog fingerprint must contain 64 hexadecimal characters',
+                400,
+                'invalid_expected_catalog_fingerprint'
+            );
+        }
         const suppliedKey = payload.idempotency_key;
         if (suppliedKey !== undefined && (
             typeof suppliedKey !== 'string'
@@ -712,6 +723,8 @@ export class SavanaIntegrationService {
                 period_days: periodDays,
                 ...(expectedTotalMinor === undefined
                     ? {} : { expected_total_minor: expectedTotalMinor }),
+                ...(expectedCatalogFingerprint === undefined
+                    ? {} : { expected_catalog_fingerprint: expectedCatalogFingerprint }),
                 idempotency_key: scopedKey,
                 ...offer,
             }
@@ -741,10 +754,19 @@ export class SavanaIntegrationService {
                 'Invoice is not available to this tenant', 404, 'invoice_not_found'
             );
         }
-        if (invoice.status !== 'open') {
+        if (invoice.status !== 'open' || invoice.payable === false
+            || ['cancelled', 'expired', 'void'].includes(invoice.subscription_status)) {
             throw new SavanaIntegrationError(
                 'Invoice is not open for payment', 409, 'invoice_not_payable'
             );
+        }
+        if (invoice.checkout_expires_at !== null && invoice.checkout_expires_at !== undefined) {
+            const deadline = Date.parse(invoice.checkout_expires_at);
+            if (!Number.isFinite(deadline) || deadline <= Date.now()) {
+                throw new SavanaIntegrationError(
+                    'Invoice checkout deadline expired', 409, 'invoice_checkout_expired'
+                );
+            }
         }
         const existingIntent = context.payment_intents?.find(item => item.invoice_id === invoiceId);
         if (existingIntent) {

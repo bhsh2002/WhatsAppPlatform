@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     centralInvoiceCheckoutExpired,
+    centralInvoiceIsPayable,
     centralInvoicePaymentState,
 } from './paymentMethods.js';
 
@@ -47,8 +48,8 @@ test('expired upgrade invoices never offer a stale Moamalat link or a new checko
     );
 });
 
-test('ordinary invoices and existing cash requests keep their payment state', () => {
-    const ordinary = { id: 'ordinary-invoice', checkout_expires_at: null };
+test('ordinary invoices remain payable while expired cash quotes require renewal', () => {
+    const ordinary = { id: 'ordinary-invoice', status: 'open', checkout_expires_at: null };
     assert.equal(centralInvoicePaymentState([], ordinary.id, ordinary, expiresAt + 1).kind, 'choose');
     assert.equal(centralInvoicePaymentState([{
         invoice_id: ordinary.id,
@@ -60,5 +61,22 @@ test('ordinary invoices and existing cash requests keep their payment state', ()
         invoice_id: upgradeInvoice.id,
         provider: 'cash',
         status: 'pending',
-    }], upgradeInvoice.id, upgradeInvoice, expiresAt + 1).kind, 'cash_pending');
+    }], upgradeInvoice.id, upgradeInvoice, expiresAt + 1).kind, 'quote_expired');
+});
+
+test('cancelled parents and non-payable invoices never expose cached card or cash actions', () => {
+    for (const invoice of [
+        { status: 'paid' }, { status: 'void' }, { status: 'open', payable: false },
+        ...['cancelled', 'expired', 'void'].map(subscription_status => ({ status: 'open', subscription_status })),
+    ]) {
+        assert.equal(centralInvoiceIsPayable(invoice), false);
+        for (const provider of ['moamalat', 'cash']) {
+            const intent = { invoice_id: 'closed', provider, status: 'pending', checkout_url: 'https://payment.test/stale' };
+            const result = centralInvoicePaymentState([intent], 'closed', invoice);
+            assert.equal(result.kind, 'unavailable');
+            assert.equal(result.intent, null);
+        }
+    }
+    assert.equal(centralInvoiceIsPayable(undefined), false);
+    assert.equal(centralInvoiceIsPayable({ status: 'open', payable: true, subscription_status: 'pending_payment' }), true);
 });

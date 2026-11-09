@@ -37,6 +37,7 @@ export const currentCentralOffer = (context) => {
 };
 
 export const centralPlanOfferState = (plan, context) => {
+    if (plan?.checkout_available === true && plan?.checkout_state === 'available') return 'available';
     const currentOffer = context?.current_offer;
     const bundleIsCurrent = currentOffer?.kind === 'bundle'
         || Boolean(context?.current_bundle);
@@ -84,6 +85,7 @@ export const centralCheckoutQuotesMatch = (first, second) => (
     isCentralCheckoutQuote(first)
     && isCentralCheckoutQuote(second)
     && [
+        'catalog_fingerprint',
         'currency',
         'billing_period',
         'period_days',

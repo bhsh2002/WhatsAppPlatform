@@ -7,6 +7,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { MetricValue, PageTitle } from '../../components/Layout/PageTitle';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
+import { centralPlanOfferState, formatCentralQuoteAmount, isCentralCheckoutQuote, selectCentralPlanPrice } from '../TenantPortal/centralOfferPresentation';
+import { centralSubscriptionStatusLabel } from '../TenantPortal/billingInvoicePresentation';
 const number = value => Number(value || 0).toLocaleString(getCurrentLocale());
 const money = (value, currency = '') => `${Number(value || 0).toLocaleString(getCurrentLocale(), {
   minimumFractionDigits: 3,
@@ -508,7 +510,7 @@ const BillingManager = () => {
   };
   const provisionCentralSubscription = async (kind, offer) => {
     if (!selectedTenantId) return;
-    const price = kind === 'plan' ? offer.prices?.find(item => item.active) : null;
+    const price = kind === 'plan' ? selectCentralPlanPrice(offer) : null;
     if (kind === 'plan' && !price) {
       setError('السعر غير متاح لهذه الباقة.');
       return;
@@ -517,21 +519,25 @@ const BillingManager = () => {
     setCentralCheckoutMessage('');
     setError(null);
     try {
+      const selection = kind === 'plan'
+        ? { plan_id: offer.id, price_id: price.id }
+        : { bundle_id: offer.id };
+      const quote = await api.quoteCentralTenantSubscription(selectedTenantId, selection);
+      if (!isCentralCheckoutQuote(quote)) throw new Error('تعذر عرض تكلفة الاشتراك. حدّث البيانات وأعد المحاولة.');
+      const amount = value => formatCentralQuoteAmount(value, quote.currency, getCurrentLocale());
+      if (!window.confirm(`${offer.name}\nقيمة الباقة: ${amount(quote.base_amount_minor)}\nخصم المدة المتبقية: ${amount(quote.upgrade_credit_minor)}${quote.discount_minor ? `\nخصم إضافي: ${amount(quote.discount_minor)}` : ''}${quote.tax_minor ? `\nالضريبة: ${amount(quote.tax_minor)}` : ''}\nالمستحق: ${amount(quote.total_minor)}\n${quote.payment_required ? 'تُفعّل الباقة بعد سداد الفاتورة.' : 'لا يوجد مبلغ مطلوب للسداد.'}\nهل تريد تأكيد الطلب؟`)) return;
       const result = await api.checkoutCentralTenantSubscription(selectedTenantId, {
-        ...(kind === 'plan'
-          ? {
-              plan_id: offer.id,
-              price_id: price.id
-            }
-          : {
-              bundle_id: offer.id
-            }),
+        ...selection,
+        expected_total_minor: quote.total_minor,
+        ...(quote.catalog_fingerprint ? { expected_catalog_fingerprint: quote.catalog_fingerprint } : {}),
         idempotency_key: `wa-savana-admin-${selectedTenantId}-${crypto.randomUUID()}`
       });
       const invoiceNumber = result?.invoice?.number;
       setCentralCheckoutMessage(
         invoiceNumber
-          ? `الفاتورة ${invoiceNumber} جاهزة. طلب الاشتراك بانتظار المراجعة والسداد.`
+          ? result.payment_required === false
+            ? `تم تفعيل الاشتراك. الفاتورة ${invoiceNumber} دون مبلغ مستحق.`
+            : `الفاتورة ${invoiceNumber} جاهزة. طلب الاشتراك بانتظار السداد.`
           : 'تم إنشاء طلب الاشتراك وهو بانتظار المراجعة.'
       );
       await fetchTenantBilling(selectedTenantId);
@@ -983,16 +989,17 @@ const BillingManager = () => {
                     {selectedTenantId && centralSubscription?.bound && <>
                             <Alert severity={centralSubscription.subscription_status === 'pending_payment' ? 'warning' : 'info'} sx={{ mb: 2 }}>
                                 المستخدم: {selectedTenant?.name || selectedTenantId}
-                                {' — '}حالة الاشتراك: {centralSubscription.subscription_status || 'غير مشترك'}
+                                {' — '}حالة الاشتراك: {centralSubscriptionStatusLabel(centralSubscription.subscription_status)}
                                 {' — '}الباقة الحالية: {centralSubscription.active_plan?.name || 'لا توجد باقة نشطة'}.
                             </Alert>
 
                             <Grid container spacing={2}>
                                 {(centralSubscription.plans || []).map(offer => {
-                const price = offer.prices?.find(item => item.active);
+                const price = selectCentralPlanPrice(offer);
                 const requestPending = Boolean(centralSubscription.pending_checkout);
-                const isCurrent = offer.is_current;
-                const isIncluded = offer.is_subscribed && !isCurrent;
+                const offerState = centralPlanOfferState(offer, centralSubscription);
+                const isCurrent = offerState === 'current';
+                const isIncluded = offerState === 'included';
                 return <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
                                         <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'primary.main' : 'divider' }}>
                                             <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1027,8 +1034,8 @@ const BillingManager = () => {
               })}
                                 {(centralSubscription.bundles || []).map(offer => {
                 const requestPending = Boolean(centralSubscription.pending_checkout);
-                const isCurrent = offer.is_current;
-                const isIncluded = offer.is_subscribed && !isCurrent;
+                const isCurrent = offer.is_current && offer.checkout_available !== true;
+                const isIncluded = offer.is_subscribed && !isCurrent && offer.checkout_available !== true;
                 return <Grid key={offer.id} size={{ xs: 12, sm: 6, md: 4 }}>
                                         <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'secondary.main' : 'divider' }}>
                                             <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

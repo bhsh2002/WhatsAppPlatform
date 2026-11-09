@@ -60,6 +60,13 @@ test('unavailable or malformed prices are never presented as zero', () => {
     assert.equal(currentCentralOffer({ managed_centrally: true, current_offer: null }), null);
 });
 
+test('an explicitly available revised offer is not hidden by a matching current plan id', () => {
+    const plan = { id: 'wa', is_current: true, is_subscribed: true,
+        checkout_state: 'available', checkout_available: true };
+    const context = { current_offer: { kind: 'plan', id: 'wa' } };
+    assert.equal(centralPlanOfferState(plan, context), 'available');
+});
+
 test('quote amounts use 1/100 LYD and require complete money fields', () => {
     assert.equal(formatCentralQuoteAmount(8000, 'lyd', 'en'), '80 LYD');
     assert.equal(formatCentralQuoteAmount(20000, 'LYD', 'en'), '200 LYD');
@@ -86,4 +93,9 @@ test('quote amounts use 1/100 LYD and require complete money fields', () => {
     }), false);
     assert.equal(centralCheckoutQuotesMatch(quote, { ...quote, period_days: 365 }), false);
     assert.equal(centralCheckoutQuotesMatch(quote, { ...quote, payment_required: false }), false);
+    assert.equal(centralCheckoutQuotesMatch(
+        { ...quote, catalog_fingerprint: 'a'.repeat(64) },
+        { ...quote, catalog_fingerprint: 'b'.repeat(64) },
+    ), false);
+    assert.equal(centralCheckoutQuotesMatch(quote, { ...quote, catalog_fingerprint: 'a'.repeat(64) }), false);
 });

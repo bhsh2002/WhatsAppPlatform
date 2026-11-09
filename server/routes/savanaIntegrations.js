@@ -16,6 +16,15 @@ const customerErrorMessages = {
     checkout_period_mismatch: 'تغيّرت دورة الاشتراك. أعد اختيار الباقة.',
     upgrade_quote_expired: 'انتهت صلاحية طلب الترقية. تواصل مع الإدارة لتجديده.',
     chained_upgrade_requires_review: 'تحتاج هذه الترقية مراجعة الإدارة.',
+    subscription_downgrade_not_allowed: 'لا يمكن الانتقال إلى باقة أقل قيمة أو تقليل المنصات المشمولة أثناء الاشتراك الحالي.',
+    subscription_change_pending: 'لديك طلب تغيير باقة بانتظار السداد. أكمله أو ألغِه قبل إنشاء طلب آخر.',
+    offer_already_subscribed: 'هذه الباقة مفعلة بالفعل.',
+    upgrade_currency_mismatch: 'لا يمكن تغيير عملة الاشتراك الحالي عند الترقية.',
+    upgrade_credit_exceeds_price: 'الرصيد المتبقي أكبر من قيمة الباقة الجديدة. تواصل مع الإدارة.',
+    subscription_payment_required: 'أكمل سداد الفاتورة لتفعيل الاشتراك، أو ألغِ الطلب.',
+    subscription_change_requires_checkout: 'اختر الباقة من خيارات الاشتراك لاحتساب فرق القيمة.',
+    subscription_cancelled: 'هذا الاشتراك ملغى ولا يقبل طلب دفع جديدًا.',
+    invalid_expected_catalog_fingerprint: 'تغيّرت تفاصيل الباقة. حدّث الصفحة وأعد المحاولة.',
     invoice_not_found: 'الفاتورة غير متاحة لهذا الحساب.',
     invoice_not_payable: 'الفاتورة غير متاحة للسداد. حدّث البيانات.',
     invoice_checkout_expired: 'انتهت مهلة سداد الفاتورة. تواصل مع الإدارة.',
@@ -697,6 +706,14 @@ export const createAdminSubscriptionsRouter = ({ service }) => {
                 `admin:${req.user.id}`,
             );
             return res.status(201).json(result);
+        } catch (error) {
+            return respondError(res, error);
+        }
+    });
+
+    router.post('/:tenantId/checkout-quote', async (req, res) => {
+        try {
+            return res.json(await service.subscriptionCheckoutQuote(req.params.tenantId, req.body || {}));
         } catch (error) {
             return respondError(res, error);
         }

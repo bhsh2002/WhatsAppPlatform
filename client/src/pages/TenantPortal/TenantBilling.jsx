@@ -33,6 +33,8 @@ import api from '../../api';
 import { useLanguage } from '../../context/LanguageContext';
 import { MetricValue, PageTitle, SectionTitle } from '../../components/Layout/PageTitle';
 import {
+    centralInvoiceStatusLabel,
+    centralSubscriptionStatusLabel,
     formatPortalInvoiceValue,
     portalInvoiceColumnKey,
     presentPortalInvoices,
@@ -50,13 +52,14 @@ import {
     availableCentralPaymentMethods,
     centralInvoiceCheckoutExpired,
     centralInvoiceIsPaid,
+    centralInvoiceIsPayable,
     centralInvoicePaymentState,
 } from './paymentMethods';
 
 const PAYMENT_RETURN_INVOICE_KEY = 'wa-savana-payment-return-invoice';
 const PAYMENT_POLL_ATTEMPTS = 6;
 const PAYMENT_POLL_INTERVAL_MS = 2000;
-const EXPIRED_UPGRADE_MESSAGE = 'انتهت صلاحية طلب الترقية. تواصل مع الإدارة لتجديده.';
+const EXPIRED_UPGRADE_MESSAGE = 'انتهت مهلة سداد الفاتورة. أنشئ طلبًا جديدًا أو تواصل مع الإدارة.';
 
 const rememberPaymentInvoice = (invoiceId, checkoutUrl) => {
     try {
@@ -223,6 +226,10 @@ const TenantBilling = () => {
 
     const resumeMoamalatPayment = (invoiceId, checkoutUrl) => {
         const invoice = invoices.find(item => item.id === invoiceId);
+        if (!centralInvoiceIsPayable(invoice)) {
+            setError('الفاتورة غير متاحة للسداد. حدّث البيانات.');
+            return;
+        }
         if (centralInvoiceCheckoutExpired(invoice)) {
             setError(EXPIRED_UPGRADE_MESSAGE);
             setPaymentClock(Date.now());
@@ -233,7 +240,12 @@ const TenantBilling = () => {
     };
 
     const startPayment = async (invoiceId, provider) => {
-        if (centralInvoiceCheckoutExpired(invoices.find(item => item.id === invoiceId))) {
+        const invoice = invoices.find(item => item.id === invoiceId);
+        if (!centralInvoiceIsPayable(invoice)) {
+            setError('الفاتورة غير متاحة للسداد. حدّث البيانات.');
+            return;
+        }
+        if (centralInvoiceCheckoutExpired(invoice)) {
             setError(EXPIRED_UPGRADE_MESSAGE);
             setPaymentClock(Date.now());
             return;
@@ -300,6 +312,8 @@ const TenantBilling = () => {
             const result = await api.checkoutPortalCentralSubscription({
                 ...selection,
                 expected_total_minor: currentQuote.total_minor,
+                ...(currentQuote.catalog_fingerprint
+                    ? { expected_catalog_fingerprint: currentQuote.catalog_fingerprint } : {}),
                 idempotency_key: `wa-savana-checkout-${crypto.randomUUID()}`,
             });
             setCheckoutPreview(null);
@@ -387,8 +401,11 @@ const TenantBilling = () => {
         if (paymentState.kind === 'quote_expired') {
             return <Typography variant="body2" color="warning.main">{EXPIRED_UPGRADE_MESSAGE}</Typography>;
         }
+        if (paymentState.kind === 'unavailable') {
+            return <Typography variant="body2" color="text.secondary">السداد غير متاح لهذه الفاتورة</Typography>;
+        }
         if (paymentState.kind === 'moamalat_resume') {
-            return <Button size="small" variant="contained" onClick={() => resumeMoamalatPayment(invoice.id, paymentState.intent.checkout_url)}>متابعة الدفع بالبطاقة</Button>;
+            return <Button size="small" variant="contained" disabled={Boolean(paymentWorking)} onClick={() => startPayment(invoice.id, 'moamalat')}>متابعة الدفع بالبطاقة</Button>;
         }
         if (paymentState.kind === 'moamalat_pending') {
             return <Button size="small" variant="outlined" disabled={Boolean(paymentWorking)} onClick={() => startPayment(invoice.id, 'moamalat')}>إعادة فتح صفحة الدفع بالبطاقة</Button>;
@@ -527,10 +544,10 @@ const TenantBilling = () => {
                             );
                         })}
                         {(centralSubscription.bundles || []).map(offer => {
-                            const isCurrent = currentOffer
+                            const isCurrent = offer.checkout_available !== true && (currentOffer
                                 ? currentOffer.kind === 'bundle' && currentOffer.id === offer.id
-                                : offer.is_current;
-                            const isIncluded = offer.is_subscribed && !isCurrent;
+                                : offer.is_current);
+                            const isIncluded = offer.is_subscribed && !isCurrent && offer.checkout_available !== true;
                             const isPending = offer.checkout_state === 'pending';
                             const displayPrice = formatCentralOfferPrice(offer, locale);
                             const checkoutPriced = offer.price_available === true
@@ -735,7 +752,12 @@ const TenantBilling = () => {
                                         {invoices.map((invoice) => (
                                             <TableRow key={invoice.id}>
                                                 <TableCell><InvoiceIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 1 }} />{invoice.invoice_number}</TableCell>
-                                                <TableCell><Chip size="small" label={invoice.status} /></TableCell>
+                                                <TableCell>
+                                                    <Chip size="small" label={centralSubscription?.managed_centrally ? centralInvoiceStatusLabel(invoice.status) : invoice.status} />
+                                                    {centralSubscription?.managed_centrally && invoice.subscription_status && (
+                                                        <Typography variant="caption" display="block" color="text.secondary">الاشتراك: {centralSubscriptionStatusLabel(invoice.subscription_status)}</Typography>
+                                                    )}
+                                                </TableCell>
                                                 <TableCell>{formatPortalInvoiceValue(invoice, centralSubscription?.managed_centrally, locale)}</TableCell>
                                                 <TableCell>{invoice.created_at}</TableCell>
                                                 {centralSubscription?.managed_centrally && (

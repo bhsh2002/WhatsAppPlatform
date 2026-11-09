@@ -2,10 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    centralInvoiceStatusLabel,
+    centralSubscriptionStatusLabel,
     formatPortalInvoiceValue,
     portalInvoiceColumnKey,
     presentPortalInvoices,
 } from './billingInvoicePresentation.js';
+
+test('invoice settlement and subscription cancellation have separate labels', () => {
+    assert.equal(centralInvoiceStatusLabel('paid'), 'مسددة');
+    assert.equal(centralSubscriptionStatusLabel('cancelled'), 'ملغى');
+    assert.equal(centralInvoiceStatusLabel('void'), 'ملغاة');
+    assert.equal(centralInvoiceStatusLabel('open'), 'بانتظار السداد');
+});
 
 test('central invoices retain money fields and expose the shared invoice number', () => {
     const invoices = presentPortalInvoices({

@@ -3,6 +3,15 @@ const finiteNumber = (value) => {
     return Number.isFinite(numeric) ? numeric : 0;
 };
 
+export const centralInvoiceStatusLabel = status => ({
+    open: 'بانتظار السداد', paid: 'مسددة', void: 'ملغاة', refunded: 'مستردة',
+}[status] || status || 'غير محددة');
+
+export const centralSubscriptionStatusLabel = status => ({
+    active: 'نشط', trialing: 'تجريبي', pending_payment: 'بانتظار السداد',
+    past_due: 'متأخر السداد', suspended: 'موقوف', cancelled: 'ملغى', expired: 'منتهٍ',
+}[status] || status || 'غير محدد');
+
 export const portalInvoiceColumnKey = (managedCentrally) => (
     managedCentrally ? 'common.amount' : 'common.credit'
 );

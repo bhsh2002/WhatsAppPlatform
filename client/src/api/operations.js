@@ -205,6 +205,13 @@ export const operationsMethods = {
         });
     },
 
+    async quoteCentralTenantSubscription(tenantId, data) {
+        return this.request(`/api/billing/central-subscriptions/${tenantId}/checkout-quote`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
     async createBillingPlan(data) {
         return this.request('/api/billing/plans', {
             method: 'POST',
