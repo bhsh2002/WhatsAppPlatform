@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { build } from 'vite';
 
 import {
     centralCheckoutQuotesMatch,
+    centralAnnualPlanSavings,
+    centralPlanCheckoutSelection,
     centralPlanOfferState,
     currentCentralOffer,
     formatCentralOfferPrice,
@@ -10,6 +17,120 @@ import {
     isCentralCheckoutQuote,
     selectCentralPlanPrice,
 } from './centralOfferPresentation.js';
+
+const pricePlan = (monthly = 8000, yearly = 80000) => ({
+    id: 'wa-standard',
+    prices: [
+        { id: 'monthly', active: true, amount_minor: monthly, currency: 'LYD', billing_period: 'monthly' },
+        { id: 'yearly', active: true, amount_minor: yearly, currency: 'LYD', billing_period: 'yearly' },
+    ],
+});
+
+test('yearly saving compares the real yearly price with twelve months of the same plan', () => {
+    const plan = pricePlan();
+    const yearly = selectCentralPlanPrice(plan, 'yearly');
+    assert.deepEqual(centralAnnualPlanSavings(plan, yearly), {
+        original_amount_minor: 96000, savings_minor: 16000, percent: 16, currency: 'LYD',
+    });
+    assert.equal(formatCentralOfferPrice(yearly, 'en'), '800 LYD / سنة');
+    assert.equal(centralAnnualPlanSavings(plan, selectCentralPlanPrice(plan, 'monthly')), null);
+});
+
+test('changing to yearly keeps the exact catalog price id for preview and checkout', () => {
+    const plan = pricePlan();
+    assert.deepEqual(centralPlanCheckoutSelection(plan, 'monthly'), { plan_id: plan.id, price_id: 'monthly' });
+    assert.deepEqual(centralPlanCheckoutSelection(plan, 'yearly'), { plan_id: plan.id, price_id: 'yearly' });
+    plan.prices[1].active = false;
+    assert.equal(selectCentralPlanPrice(plan, 'yearly'), null);
+    assert.throws(() => centralPlanCheckoutSelection(plan, 'yearly'), /السعر المختار غير متاح/);
+    assert.throws(() => centralPlanCheckoutSelection(plan, 'foreign-price'), /السعر المختار غير متاح/);
+});
+
+test('missing, inactive or different-currency terms do not invent an annual discount', () => {
+    const monthlyOnly = pricePlan();
+    monthlyOnly.prices.pop();
+    assert.equal(centralAnnualPlanSavings(monthlyOnly, { id: 'yearly' }), null);
+    const yearlyOnly = pricePlan();
+    yearlyOnly.prices.shift();
+    assert.equal(centralAnnualPlanSavings(yearlyOnly, yearlyOnly.prices[0]), null);
+    for (const change of [
+        prices => { prices[0].active = false; },
+        prices => { prices[1].active = false; },
+        prices => { prices[0].currency = 'USD'; },
+        prices => { prices[0].amount_minor = 0; },
+    ]) {
+        const plan = pricePlan();
+        change(plan.prices);
+        assert.equal(centralAnnualPlanSavings(plan, plan.prices[1]), null);
+    }
+});
+
+test('equal or more expensive yearly prices have no discount', () => {
+    for (const amount of [96000, 100000]) {
+        const plan = pricePlan(8000, amount);
+        assert.equal(centralAnnualPlanSavings(plan, plan.prices[1]), null);
+    }
+});
+
+test('uses the cheapest comparable monthly price and never rounds the percentage up', () => {
+    const plan = pricePlan(8000, 80000);
+    plan.prices.push({ ...plan.prices[0], id: 'monthly-expensive', amount_minor: 10000 });
+    plan.prices.unshift({ ...plan.prices[0], id: 'monthly-old', amount_minor: 20000, active: false });
+    assert.equal(centralAnnualPlanSavings(plan, selectCentralPlanPrice(plan, 'yearly')).original_amount_minor, 96000);
+    const tinySaving = pricePlan(100, 1199);
+    assert.deepEqual(centralAnnualPlanSavings(tinySaving, tinySaving.prices[1]), {
+        original_amount_minor: 1200, savings_minor: 1, percent: 0, currency: 'LYD',
+    });
+});
+
+test('free real annual prices save 100 percent while unsafe or malformed money is excluded', () => {
+    const freeYear = pricePlan(8000, 0);
+    assert.equal(centralAnnualPlanSavings(freeYear, freeYear.prices[1]).percent, 100);
+    for (const monthly of [Number.MAX_SAFE_INTEGER, -1, 1.2, '8000', null, Infinity]) {
+        const plan = pricePlan(monthly, 0);
+        assert.equal(centralAnnualPlanSavings(plan, plan.prices[1]), null);
+    }
+    const nearLimit = pricePlan(750599937895082, 1);
+    const saving = centralAnnualPlanSavings(nearLimit, nearLimit.prices[1]);
+    assert.equal(saving.percent, 99);
+    assert.equal(saving.savings_minor, saving.original_amount_minor - 1);
+});
+
+test('the actual price card renders the annual comparison only for a real cheaper yearly term', async () => {
+    const bundle = await build({
+        configFile: false,
+        logLevel: 'silent',
+        build: {
+            ssr: fileURLToPath(new URL('./CentralPlanPricing.jsx', import.meta.url)),
+            write: false,
+            rollupOptions: { output: { format: 'cjs' } },
+        },
+    });
+    const componentModule = { exports: {} };
+    new Function('require', 'module', 'exports', bundle.output.find(item => item.type === 'chunk').code)(
+        createRequire(import.meta.url), componentModule, componentModule.exports,
+    );
+    const { CentralAnnualSaving, default: CentralPlanPricing } = componentModule.exports;
+    const plan = pricePlan();
+    const html = renderToStaticMarkup(React.createElement(CentralPlanPricing, {
+        plan, price: plan.prices[1], locale: 'en', onPriceChange() {},
+    }));
+    assert.match(html, /دورة الاشتراك/);
+    assert.match(html, /800 LYD \/ سنة/);
+    assert.match(html, /تكلفة 12 شهرًا بالسعر الشهري/);
+    assert.match(html, /<del[^>]*>960 LYD<\/del>/);
+    assert.match(html, /توفير 160 LYD سنويًا · 16٪/);
+    const renderSaving = (offer, price) => renderToStaticMarkup(React.createElement(CentralAnnualSaving, {
+        plan: offer, price, locale: 'en', includeNote: true,
+    }));
+    assert.match(renderSaving(plan, plan.prices[1]), /السعر السنوي يتضمن هذا التوفير بالفعل/);
+    assert.equal(renderSaving(plan, plan.prices[0]), '');
+    assert.equal(renderSaving({ ...plan, prices: [plan.prices[0]] }, plan.prices[1]), '');
+    const tinySaving = pricePlan(100, 1199);
+    const smallHtml = renderSaving(tinySaving, tinySaving.prices[1]);
+    assert.match(smallHtml, /توفير 0\.01 LYD سنويًا/);
+    assert.doesNotMatch(smallHtml, /0٪/);
+});
 
 test('current bundle takes precedence over its included Wa plan', () => {
     const plan = { id: 'wa', name: 'Wa Standard', is_current: true, is_subscribed: true };

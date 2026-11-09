@@ -7,7 +7,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { MetricValue, PageTitle } from '../../components/Layout/PageTitle';
 import { tx } from "../../i18n/tx";
 import { getCurrentLocale } from "../../utils/locale";
-import { centralPlanOfferState, formatCentralQuoteAmount, isCentralCheckoutQuote, selectCentralPlanPrice } from '../TenantPortal/centralOfferPresentation';
+import { centralAnnualPlanSavings, centralPlanCheckoutSelection, centralPlanOfferState, formatCentralQuoteAmount, isCentralCheckoutQuote, selectCentralPlanPrice } from '../TenantPortal/centralOfferPresentation';
+import CentralPlanPricing from '../TenantPortal/CentralPlanPricing';
 import { centralSubscriptionStatusLabel } from '../TenantPortal/billingInvoicePresentation';
 const number = value => Number(value || 0).toLocaleString(getCurrentLocale());
 const money = (value, currency = '') => `${Number(value || 0).toLocaleString(getCurrentLocale(), {
@@ -179,6 +180,7 @@ const BillingManager = () => {
   const [centralSubscription, setCentralSubscription] = useState(null);
   const [centralMode, setCentralMode] = useState(false);
   const [centralCheckoutWorking, setCentralCheckoutWorking] = useState('');
+  const [centralPlanPriceIds, setCentralPlanPriceIds] = useState({});
   const [centralCheckoutMessage, setCentralCheckoutMessage] = useState('');
   const [billingPeriodForm, setBillingPeriodForm] = useState(defaultBillingPeriod);
   const [billingPeriod, setBillingPeriod] = useState(defaultBillingPeriod);
@@ -508,9 +510,9 @@ const BillingManager = () => {
       setSaving(false);
     }
   };
-  const provisionCentralSubscription = async (kind, offer) => {
+  const provisionCentralSubscription = async (kind, offer, priceId = null) => {
     if (!selectedTenantId) return;
-    const price = kind === 'plan' ? selectCentralPlanPrice(offer) : null;
+    const price = kind === 'plan' ? selectCentralPlanPrice(offer, priceId) : null;
     if (kind === 'plan' && !price) {
       setError('السعر غير متاح لهذه الباقة.');
       return;
@@ -520,12 +522,14 @@ const BillingManager = () => {
     setError(null);
     try {
       const selection = kind === 'plan'
-        ? { plan_id: offer.id, price_id: price.id }
+        ? centralPlanCheckoutSelection(offer, priceId)
         : { bundle_id: offer.id };
       const quote = await api.quoteCentralTenantSubscription(selectedTenantId, selection);
       if (!isCentralCheckoutQuote(quote)) throw new Error('تعذر عرض تكلفة الاشتراك. حدّث البيانات وأعد المحاولة.');
       const amount = value => formatCentralQuoteAmount(value, quote.currency, getCurrentLocale());
-      if (!window.confirm(`${offer.name}\nقيمة الباقة: ${amount(quote.base_amount_minor)}\nخصم المدة المتبقية: ${amount(quote.upgrade_credit_minor)}${quote.discount_minor ? `\nخصم إضافي: ${amount(quote.discount_minor)}` : ''}${quote.tax_minor ? `\nالضريبة: ${amount(quote.tax_minor)}` : ''}\nالمستحق: ${amount(quote.total_minor)}\n${quote.payment_required ? 'تُفعّل الباقة بعد سداد الفاتورة.' : 'لا يوجد مبلغ مطلوب للسداد.'}\nهل تريد تأكيد الطلب؟`)) return;
+      const saving = kind === 'plan' ? centralAnnualPlanSavings(offer, price) : null;
+      const annualNote = saving ? `\nتكلفة 12 شهرًا بالسعر الشهري: ${amount(saving.original_amount_minor)}\nتوفير ${amount(saving.savings_minor)} سنويًا${saving.percent ? ` (${saving.percent}٪)` : ''}؛ يتضمنه السعر السنوي بالفعل.` : '';
+      if (!window.confirm(`${offer.name}\nقيمة الباقة: ${amount(quote.base_amount_minor)}${annualNote}\nخصم المدة المتبقية: ${amount(quote.upgrade_credit_minor)}${quote.discount_minor ? `\nخصم إضافي: ${amount(quote.discount_minor)}` : ''}${quote.tax_minor ? `\nالضريبة: ${amount(quote.tax_minor)}` : ''}\nالمستحق: ${amount(quote.total_minor)}\n${quote.payment_required ? 'تُفعّل الباقة بعد سداد الفاتورة.' : 'لا يوجد مبلغ مطلوب للسداد.'}\nهل تريد تأكيد الطلب؟`)) return;
       const result = await api.checkoutCentralTenantSubscription(selectedTenantId, {
         ...selection,
         expected_total_minor: quote.total_minor,
@@ -995,7 +999,7 @@ const BillingManager = () => {
 
                             <Grid container spacing={2}>
                                 {(centralSubscription.plans || []).map(offer => {
-                const price = selectCentralPlanPrice(offer);
+                const price = selectCentralPlanPrice(offer, centralPlanPriceIds[offer.id]);
                 const requestPending = Boolean(centralSubscription.pending_checkout);
                 const offerState = centralPlanOfferState(offer, centralSubscription);
                 const isCurrent = offerState === 'current';
@@ -1008,13 +1012,11 @@ const BillingManager = () => {
                                                 <Typography variant="body2" color="text.secondary" sx={{ my: 1, flexGrow: 1 }}>
                                                     {offer.description || 'باقة Wa Savana'}
                                                 </Typography>
-                                                <Typography fontWeight={800} sx={{ mb: 1.5 }}>
-                                                    {price ? `${money(Number(price.amount_minor) / 100, price.currency)} / ${price.billing_period === 'yearly' ? 'سنة' : 'شهر'}` : 'السعر غير متاح'}
-                                                </Typography>
+                                                <CentralPlanPricing plan={offer} price={price} locale={getCurrentLocale()} disabled={Boolean(centralCheckoutWorking)} onPriceChange={priceId => setCentralPlanPriceIds(previous => ({ ...previous, [offer.id]: priceId }))} />
                                                 <Button
                                                     variant={isCurrent ? 'outlined' : 'contained'}
                                                     disabled={!price || Boolean(centralCheckoutWorking) || requestPending || offer.checkout_available === false}
-                                                    onClick={() => provisionCentralSubscription('plan', offer)}
+                                                    onClick={() => provisionCentralSubscription('plan', offer, price?.id)}
                                                 >
                                                     {centralCheckoutWorking === offer.id
                               ? <CircularProgress size={20} color="inherit" />

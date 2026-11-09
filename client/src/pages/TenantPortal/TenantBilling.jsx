@@ -42,12 +42,14 @@ import {
 import {
     centralCheckoutQuotesMatch,
     centralPlanOfferState,
+    centralPlanCheckoutSelection,
     currentCentralOffer,
     formatCentralOfferPrice,
     formatCentralQuoteAmount,
     isCentralCheckoutQuote,
     selectCentralPlanPrice,
 } from './centralOfferPresentation';
+import CentralPlanPricing, { CentralAnnualSaving } from './CentralPlanPricing';
 import {
     availableCentralPaymentMethods,
     centralInvoiceCheckoutExpired,
@@ -119,6 +121,7 @@ const TenantBilling = () => {
     const [ledger, setLedger] = useState([]);
     const [invoices, setInvoices] = useState([]);
     const [centralSubscription, setCentralSubscription] = useState(null);
+    const [centralPlanPriceIds, setCentralPlanPriceIds] = useState({});
     const [periodForm, setPeriodForm] = useState(defaultPeriod);
     const [appliedPeriod, setAppliedPeriod] = useState(defaultPeriod);
     const [loading, setLoading] = useState(true);
@@ -271,14 +274,13 @@ const TenantBilling = () => {
         }
     };
 
-    const prepareCheckout = async (kind, offer) => {
+    const prepareCheckout = async (kind, offer, priceId = null) => {
         setCheckoutWorking(offer.id);
         setCheckoutMessage('');
         setError(null);
         try {
-            const price = kind === 'plan' ? selectCentralPlanPrice(offer) : null;
             const selection = kind === 'plan'
-                ? { plan_id: offer.id, price_id: price?.id }
+                ? centralPlanCheckoutSelection(offer, priceId)
                 : { bundle_id: offer.id };
             const quote = await api.quotePortalCentralSubscription(selection);
             if (!isCentralCheckoutQuote(quote)) {
@@ -509,7 +511,7 @@ const TenantBilling = () => {
                     </SectionTitle>
                     <Grid container spacing={2}>
                         {(centralSubscription.plans || []).map(offer => {
-                            const price = selectCentralPlanPrice(offer);
+                            const price = selectCentralPlanPrice(offer, centralPlanPriceIds[offer.id]);
                             const displayPrice = formatCentralOfferPrice(price, locale);
                             const offerState = centralPlanOfferState(offer, centralSubscription);
                             const isCurrent = offerState === 'current';
@@ -520,13 +522,11 @@ const TenantBilling = () => {
                                     <Card variant="outlined" sx={{ height: '100%', borderColor: isCurrent ? 'primary.main' : 'divider' }}>
                                         <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                             <Typography variant="h6" fontWeight={800}>{offer.name}</Typography>
-                                            <Typography fontWeight={800} sx={{ my: 1.5 }}>
-                                                {displayPrice || 'السعر غير متاح'}
-                                            </Typography>
+                                            <CentralPlanPricing plan={offer} price={price} locale={locale} disabled={Boolean(checkoutWorking)} onPriceChange={priceId => setCentralPlanPriceIds(previous => ({ ...previous, [offer.id]: priceId }))} />
                                             <Button
                                                 variant={isCurrent ? 'outlined' : 'contained'}
                                                 disabled={!displayPrice || Boolean(checkoutWorking) || offer.checkout_available === false}
-                                                onClick={() => prepareCheckout('plan', offer)}
+                                                onClick={() => prepareCheckout('plan', offer, price?.id)}
                                             >
                                                 {checkoutWorking === offer.id
                                                     ? <CircularProgress size={20} color="inherit" />
@@ -789,6 +789,7 @@ const TenantBilling = () => {
                     {checkoutPreview && (
                         <Box sx={{ display: 'grid', gap: 1.5 }}>
                             <Typography fontWeight={700}>{checkoutPreview.offer.name}</Typography>
+                            {checkoutPreview.kind === 'plan' && <CentralAnnualSaving plan={checkoutPreview.offer} price={selectCentralPlanPrice(checkoutPreview.offer, checkoutPreview.selection.price_id)} locale={locale} includeNote />}
                             <Typography variant="body2" color="text.secondary">
                                 {checkoutPreview.quote.period_starts_after_payment
                                     ? 'تتفعّل الباقة بعد السداد.'

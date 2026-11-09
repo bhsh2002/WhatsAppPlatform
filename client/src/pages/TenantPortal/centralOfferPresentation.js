@@ -1,8 +1,42 @@
-export const selectCentralPlanPrice = (plan) => {
+export const activeCentralPlanPrices = (plan) => {
     const prices = Array.isArray(plan?.prices) ? plan.prices : [];
-    return prices.find(price => price.active && price.billing_period === 'monthly')
-        || prices.find(price => price.active)
+    return prices.filter(price => price.active
+        && ['monthly', 'yearly'].includes(price.billing_period)
+        && Number.isSafeInteger(price.amount_minor) && price.amount_minor >= 0
+        && typeof price.currency === 'string' && /^[A-Z]{3}$/.test(price.currency));
+};
+
+export const selectCentralPlanPrice = (plan, priceId = null) => {
+    const prices = activeCentralPlanPrices(plan);
+    if (priceId) return prices.find(price => price.id === priceId) || null;
+    return prices.find(price => price.billing_period === 'monthly')
+        || prices[0]
         || null;
+};
+
+export const centralAnnualPlanSavings = (plan, selectedPrice) => {
+    const prices = activeCentralPlanPrices(plan);
+    const yearly = prices.find(price => price.id === selectedPrice?.id
+        && price.billing_period === 'yearly');
+    if (!yearly) return null;
+    const monthly = prices.filter(price => price.billing_period === 'monthly'
+        && price.currency === yearly.currency).sort((left, right) => left.amount_minor - right.amount_minor)[0];
+    if (!monthly || monthly.amount_minor <= 0) return null;
+    const originalAmountMinor = monthly.amount_minor * 12;
+    if (!Number.isSafeInteger(originalAmountMinor) || yearly.amount_minor >= originalAmountMinor) return null;
+    const savingsMinor = originalAmountMinor - yearly.amount_minor;
+    return {
+        original_amount_minor: originalAmountMinor,
+        savings_minor: savingsMinor,
+        percent: Number((BigInt(savingsMinor) * 100n) / BigInt(originalAmountMinor)),
+        currency: yearly.currency,
+    };
+};
+
+export const centralPlanCheckoutSelection = (plan, priceId) => {
+    const price = selectCentralPlanPrice(plan, priceId);
+    if (!price) throw new Error('السعر المختار غير متاح. حدّث الباقات واختر دورة الاشتراك مجددًا.');
+    return { plan_id: plan.id, price_id: price.id };
 };
 
 export const currentCentralOffer = (context) => {
