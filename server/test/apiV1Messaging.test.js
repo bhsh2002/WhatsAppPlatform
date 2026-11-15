@@ -3,6 +3,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import { createApiV1MessagingRouter } from '../routes/api/v1Messaging.js';
+import { BillingError, handleBillingError } from '../services/billingCore.js';
 
 const NOW = Date.parse('2026-07-14T13:00:00.000Z');
 
@@ -83,7 +84,7 @@ const invoke = (router, method, routePath, request = {}) => new Promise((resolve
         body: undefined,
         headersSent: false,
         status(value) { this.statusCode = value; return this; },
-        json(value) { this.body = value; this.headersSent = true; resolve(this); return this; },
+        json(value) { this.body = value; this.headersSent = true; return this; },
     };
     const handlers = findHandlers(router, method, routePath);
     let index = 0;
@@ -91,7 +92,11 @@ const invoke = (router, method, routePath, request = {}) => new Promise((resolve
         if (error) return reject(error);
         if (index >= handlers.length) return resolve(res);
         try {
-            Promise.resolve(handlers[index++](req, res, next)).catch(reject);
+            const handlerIndex = index++;
+            Promise.resolve(handlers[handlerIndex](req, res, next)).then(() => {
+                // Wait for the route's finally block as well as its JSON response.
+                if (handlerIndex === handlers.length - 1) resolve(res);
+            }).catch(reject);
         } catch (handlerError) {
             reject(handlerError);
         }
@@ -125,6 +130,7 @@ function createHarness({ responses = [], billing: billingOverride } = {}) {
             requests.push({ url, init });
             const response = responses.shift();
             if (response instanceof Error) throw response;
+            if (typeof response === 'function') return response();
             return response;
         },
         parseMetaResponse: async response => response,
@@ -292,6 +298,164 @@ test('API v1 text and approved templates normalize payloads, enforce variables a
         ],
     );
 });
+
+for (const scenario of [
+    {
+        name: 'text',
+        route: '/messages/send',
+        body: { recipient: '218910000001', message: 'Delivery alert' },
+        label: 'Send message error',
+        fallback: 'Failed to send message',
+    },
+    {
+        name: 'URL media',
+        route: '/messages/send-media',
+        body: {
+            recipient: '218910000001',
+            type: 'image',
+            media_url: 'https://cdn.example.com/photo.jpg',
+        },
+        label: 'Send media error',
+        fallback: 'Failed to send media',
+    },
+    {
+        name: 'document',
+        route: '/messages/send-document',
+        body: { recipient: '218910000001' },
+        documentPath: '/tmp/doc-transport-rejection.pdf',
+        label: 'Send document error',
+        fallback: 'Failed to send document',
+    },
+    {
+        name: 'interactive',
+        route: '/messages/send-interactive',
+        body: {
+            recipient: '218910000001',
+            interactive_type: 'button',
+            body_text: 'Choose',
+            buttons: [{ id: 'yes', title: 'Yes' }],
+        },
+        label: 'Send interactive error',
+        fallback: 'Failed to send interactive message',
+    },
+]) {
+    test(`API v1 ${scenario.name} returns safe JSON and releases billing once when Meta transport rejects`, async (t) => {
+        const secret = 'test-only-meta-credential';
+        const error = new TypeError(`https://graph.test/?access_token=${secret}`);
+        error.code = 'ETIMEDOUT';
+        error.cause = { access_token: secret };
+        error.request = { headers: { Authorization: `Bearer ${secret}` } };
+        const h = createHarness({ responses: [
+            ...(scenario.documentPath ? [{ ok: true, status: 200, data: { id: 'media-upload' } }] : []),
+            error,
+        ] });
+        t.after(() => h.database.close());
+
+        const result = await invoke(h.router, 'post', scenario.route, {
+            body: scenario.body,
+            ...(scenario.documentPath ? { file: file(scenario.documentPath) } : {}),
+        });
+
+        assert.equal(result.statusCode, 500);
+        assert.deepEqual(result.body, { error: scenario.fallback });
+        assert.equal(h.requests.length, scenario.documentPath ? 2 : 1);
+        assert.equal(h.billing.calls.reserves.length, 1);
+        assert.equal(h.billing.calls.releases.length, 1);
+        assert.equal(h.billing.calls.releases[0].reservation, h.billing.calls.reserves[0]);
+        assert.equal(h.billing.calls.commits.length, 0);
+        assert.deepEqual(h.errors, [[
+            `[ApiV1Messaging] ${scenario.label}:`,
+            { name: 'TypeError', code: 'ETIMEDOUT' },
+        ]]);
+        assert.equal(h.callbacks.length, 0);
+        assert.equal(h.database.prepare('SELECT COUNT(*) AS count FROM messages').get().count, 0);
+        assert.deepEqual(h.cleaned, scenario.documentPath ? [scenario.documentPath] : []);
+    });
+}
+
+test('API v1 returns billing 402 for a utility template with a missing Meta rate', async (t) => {
+    const billing = createBilling();
+    billing.reserve = options => {
+        billing.calls.reserves.push(options);
+        throw new BillingError('سعر Meta غير مضبوط لهذه الدولة أو فئة الرسالة', {
+            status: 402,
+            code: 'META_RATE_MISSING',
+            operation: options.operationKey,
+            meta_category: 'utility',
+            country_calling_code: null,
+        });
+    };
+    billing.handleError = handleBillingError;
+    const h = createHarness({ billing });
+    t.after(() => h.database.close());
+
+    const result = await invoke(h.router, 'post', '/messages/send', {
+        body: {
+            recipient: '218910000001',
+            type: 'template',
+            template_name: 'order_update',
+            template_params: ['A-1', 'tomorrow'],
+        },
+    });
+
+    assert.equal(result.statusCode, 402);
+    assert.deepEqual(result.body, {
+        success: false,
+        error: 'سعر Meta غير مضبوط لهذه الدولة أو فئة الرسالة',
+        code: 'META_RATE_MISSING',
+        status: 402,
+        operation: 'whatsapp.template',
+        meta_category: 'utility',
+        country_calling_code: null,
+    });
+    assert.equal(h.billing.calls.reserves.length, 1);
+    assert.equal(h.billing.calls.reserves[0].metadata.template_category, 'utility');
+    assert.equal(h.billing.calls.releases.length, 0);
+    assert.equal(h.billing.calls.commits.length, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.errors.length, 0);
+});
+
+for (const outcome of ['success', 'rejection']) {
+    test(`API v1 document cleanup waits for dispatch ${outcome} and runs exactly once`, async (t) => {
+        let completeSend;
+        let failSend;
+        const sending = new Promise((resolve, reject) => {
+            completeSend = resolve;
+            failSend = reject;
+        });
+        let markStarted;
+        const started = new Promise(resolve => { markStarted = resolve; });
+        const h = createHarness({ responses: [
+            { ok: true, status: 200, data: { id: 'media-pending' } },
+            () => { markStarted(); return sending; },
+        ] });
+        t.after(() => h.database.close());
+        const documentPath = `/tmp/doc-pending-${outcome}.pdf`;
+        const resultPromise = invoke(h.router, 'post', '/messages/send-document', {
+            body: { recipient: '218910000001' },
+            file: file(documentPath),
+        });
+
+        await started;
+        assert.deepEqual(h.cleaned, [], 'keep the file until dispatch settles');
+        assert.equal(h.billing.calls.reserves.length, 1);
+        assert.equal(h.billing.calls.commits.length, 0);
+        assert.equal(h.billing.calls.releases.length, 0);
+
+        if (outcome === 'success') {
+            completeSend({ ok: true, status: 200, data: { messages: [{ id: 'wa-doc-pending' }] } });
+        } else {
+            failSend(new Error('Meta transport failed'));
+        }
+        const result = await resultPromise;
+
+        assert.equal(result.statusCode, outcome === 'success' ? 200 : 500);
+        assert.deepEqual(h.cleaned, [documentPath]);
+        assert.equal(h.billing.calls.commits.length, outcome === 'success' ? 1 : 0);
+        assert.equal(h.billing.calls.releases.length, outcome === 'success' ? 0 : 1);
+    });
+}
 
 test('API v1 URL media validates public HTTPS input and settles successful and failed sends once', async (t) => {
     const h = createHarness({ responses: [

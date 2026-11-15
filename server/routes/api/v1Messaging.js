@@ -15,7 +15,7 @@ import {
 } from '../../services/billing.js';
 import { getTenantCredentials } from '../../services/credentials.js';
 import { normalizeFilename } from '../../services/filenames.js';
-import { readMetaResponse, sendMetaFailure } from '../../services/metaHttp.js';
+import { readMetaResponse, sendMetaFailure, summarizeMetaException } from '../../services/metaHttp.js';
 import {
     buildInteractivePayload,
     buildRichTemplateContent,
@@ -337,7 +337,7 @@ export function createApiV1MessagingRouter({
             return validationFailure(res, error);
         }
         if (billing.handleError(res, error)) return undefined;
-        logger.error(`[ApiV1Messaging] ${label}:`, error);
+        logger.error(`[ApiV1Messaging] ${label}:`, summarizeMetaException(error));
         return res.status(500).json({ error: fallback });
     };
 
@@ -422,7 +422,7 @@ export function createApiV1MessagingRouter({
                 storedContent = message;
             }
 
-            return dispatch({
+            return await dispatch({
                 res,
                 context,
                 recipient,
@@ -471,7 +471,7 @@ export function createApiV1MessagingRouter({
                 type: mediaType,
                 [mediaType]: media,
             };
-            return dispatch({
+            return await dispatch({
                 res,
                 context,
                 recipient,
@@ -553,7 +553,7 @@ export function createApiV1MessagingRouter({
                     ...(caption ? { caption } : {}),
                 },
             };
-            return dispatch({
+            return await dispatch({
                 res,
                 context,
                 recipient,
@@ -602,7 +602,7 @@ export function createApiV1MessagingRouter({
                     ? { buttons: input.buttons }
                     : { sections: input.sections, list_button: input.listButtonText }),
             });
-            return dispatch({
+            return await dispatch({
                 res,
                 context,
                 recipient: input.recipient,
