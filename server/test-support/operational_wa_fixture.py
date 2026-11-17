@@ -8,6 +8,7 @@ Never print the private ready envelope, cookies, token responses or config.
 
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import select
 import subprocess
@@ -17,7 +18,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 
-NODE20 = Path("/Users/savana/Dev/.tools/whatsapp/node-v20.20.2-darwin-arm64/bin/node")
+NODE22 = Path("/Users/savana/Dev/.tools/whatsapp/node-v22.23.5-darwin-arm64/bin/node")
 ENTRY = Path(__file__).with_name("operationalWaProcess.mjs")
 PREFIX = "@@WA_OPERATIONAL@@"
 
@@ -179,11 +180,15 @@ class OperationalWaFixture:
 
 
 @contextmanager
-def isolated_wa_operational(config, *, node=NODE20):
+def isolated_wa_operational(config, *, node=None):
     """Start one private WA process; no existing data/config/token can load."""
-    node = Path(node)
+    node = Path(node or os.environ.get("WA_NODE_BINARY") or NODE22)
     if not node.is_absolute() or not node.is_file():
-        raise ValueError("Use the existing explicit project Node20 runtime")
+        raise ValueError("Use the explicit project Node22.23.5 runtime or WA_NODE_BINARY")
+    version = subprocess.run([str(node), "--version"], check=True, capture_output=True,
+                             text=True, timeout=10).stdout.strip()
+    if version != "v22.23.5":
+        raise ValueError("The owned WA fixture requires Node22.23.5")
     process = subprocess.Popen([str(node), str(ENTRY)], cwd=ENTRY.parent,
         env={"PATH": str(node.parent), "LANG": "en_US.UTF-8", "TZ": "UTC"},
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

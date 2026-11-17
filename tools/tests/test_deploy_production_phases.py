@@ -12,7 +12,7 @@ import unittest
 
 HELPER = Path(__file__).resolve().parents[1] / 'wa_production_phase_checks.sh'
 RUNNER = HELPER.parent / 'deploy_production.sh'
-NODE20 = Path('/Users/savana/Dev/.tools/whatsapp/node-v20.20.2-darwin-arm64/bin/node')
+NODE22 = Path(os.environ.get('WA_TEST_NODE_BINARY', '/Users/savana/Dev/.tools/whatsapp/node-v22.23.5-darwin-arm64/bin/node'))
 
 
 class DeploymentPhaseTests(unittest.TestCase):
@@ -75,7 +75,7 @@ index=args.index('-e')+1
 args[index]=args[index].replace('http://127.0.0.1:3031',os.environ['MOCK_HTTP_ORIGIN'])
 sys.exit(subprocess.run([os.environ['MOCK_NODE'],*args],env=os.environ).returncode)
 '''); wrapper.chmod(0o755)
-        self.env = {'PATH': str(self.bin) + os.pathsep + os.defpath, 'MOCK_NODE': str(NODE20) if NODE20.exists() else shutil.which('node'),
+        self.env = {'PATH': str(self.bin) + os.pathsep + os.defpath, 'MOCK_NODE': str(NODE22) if NODE22.exists() else shutil.which('node'),
             'MOCK_HTTP_ORIGIN': f'http://127.0.0.1:{self.server.server_port}', 'MOCK_BUILT_MARKER': self.expected,
             'WA_BROWSER_RELEASE': self.expected, 'METRICS_TOKEN': 'synthetic-phase-metrics'}
         self.docker_calls = self.directory / 'docker-calls.jsonl'; self.env['MOCK_DOCKER_CALLS'] = str(self.docker_calls)

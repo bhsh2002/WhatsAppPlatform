@@ -1,6 +1,6 @@
 // Official WA-owned operational acceptance server. This file is a test factory,
 // not an application bootstrap, credential importer or grant-enrollment API.
-// Run once in a dedicated Node20 child before application singleton imports.
+// Run once in a dedicated Node22.23.5 child before application singleton imports.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -101,6 +101,9 @@ const allowedOperations = (config, centerOrigin, contractHashes = {}) => {
 };
 
 export async function startOperationalWaServer(config, { afterListen = null } = {}) {
+    if (process.version !== 'v22.23.5') {
+        throw new Error('The owned WA fixture requires Node22.23.5');
+    }
     if (!config || typeof config !== 'object' || Array.isArray(config)
         || Object.keys(config).some(key => ['DATABASE_PATH', 'databasePath', 'database_path',
             'database', 'grants', 'registry', 'accessToken', 'readToken', 'readBinding', 'delegatedSessions',
@@ -216,7 +219,7 @@ export async function startOperationalWaServer(config, { afterListen = null } = 
             import('../services/encryption.js'), import('../routes/sharedProductReads.js'), import('../config/index.js'),
         ]);
         if (database.name !== process.env.DATABASE_PATH || JWT_SECRET !== process.env.JWT_SECRET) {
-            throw new Error('Start the official WA fixture in a fresh dedicated Node20 process');
+            throw new Error('Start the official WA fixture in a fresh dedicated Node22.23.5 process');
         }
         initEncryption();
         database.exec(`INSERT INTO tenants (id, name, phone, status) VALUES

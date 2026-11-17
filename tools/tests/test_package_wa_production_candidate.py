@@ -26,8 +26,8 @@ class ProductionCandidateTests(unittest.TestCase):
             self.write(name, 'synthetic release tooling\n')
         for name in packager.CONFIG_EXAMPLES:
             self.write(name, 'JWT_SECRET=synthetic-template-value-must-never-copy\nOPENAI_API_KEY=synthetic-template-value-must-never-copy\nGEMINI_API_KEY=synthetic-template-value-must-never-copy\nSAVANA_SHARED_READ_OIDC_TOKEN_ENDPOINT=https://synthetic.invalid/token\nPUBLIC_APP_URL=https://synthetic.invalid\n')
-        server_base = 'node:20@sha256:' + 'a' * 64
-        client_bases = ['node:20-alpine@sha256:' + 'b' * 64, 'nginx:alpine@sha256:' + 'c' * 64]
+        server_base = 'node:22.23.5-bookworm@sha256:' + 'a' * 64
+        client_bases = ['node:22.23.5-alpine3.24@sha256:' + 'b' * 64, 'nginx:alpine@sha256:' + 'c' * 64]
         self.write('server/Dockerfile', f'FROM {server_base}\nRUN npm ci --omit=dev\n')
         self.write('client/Dockerfile', '\n'.join(f'FROM {base}' for base in client_bases) + '\n')
         self.write('ops/release/server.Dockerfile', f'FROM {server_base}\nRUN npm_config_build_from_source=true npm_config_nodedir=/usr/local npm ci --omit=dev\n')

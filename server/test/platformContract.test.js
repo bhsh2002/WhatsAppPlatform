@@ -388,6 +388,8 @@ test('Docker runs the backend in production mode and waits for health', () => {
     const localCompose = read('docker-compose.local.yml');
     const dockerfile = read('server/Dockerfile');
     const clientDockerfile = read('client/Dockerfile');
+    const serverReleaseRecipe = read('ops/release/server.Dockerfile');
+    const clientReleaseRecipe = read('ops/release/client.Dockerfile');
     const ci = read('.github/workflows/ci.yml');
 
     assert.match(compose, /NODE_ENV:\s*production/);
@@ -404,8 +406,16 @@ test('Docker runs the backend in production mode and waits for health', () => {
     assert.match(dockerfile, /npm ci --omit=dev/);
     assert.match(dockerfile, /USER node/);
     assert.match(dockerfile, /mkdir -p \/app\/data \/app\/uploads/);
-    assert.match(dockerfile, /^FROM node:20@sha256:[a-f0-9]{64}/m);
-    assert.match(clientDockerfile, /^FROM node:20-alpine@sha256:[a-f0-9]{64} AS build/m);
+    const serverBase = 'FROM node:22.23.5-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb';
+    const clientBase = 'FROM node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS build';
+    assert.equal(dockerfile.match(/^FROM .+$/m)?.[0], serverBase);
+    assert.equal(serverReleaseRecipe.match(/^FROM .+$/m)?.[0], serverBase);
+    assert.equal(clientDockerfile.match(/^FROM .+$/m)?.[0], clientBase);
+    assert.equal(clientReleaseRecipe.match(/^FROM .+$/m)?.[0], clientBase);
+    assert.match(serverReleaseRecipe, /npm_config_build_from_source=true npm_config_nodedir=\/usr\/local npm ci --omit=dev/);
+    assert.match(clientReleaseRecipe, /ARG VITE_WA_CLIENT_RELEASE/);
+    assert.match(clientReleaseRecipe, /ENV VITE_WA_CLIENT_RELEASE=\$\{VITE_WA_CLIENT_RELEASE\}/);
+    assert.match(clientReleaseRecipe, /test\(process\.env\.VITE_WA_CLIENT_RELEASE\|\|""\)\)process\.exit\(1\)/);
     assert.match(clientDockerfile, /^FROM nginx:alpine@sha256:[a-f0-9]{64}/m);
     assert.match(clientDockerfile, /USER nginx/);
     assert.match(clientDockerfile, /EXPOSE 8080/);
@@ -417,8 +427,23 @@ test('Docker runs the backend in production mode and waits for health', () => {
     assert.match(localCompose, /CORS_ORIGINS:\s*http:\/\/localhost:3133,http:\/\/127\.0\.0\.1:3133/);
     assert.match(read('client/nginx.conf'), /listen 8080/);
     assert.match(read('client/nginx.conf'), /listen \[::\]:8080/);
-    assert.match(ci, /docker build --tag whatsapp-platform-server:ci server/);
-    assert.match(ci, /docker build --tag whatsapp-platform-client:ci client/);
+    const ciNodeVersions = [...ci.matchAll(/node-version:\s*([^\s]+)/g)].map(match => match[1]);
+    assert.ok(ciNodeVersions.length >= 3, 'Server, client and release-hook CI jobs must select Node');
+    assert.ok(ciNodeVersions.every(version => version === '22.23.5'), 'CI must use the approved Node22 version');
+    assert.match(ci, /tools\/wa_controlled_release\.py export/);
+    assert.ok(ci.includes('--repository "$GITHUB_WORKSPACE"'));
+    assert.ok(ci.includes('--revision "$(git rev-parse HEAD)"'));
+    assert.ok(ci.includes('--output-directory "$RUNNER_TEMP/wa-controlled-context"'));
+    assert.match(ci, /tools\/wa_controlled_release\.py build/);
+    assert.ok(ci.includes('--revision "$VERIFIED_REVISION"'));
+    assert.ok(ci.includes('--context-directory "$RUNNER_TEMP/wa-controlled-context"'));
+    assert.ok(ci.includes('--expected-source-sha256 "$CONTROLLED_SOURCE_SHA256"'));
+    assert.ok(ci.includes('--expected-manifest-sha256 "$CONTROLLED_MANIFEST_SHA256"'));
+    assert.doesNotMatch(ci, /docker\s+(?:build|buildx\s+build)\b/, 'CI must not fall back to the live/default Docker contexts');
+    assert.match(ci, /npm run test:coverage/);
+    assert.equal((ci.match(/npm audit --audit-level=low/g) || []).length, 2);
+    assert.match(ci, /gitleaks git --redact --verbose --no-banner/);
+    assert.doesNotMatch(ci, /continue-on-error:\s*true/);
     assert.match(ci, /test -s dist\/sw\.js/);
     assert.match(ci, /test -s dist\/manifest\.webmanifest/);
     assert.match(ci, /JSON\.parse\(readFileSync\('dist\/manifest\.webmanifest'/);
@@ -427,6 +452,8 @@ test('Docker runs the backend in production mode and waits for health', () => {
 
 test('production publishes and consumes the Wa Savana GHCR packages by digest', () => {
     const release = read('.github/workflows/release-images.yml');
+    const controlledBuild = read('tools/wa_controlled_release.py');
+    const controlledPackager = read('tools/package_wa_production_candidate.py');
     const productionCompose = read('docker-compose.production.yml');
     const deploy = read('tools/deploy_production.sh');
     const backup = read('tools/backup_production.sh');
@@ -443,8 +470,46 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
 
     assert.ok(release.includes('server_package="savana-wa-server"'));
     assert.ok(release.includes('client_package="savana-wa-client"'));
-    assert.ok(release.includes('--tag "${image_root}/${server_package}:sha-${RELEASE_SHA}"'));
-    assert.ok(release.includes('--tag "${image_root}/${client_package}:sha-${RELEASE_SHA}"'));
+    assert.match(release, /workflow_run\.conclusion == 'success'/);
+    assert.match(release, /workflow_run\.event == 'push'/);
+    assert.match(release, /workflow_run\.head_branch == 'main'/);
+    assert.match(release, /ref:\s*\$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
+    assert.match(release, /RELEASE_SHA:\s*\$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
+    assert.match(release, /tools\/wa_controlled_release\.py export/);
+    assert.ok(release.includes('--repository "$GITHUB_WORKSPACE"'));
+    assert.ok(release.includes('--revision "$RELEASE_SHA"'));
+    assert.ok(release.includes('--output-directory "$RUNNER_TEMP/wa-controlled-context"'));
+    assert.match(release, /tools\/wa_controlled_release\.py build/);
+    assert.ok(release.includes('--context-directory "$RUNNER_TEMP/wa-controlled-context"'));
+    assert.ok(release.includes('--expected-source-sha256 "$CONTROLLED_SOURCE_SHA256"'));
+    assert.ok(release.includes('--expected-manifest-sha256 "$CONTROLLED_MANIFEST_SHA256"'));
+    assert.match(release, /--evidence-directory "\$RUNNER_TEMP\/wa-release-evidence"[\s\\]+--push/);
+    assert.doesNotMatch(release, /docker\s+(?:build|buildx\s+build)\b/, 'Release must build only exported contexts through the reviewed helper');
+
+    assert.match(controlledBuild, /PIN = 'ops\/release\/runtime-source\.sha256'/);
+    assert.match(controlledBuild, /RECIPES = \{part: f'ops\/release\/\{part\}\.Dockerfile' for part in \('server', 'client'\)\}/);
+    assert.match(controlledBuild, /readonly_git\(repository, 'rev-parse', 'HEAD'\).*!= revision/);
+    assert.match(controlledBuild, /readonly_git\(repository, 'status', '--porcelain=v1', '--untracked-files=all'\)/);
+    assert.match(controlledBuild, /'GIT_OPTIONAL_LOCKS': '0'/);
+    assert.match(controlledBuild, /candidate\.baseline_blobs\(repository, tracked,/);
+    assert.match(controlledPackager, /git\(repository, "ls-tree", "-rz", "HEAD"\)/);
+    assert.match(controlledPackager, /git\(repository, "cat-file", "--batch"/);
+    assert.match(controlledBuild, /pin != marker/);
+    assert.match(controlledBuild, /expected_manifest_sha256/);
+    assert.match(controlledBuild, /if directory == evidence_directory or directory in evidence_directory\.parents or evidence_directory\.exists\(\)/);
+    assert.match(controlledBuild, /IMAGE_ROOT = 'ghcr\.io\/bhsh2002'/);
+    assert.ok(controlledBuild.includes("tag = f'{IMAGE_ROOT}/savana-wa-{part}:sha-{revision}'"));
+    assert.ok(controlledBuild.includes("'--file', str(directory / f'recipes/{part}.Dockerfile')"));
+    assert.ok(controlledBuild.includes("command += [str(directory / f'contexts/{part}')]"));
+    assert.ok(controlledBuild.includes("f'org.opencontainers.image.revision={revision}'"));
+    assert.ok(controlledBuild.includes("f'savana.candidate.source-sha256={marker}'"));
+    assert.ok(controlledBuild.includes("['--build-arg', f'VITE_WA_CLIENT_RELEASE={marker}']"));
+    assert.match(controlledBuild, /if publish:\s*command \+= \['--provenance=mode=max', '--sbom=true', '--push'\]/);
+    assert.match(controlledBuild, /labels\.get\('org\.opencontainers\.image\.revision'\) != revision or labels\.get\('savana\.candidate\.source-sha256'\) != marker/);
+    assert.match(controlledBuild, /'immutable_reference': reference/);
+    assert.ok(controlledBuild.includes("'runtime_setting_assignment': f'WA_BROWSER_RELEASE={marker}'"));
+    assert.ok(release.includes('WA_BROWSER_RELEASE=%s'));
+    assert.match(release, /"\$source_marker" == "\$CONTROLLED_SOURCE_SHA256"/);
     assert.match(release, /packages:\s*write/);
     assert.match(release, /GHCR_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.match(release, /docker login ghcr\.io --username "\$\{GITHUB_ACTOR\}" --password-stdin/);
@@ -452,6 +517,13 @@ test('production publishes and consumes the Wa Savana GHCR packages by digest', 
     assert.doesNotMatch(release, /org\.opencontainers\.image\.source/);
     assert.match(release, /preflight_package "\$server_package"/);
     assert.match(release, /preflight_package "\$client_package"/);
+    const publishPosition = release.indexOf('tools/wa_controlled_release.py build');
+    for (const component of ['server', 'client']) {
+        assert.ok(release.indexOf(`preflight_package "$${component}_package"`) < publishPosition,
+            `${component} package privacy must be checked before publication`);
+        assert.ok(release.indexOf(`verify_private_expected_repository "$${component}_package"`) > publishPosition,
+            `${component} package privacy must also be checked after publication`);
+    }
     assert.ok(release.includes('expected_repository="bhsh2002/WhatsAppPlatform"'));
     assert.match(
         release,

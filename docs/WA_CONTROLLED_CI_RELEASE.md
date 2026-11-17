@@ -9,7 +9,7 @@ mode/deletion and untracked changes, and leaves Git index bytes untouched.
 Ignored environment/data/dependency/build files never enter the export.
 
 `ops/release/runtime-source.sha256` pins the reviewed public runtime marker:
-`7bc9f88c66fc39e4577b2687f4aa8f493483856e271aeb1fbced42d0de13c8d8`.
+`8018ff7f5890c69a495ddc2d89bd40384c58020c320f3848213383db0176e312`.
 The marker covers only sorted controlled runtime paths, modes and SHA256 bytes;
 it excludes HEAD, workflows, deployment tools, recipes and review metadata.
 The current selection is441 runtime files, including the Logs page and public
@@ -39,7 +39,7 @@ Focused tests exercise clean export, index preservation, metadata-only commit
 stability, dirty source refusal, reviewed-marker drift, context/recipe mutation,
 concurrent manifest replacement, explicit build arguments and both revision and
 source-label rejection. CI also runs the existing focused browser fetch-hook
-checks on Node20. Local implementation validation does not rerun product suites
+checks on Node22.23.5 LTS. Local implementation validation does not rerun product suites
 when runtime files are unchanged.
 
 To intentionally change runtime source in a future release, review the complete
@@ -50,8 +50,8 @@ the mismatch check. Recipe-only updates preserve the public runtime marker but
 require their own build/provenance review. The Git commit/export proof must bind
 the exact runtime inputs and both recipes to the reviewed validation evidence.
 
-The immutable `5c4b4166...2fde` source archive remains the historical validated
-runtime reference. It does not contain these later workflow/helper changes.
+The immutable `5c4b4166...2fde` source archive remains the historical Node20
+validated runtime reference; the Node22 descendant has a new runtime marker. It does not contain these later workflow/helper changes.
 The new isolated Git candidate records those changes separately. Preparation
 may create the reviewed local commit/bundle in a managed isolated checkout; no
 push or GitHub Actions execution is performed by this task. The original

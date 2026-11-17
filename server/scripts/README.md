@@ -80,10 +80,10 @@ retention with `DATABASE_PATH`, `BACKUP_DIR`, and `BACKUP_RETENTION`.
 
 ### WA review and shared-price migration preflight
 
-After approval to inspect a specific database, use the project's Node20 runtime:
+After approval to inspect a specific database, use the project's pinned Node22.23.5 runtime:
 
 ```bash
-/Users/savana/Dev/.tools/whatsapp/node-v20.20.2-darwin-arm64/bin/node \
+/Users/savana/Dev/.tools/whatsapp/node-v22.23.5-darwin-arm64/bin/node \
   scripts/check-savana-migration-impact.js --database /absolute/path/to/approved.db
 ```
 
@@ -171,7 +171,7 @@ matching contract fingerprints and declared isolated readiness:
 
 ```bash
 NODE_ENV=test WA_RUN_PRODUCT_CYCLE_ACCEPTANCE=1 \
-  /Users/savana/Dev/.tools/whatsapp/node-v20.20.2-darwin-arm64/bin/node \
+  /Users/savana/Dev/.tools/whatsapp/node-v22.23.5-darwin-arm64/bin/node \
   --test --test-concurrency=1 test/centralProductCycle.acceptance.test.js
 ```
 

@@ -1,6 +1,6 @@
-# Candidate build only. Keep the reviewed Node base; compile native SQLite
+# Candidate build only. Pin the reviewed Node22 LTS base; compile native SQLite
 # from the npm-integrity-pinned source with the base image's Node headers.
-FROM node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5
+FROM node:22.23.5-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb
 
 WORKDIR /app
 ENV NODE_ENV=production

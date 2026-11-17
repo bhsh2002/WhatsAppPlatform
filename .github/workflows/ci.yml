@@ -23,10 +23,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22 LTS
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22.23.5
           cache: npm
           cache-dependency-path: server/package-lock.json
           package-manager-cache: false
@@ -55,10 +55,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22 LTS
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22.23.5
           cache: npm
           cache-dependency-path: client/package-lock.json
           package-manager-cache: false
@@ -150,10 +150,10 @@ jobs:
           tools/backup_production.sh
           tools/preflight_migrations.sh
 
-      - name: Use Node.js 20 for focused release hook checks
+      - name: Use Node.js 22 LTS for focused release hook checks
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22.23.5
           package-manager-cache: false
 
       - name: Test controlled source identity and release hooks

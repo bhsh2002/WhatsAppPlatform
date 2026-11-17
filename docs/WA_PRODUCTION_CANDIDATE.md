@@ -40,7 +40,7 @@ runtime inputs therefore preserves it, without circular bundled-output input.
 
 The required target is `linux/amd64`, matching the production Linux x86_64 host.
 Local Docker29.1.3 runs on ARM64, so an image label alone is insufficient: the
-probe must measure Linux `process.arch === "x64"`, Node20, native SQLite loading
+probe must measure Linux `process.arch === "x64"`, Node22.23.5 LTS, native SQLite loading
 and frontend `uname -m === x86_64`. No Docker Desktop installation/start/settings
 changes or existing container/volume changes are part of preparation.
 
@@ -53,19 +53,26 @@ only generated static output enters the final nginx image. Host dependencies
 and previously generated frontend output are never reused. These commands use
 [`npm ci` frozen-lock semantics](https://docs.npmjs.com/cli/v10/commands/npm-ci/).
 
-The existing reviewed Node20/Alpine/nginx base digests are retained. Node20 is
-now listed as EOL by the [official Node release schedule](https://nodejs.org/en/about/previous-releases).
-This candidate does not silently change runtime major versions. The release
-owner must resolve runtime support and current image/dependency vulnerability
-gates before a production verdict. Deterministic source packaging is verified;
+Node22.23.5 LTS (security release2026-11-11) replaces the historical Node20
+images. The exact official images are `node:22.23.5-bookworm` at index digest
+`e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb` and
+`node:22.23.5-alpine3.24` at
+`1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a`.
+The pinned nginx runtime image is unchanged. Primary references are the
+[Node22.23.5 release](https://nodejs.org/en/blog/release/v22.23.5),
+[official Docker image catalog](https://github.com/docker-library/official-images/blob/master/library/node),
+and [Node release schedule](https://nodejs.org/en/about/previous-releases).
+The release owner still checks current image/dependency vulnerability gates.
+Deterministic source packaging is verified;
 bit-identical rebuilt OCI images are not asserted. Image IDs, native binary
 hashes, dependency locks and build logs provide the measured build provenance.
 
 Root's consolidated source checks passed289 server cases in32 files and138
 client cases plus lint/build. The packaging/phase suites are separate; exact final results are recorded in
 the candidate handoff and are not added to the product totals.
-The approved base-image probe measured Linux x64, Node v20.20.2 on the local ARM
-engine. Complete candidate-image/runtime results are reported separately in
+The historical Node20 base-image probe measured Linux x64, Node v20.20.2 on
+the local ARM engine; that result does not validate this Node22 descendant.
+Current candidate-image/runtime results are reported separately in
 `linux-validation.json`; the base probe alone is not a full image verdict.
 
 ## Candidate preparation commands

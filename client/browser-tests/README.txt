@@ -1,7 +1,7 @@
 Isolated WA integration UI fixture
 
-Use the project's Node20, without starting the application backend:
-/Users/savana/Dev/.tools/whatsapp/node-v20.20.2-darwin-arm64/bin/node client/scripts/serve-integration-fixture.mjs
+Use the project's pinned Node22.23.5, without starting the application backend:
+/Users/savana/Dev/.tools/whatsapp/node-v22.23.5-darwin-arm64/bin/node client/scripts/serve-integration-fixture.mjs
 
 Open only the printed 127.0.0.1 URL in a new browser tab. The fixture mounts
 actual integration, inbox and product-picker components with synthetic data.

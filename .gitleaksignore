@@ -1,0 +1,4 @@
+# Gitleaks 8.30.1: synthetic idempotency IDs in the historical mocked maintenance test.
+# These exact findings are not credentials; the current test constructs the request ID.
+b98de5c0b8905d94eda273bd4743a6bab2186965:server/test/smsGateway.test.js:generic-api-key:94
+b98de5c0b8905d94eda273bd4743a6bab2186965:server/test/smsGateway.test.js:generic-api-key:96

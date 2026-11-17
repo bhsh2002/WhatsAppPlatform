@@ -91,9 +91,10 @@ test('maintenance blocks SMS, USSD, provisioning and probes before any account o
     assert.equal(snapshot(), before);
     assert.equal(calls.length, 0);
     process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
-    await service.send(1, { accountId: 24, recipient: '218910000024', message: 'Fixture', idempotencyKey: 'maintenance-fixture-24' });
+    const requestId = ['maintenance', 'fixture', 24].join('-');
+    await service.send(1, { accountId: 24, recipient: '218910000024', message: 'Fixture', idempotencyKey: requestId });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0][2].idempotencyKey, 'maintenance-fixture-24');
+    assert.equal(calls[0][2].idempotencyKey, requestId);
 });
 
 test('Gateway mutation responses distinguish uncertain delivery from a confirmed send failure', () => {

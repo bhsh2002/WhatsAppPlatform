@@ -85,7 +85,8 @@ if (process.argv[2] === 'control') {
     }
 } else if (process.argv[2] === 'migrations') {
     assert.equal(process.platform, 'linux'); assert.equal(process.arch, 'x64');
-    assert.equal(Number(process.versions.node.split('.')[0]), 20);
+    assert.equal(process.version, 'v22.23.5');
+    assert.equal(Number(process.versions.node.split('.')[0]), 22);
     const { runMigrationsSync, getMigrationStatusSync } = await import('/app/db/migrator.js');
     const db = new Database('/tmp/wa-linux-migration.db');
     let result;
