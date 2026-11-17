@@ -12,3 +12,10 @@ export const integrationRequestMatchesConversation = (request, conversation) => 
         && normalizeIntegrationPhone(conversation.contact_id) === recipient
     );
 };
+
+// Review approval is not permission to perform the external effect.
+export const integrationRequestBlocksSend = (request, conversation) => Boolean(request) && !(
+    request.status === 'approved'
+    && request.execution_ready === true
+    && integrationRequestMatchesConversation(request, conversation)
+);

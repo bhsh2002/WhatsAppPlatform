@@ -1,6 +1,9 @@
 import express from 'express';
+import crypto from 'node:crypto';
 
-import { SavanaIntegrationError } from '../services/savanaIntegration.js';
+import { canonicalJson, SavanaIntegrationError } from '../services/savanaIntegration.js';
+import { evaluateLocalIntegrationCapabilities } from '../services/integrationCapabilities.js';
+import { sharedPricingIsValid } from '../services/sharedProductPricing.js';
 
 const customerErrorMessages = {
     central_subscription_unbound: 'اربط حسابك بمؤسستك أولًا.',
@@ -53,38 +56,53 @@ const respondError = (res, error) => {
 
 const boundedLimit = value => Math.min(100, Math.max(1, Number.parseInt(value || '25', 10) || 25));
 
-const normalizePhoneDigits = value => String(value || '').replace(/\D/g, '');
-
-const messageRequestRecipient = requestRecord => {
-    let payload;
-    try {
-        payload = JSON.parse(requestRecord.payload_json || '{}');
-    } catch {
-        payload = {};
-    }
-    return normalizePhoneDigits(
-        payload?.recipient?.phone_e164
-        || payload?.customer_phone
-        || payload?.recipient_phone_e164
-        || payload?.phone_e164,
-    );
-};
-
 const parseMessageRequest = row => ({
     ...row,
     payload: JSON.parse(row.payload_json || '{}'),
     payload_json: undefined,
+    review_only: true,
+    execution_ready: false,
+    execution_blockers: [{
+        code: 'adapter_execution_not_implemented',
+        message: 'الطلب متاح للمراجعة؛ تنفيذ الأثر ينتظر عقدًا يربط النشاط والحساب والموافقة والتكلفة بالطلب.',
+        action: 'await_adapter',
+    }],
 });
+
+const requestPayloadHash = row => crypto.createHash('sha256')
+    .update(canonicalJson(JSON.parse(row.payload_json || '{}'))).digest('hex');
 
 export const createTenantIntegrationsRouter = ({ database, service }) => {
     const router = express.Router();
     const projectedProducts = (tenantId, limit) => database.prepare(`
-        SELECT canonical_product_id, local_product_id, sku, barcode, name,
-            description, price, currency, image_url, quantity_on_hand,
-            quantity_available, unit_code, shelf_code, source_updated_at
-        FROM savana_product_projection WHERE tenant_id = ?
-        ORDER BY updated_at DESC, id DESC LIMIT ?
-    `).all(tenantId, limit);
+        SELECT projection.canonical_product_id, projection.local_product_id,
+            projection.sku, projection.barcode, projection.name,
+            projection.description, projection.price, projection.currency,
+            projection.image_url, projection.quantity_on_hand,
+            projection.quantity_available, projection.unit_code,
+            projection.shelf_code, projection.source_updated_at,
+            product.is_active, product.availability, product.approval_status
+        FROM savana_product_projection projection
+        LEFT JOIN bot_products product
+          ON product.tenant_id = projection.tenant_id
+         AND product.savana_projection_key = projection.projection_key
+        WHERE projection.tenant_id = ?
+        ORDER BY projection.updated_at DESC, projection.id DESC LIMIT ?
+    `).all(tenantId, limit).map(row => {
+        const pricingReady = sharedPricingIsValid(row);
+        const active = row.is_active === 1;
+        return {
+            ...row,
+            is_active: active,
+            pricing_ready: pricingReady,
+            can_prepare_product_message: pricingReady && active && row.approval_status === 'approved',
+            preparation_blockers: [
+                ...(!pricingReady ? [{ code: 'shared_pricing_incomplete', message: 'السعر أو العملة غير مكتمل أو غير صالح؛ يلزم تحديث المرجع المعتمد.' }] : []),
+                ...(!active ? [{ code: 'shared_product_inactive', message: 'النسخة المشتركة غير نشطة؛ لا تعيد قراءة السعر القديم تفعيلها.' }] : []),
+                ...(row.approval_status !== 'approved' ? [{ code: 'shared_product_review_required', message: 'تبقى النسخة معزولة حتى وصول تسعير صالح من المصدر المعتمد؛ تحديث الكمية أو الربط لا يعتمدها.' }] : []),
+            ],
+        };
+    });
 
     router.get('/binding', async (req, res) => {
         try {
@@ -212,6 +230,20 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                     subscription_entitled: service.subscriptionIntegrationEntitlement(
                         subscriptionContext, platformCode
                     ),
+                    capabilities: evaluateLocalIntegrationCapabilities({
+                        sourcePlatform: platformCode,
+                        integrationEnabled: service.config?.enabled === true,
+                        providerAvailable: available.has(platformCode),
+                        subscriptionEntitled: service.subscriptionIntegrationEntitlement(
+                            subscriptionContext, platformCode,
+                        ),
+                        connectionStatus: existing.get(platformCode)?.status,
+                        grantedScopes: JSON.parse(existing.get(platformCode)?.scopes_json || '[]'),
+                        // The legacy binding does not attest per-activity actor
+                        // grants. Missing central context cannot grant execution.
+                        canReview: null,
+                        scopeAuthorized: null,
+                    }),
                 })),
             });
         } catch (error) {
@@ -272,7 +304,10 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 return res.json(service.serialize(await service.refreshEntitlement(item)));
             }
             if (req.params.action === 'publish-status') {
-                return res.status(202).json(await service.publishNotificationStatus(item, req.body || {}));
+                throw new SavanaIntegrationError(
+                    'حالة التنفيذ تصدر من نتيجة موثقة لدى المنفّذ؛ لا تقبل كحالة يكتبها المستخدم.',
+                    409, 'execution_evidence_required',
+                );
             }
             if (req.params.action === 'retry-outbox') {
                 return res.status(202).json(await service.retryOutbox(item));
@@ -306,17 +341,14 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 );
             }
             const rows = database.prepare(`
-                SELECT id, request_kind, request_key, payload_json, status, created_at
+                SELECT id, request_kind, request_key, payload_json, status, created_at,
+                    reviewed_by, reviewed_at
                 FROM savana_service_requests
                 WHERE integration_id = ? AND tenant_id = ?
                 ORDER BY id DESC LIMIT ?
             `).all(item.id, req.user.tenant_id, boundedLimit(req.query.limit));
             return res.json({
-                data: rows.map(row => ({
-                    ...row,
-                    payload: JSON.parse(row.payload_json || '{}'),
-                    payload_json: undefined,
-                })),
+                data: rows.map(parseMessageRequest),
             });
         } catch (error) {
             return respondError(res, error);
@@ -334,6 +366,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
             const rows = database.prepare(`
                 SELECT requests.id, requests.request_kind, requests.request_key,
                     requests.payload_json, requests.status, requests.created_at,
+                    requests.reviewed_by, requests.reviewed_at,
                     integrations.platform_code
                 FROM savana_service_requests requests
                 JOIN savana_integrations integrations
@@ -354,6 +387,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
         return database.prepare(`
             SELECT requests.id, requests.integration_id, requests.event_id,
                 requests.request_key, requests.payload_json, requests.status,
+                requests.reviewed_payload_hash, requests.reviewed_by, requests.reviewed_at,
                 integrations.platform_code
             FROM savana_service_requests requests
             JOIN savana_integrations integrations
@@ -381,12 +415,28 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
             });
             updateLocalStatus();
         }).immediate();
-        await service.dispatchQueuedNotificationStatus(queued);
-        return true;
+        const dispatched = await service.dispatchQueuedNotificationStatus(queued);
+        const receipt = dispatched?.receipt;
+        return {
+            status_queued: true,
+            status_published: receipt?.queued !== true
+                && typeof receipt?.event_id === 'string'
+                && receipt.event_id.trim().length > 0,
+        };
     };
 
     router.post('/message-requests/:id/accept', async (req, res) => {
         try {
+            // Cached clients used review acceptance to open a native send flow.
+            // Require an explicit local UI mode before changing review state.
+            // This only negotiates client behavior; it grants no execution.
+            if (req.get('X-Savana-Review-Mode') !== 'review-only-v1') {
+                throw new SavanaIntegrationError(
+                    'حدّث الصفحة إلى أحدث إصدار لمراجعة الطلب بأمان؛ لم تُرسل رسالة من هذا الطلب.',
+                    409,
+                    'request_review_client_upgrade_required',
+                );
+            }
             const requestRecord = loadMessageRequest(
                 req.user.tenant_id, req.params.id, ['pending_review', 'approved']
             );
@@ -396,26 +446,35 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 );
             }
             const item = service.get(req.user.tenant_id, requestRecord.platform_code);
-            const statusPublished = await commitMessageStatus(
+            const payloadHash = requestPayloadHash(requestRecord);
+            if (requestRecord.reviewed_payload_hash && requestRecord.reviewed_payload_hash !== payloadHash) {
+                throw new SavanaIntegrationError(
+                    'تغيّر محتوى الطلب بعد المراجعة؛ يلزم طلب مراجعة جديد.',
+                    409, 'request_review_stale',
+                );
+            }
+            const publication = await commitMessageStatus(
                 item,
                 requestRecord,
                 'accepted',
                 {},
                 () => {
-                    if (requestRecord.status === 'pending_review') {
-                        database.prepare(`
+                    database.prepare(`
                             UPDATE savana_service_requests
-                            SET status = 'approved', updated_at = datetime('now', 'localtime')
-                            WHERE id = ? AND tenant_id = ? AND status = 'pending_review'
-                        `).run(req.params.id, req.user.tenant_id);
-                    }
+                            SET status = 'approved', reviewed_payload_hash = ?,
+                                reviewed_by = COALESCE(reviewed_by, ?),
+                                reviewed_at = COALESCE(reviewed_at, CURRENT_TIMESTAMP),
+                                updated_at = datetime('now', 'localtime')
+                            WHERE id = ? AND tenant_id = ?
+                              AND status IN ('pending_review', 'approved')
+                    `).run(payloadHash, String(req.user.id), req.params.id, req.user.tenant_id);
                 },
             );
             return res.json({
                 accepted: true,
-                status_published: statusPublished,
+                ...publication,
                 request: parseMessageRequest({
-                    ...requestRecord,
+                    ...loadMessageRequest(req.user.tenant_id, req.params.id, ['approved']),
                     status: 'approved',
                 }),
             });
@@ -436,46 +495,14 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                     'message_request_not_found',
                 );
             }
-            const item = service.get(req.user.tenant_id, requestRecord.platform_code);
-            const channelMessageId = typeof req.body?.channel_message_id === 'string'
-                ? req.body.channel_message_id.trim().slice(0, 255)
-                : '';
-            if (!channelMessageId) {
-                throw new SavanaIntegrationError(
-                    'A sent channel message id is required',
-                    422,
-                    'channel_message_id_required',
-                );
-            }
-            const expectedRecipient = messageRequestRecipient(requestRecord);
-            const verifiedMessage = expectedRecipient && database.prepare(`
-                SELECT recipient
-                FROM messages
-                WHERE tenant_id = ? AND direction = 'outgoing' AND wamid = ?
-                  AND status IN ('sent', 'delivered', 'read')
-                ORDER BY id DESC
-            `).all(req.user.tenant_id, channelMessageId).find(message => (
-                normalizePhoneDigits(message.recipient) === expectedRecipient
-            ));
-            if (!verifiedMessage) {
-                throw new SavanaIntegrationError(
-                    'The channel message was not verified for this request recipient',
-                    422,
-                    'channel_message_not_verified',
-                );
-            }
-            const statusPublished = await commitMessageStatus(
-                item,
-                requestRecord,
-                'sent',
-                { channel_message_id: channelMessageId },
-                () => database.prepare(`
-                    UPDATE savana_service_requests
-                    SET status = 'sent', updated_at = datetime('now', 'localtime')
-                    WHERE id = ? AND tenant_id = ? AND status = 'approved'
-                `).run(req.params.id, req.user.tenant_id),
+            // A recipient match proves neither the originating request nor the
+            // approved account/content/consent. The legacy receipt cannot grant
+            // execution or attach an unrelated native inbox message as proof.
+            throw new SavanaIntegrationError(
+                'تنفيذ الطلب العابر للمنصات غير مفعّل بعد؛ المراجعة لا تثبت إرسال رسالة.',
+                409,
+                'integration_execution_unavailable',
             );
-            return res.json({ sent: true, status_published: statusPublished });
         } catch (error) {
             return respondError(res, error);
         }
@@ -492,7 +519,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 );
             }
             const item = service.get(req.user.tenant_id, requestRecord.platform_code);
-            const statusPublished = await commitMessageStatus(
+            const publication = await commitMessageStatus(
                 item,
                 requestRecord,
                 'rejected',
@@ -504,7 +531,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                       AND status IN ('pending_review', 'approved')
                 `).run(req.params.id, req.user.tenant_id),
             );
-            return res.json({ dismissed: true, status_published: statusPublished });
+            return res.json({ dismissed: true, ...publication });
         } catch (error) {
             return respondError(res, error);
         }
@@ -536,7 +563,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                     'service_request_action_unsupported',
                 );
             }
-            await commitMessageStatus(
+            const publication = await commitMessageStatus(
                 item,
                 requestRecord,
                 'rejected',
@@ -548,7 +575,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                       AND status = 'pending_review'
                 `).run(req.params.id, item.id, req.user.tenant_id),
             );
-            return res.json({ dismissed: true, status_published: true });
+            return res.json({ dismissed: true, ...publication });
         } catch (error) {
             return respondError(res, error);
         }

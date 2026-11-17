@@ -53,7 +53,9 @@ docker network inspect savana-control-plane-network
 
 Copy `ops/production-compose.env.example` and
 `ops/production-runtime.env.example` to the paths documented in those files.
-Generate every secret independently on the production host, set both files to
+For a first installation generate secrets independently on the production host;
+for an upgrade retain the existing CRYPTO_KEY and prove continuity before cutover.
+Set both files to
 mode `0600`, and leave `BOOTSTRAP_ADMIN_PASSWORD` present only for the first
 boot. The environment validator rejects missing, short, reused, insecure, or
 misrouted production values without printing their contents.
@@ -61,16 +63,31 @@ The two private bind mounts use an SELinux `Z` relabel. Their setgid mode keeps
 new backup files in the deployment operator's group while UID 1000 remains the
 owner required by the non-root server process on enforcing AlmaLinux hosts.
 
-Create a release checkout for the approved commit. From that checkout run:
+Create a release checkout for the approved commit. Follow
+`docs/WA_PRODUCTION_CANDIDATE.md` for the controlled-context image build and exact
+public marker; old/default builds without it cannot resume. The phase is
+mandatory. From that checkout run:
 
 ```bash
+WA_DEPLOY_PHASE=maintenance \
+WA_COMPOSE_ENV_FILE=/srv/wa-savana/shared/production-compose.env \
+  ./tools/deploy_production.sh
+
+# Root only, after actual idle inventory, session rotation and marker agreement:
+WA_DEPLOY_PHASE=resume \
+WA_EXPECTED_BROWSER_RELEASE="$WA_CANDIDATE_SOURCE_SHA256" \
 WA_COMPOSE_ENV_FILE=/srv/wa-savana/shared/production-compose.env \
   ./tools/deploy_production.sh
 ```
 
 The deploy command validates immutable image digests, the external Control
-Plane network, the runtime environment inside the release image, resource and
+Plane network, private encryption-key continuity, target frontend marker before
+cutover, the runtime environment inside the release image, resource and
 security settings, loopback health, and authenticated metrics. Only the
+maintenance phase deliberately keeps routes paused and skips metrics; resume
+requires the actual idle guard and matching server/client markers. Any failure
+after cutover starts stops only the WA server and requires an explicit reviewed
+maintenance restart. No automatic rollback or database reset is performed. The
 frontend is published, at `127.0.0.1:3133`. Its dedicated non-internal edge
 network is required for Docker Engine 29 to materialize that loopback binding;
 an explicit gateway priority keeps that network as the frontend's default
@@ -132,6 +149,15 @@ journald and container logs.
   authentication, and outbox delivery all pass over the private network.
 
 ## Rollback
+
+The WA operational review in `WA_OPERATIONAL_DEPLOYMENT_REVIEW.txt` adds a
+required data-preservation fence to the procedure below. Never restore an old
+database over newer valid operations, delete nonempty session/audit/outbox
+history, or remove applied migration tracking to make an old image start.
+Stop the new reads/setup and prefer a forward-compatible correction. A
+historical restore requires a separately reviewed write fence plus proof that
+no later correct operations will be lost, or an approved reconciliation plan.
+No restore or deployment is authorized by the review/test package itself.
 
 Before every later deployment the script creates a SQLite online backup when a
 database and running container already exist. To roll back code that applied no

@@ -6,6 +6,15 @@ import {
     normalizeSafeFetchAttempts,
 } from '../runtime/fetchTimeout.js';
 
+test('maintenance refusal is never retried even for a safe GET', async () => {
+    let calls = 0;
+    const refusal = Object.assign(new Error('paused'), { code: 'WA_EGRESS_MAINTENANCE', dispatched: false });
+    const wrapped = createFetchWithDefaultTimeout(async () => { calls++; throw refusal; }, 2500,
+        { sleep: async () => assert.fail('Maintenance must not enter retry delay') });
+    await assert.rejects(wrapped('https://synthetic.invalid', { method: 'GET' }), error => error === refusal);
+    assert.equal(calls, 1);
+});
+
 test('external fetches receive a bounded default timeout signal', async () => {
     let captured;
     const wrapped = createFetchWithDefaultTimeout(async (_input, init) => {

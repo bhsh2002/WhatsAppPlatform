@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './runtime/egressMaintenanceBootstrap.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -44,6 +45,10 @@ import {
 import { createSmsGatewayWebhookRouter } from './routes/smsGatewayWebhook.js';
 import { createSmsGatewayProvisioningRouter } from './routes/smsGatewayProvisioning.js';
 import { createBrowserNotificationsRouter } from './routes/browserNotifications.js';
+import { createSharedProductReadsRouter } from './routes/sharedProductReads.js';
+import { createOperationalReadSetupRouter } from './routes/operationalReadSetup.js';
+import { createOperationalOwnerPortalRouter } from './routes/operationalOwnerPortal.js';
+import { createOperationalReadServices, operationalReadConfigFromEnv } from './services/operationalReadSetup.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -60,8 +65,10 @@ import { startMaintenanceScheduler } from './services/maintenance.js';
 import { botAssetsDir, uploadDir } from './config/upload.js';
 import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { initEncryption } from './services/encryption.js';
+import { initEncryption, encrypt, decrypt } from './services/encryption.js';
 import { installGlobalFetchTimeout } from './runtime/fetchTimeout.js';
+import { isEgressMaintenanceActive, egressMaintenanceStatus, createEgressMaintenanceMiddleware, verifyEgressResumeReady } from './runtime/egressMaintenance.js';
+import { createBrowserReleaseGuard, browserReleaseStatus } from './middleware/browserRelease.js';
 import { getMetricsSnapshot, requestObservability } from './services/observability.js';
 import { getOperationalSignals } from './services/operationalHealth.js';
 import { createOriginGuard } from './middleware/originGuard.js';
@@ -157,6 +164,9 @@ try {
 }
 
 let webPushService;
+// Covers the direct server.js entry too. During required startup validation,
+// provider imports remain behind the transport barrier until this DB is idle.
+verifyEgressResumeReady(db);
 try {
     webPushService = createWebPushService({
         database: db,
@@ -182,6 +192,13 @@ const PORT = process.env.PORT || 3031;
 const savanaIntegrationService = new SavanaIntegrationService({
     database: db,
     config: savanaIntegrationConfig,
+});
+// Default off. An encrypted identity session alone is not a delegated read
+// binding or an operational approval. Actual authority stays at the center.
+const { setupService: sharedReadSetupService, readService: sharedProductReadService, ownerPortalService } = createOperationalReadServices({
+    database: db,
+    config: operationalReadConfigFromEnv(),
+    encryption: { encrypt, decrypt },
 });
 const smsApiRequestStore = new SmsApiRequestStore({ database: db });
 let smsGatewayService;
@@ -235,7 +252,7 @@ if (process.env.NODE_ENV === 'production') {
         }
     }
 }
-if (savanaIntegrationConfig.enabled && savanaIntegrationConfig.subscriptionsMode === 'central') {
+if (!isEgressMaintenanceActive() && savanaIntegrationConfig.enabled && savanaIntegrationConfig.subscriptionsMode === 'central') {
     const refreshCentralSubscriptions = () => {
         savanaIntegrationService.synchronizeAllCentralSubscriptions().catch(error => {
             console.error('[SavanaSubscriptions] Background synchronization failed:', error.message);
@@ -247,6 +264,7 @@ if (savanaIntegrationConfig.enabled && savanaIntegrationConfig.subscriptionsMode
 }
 if (
     savanaIntegrationConfig.enabled
+    && !isEgressMaintenanceActive()
     && !['1', 'true'].includes(
         String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase()
     )
@@ -264,7 +282,7 @@ if (
     integrationOutboxTimer.unref();
 }
 
-if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+if (!isEgressMaintenanceActive() && !['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
     let callbackOutboxRunning = false;
     const dispatchTenantCallbacks = async () => {
         if (callbackOutboxRunning) return;
@@ -293,7 +311,7 @@ if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').to
     callbackOutboxTimer.unref();
 }
 
-if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+if (!isEgressMaintenanceActive() && !['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
     let smsHealthRunning = false;
     const refreshSmsAccountHealth = async () => {
         if (smsHealthRunning) return;
@@ -374,6 +392,7 @@ if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').to
 if (
     webPushService.getPublicConfig().enabled
     && !['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())
+    && !isEgressMaintenanceActive()
 ) {
     let pushDispatchRunning = false;
     const dispatchBrowserNotifications = async () => {
@@ -433,6 +452,8 @@ try {
 }
 
 // Middleware
+app.use(createEgressMaintenanceMiddleware());
+app.use(createBrowserReleaseGuard());
 const CORS_ORIGINS = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
     : ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173'];
@@ -528,9 +549,12 @@ app.get('/health', (req, res) => {
         const migrations = getMigrationStatusSync(db);
         const ready = migrations.pending === 0;
         return res.status(ready ? 200 : 503).json({
-            status: ready ? 'ok' : 'not_ready',
+            status: !ready ? 'not_ready' : isEgressMaintenanceActive() ? 'maintenance' : 'ok',
+            ready: ready && !isEgressMaintenanceActive(),
             database: 'ok',
             migrations,
+            maintenance: egressMaintenanceStatus(),
+            browser_release: browserReleaseStatus(),
             timestamp: new Date().toISOString(),
         });
     } catch (error) {
@@ -771,6 +795,15 @@ app.use('/messenger-bot', authMiddleware, adminMiddleware, messengerBotRouter);
 app.use('/content-studio', authMiddleware, adminMiddleware, facebookContentStudioRouter);
 
 // Protected API Routes - Tenant Portal
+app.use('/portal/integrations', authMiddleware, tenantMiddleware, createOperationalOwnerPortalRouter({
+    service: ownerPortalService, appOrigin: sharedReadSetupService.appOrigin,
+}));
+app.use('/portal/integrations', authMiddleware, tenantMiddleware, createOperationalReadSetupRouter({
+    service: sharedReadSetupService,
+}));
+app.use('/portal/integrations', authMiddleware, tenantMiddleware, createSharedProductReadsRouter({
+    service: sharedProductReadService,
+}));
 app.use('/portal/messenger-bot', authMiddleware, tenantMiddleware, messengerBotRouter);
 app.use('/portal/content-studio', authMiddleware, tenantMiddleware, facebookContentStudioRouter);
 app.use('/portal/integrations', authMiddleware, tenantMiddleware, createTenantIntegrationsRouter({
@@ -828,7 +861,7 @@ const server = app.listen(PORT, () => {
 
     // Isolated smoke/E2E environments can disable process-local schedulers so
     // they never inspect shared uploads or call Meta while testing a temp DB.
-    if (!['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
+    if (!isEgressMaintenanceActive() && !['1', 'true'].includes(String(process.env.DISABLE_BACKGROUND_JOBS || '').toLowerCase())) {
         startMaintenanceScheduler(uploadDir);
         startFacebookContentScheduler();
     }

@@ -4,6 +4,28 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.production.yml"
 COMPOSE_ENV_FILE="${WA_COMPOSE_ENV_FILE:-/srv/wa-savana/shared/production-compose.env}"
+# shellcheck source=tools/wa_production_phase_checks.sh
+source "$ROOT_DIR/tools/wa_production_phase_checks.sh"
+
+armed_cutover=0
+pwa_headers=''
+pwa_body=''
+cleanup_deployment() {
+  local status=$?
+  set +e
+  trap - EXIT
+  if (( status != 0 && armed_cutover == 1 )); then
+    printf '%s\n' 'Cutover failed; stopping only wa-savana-server. Restart explicitly in maintenance after review.' >&2
+    docker stop wa-savana-server >/dev/null 2>&1 || \
+      printf '%s\n' 'WARNING: WA server containment stop failed; root must contain it immediately.' >&2
+  fi
+  [[ -z "$pwa_headers" ]] || rm -f -- "$pwa_headers" || true
+  [[ -z "$pwa_body" ]] || rm -f -- "$pwa_body" || true
+  exit "$status"
+}
+trap cleanup_deployment EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -79,7 +101,7 @@ require_release_checkout() {
 }
 
 enabled_value() {
-  case "${1,,}" in
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
     1|true) return 0 ;;
     *) return 1 ;;
   esac
@@ -172,8 +194,19 @@ uploads_dir="$(env_value WA_UPLOADS_DIR "$COMPOSE_ENV_FILE")"
 release_sha="$(env_value WA_RELEASE_SHA "$COMPOSE_ENV_FILE")"
 require_web_push="${WA_REQUIRE_WEB_PUSH:-false}"
 recovery_mode="${WA_DEPLOY_RECOVERY_MODE:-}"
+deploy_phase="${WA_DEPLOY_PHASE:-}"
+expected_browser_release="${WA_EXPECTED_BROWSER_RELEASE:-}"
 
-case "${require_web_push,,}" in
+case "$deploy_phase" in
+  maintenance) ;;
+  resume)
+    [[ "$expected_browser_release" =~ ^[0-9a-f]{64}$ ]] \
+      || fail "Resume phase requires WA_EXPECTED_BROWSER_RELEASE from the reviewed candidate content SHA256"
+    ;;
+  *) fail "WA_DEPLOY_PHASE must explicitly be maintenance or resume" ;;
+esac
+
+case "$(printf '%s' "$require_web_push" | tr '[:upper:]' '[:lower:]')" in
   0|false) web_push_required=0 ;;
   1|true) web_push_required=1 ;;
   *) fail "WA_REQUIRE_WEB_PUSH must be true, false, 1, or 0" ;;
@@ -186,6 +219,20 @@ case "$recovery_mode" in
 esac
 
 require_private_file "$runtime_env"
+if [[ "$deploy_phase" == maintenance ]]; then
+  maintenance_flag="$(env_value SAVANA_EGRESS_MAINTENANCE "$runtime_env" 2>/dev/null || true)"
+  enabled_value "$maintenance_flag" || fail "Maintenance phase requires SAVANA_EGRESS_MAINTENANCE=true"
+elif [[ "$deploy_phase" == resume ]]; then
+  maintenance_flag="$(env_value SAVANA_EGRESS_MAINTENANCE "$runtime_env" 2>/dev/null || true)"
+  idle_flag="$(env_value SAVANA_EGRESS_REQUIRE_IDLE "$runtime_env" 2>/dev/null || true)"
+  browser_release="$(env_value WA_BROWSER_RELEASE "$runtime_env" 2>/dev/null || true)"
+  case "$(printf '%s' "$maintenance_flag" | tr '[:upper:]' '[:lower:]')" in
+    ''|0|false) ;;
+    *) fail "Resume phase requires SAVANA_EGRESS_MAINTENANCE=false" ;;
+  esac
+  enabled_value "$idle_flag" || fail "Resume phase requires SAVANA_EGRESS_REQUIRE_IDLE=true"
+  [[ "$browser_release" == "$expected_browser_release" ]] || fail "Runtime public browser marker differs from the reviewed candidate"
+fi
 if (( web_push_required )); then
   web_push_enabled="$(env_value WEB_PUSH_ENABLED "$runtime_env" 2>/dev/null || true)"
   enabled_value "$web_push_enabled" \
@@ -232,6 +279,11 @@ client_revision="$(docker image inspect \
 [[ "$client_revision" == "$release_sha" ]] \
   || fail "Client image revision label does not match WA_RELEASE_SHA"
 
+if [[ "$deploy_phase" == resume ]]; then
+  wa_verify_target_frontend "$client_image" "$expected_browser_release" \
+    || fail 'Target frontend public marker check failed before cutover; current maintenance remains unchanged'
+fi
+
 docker run --rm \
   --network none \
   --read-only \
@@ -263,6 +315,21 @@ if [[ "$recovery_mode" == verified-database-restore ]]; then
     || fail 'Recovery mode requires a verified restored Wa database'
   (( server_container_present == 0 )) \
     || fail 'Recovery mode requires the prior wa-savana-server container to be absent'
+  continuity_evidence="${WA_RECOVERY_KEY_CONTINUITY_EVIDENCE:-}"
+  [[ -n "$continuity_evidence" ]] || fail 'Recovery requires root-recorded matching backup/database/key continuity evidence'
+  require_private_file "$continuity_evidence"
+  python3 - "$continuity_evidence" "$release_sha" <<'PY' \
+    || fail 'Recovery key continuity evidence is incomplete or does not match this release'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as stream:
+    evidence = json.load(stream)
+assert evidence.get('release_sha') == sys.argv[2]
+assert evidence.get('restored_database_verified') is True
+assert evidence.get('retained_encryption_key_matches_backup') is True
+assert isinstance(evidence.get('root_record_reference'), str) and evidence['root_record_reference'].strip()
+assert isinstance(evidence.get('verified_backup_sha256'), str) and len(evidence['verified_backup_sha256']) == 64
+assert all(c in '0123456789abcdef' for c in evidence['verified_backup_sha256'])
+PY
   printf '%s\n' \
     'Recovery mode: starting from an explicitly verified restored database without an online backup.' >&2
 else
@@ -273,6 +340,8 @@ fi
 if (( database_present == 1 && server_container_present == 1 )); then
   (( server_container_running == 1 )) \
     || fail 'Existing Wa database requires the current wa-savana-server container to be running'
+  wa_verify_crypto_key_continuity "$server_image" "$runtime_env" \
+    || fail 'Encryption key continuity failed before cutover; preserve the running server and retained state'
   backup_output="$(WA_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" \
     "$ROOT_DIR/tools/backup_production.sh")"
   backup_archive="$(awk -F'[ =]' '
@@ -292,10 +361,14 @@ if (( database_present == 1 && server_container_present == 1 )); then
     "$backup_archive" "$server_image" "$data_dir"
 fi
 
+armed_cutover=1
 "${compose[@]}" up -d --remove-orphans --wait --wait-timeout 300
 
 curl --fail --silent --show-error --max-time 10 \
   "http://127.0.0.1:3133/api/health" >/dev/null
+
+wa_verify_runtime_phase "$deploy_phase" "$expected_browser_release" \
+  || fail "Actual runtime deployment phase checks failed"
 
 if (( web_push_required )); then
   docker exec wa-savana-server node --input-type=module -e '
@@ -309,21 +382,15 @@ fi
 
 pwa_headers="$(mktemp)"
 pwa_body="$(mktemp)"
-cleanup_pwa_smoke() {
-  rm -f -- "$pwa_headers" "$pwa_body"
-}
-trap cleanup_pwa_smoke EXIT
 verify_pwa_asset /manifest.webmanifest manifest "$pwa_headers" "$pwa_body"
 verify_pwa_asset /sw.js worker "$pwa_headers" "$pwa_body"
 
-docker exec wa-savana-server node --input-type=module -e '
-  const response = await fetch("http://127.0.0.1:3031/metrics", {
-    headers: { Authorization: `Bearer ${process.env.METRICS_TOKEN}` },
-  });
-  if (!response.ok || !(await response.text()).includes("whatsapp_process_uptime_seconds")) {
-    process.exit(1);
-  }
-'
+wa_verify_metrics_for_phase "$deploy_phase" || fail "Authenticated metrics check failed"
 
 "${compose[@]}" ps
-printf 'Wa Savana passed loopback health, PWA asset and authenticated metrics checks.\n'
+if [[ "$deploy_phase" == maintenance ]]; then
+  printf 'Wa Savana passed maintenance health, native503 and PWA checks; execution remains paused.\n'
+else
+  printf 'Wa Savana passed loopback health, PWA asset and authenticated metrics checks (phase=%s).\n' "$deploy_phase"
+fi
+armed_cutover=0

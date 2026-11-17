@@ -59,6 +59,7 @@ export const createFetchWithDefaultTimeout = (fetchImplementation, timeoutMs, {
                 await releaseResponse(response);
                 await sleep(retryAfterMs(response, attempt));
             } catch (error) {
+                if (error?.code === 'WA_EGRESS_MAINTENANCE') throw error;
                 lastError = error;
                 if (attempt === attempts || signal.aborted && init.signal) throw error;
                 await sleep(Math.min(MAX_RETRY_DELAY_MS, 250 * (2 ** (attempt - 1))));

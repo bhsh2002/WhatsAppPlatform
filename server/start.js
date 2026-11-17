@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import './runtime/egressMaintenanceBootstrap.js';
+import { verifyEgressResumeReady } from './runtime/egressMaintenance.js';
 
 import { validateProductionEnv } from './config/productionEnv.js';
 import {
@@ -14,4 +16,8 @@ try {
     process.exit(1);
 }
 
+// The DB module performs the reviewed forward migrations under the network
+// barrier. Verify idle before any application provider modules can resume.
+const { default: database } = await import('./db/database.js');
+verifyEgressResumeReady(database);
 await import('./server.js');

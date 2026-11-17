@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import webPush from 'web-push';
+import { assertEgressAvailable, isEgressMaintenanceActive } from '../runtime/egressMaintenance.js';
 
 import { decrypt, encrypt } from './encryption.js';
 import { resolveSafeOutboundTarget, UnsafeOutboundUrlError } from '../security/outboundUrl.js';
@@ -871,6 +872,7 @@ export const createWebPushService = ({
     };
 
     const dispatchDelivery = async deliveryId => {
+        if (isEgressMaintenanceActive()) return { delivery_id: deliveryId, status: 'paused' };
         let row = claimDelivery(deliveryId);
         if (!row) return { delivery_id: deliveryId, status: 'not_claimed' };
         if (!eligibleDelivery(row)) return markSkipped(row);
@@ -919,6 +921,7 @@ export const createWebPushService = ({
                 return markPermanentFailure(row, null, 'PUSH_DECRYPTION_FAILED');
             }
             const payload = JSON.stringify(buildNotificationPayload(row, row.role));
+            assertEgressAvailable();
             const response = await withProviderTimeout(
                 () => provider.sendNotification({
                         endpoint: validatedEndpoint,
@@ -946,6 +949,11 @@ export const createWebPushService = ({
             finalizeEvent(row.event_id);
             return { delivery_id: row.id, status: 'delivered', response_status: status };
         } catch (error) {
+            // A paused provider boundary has no delivery outcome. Preserve the
+            // claimed row for the read-only inflight audit; never spend retries.
+            if (error?.code === 'WA_EGRESS_MAINTENANCE') {
+                return { delivery_id: row.id, status: 'paused' };
+            }
             const status = providerStatus(error);
             const code = errorCodeFor(error, status);
             if (error instanceof WebPushServiceError || error instanceof UnsafeOutboundUrlError) {
@@ -989,6 +997,9 @@ export const createWebPushService = ({
     };
 
     const dispatchDue = async ({ limit = resolvedConfig.batchSize } = {}) => {
+        if (isEgressMaintenanceActive()) {
+            return { enabled: resolvedConfig.enabled, paused: true, attempted: 0, results: [] };
+        }
         if (!resolvedConfig.enabled) {
             return { enabled: false, attempted: 0, results: [] };
         }

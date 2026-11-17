@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Alert, Box, Snackbar, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { Alert, Box, Button, Snackbar, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { DoneAll as DoneAllIcon, Done as DoneIcon, Schedule as ScheduleIcon, Error as ErrorIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api';
@@ -18,6 +18,7 @@ import { findMatchingConversation } from '../../components/Inbox/newMessageDraft
 import {
   integrationRequestMatchesConversation,
   integrationRequestRecipient,
+  integrationRequestBlocksSend,
 } from './integrationRequestLifecycle';
 import {
   readInboxFilters,
@@ -448,7 +449,13 @@ const TenantInbox = () => {
   // WhatsApp Send Handlers (Portal API)
   // ============================================
 
+  const guardIntegrationRequestSend = useCallback(() => {
+    if (!integrationRequestBlocksSend(activeIntegrationRequest, selectedChatRef.current)) return false;
+    setSendError(t('inbox.integrationRequestExecutionUnavailable'));
+    return true;
+  }, [activeIntegrationRequest, t]);
   const handleSendWAMessage = useCallback(async () => {
+    if (guardIntegrationRequestSend()) return;
     if (!newMessage.trim() || !selectedChat || sending) return;
     if (windowStatus?.is_open === false) {
       setSendError(t('inbox.whatsappWindowClosed'));
@@ -475,8 +482,9 @@ const TenantInbox = () => {
     } finally {
       setSending(false);
     }
-  }, [newMessage, selectedChat, sending, windowStatus, fetchMessages, fetchConversations, completeActiveIntegrationRequest, t]);
+  }, [newMessage, selectedChat, sending, windowStatus, fetchMessages, fetchConversations, completeActiveIntegrationRequest, guardIntegrationRequestSend, t]);
   const handleSendTemplate = useCallback(async templateData => {
+    if (guardIntegrationRequestSend()) return;
     if (!selectedChat || sending) return;
     try {
       setSending(true);
@@ -496,8 +504,9 @@ const TenantInbox = () => {
     } finally {
       setSending(false);
     }
-  }, [selectedChat, sending, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
+  }, [selectedChat, sending, fetchMessages, fetchConversations, completeActiveIntegrationRequest, guardIntegrationRequestSend]);
   const handleSendDocument = useCallback(async (file, caption) => {
+    if (guardIntegrationRequestSend()) return;
     if (!file || !selectedChat) return;
     try {
       setSendingDoc(true);
@@ -517,8 +526,9 @@ const TenantInbox = () => {
     } finally {
       setSendingDoc(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
+  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest, guardIntegrationRequestSend]);
   const handleSendImage = useCallback(async (file, caption) => {
+    if (guardIntegrationRequestSend()) return;
     if (!file || !selectedChat) return;
     try {
       setSendingDoc(true);
@@ -537,8 +547,9 @@ const TenantInbox = () => {
     } finally {
       setSendingDoc(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
+  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest, guardIntegrationRequestSend]);
   const handleSendInteractive = useCallback(async data => {
+    if (guardIntegrationRequestSend()) return;
     if (!selectedChat) return;
     try {
       setSendingInteractive(true);
@@ -556,7 +567,7 @@ const TenantInbox = () => {
     } finally {
       setSendingInteractive(false);
     }
-  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest]);
+  }, [selectedChat, fetchMessages, fetchConversations, completeActiveIntegrationRequest, guardIntegrationRequestSend]);
 
   // ============================================
   // Messenger Send Handler (Portal unified)
@@ -862,6 +873,22 @@ const TenantInbox = () => {
                   onOpen={handleOpenIntegrationRequest}
                   onDismiss={handleDismissIntegrationRequest}
                 />
+                {activeIntegrationRequest && (
+                  <Alert
+                    severity="warning"
+                    sx={{ m: 1, mb: 0 }}
+                    action={(
+                      <Button color="inherit" size="small" onClick={() => {
+                        setActiveIntegrationRequest(null);
+                        setNewMessage('');
+                      }}>
+                        {t('inbox.integrationRequestCloseReview')}
+                      </Button>
+                    )}
+                  >
+                    {t('inbox.integrationRequestExecutionUnavailable')}
+                  </Alert>
+                )}
                 <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
                   {selectedChat?.channel === 'whatsapp' ? <ChatWindow selectedChat={chatWindowChat} messages={messages} loadingMessages={loadingMessages} onSendMessage={handleSendWAMessage} onSendTemplate={handleSendTemplate} onSendDocument={handleSendDocument} onSendImage={handleSendImage} onSendInteractive={handleSendInteractive} onBack={() => setSelectedChat(null)} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} sendingDoc={sendingDoc} sendingInteractive={sendingInteractive} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} getStatusIcon={getStatusIcon} getMediaDownloadUrl={getMediaDownloadUrl} getDateKey={getDateKey} templates={templates} windowStatus={windowStatus} integrationProducts={integrationProducts} productCapability={productCapability} /> : <UnifiedChatWindow selectedChat={selectedChat} messages={messages} loadingMessages={loadingMessages} onBack={() => setSelectedChat(null)} onSendMessage={selectedChat?.channel === 'sms' ? handleSendSmsMessage : handleSendMessengerMessage} canSend={selectedChat?.channel !== 'sms' || /^\+?\d{5,20}$/.test(selectedChat.contact_id || '')} newMessage={newMessage} setNewMessage={setNewMessage} sending={sending} messagesEndRef={messagesEndRef} messagesContainerRef={messagesContainerRef} getDisplayName={getDisplayName} formatTime={formatTime} onSendUtilityMessage={selectedChat?.channel === 'messenger' ? handleSendUtilityMessage : undefined} getMessageTags={selectedChat?.channel === 'messenger' ? handleGetMessageTags : undefined} utilityFallback={utilityFallback} botSession={botSession} onBotStatusChange={handleBotStatusChange} integrationProducts={integrationProducts} productCapability={productCapability} />}
                 </Box>

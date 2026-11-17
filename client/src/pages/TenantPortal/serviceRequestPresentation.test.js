@@ -52,3 +52,8 @@ test('service request presentation identifies kind, status, and useful payload f
     assert.match(result.summary, /facebook, instagram/);
     assert.equal(result.dismissible, false);
 });
+
+test('legacy approved means reviewed rather than sent or published', () => {
+    const result = presentServiceRequest({ request_kind: 'campaign_request', status: 'approved' }, 'en');
+    assert.equal(result.status, 'Reviewed; not executed');
+});

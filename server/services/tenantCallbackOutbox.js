@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import { safeOutboundFetch } from '../security/outboundUrl.js';
+import { isEgressMaintenanceActive } from '../runtime/egressMaintenance.js';
 import { decryptIfEncrypted } from './encryption.js';
 
 const clampInteger = (value, fallback, minimum, maximum) => {
@@ -163,6 +164,7 @@ export class TenantCallbackOutbox {
     }
 
     async dispatch({ limit = 100 } = {}) {
+        if (isEgressMaintenanceActive()) return [];
         const startedAt = asDate(this.now());
         this.reclaimExpiredLeases(startedAt);
         const deliveryLimit = clampInteger(limit, 100, 1, 500);
@@ -200,6 +202,9 @@ export class TenantCallbackOutbox {
                     response_status: response.status || null,
                 };
             } catch (error) {
+                if (error?.code === 'WA_EGRESS_MAINTENANCE') {
+                    return { delivery_id: record.delivery_id, status: 'paused' };
+                }
                 const failedAt = asDate(this.now());
                 const terminal = Number(record.attempts) >= this.maxAttempts;
                 const nextAttempt = new Date(

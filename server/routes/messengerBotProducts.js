@@ -114,11 +114,28 @@ export function createMessengerBotProductsRouter({
         ORDER BY is_primary DESC, sort_order ASC, id ASC
     `).all(productId);
 
+    // Synchronized rows are local read models. The current Connect contracts
+    // have no authority-change command; do not pretend a local edit will persist.
+    const integrationManagement = product => product.savana_projection_key
+        ? {
+            read_only: true,
+            reason_code: 'shared_change_contract_unavailable',
+            change_request_available: false,
+        }
+        : null;
+
+    const sourceManagedError = product => ({
+        error: 'هذا المنتج نسخة مشتركة تديرها المزامنة. عدّل المرجع المعتمد؛ طلب التعديل عبر المنصات غير متاح بعد.',
+        code: 'SHARED_PRODUCT_READ_ONLY',
+        integration_management: integrationManagement(product),
+    });
+
     const attachProductImages = product => {
         if (!product) return product;
         const images = getProductImages(product.id);
         return {
             ...product,
+            integration_management: integrationManagement(product),
             images,
             image_url: images[0]?.image_url || product.image_url || null,
         };
@@ -142,6 +159,7 @@ export function createMessengerBotProductsRouter({
             const productImages = byProduct.get(product.id) || [];
             return {
                 ...product,
+                integration_management: integrationManagement(product),
                 images: productImages,
                 image_url: productImages[0]?.image_url || product.image_url || null,
             };
@@ -231,6 +249,10 @@ export function createMessengerBotProductsRouter({
             if (!tenant) return;
             const product = normalizeProductPayload(req.body);
             if (!product.name) return res.status(400).json({ error: 'اسم المنتج مطلوب' });
+            const matchingSku = product.sku
+                ? database.prepare('SELECT * FROM bot_products WHERE tenant_id = ? AND sku = ?').get(tenant.id, product.sku)
+                : null;
+            if (matchingSku?.savana_projection_key) return res.status(409).json(sourceManagedError(matchingSku));
             const sourceError = validateProductSource(tenant.id, product);
             if (sourceError) return res.status(sourceError.status).json(sourceError);
             const approvalError = validateProductApproval(product);
@@ -295,6 +317,7 @@ export function createMessengerBotProductsRouter({
             const existing = database.prepare('SELECT * FROM bot_products WHERE id = ? AND tenant_id = ?')
                 .get(req.params.id, tenant.id);
             if (!existing) return res.status(404).json({ error: 'المنتج غير موجود' });
+            if (existing.savana_projection_key) return res.status(409).json(sourceManagedError(existing));
 
             const body = { ...existing, ...req.body };
             if (!Object.prototype.hasOwnProperty.call(req.body, 'images')) {
@@ -357,6 +380,10 @@ export function createMessengerBotProductsRouter({
         try {
             const tenant = requireTenant(database, req, res);
             if (!tenant) return;
+            const existing = database.prepare('SELECT * FROM bot_products WHERE id = ? AND tenant_id = ?')
+                .get(req.params.id, tenant.id);
+            if (!existing) return res.status(404).json({ error: 'المنتج غير موجود' });
+            if (existing.savana_projection_key) return res.status(409).json(sourceManagedError(existing));
             const result = database.prepare('DELETE FROM bot_products WHERE id = ? AND tenant_id = ?')
                 .run(req.params.id, tenant.id);
             if (result.changes === 0) return res.status(404).json({ error: 'المنتج غير موجود' });
@@ -377,6 +404,8 @@ export function createMessengerBotProductsRouter({
             const products = parseProductsCsv(text);
             let imported = 0;
             let skipped = 0;
+            let skippedManaged = 0;
+            const findSku = database.prepare('SELECT * FROM bot_products WHERE tenant_id = ? AND sku = ?');
             const insert = database.prepare(`
                 INSERT INTO bot_products (
                     tenant_id, sku, name, description, price, currency,
@@ -401,6 +430,11 @@ export function createMessengerBotProductsRouter({
                         skipped += 1;
                         continue;
                     }
+                    if (product.sku && findSku.get(tenant.id, product.sku)?.savana_projection_key) {
+                        skipped += 1;
+                        skippedManaged += 1;
+                        continue;
+                    }
                     insert.run(
                         tenant.id,
                         product.sku,
@@ -419,7 +453,14 @@ export function createMessengerBotProductsRouter({
             });
             tx();
 
-            res.json({ success: true, imported, skipped });
+            res.json({
+                success: true, imported, skipped,
+                ...(skippedManaged ? {
+                    skipped_managed: skippedManaged,
+                    code: 'SHARED_PRODUCTS_SKIPPED',
+                    message: 'لم تُعدّل النسخ المشتركة. عدّل المرجع المعتمد؛ طلب التعديل عبر المنصات غير متاح بعد.',
+                } : {}),
+            });
         } catch (error) {
             console.error('[MessengerBot] Product import error:', error);
             res.status(500).json({ error: 'فشل استيراد المنتجات' });

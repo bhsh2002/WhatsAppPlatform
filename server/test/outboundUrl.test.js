@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import https from 'node:https';
 import test from 'node:test';
 import {
     createPinnedLookup,
@@ -6,8 +7,40 @@ import {
     isPublicIpAddress,
     parseOutboundUrl,
     resolveSafeOutboundTarget,
+    safeOutboundFetch,
     validateOutboundUrl,
 } from '../security/outboundUrl.js';
+
+test('maintenance rejects pinned outbound work before DNS or native HTTPS execution', async t => {
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    const originalRequest = https.request;
+    let dnsCalls = 0;
+    let connections = 0;
+    t.after(() => {
+        https.request = originalRequest;
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    https.request = () => { connections += 1; assert.fail('native HTTPS must not execute'); };
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    await assert.rejects(() => safeOutboundFetch('https://hooks.example.test/fixture', {
+        method: 'POST', lookup: async () => { dnsCalls += 1; return [{ address: '8.8.4.4', family: 4 }]; },
+    }), error => error.code === 'WA_EGRESS_MAINTENANCE' && error.dispatched === false);
+    assert.equal(dnsCalls, 0);
+    assert.equal(connections, 0);
+    // A second boundary check covers an asynchronous resolver returning after
+    // maintenance became active. No request or retry is dispatched.
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
+    await assert.rejects(() => safeOutboundFetch('https://hooks.example.test/fixture', {
+        method: 'POST', lookup: async () => {
+            dnsCalls += 1;
+            process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+            return [{ address: '8.8.4.4', family: 4 }];
+        },
+    }), error => error.code === 'WA_EGRESS_MAINTENANCE' && error.dispatched === false);
+    assert.equal(dnsCalls, 1);
+    assert.equal(connections, 0);
+});
 
 test('pinned DNS lookup supports scalar and all-address Node callback shapes', async () => {
     const lookup = createPinnedLookup('192.168.188.136', 4);

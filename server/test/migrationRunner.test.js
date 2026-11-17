@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '054_meta_page_ownership.sql';
+    const latestMigration = '060_savana_owner_portal.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();

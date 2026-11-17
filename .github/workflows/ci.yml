@@ -146,14 +146,53 @@ jobs:
         run: >-
           bash -n
           tools/deploy_production.sh
+          tools/wa_production_phase_checks.sh
           tools/backup_production.sh
           tools/preflight_migrations.sh
 
-      - name: Build pinned server image
-        run: docker build --tag whatsapp-platform-server:ci server
+      - name: Use Node.js 20 for focused release hook checks
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          package-manager-cache: false
 
-      - name: Build pinned client image
-        run: docker build --tag whatsapp-platform-client:ci client
+      - name: Test controlled source identity and release hooks
+        run: |
+          python3 -B -m unittest tools.tests.test_package_wa_production_candidate tools.tests.test_deploy_production_phases tools.tests.test_wa_controlled_release
+          node --test client/src/runtime/browserRelease.test.js
+
+      - name: Export exact committed build contexts
+        id: controlled
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tools/wa_controlled_release.py export \
+            --repository "$GITHUB_WORKSPACE" \
+            --revision "$(git rev-parse HEAD)" \
+            --output-directory "$RUNNER_TEMP/wa-controlled-context" \
+            > "$RUNNER_TEMP/wa-controlled-export.json"
+          python3 - <<'PYOUTPUT'
+          import json, os
+          from pathlib import Path
+          data = json.loads((Path(os.environ['RUNNER_TEMP']) / 'wa-controlled-export.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in ('git_revision', 'source_sha256', 'context_manifest_sha256'):
+                  output.write(f'{key}={data[key]}\n')
+          PYOUTPUT
+
+      - name: Build reviewed images from controlled contexts
+        env:
+          VERIFIED_REVISION: ${{ steps.controlled.outputs.git_revision }}
+          CONTROLLED_SOURCE_SHA256: ${{ steps.controlled.outputs.source_sha256 }}
+          CONTROLLED_MANIFEST_SHA256: ${{ steps.controlled.outputs.context_manifest_sha256 }}
+        run: |
+          python3 -B tools/wa_controlled_release.py build \
+            --context-directory "$RUNNER_TEMP/wa-controlled-context" \
+            --revision "$VERIFIED_REVISION" \
+            --expected-source-sha256 "$CONTROLLED_SOURCE_SHA256" \
+            --expected-manifest-sha256 "$CONTROLLED_MANIFEST_SHA256" \
+            --evidence-directory "$RUNNER_TEMP/wa-ci-image-evidence"
+          cat "$RUNNER_TEMP/wa-ci-image-evidence/release-evidence.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install verified Gitleaks CLI
         shell: bash

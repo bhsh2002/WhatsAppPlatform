@@ -237,6 +237,7 @@ const UnifiedSidebar = ({
                             px: 1,
                             fontSize: 12,
                             fontWeight: 700,
+                            '&.Mui-selected': { color: 'primary.dark' },
                         },
                     }}
                 >
@@ -288,20 +289,20 @@ const UnifiedSidebar = ({
                 />
             </Box>
 
-            <List sx={{ flex: 1, overflow: 'auto', p: 0 }}>
+            <List component="div" sx={{ flex: 1, overflow: 'auto', p: 0 }}>
                 {loading ? (
-                    <ListItem><ListItemText primary={t('common.loading')} sx={{ textAlign: 'center' }} /></ListItem>
+                    <ListItem component="div"><ListItemText primary={t('common.loading')} sx={{ textAlign: 'center' }} /></ListItem>
                 ) : filtered.length === 0 ? (
-                    <ListItem><ListItemText primary={t('common.noConversations')} sx={{ textAlign: 'center', color: 'text.secondary' }} /></ListItem>
+                    <ListItem component="div"><ListItemText primary={t('common.noConversations')} sx={{ textAlign: 'center', color: 'text.secondary' }} /></ListItem>
                 ) : (
                     sections.map((section, sectionIndex) => {
                         const sectionConversations = filtered.filter(conv => conv.channel === section.value);
                         if (sectionConversations.length === 0) return null;
 
                         return (
-                            <Box key={section.value}>
-                                {sectionIndex > 0 && <Divider />}
-                                <Box sx={{
+                            <List key={section.value} disablePadding aria-label={section.title}>
+                                {sectionIndex > 0 && <Divider component="li" />}
+                                <Box component="li" sx={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: 1,
@@ -326,7 +327,7 @@ const UnifiedSidebar = ({
                                     <Chip label={sectionConversations.length} size="small" sx={{ height: 22, flexShrink: 0 }} />
                                 </Box>
                                 {sectionConversations.map(renderConversation)}
-                            </Box>
+                            </List>
                         );
                     })
                 )}

@@ -29,6 +29,27 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
+      - name: Export exact verified committed build contexts
+        id: controlled
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tools/wa_controlled_release.py export \
+            --repository "$GITHUB_WORKSPACE" \
+            --revision "$RELEASE_SHA" \
+            --output-directory "$RUNNER_TEMP/wa-controlled-context" \
+            > "$RUNNER_TEMP/wa-controlled-export.json"
+          python3 - <<'PYOUTPUT'
+          import json, os
+          from pathlib import Path
+          data = json.loads((Path(os.environ['RUNNER_TEMP']) / 'wa-controlled-export.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in ('git_revision', 'source_sha256', 'context_manifest_sha256'):
+                  output.write(f'{key}={data[key]}\n')
+          PYOUTPUT
+
       - name: Create isolated Buildx builder
         run: |
           set -euo pipefail
@@ -49,6 +70,8 @@ jobs:
       - name: Build and publish server and client
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONTROLLED_SOURCE_SHA256: ${{ steps.controlled.outputs.source_sha256 }}
+          CONTROLLED_MANIFEST_SHA256: ${{ steps.controlled.outputs.context_manifest_sha256 }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -100,30 +123,18 @@ jobs:
           preflight_package "$server_package"
           preflight_package "$client_package"
 
-          docker buildx build \
-            --platform linux/amd64 \
-            --provenance=mode=max \
-            --sbom=true \
-            --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
-            --tag "${image_root}/${server_package}:sha-${RELEASE_SHA}" \
-            --metadata-file /tmp/wa-server-metadata.json \
-            --push \
-            server
-
-          docker buildx build \
-            --platform linux/amd64 \
-            --provenance=mode=max \
-            --sbom=true \
-            --label "org.opencontainers.image.revision=${RELEASE_SHA}" \
-            --tag "${image_root}/${client_package}:sha-${RELEASE_SHA}" \
-            --metadata-file /tmp/wa-client-metadata.json \
-            --push \
-            client
+          python3 -B tools/wa_controlled_release.py build \
+            --context-directory "$RUNNER_TEMP/wa-controlled-context" \
+            --revision "$RELEASE_SHA" \
+            --expected-source-sha256 "$CONTROLLED_SOURCE_SHA256" \
+            --expected-manifest-sha256 "$CONTROLLED_MANIFEST_SHA256" \
+            --evidence-directory "$RUNNER_TEMP/wa-release-evidence" \
+            --push
 
           server_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' \
-            /tmp/wa-server-metadata.json)"
+            "$RUNNER_TEMP/wa-release-evidence/server-buildx.json")"
           client_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' \
-            /tmp/wa-client-metadata.json)"
+            "$RUNNER_TEMP/wa-release-evidence/client-buildx.json")"
 
           verify_private_expected_repository() {
             local package="$1"
@@ -156,6 +167,13 @@ jobs:
           [[ "$client_revision" == "$RELEASE_SHA" ]] \
             || { echo "Client OCI revision does not match the verified commit" >&2; exit 1; }
 
+          for image in "$server_ref" "$client_ref"; do
+            source_marker="$(docker buildx imagetools inspect "$image" \
+              --format '{{ index .Image.Config.Labels "savana.candidate.source-sha256" }}')"
+            [[ "$source_marker" == "$CONTROLLED_SOURCE_SHA256" ]] \
+              || { echo "Image public source marker differs from verified controlled content" >&2; exit 1; }
+          done
+
           anonymous_config="$(mktemp -d)"
           for image in "$server_ref" "$client_ref"; do
             anonymous_error=""
@@ -176,6 +194,11 @@ jobs:
             printf '| --- | --- |\n'
             printf '| Server | `%s` |\n' "$server_ref"
             printf '| Client | `%s` |\n' "$client_ref"
+            printf '\nVerified Git revision: `%s`\n\n' "$RELEASE_SHA"
+            printf 'Public runtime setting: `WA_BROWSER_RELEASE=%s`\n\n' "$CONTROLLED_SOURCE_SHA256"
+            printf 'Controlled recipe/context evidence:\n\n```json\n'
+            cat "$RUNNER_TEMP/wa-release-evidence/release-evidence.json"
+            printf '\n```\n'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove Buildx builder

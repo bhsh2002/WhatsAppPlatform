@@ -95,9 +95,93 @@ export const savanaIntegrationMethods = {
         return this.request(`/api/portal/integrations/products?limit=${limit}`);
     },
 
+    async getPortalSharedProducts({ q = '', limit = 25, cursor = null } = {}) {
+        const params = new URLSearchParams({ q, limit: String(limit) });
+        if (cursor !== null) params.set('cursor', cursor);
+        return this.request(`/api/portal/integrations/shared-products?${params}`);
+    },
+
+    async getPortalSharedReadSetup() {
+        return this.request('/api/portal/integrations/shared-read-setup');
+    },
+
+    async authorizePortalSharedRead() {
+        // Starts identity connection only; owner operations remain in ControlCenter.
+        return this.request('/api/portal/integrations/shared-read-setup/authorization', {
+            method: 'POST',
+            headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+        });
+    },
+
+    async disconnectPortalSharedRead() {
+        return this.request('/api/portal/integrations/shared-read-setup/disconnect', {
+            method: 'POST',
+            headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+        });
+    },
+
+    async enrollPortalSharedReadConsumer() {
+        return this.request('/api/portal/integrations/shared-read-setup/enrollment', {
+            method: 'POST',
+            headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+        });
+    },
+
+    async getPortalSharedReadOwnerStatus() {
+        return this.request('/api/portal/integrations/shared-read-setup/owner');
+    },
+
+    async loginPortalSharedReadOwner({ username, password, mfa_code } = {}) {
+        return this.request('/api/portal/integrations/shared-read-setup/owner/login', {
+            method: 'POST',
+            headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+            body: JSON.stringify({ username, password, ...(mfa_code ? { mfa_code } : {}) }),
+        });
+    },
+
+    async disconnectPortalSharedReadOwner() {
+        return this.request('/api/portal/integrations/shared-read-setup/owner/disconnect', {
+            method: 'POST',
+            headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+            body: JSON.stringify({}),
+        });
+    },
+
+    async getPortalSharedReadOwnerOverview() {
+        return this.request('/api/portal/integrations/shared-read-setup/owner/overview');
+    },
+
+    async getPortalSharedReadOwnerIntent(intentId) {
+        return this.request(`/api/portal/integrations/shared-read-setup/owner/intents/${encodeURIComponent(intentId)}`);
+    },
+
+    async getPortalSharedReadOwnerIntentByKey(key) {
+        return this.request(`/api/portal/integrations/shared-read-setup/owner/intents/by-key/${encodeURIComponent(key)}`);
+    },
+
+    async submitPortalSharedReadOwnerOperation({ operation, idempotencyKey, body, requestId, targetAccountId }) {
+        return this.request('/api/portal/integrations/shared-read-setup/owner/operations', {
+            method: 'POST', headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+            body: JSON.stringify({ operation, idempotencyKey, body, ...(requestId ? { requestId } : {}), ...(targetAccountId ? { targetAccountId } : {}) }),
+        });
+    },
+
+    async bindPortalSharedReadConsumer({ consumer_installation_id, activity_id, branch_id = null, warehouse_id = null }) {
+        return this.request('/api/portal/integrations/shared-read-setup/reader', {
+            method: 'POST', headers: { 'X-Savana-Owner-Intent': 'shared-read-setup-v1' },
+            body: JSON.stringify({ consumer_installation_id, activity_id, branch_id, warehouse_id }),
+        });
+    },
+
+    async getPortalSharedProductChanges(after = 0, limit = 25) {
+        const params = new URLSearchParams({ after: String(after), limit: String(limit) });
+        return this.request(`/api/portal/integrations/shared-product-changes?${params}`);
+    },
+
     async acceptPortalMessageRequest(requestId) {
         return this.request(`/api/portal/integrations/message-requests/${requestId}/accept`, {
             method: 'POST',
+            headers: { 'X-Savana-Review-Mode': 'review-only-v1' },
         });
     },
 

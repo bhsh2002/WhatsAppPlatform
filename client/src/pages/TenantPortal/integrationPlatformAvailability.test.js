@@ -8,6 +8,8 @@ import {
     integrationSubscriptionBadge,
     resolveAvailablePlatform,
     shouldRequestIntegrationCandidates,
+    integrationCandidateIsSelectable,
+    integrationRequirements,
 } from './integrationPlatformAvailability.js';
 
 const integrations = [
@@ -31,10 +33,30 @@ test('subscription badge separates Wa entitlement from connection status', () =>
     });
 });
 
-test('the first available platform replaces an unavailable selection', () => {
-    assert.equal(resolveAvailablePlatform(integrations, 'catalog'), 'sawemly');
+test('unavailable platforms remain selectable to explain requirements', () => {
+    assert.equal(resolveAvailablePlatform(integrations, 'catalog'), 'catalog');
     assert.equal(resolveAvailablePlatform(integrations, 'sawemly'), 'sawemly');
-    assert.equal(resolveAvailablePlatform(integrations.slice(0, 2), 'catalog'), null);
+    assert.equal(resolveAvailablePlatform(integrations.slice(0, 2), 'catalog'), 'catalog');
+    assert.equal(resolveAvailablePlatform([], null), 'pos');
+    assert.equal(resolveAvailablePlatform(integrations, null), 'sawemly');
+});
+
+test('requirements preserve simultaneous blockers and distinguish support from payment', () => {
+    const reasons = integrationRequirements({ integration: integrations[0], bound: false }, 'en');
+    assert.deepEqual(reasons.map(reason => reason.code), [
+        'platform_unavailable', 'organization_unbound', 'subscription_unknown', 'connection_required',
+    ]);
+    assert.match(reasons[0].message, /subscription alone does not enable/);
+    assert.deepEqual(integrationRequirements({ integration: {
+        available: true, subscription_entitled: true, connection_id: 'connection', status: 'active',
+    }, bound: true }), []);
+});
+
+test('error recovery cannot select an unrelated already connected account', () => {
+    const integration = { status: 'error', remote_external_tenant_id: 'catalog:shop:1' };
+    assert.equal(integrationCandidateIsSelectable({ target: { connectable: false, external_tenant_id: 'catalog:shop:2' } }, integration), false);
+    assert.equal(integrationCandidateIsSelectable({ target: { connectable: false, external_tenant_id: 'catalog:shop:1' } }, integration), true);
+    assert.equal(integrationCandidateIsSelectable({ target: { connectable: true } }, integration), true);
 });
 
 test('a late load cannot commit results for an older revision or platform', () => {

@@ -129,6 +129,37 @@ const buildService = ({
     now: () => new Date(clock.value),
 });
 
+test('maintenance preserves push deliveries and resumes the same event once', async t => {
+    const database = createDatabase();
+    const provider = createProvider();
+    const clock = { value: Date.UTC(2027, 0, 1) };
+    const service = buildService({ database, provider, clock });
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    t.after(() => {
+        database.close();
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    await service.registerSubscription({ user: sessionFor(1, clock.value), subscription: subscriptionFor('maintenance') });
+    const queued = service.enqueueMessage({ tenantId: 1, channel: 'whatsapp', sourceId: 'maintenance-message' });
+    const snapshot = () => JSON.stringify({
+        events: database.prepare('SELECT * FROM web_push_events').all(),
+        deliveries: database.prepare('SELECT * FROM web_push_deliveries').all(),
+        subscriptions: database.prepare('SELECT * FROM web_push_subscriptions').all(),
+    });
+    const before = snapshot();
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    assert.deepEqual(await service.dispatchDue(), { enabled: true, paused: true, attempted: 0, results: [] });
+    assert.equal(snapshot(), before);
+    assert.equal(provider.calls.length, 0);
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
+    const resumed = await service.dispatchDue();
+    assert.equal(resumed.results[0].delivery_id, JSON.parse(before).deliveries[0].id);
+    assert.equal(database.prepare('SELECT status FROM web_push_events WHERE id = ?').get(queued.event_id).status, 'delivered');
+    await service.dispatchDue();
+    assert.equal(provider.calls.length, 1);
+});
+
 test('subscriptions are encrypted, bound to a session and movable only as one browser endpoint', async () => {
     const database = createDatabase();
     const provider = createProvider();

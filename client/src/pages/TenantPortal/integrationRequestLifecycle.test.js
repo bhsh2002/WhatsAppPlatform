@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     integrationRequestMatchesConversation,
     integrationRequestRecipient,
+    integrationRequestBlocksSend,
 } from './integrationRequestLifecycle.js';
 
 const request = {
@@ -18,6 +19,16 @@ test('integration request recipient is normalized to the WhatsApp conversation i
         channel: 'whatsapp',
         contact_id: '218912345678',
     }), true);
+});
+
+test('approval or missing readiness never enables contextual sending', () => {
+    const conversation = { channel: 'whatsapp', contact_id: '218912345678' };
+    assert.equal(integrationRequestBlocksSend(null, conversation), false);
+    assert.equal(integrationRequestBlocksSend({ ...request, status: 'approved' }, conversation), true);
+    assert.equal(integrationRequestBlocksSend({ ...request, status: 'approved', execution_ready: false }, conversation), true);
+    assert.equal(integrationRequestBlocksSend({ ...request, status: 'approved', execution_ready: true }, conversation), false);
+    assert.equal(integrationRequestBlocksSend({ ...request, status: 'pending_review', execution_ready: true }, conversation), true);
+    assert.equal(integrationRequestBlocksSend({ ...request, status: 'approved', execution_ready: true }, { channel: 'sms', contact_id: conversation.contact_id }), true);
 });
 
 test('integration requests never complete from another recipient or channel', () => {

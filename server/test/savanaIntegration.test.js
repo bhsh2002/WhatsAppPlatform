@@ -407,6 +407,36 @@ const deliver = (
     );
 };
 
+test('maintenance preserves integration outbox bytes and resumes the same event once', async t => {
+    const database = createDatabase();
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    t.after(() => {
+        database.close();
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    const calls = [];
+    const baseFetch = createFetch();
+    const { service, item } = await provision(database, async (url, options) => {
+        if (new URL(url).pathname === '/v1/events') calls.push({ url, options });
+        return baseFetch(url, options);
+    });
+    const queued = service.queueNotificationStatus(item, { request_id: 'maintenance-request', status: 'delivered' });
+    const before = database.prepare('SELECT * FROM savana_integration_outbox').all();
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    assert.deepEqual(await service.dispatchOutbox(), []);
+    assert.deepEqual(await service.retryOutbox(item), { paused: true, queued: 0, published: 0, failed: 0 });
+    assert.deepEqual(database.prepare('SELECT * FROM savana_integration_outbox').all(), before);
+    assert.equal(calls.length, 0);
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
+    const result = await service.dispatchOutbox();
+    assert.equal(result[0].event_id, queued.record.event_id);
+    assert.equal(result[0].status, 'published');
+    await service.dispatchOutbox();
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(calls[0].options.body).event_id, before[0].event_id);
+});
+
 test('migrations create isolated integration, projection and service request tables', () => {
     const database = createDatabase();
     const tables = new Set(database.prepare(`
@@ -423,6 +453,16 @@ test('migrations create isolated integration, projection and service request tab
         'savana_product_snapshot_streams',
         'savana_product_snapshot_pages',
         'savana_product_snapshot_memberships',
+        'savana_delegated_read_sessions',
+        'savana_delegated_read_flows',
+        'savana_delegated_read_audit',
+        'savana_operational_owner_sessions',
+        'savana_operational_read_actions',
+        'savana_operational_consumer_enrollments',
+        'savana_operational_consumer_enrollment_audit',
+        'savana_owner_portal_sessions',
+        'savana_owner_portal_intents',
+        'savana_owner_portal_audit',
     ]));
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
@@ -1620,9 +1660,17 @@ test('tenant inbox reviews and tracks contextual requests without sending automa
     assert.equal(list.data[0].platform_code, 'catalog');
     assert.equal(list.data[0].payload.message, 'رسالة من الطلب للمراجعة.');
 
+    const forgedStatus = await fetch(`${baseUrl}/platforms/catalog/publish-status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: 'catalog-message-1', status: 'sent', channel_message_id: 'forged' }),
+    });
+    assert.equal(forgedStatus.status, 409);
+    assert.equal((await forgedStatus.json()).code, 'execution_evidence_required');
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count, 0);
+
     const requestId = list.data[0].id;
     const acceptedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/accept`, {
-        method: 'POST',
+        method: 'POST', headers: { 'X-Savana-Review-Mode': 'review-only-v1' },
     });
     assert.equal(acceptedResponse.status, 200);
     assert.equal(
@@ -1638,72 +1686,53 @@ test('tenant inbox reviews and tracks contextual requests without sending automa
         1,
     );
 
-    const missingMessageResponse = await fetch(
-        `${baseUrl}/message-requests/${requestId}/complete`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-        },
-    );
-    assert.equal(missingMessageResponse.status, 422);
-    assert.equal(
-        (await missingMessageResponse.json()).code,
-        'channel_message_id_required',
-    );
-    assert.equal(
-        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
-        'approved',
-    );
+    const accepted = await acceptedResponse.json();
+    assert.equal(accepted.request.review_only, true);
+    assert.equal(accepted.request.execution_ready, false);
+    assert.equal(accepted.request.reviewed_by, 'tenant-user');
+    assert.ok(accepted.request.reviewed_at);
+    const review = database.prepare(
+        'SELECT reviewed_payload_hash FROM savana_service_requests WHERE id = ?'
+    ).get(requestId);
+    assert.match(review.reviewed_payload_hash, /^[a-f0-9]{64}$/);
 
+    // Even a native outgoing message to the same recipient is not proof that
+    // the cross-platform request executed with its account and consent.
     database.prepare(`
         INSERT INTO messages (
             tenant_id, direction, sender, recipient, message_type,
             content, status, wamid
-        ) VALUES (1, 'outgoing', 'wa-number-1', '218910009999', 'text',
-            'رسالة إلى مستلم آخر.', 'sent', 'wamid.contextual-message')
+        ) VALUES (1, 'outgoing', 'wa-number-1', '218910000001', 'text',
+            'رسالة من الطلب للمراجعة.', 'sent', 'wamid.contextual-message')
     `).run();
-    const unverifiedMessageResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel_message_id: 'wamid.contextual-message' }),
-    });
-    assert.equal(unverifiedMessageResponse.status, 422);
-    assert.equal(
-        (await unverifiedMessageResponse.json()).code,
-        'channel_message_not_verified',
-    );
-    assert.equal(
-        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
-        'approved',
-    );
+    for (const body of [{}, { channel_message_id: 'wamid.contextual-message' }]) {
+        const completion = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        assert.equal(completion.status, 409);
+        assert.equal((await completion.json()).code, 'integration_execution_unavailable');
+    }
+    assert.equal(database.prepare(
+        'SELECT status FROM savana_service_requests WHERE id = ?'
+    ).get(requestId).status, 'approved');
+    assert.equal(database.prepare(
+        'SELECT COUNT(*) count FROM savana_integration_outbox'
+    ).get().count, 1);
 
-    database.prepare(`
-        UPDATE messages SET recipient = '218910000001',
-            content = 'رسالة من الطلب للمراجعة.'
-        WHERE wamid = 'wamid.contextual-message'
-    `).run();
-    const completedResponse = await fetch(`${baseUrl}/message-requests/${requestId}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel_message_id: 'wamid.contextual-message' }),
-    });
-    assert.equal(completedResponse.status, 200);
-    assert.equal(
-        database.prepare('SELECT status FROM savana_service_requests WHERE id = ?').get(requestId).status,
-        'sent',
-    );
-    assert.equal(
-        database.prepare('SELECT COUNT(*) count FROM messages').get().count,
-        1,
-    );
-    assert.equal(
-        database.prepare(`
-            SELECT COUNT(*) count FROM savana_integration_outbox
-            WHERE event_type = 'wa_savana.notification_status_changed.v1'
-        `).get().count,
-        2,
-    );
+    // A repeated review returns the same outbox event, not another acceptance.
+    const repeat = await fetch(`${baseUrl}/message-requests/${requestId}/accept`, { method: 'POST', headers: { 'X-Savana-Review-Mode': 'review-only-v1' } });
+    assert.equal(repeat.status, 200);
+    assert.equal((await repeat.json()).status_published, true);
+    assert.equal(database.prepare(
+        'SELECT COUNT(*) count FROM savana_integration_outbox'
+    ).get().count, 1);
+    database.prepare('UPDATE savana_service_requests SET payload_json = ? WHERE id = ?')
+        .run(JSON.stringify({ ...command.data, message: 'changed after review' }), requestId);
+    const stale = await fetch(`${baseUrl}/message-requests/${requestId}/accept`, { method: 'POST', headers: { 'X-Savana-Review-Mode': 'review-only-v1' } });
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).code, 'request_review_stale');
 });
 
 test('tenant inbox product picker exposes every integrated product with the POS compatibility alias', async (t) => {
@@ -1790,8 +1819,8 @@ test('POS product snapshots keep prices and reconcile all pages together', async
         WHERE tenant_id = 1 ORDER BY sku
     `).all();
     assert.deepEqual(products, [
-        { sku: 'POS-1', price: 7.5, is_active: 1, availability: 'available' },
-        { sku: 'POS-2', price: 9, is_active: 1, availability: 'available' },
+        { sku: 'POS-1', price: 7.5, is_active: 0, availability: 'hidden' },
+        { sku: 'POS-2', price: 9, is_active: 0, availability: 'hidden' },
     ]);
     database.close();
 });
@@ -1857,4 +1886,97 @@ test('notification status remains durable while Connect is unavailable', async (
         'published',
     );
     database.close();
+});
+
+test('operation retries reject changed content and retain the original durable request', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const { service } = await provision(database);
+    const command = envelope('wa_savana.notification_send_requested.v1', {
+        request_id: 'stable-request',
+        recipient: { phone_e164: '+218910000001' },
+        channel: 'whatsapp',
+        message: 'Original review',
+        requires_review: true,
+        consent_asserted: false,
+    }, crypto.randomUUID(), 'pos:notification:stable');
+    assert.equal(deliver(service, command).duplicate, false);
+    assert.equal(deliver(service, { ...command, event_id: crypto.randomUUID() }).duplicate, true);
+    for (const mutation of [
+        { data: { ...command.data, message: 'Changed content' } },
+        { data: { ...command.data, consent_asserted: true } },
+        { platform_tenant_id: 'another-pos-installation' },
+        { occurred_at: '2020-01-01T00:00:00Z' },
+        { spec_version: '2.0' },
+        { idempotency_key: 'another-key-for-the-same-event' },
+    ]) {
+        assert.throws(() => deliver(service, { ...command, ...mutation }),
+            error => error.code === 'idempotency_conflict' && error.statusCode === 409);
+    }
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_integration_events').get().count, 1);
+    assert.deepEqual(JSON.parse(database.prepare('SELECT payload_json FROM savana_service_requests').get().payload_json), command.data);
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM messages').get().count, 0);
+});
+
+test('a new transport key cannot replace a reviewed request or change its kind', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const { service } = await provision(database);
+    const command = envelope('wa_savana.content_publish_requested.v1', {
+        request_id: 'stable-content-request',
+        channels: ['facebook'],
+        text: 'Original content',
+        requires_review: true,
+    }, crypto.randomUUID(), 'pos:content:original');
+    deliver(service, command);
+    database.prepare("UPDATE savana_service_requests SET status = 'approved'").run();
+    for (const next of [
+        { ...command, data: { ...command.data, text: 'Replacement' } },
+        { ...command, event_type: 'wa_savana.campaign_create_requested.v1' },
+    ]) {
+        assert.throws(() => deliver(service, {
+            ...next, event_id: crypto.randomUUID(), idempotency_key: crypto.randomUUID(),
+        }), error => error.code === 'request_content_conflict');
+    }
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_integration_events').get().count, 1);
+    assert.equal(database.prepare('SELECT status FROM savana_service_requests').get().status, 'approved');
+});
+
+test('outbound result retries reuse the stored event and reject contradictory evidence', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const { service, item } = await provision(database);
+    const data = { request_id: 'result-1', status: 'sent', channel_message_id: 'wamid.original' };
+    const first = service.queueNotificationStatus(item, data);
+    const retry = service.queueNotificationStatus(item, data);
+    assert.equal(first.event.event_id, retry.event.event_id);
+    assert.equal(first.record.id, retry.record.id);
+    assert.throws(() => service.queueNotificationStatus(item, {
+        ...data, channel_message_id: 'wamid.another',
+    }), error => error.code === 'idempotency_conflict');
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count, 1);
+});
+
+test('a lost transport acknowledgment retries only the same status event and never a channel send', async (t) => {
+    const database = createDatabase();
+    t.after(() => database.close());
+    const baseFetch = createFetch();
+    const attempts = [];
+    const fetchImpl = async (url, options) => {
+        if (new URL(url).pathname === '/v1/events') {
+            attempts.push(JSON.parse(Buffer.from(options.body).toString()));
+            if (attempts.length === 1) throw new Error('Acknowledgment lost after receipt');
+        }
+        return baseFetch(url, options);
+    };
+    const { service, item } = await provision(database, fetchImpl);
+    const result = await service.publishNotificationStatus(item, {
+        request_id: 'review-ack', status: 'accepted',
+    });
+    assert.equal(result.receipt.queued, true);
+    await service.retryOutbox(item);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[0], attempts[1]);
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM messages').get().count, 0);
+    assert.equal(database.prepare('SELECT COUNT(*) count FROM savana_integration_outbox').get().count, 1);
 });

@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { isEgressMaintenanceActive } from '../runtime/egressMaintenance.js';
+import { sharedPricingIsValid } from './sharedProductPricing.js';
 
 export const POS_SCOPES = Object.freeze([
     'pos.products.map',
@@ -195,6 +197,26 @@ const sortForSigning = value => {
 };
 
 export const canonicalJson = value => JSON.stringify(sortForSigning(value));
+
+// Delivery IDs and timestamps may change on retry. The business content and
+// its scope must remain identical for a previously recorded operation key.
+const eventContent = envelope => canonicalJson({
+    event_type: envelope.event_type,
+    source: envelope.source,
+    organization_id: envelope.organization_id,
+    platform_tenant_id: envelope.platform_tenant_id,
+    entity_id: envelope.entity_id ?? null,
+    entity_version: envelope.entity_version,
+    reply_to_platform: envelope.reply_to_platform ?? null,
+    causation_id: envelope.causation_id ?? null,
+    data: envelope.data,
+});
+
+const incomingEventContent = envelope => canonicalJson({
+    content: eventContent(envelope),
+    spec_version: envelope.spec_version,
+    occurred_at: envelope.occurred_at,
+});
 
 const safeCompare = (left, right) => {
     const a = Buffer.from(String(left || ''));
@@ -1430,13 +1452,25 @@ export class SavanaIntegrationService {
         }
         const eventId = requireUuid(envelope.event_id, 'event_id');
         const idempotencyKey = requiredString(envelope.idempotency_key, 'idempotency_key');
-        const duplicate = this.db.prepare(`
-            SELECT event_id FROM savana_integration_events
-            WHERE event_id = ? OR idempotency_key = ?
-        `).get(eventId, idempotencyKey);
-        if (duplicate) return { accepted: true, duplicate: true, event_id: duplicate.event_id };
-
         const process = this.db.transaction(() => {
+            const duplicates = this.db.prepare(`
+                SELECT integration_id, event_id, idempotency_key, payload_json FROM savana_integration_events
+                WHERE event_id = ? OR idempotency_key = ?
+            `).all(eventId, idempotencyKey);
+            if (duplicates.length) {
+                if (duplicates.some(duplicate => (
+                    duplicate.integration_id !== item.id
+                    || (duplicate.event_id === eventId && duplicate.idempotency_key !== idempotencyKey)
+                    || incomingEventContent(parseJson(duplicate.payload_json, {})) !== incomingEventContent(envelope)
+                ))) {
+                    throw new SavanaIntegrationError(
+                        'The operation identifier was already used for different content or scope',
+                        409,
+                        'idempotency_conflict',
+                    );
+                }
+                return { accepted: true, duplicate: true, event_id: duplicates[0].event_id };
+            }
             const receipt = this.db.prepare(`
                 INSERT INTO savana_integration_events (
                     integration_id, event_id, idempotency_key, event_type, payload_json
@@ -1451,9 +1485,9 @@ export class SavanaIntegrationService {
                 UPDATE savana_integrations SET last_sync_at = ?, last_error = NULL,
                     updated_at = datetime('now', 'localtime') WHERE id = ?
             `).run(nowIso(), item.id);
+            return { accepted: true, duplicate: false, event_id: eventId };
         });
-        process.immediate();
-        return { accepted: true, duplicate: false, event_id: eventId };
+        return process.immediate();
     }
 
     applyEvent(item, envelope) {
@@ -1529,6 +1563,21 @@ export class SavanaIntegrationService {
     }
 
     insertServiceRequest(item, envelope, kind) {
+        const requestKey = String(envelope.data?.request_id || envelope.data?.order_id || envelope.event_id);
+        const existing = this.db.prepare(`
+            SELECT request_kind, payload_json FROM savana_service_requests
+            WHERE integration_id = ? AND request_key = ?
+        `).get(item.id, requestKey);
+        if (existing && (
+            existing.request_kind !== kind
+            || canonicalJson(parseJson(existing.payload_json, {})) !== canonicalJson(envelope.data || {})
+        )) {
+            throw new SavanaIntegrationError(
+                'A different request already uses this request identifier; review it before replacing it',
+                409,
+                'request_content_conflict',
+            );
+        }
         this.db.prepare(`
             INSERT INTO savana_service_requests (
                 tenant_id, integration_id, event_id, request_kind, request_key, payload_json
@@ -1539,33 +1588,52 @@ export class SavanaIntegrationService {
             item.id,
             envelope.event_id,
             kind,
-            String(envelope.data?.request_id || envelope.data?.order_id || envelope.event_id),
+            requestKey,
             JSON.stringify(envelope.data || {}),
         );
     }
 
     enqueueEvent(item, envelope) {
-        this.db.prepare(`
-            INSERT INTO savana_integration_outbox (
-                integration_id, event_id, idempotency_key, event_type,
-                payload_json, status, attempts, available_at
-            ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?)
-            ON CONFLICT(integration_id, idempotency_key) DO NOTHING
-        `).run(
-            item.id,
-            envelope.event_id,
-            envelope.idempotency_key,
-            envelope.event_type,
-            JSON.stringify(envelope),
-            nowIso(),
-        );
-        return this.db.prepare(`
-            SELECT * FROM savana_integration_outbox
-            WHERE integration_id = ? AND idempotency_key = ?
-        `).get(item.id, envelope.idempotency_key);
+        const enqueue = this.db.transaction(() => {
+            const existing = this.db.prepare(`
+                SELECT * FROM savana_integration_outbox
+                WHERE integration_id = ? AND idempotency_key = ?
+            `).get(item.id, envelope.idempotency_key);
+            if (existing) {
+                if (eventContent(parseJson(existing.payload_json, {})) !== eventContent(envelope)) {
+                    throw new SavanaIntegrationError(
+                        'An outbound operation already uses this identifier with different content',
+                        409,
+                        'idempotency_conflict',
+                    );
+                }
+                return existing;
+            }
+            this.db.prepare(`
+                INSERT INTO savana_integration_outbox (
+                    integration_id, event_id, idempotency_key, event_type,
+                    payload_json, status, attempts, available_at
+                ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?)
+                ON CONFLICT(integration_id, idempotency_key) DO NOTHING
+            `).run(
+                item.id,
+                envelope.event_id,
+                envelope.idempotency_key,
+                envelope.event_type,
+                JSON.stringify(envelope),
+                nowIso(),
+            );
+            return this.db.prepare(`
+                SELECT * FROM savana_integration_outbox
+                WHERE integration_id = ? AND idempotency_key = ?
+            `).get(item.id, envelope.idempotency_key);
+
+        });
+        return enqueue.immediate();
     }
 
     async dispatchOutbox({ limit = 100 } = {}) {
+        if (isEgressMaintenanceActive()) return [];
         const now = new Date();
         const staleBefore = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
         this.db.prepare(`
@@ -1653,6 +1721,10 @@ export class SavanaIntegrationService {
                     receipt,
                 });
             } catch (error) {
+                if (error?.code === 'WA_EGRESS_MAINTENANCE') {
+                    results.push({ event_id: record.event_id, status: 'paused' });
+                    break;
+                }
                 const attempts = Number(record.attempts || 0) + 1;
                 const status = attempts >= maxAttempts ? 'dead_letter' : 'failed';
                 const delaySeconds = Math.min(3600, 2 ** Math.min(attempts, 10));
@@ -1700,6 +1772,7 @@ export class SavanaIntegrationService {
     }
 
     async retryOutbox(item) {
+        if (isEgressMaintenanceActive()) return { paused: true, queued: 0, published: 0, failed: 0 };
         if (!item?.connection_id || item.status !== 'active' || !item.webhook_secret_encrypted) {
             throw new SavanaIntegrationError(
                 'Platform connection is not active',
@@ -1747,10 +1820,13 @@ export class SavanaIntegrationService {
             data,
         };
         const record = this.enqueueEvent(item, envelope);
-        return { event: envelope, record };
+        return { event: parseJson(record.payload_json, envelope), record };
     }
 
     async dispatchQueuedNotificationStatus({ event, record }) {
+        if (record.status === 'published') {
+            return { event, receipt: { event_id: record.event_id, duplicate: true } };
+        }
         const dispatched = await this.dispatchOutbox({ limit: 1 });
         const result = dispatched.find(entry => entry.event_id === record.event_id);
         return {
@@ -1775,8 +1851,22 @@ export class SavanaIntegrationService {
         return `local:${requiredString(row.local_product_id, 'local_product_id')}`;
     }
 
-    upsertProduct(tenantId, row, sourceUpdatedAt) {
+    upsertProduct(tenantId, row, sourceUpdatedAt, { pricingSnapshot = false } = {}) {
         const projectionKey = this.productProjectionKey(row);
+        const existing = this.db.prepare(`
+            SELECT local_product_id FROM savana_product_projection
+            WHERE tenant_id = ? AND projection_key = ?
+        `).get(tenantId, projectionKey);
+        if (!row.canonical_product_id && row.local_product_id && existing?.local_product_id
+            && String(row.local_product_id) !== String(existing.local_product_id)) {
+            // Legacy barcode/SKU keys cannot establish that two explicit local
+            // identities are the same product. Await a canonical mapping.
+            throw new SavanaIntegrationError(
+                'Product identity requires an explicit canonical mapping',
+                409,
+                'product_identity_conflict',
+            );
+        }
         this.db.prepare(`
             INSERT INTO savana_product_projection (
                 tenant_id, projection_key, canonical_product_id, local_product_id,
@@ -1790,8 +1880,8 @@ export class SavanaIntegrationService {
                 barcode = COALESCE(excluded.barcode, barcode),
                 name = COALESCE(excluded.name, name),
                 description = COALESCE(excluded.description, description),
-                price = COALESCE(excluded.price, price),
-                currency = COALESCE(excluded.currency, currency),
+                price = CASE WHEN ? = 1 THEN excluded.price ELSE price END,
+                currency = CASE WHEN ? = 1 THEN excluded.currency ELSE currency END,
                 image_url = COALESCE(excluded.image_url, image_url),
                 quantity_on_hand = CASE
                     WHEN ? = 1 THEN excluded.quantity_on_hand
@@ -1812,13 +1902,24 @@ export class SavanaIntegrationService {
             row.currency || null, row.image_url || null,
             row.quantity_on_hand ?? null, row.quantity_available ?? null,
             row.unit_code || row.base_unit || null, sourceUpdatedAt || nowIso(),
+            pricingSnapshot || Object.hasOwn(row, 'online_price') || Object.hasOwn(row, 'price') ? 1 : 0,
+            pricingSnapshot || Object.hasOwn(row, 'currency') ? 1 : 0,
             Object.hasOwn(row, 'quantity_on_hand') ? 1 : 0,
             Object.hasOwn(row, 'quantity_available') ? 1 : 0,
         );
-        this.synchronizeBotProduct(tenantId, projectionKey, row);
+        this.synchronizeBotProduct(tenantId, projectionKey, row, {
+            pricingRefreshed: pricingSnapshot || (
+                (Object.hasOwn(row, 'online_price') || Object.hasOwn(row, 'price'))
+                && Object.hasOwn(row, 'currency')
+            ),
+        });
     }
 
-    synchronizeBotProduct(tenantId, projectionKey, incoming) {
+    projectionHasExecutablePrice(projection) {
+        return sharedPricingIsValid(projection);
+    }
+
+    synchronizeBotProduct(tenantId, projectionKey, incoming, { pricingRefreshed = false } = {}) {
         const projection = this.db.prepare(`
             SELECT * FROM savana_product_projection
             WHERE tenant_id = ? AND projection_key = ?
@@ -1830,20 +1931,32 @@ export class SavanaIntegrationService {
             WHERE tenant_id = ? AND savana_projection_key = ?
         `).get(tenantId, projectionKey);
         if (!product && projection.sku) {
-            product = this.db.prepare(`
-                SELECT * FROM bot_products
+            const sameSku = this.db.prepare(`
+                SELECT id FROM bot_products
                 WHERE tenant_id = ? AND sku = ?
             `).get(tenantId, projection.sku);
+            if (sameSku) {
+                // SKU equality is not an approved identity link. Preserve the
+                // local row until the authority provides an explicit mapping.
+                throw new SavanaIntegrationError(
+                    'Product SKU requires an explicit identity mapping',
+                    409,
+                    'product_identity_conflict',
+                );
+            }
         }
         const quantity = projection.quantity_available ?? projection.quantity_on_hand;
         const numericQuantity = quantity === null || quantity === undefined || quantity === ''
             ? Number.NaN
             : Number(quantity);
-        const availability = Number.isFinite(numericQuantity)
-            && numericQuantity <= 0
-            ? 'out_of_stock'
-            : 'available';
-        const active = incoming.is_active === false
+        const priceReady = this.projectionHasExecutablePrice(projection);
+        const approved = priceReady && (pricingRefreshed || product?.approval_status === 'approved');
+        const availability = !approved
+            ? 'hidden'
+            : Number.isFinite(numericQuantity) && numericQuantity <= 0
+                ? 'out_of_stock'
+                : 'available';
+        const active = !approved || incoming.is_active === false
             ? 0
             : incoming.is_active === true
                 ? 1
@@ -1855,12 +1968,12 @@ export class SavanaIntegrationService {
                     sku = COALESCE(?, sku),
                     name = ?,
                     description = COALESCE(?, description),
-                    price = COALESCE(?, price),
-                    currency = COALESCE(?, currency),
+                    price = ?,
+                    currency = ?,
                     image_url = COALESCE(?, image_url),
                     availability = ?,
                     is_active = ?,
-                    approval_status = 'approved',
+                    approval_status = ?,
                     updated_at = datetime('now', 'localtime')
                 WHERE id = ? AND tenant_id = ?
             `).run(
@@ -1873,6 +1986,7 @@ export class SavanaIntegrationService {
                 projection.image_url,
                 availability,
                 active,
+                approved ? 'approved' : 'draft',
                 product.id,
                 tenantId,
             );
@@ -1883,18 +1997,19 @@ export class SavanaIntegrationService {
                 tenant_id, savana_projection_key, sku, name, description,
                 price, currency, image_url, availability, is_active,
                 approval_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             tenantId,
             projectionKey,
             projection.sku,
             projection.name,
             projection.description,
-            projection.price || 0,
-            projection.currency || 'LYD',
+            projection.price ?? null,
+            projection.currency || null,
             projection.image_url,
             availability,
             active,
+            approved ? 'approved' : 'draft',
         );
     }
 
@@ -2231,7 +2346,7 @@ export class SavanaIntegrationService {
             LIMIT 1
         `);
         const projection = this.db.prepare(`
-            SELECT quantity_on_hand, quantity_available
+            SELECT quantity_on_hand, quantity_available, price, currency
             FROM savana_product_projection
             WHERE tenant_id = ? AND projection_key = ?
         `);
@@ -2240,6 +2355,7 @@ export class SavanaIntegrationService {
             SET is_active = 1, availability = ?,
                 updated_at = datetime('now', 'localtime')
             WHERE tenant_id = ? AND savana_projection_key = ?
+              AND approval_status = 'approved'
         `);
         const hide = this.db.prepare(`
             UPDATE bot_products
@@ -2248,9 +2364,10 @@ export class SavanaIntegrationService {
             WHERE tenant_id = ? AND savana_projection_key = ?
         `);
         for (const projectionKey of projectionKeys) {
-            if (activeMembership.get(tenantId, projectionKey)) {
+            const projected = projection.get(tenantId, projectionKey);
+            if (activeMembership.get(tenantId, projectionKey) && this.projectionHasExecutablePrice(projected)) {
                 show.run(
-                    this.projectionAvailability(projection.get(tenantId, projectionKey)),
+                    this.projectionAvailability(projected),
                     tenantId,
                     projectionKey,
                 );
@@ -2363,6 +2480,7 @@ export class SavanaIntegrationService {
                     ? normalized
                     : { ...normalized, is_active: undefined },
                 data.generated_at,
+                { pricingSnapshot: true },
             );
         }
         if (integrationId !== null) {

@@ -76,6 +76,47 @@ const createHarness = ({
     };
 };
 
+test('maintenance preserves callback bytes and resumes the same delivery once', async t => {
+    const harness = createHarness();
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    t.after(() => {
+        harness.database.close();
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    const queued = harness.outbox.enqueue(7, 'message_received', { message_id: 11 });
+    const before = harness.database.prepare('SELECT * FROM tenant_api_callback_outbox').all();
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    assert.deepEqual(await harness.outbox.dispatch(), []);
+    assert.deepEqual(harness.database.prepare('SELECT * FROM tenant_api_callback_outbox').all(), before);
+    assert.equal(harness.requests.length, 0);
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
+    const result = await harness.outbox.dispatch();
+    assert.equal(result[0].delivery_id, queued.delivery_id);
+    assert.equal(result[0].status, 'delivered');
+    await harness.outbox.dispatch();
+    assert.equal(harness.requests.length, 1);
+    assert.equal(harness.requests[0].options.body, before[0].body_json);
+    assert.equal(harness.requests[0].options.headers['X-Savana-Signature'], before[0].signature);
+});
+
+test('maintenance does not reclaim a stale callback lease', async t => {
+    const harness = createHarness();
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    t.after(() => {
+        harness.database.close();
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    harness.outbox.enqueue(7, 'message_received', { message_id: 12 });
+    harness.database.prepare("UPDATE tenant_api_callback_outbox SET status='processing', attempts=1, locked_at='2020-01-01T00:00:00.000Z'").run();
+    const before = harness.database.prepare('SELECT * FROM tenant_api_callback_outbox').all();
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    await harness.outbox.dispatch();
+    assert.deepEqual(harness.database.prepare('SELECT * FROM tenant_api_callback_outbox').all(), before);
+    assert.equal(harness.requests.length, 0);
+});
+
 test('tenant callbacks persist the exact signed body before network delivery', (t) => {
     const harness = createHarness();
     t.after(() => harness.database.close());

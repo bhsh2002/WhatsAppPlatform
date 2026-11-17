@@ -1,6 +1,7 @@
 import dns from 'node:dns/promises';
 import https from 'node:https';
 import net from 'node:net';
+import { assertEgressAvailable } from '../runtime/egressMaintenance.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 3;
@@ -160,6 +161,7 @@ export const createPinnedLookup = (address, family) => (_hostname, lookupOptions
 };
 
 const requestPinnedTarget = ({ url, address, family }, options) => new Promise((resolve, reject) => {
+    assertEgressAvailable();
     const body = options.body === undefined || options.body === null
         ? null
         : Buffer.from(String(options.body));
@@ -212,6 +214,7 @@ const requestPinnedTarget = ({ url, address, family }, options) => new Promise((
 });
 
 export const safeOutboundFetch = async (value, options = {}, redirectCount = 0) => {
+    assertEgressAvailable();
     const target = await resolveSafeOutboundTarget(value, options);
     const response = await requestPinnedTarget(target, options);
 

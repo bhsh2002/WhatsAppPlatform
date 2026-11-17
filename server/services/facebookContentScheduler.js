@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isEgressMaintenanceActive } from '../runtime/egressMaintenance.js';
 
 import {
     CONTENT_SCHEDULER_BATCH_SIZE,
@@ -237,6 +238,7 @@ export const materializeDueCampaigns = (database, {
     limit = CONTENT_SCHEDULER_BATCH_SIZE,
     random = Math.random,
 } = {}) => {
+    if (isEgressMaintenanceActive()) return [];
     const dueIds = database.prepare(`
         SELECT id
         FROM facebook_content_campaigns
@@ -393,6 +395,9 @@ export const processDuePublications = async (database, {
     workerId = `content-${process.pid}`,
     publish = publishFacebookContent,
 } = {}) => {
+    if (isEgressMaintenanceActive()) {
+        return { paused: true, recovered: 0, processed: 0, published: 0, retried: 0, failed: 0, deferred: 0 };
+    }
     const recovered = recoverStaleClaims(database, now);
     const dueIds = database.prepare(`
         SELECT id
@@ -492,6 +497,7 @@ export const processDuePublications = async (database, {
             }
             result.published += 1;
         } catch (error) {
+            if (error?.code === 'WA_EGRESS_MAINTENANCE') return { ...result, paused: true };
             const canRetry = Boolean(error.retryable) && claim.attempts < claim.max_attempts;
             if (canRetry) {
                 const delayMinutes = Math.min(2 ** claim.attempts, 60);
@@ -535,6 +541,9 @@ export const runFacebookContentSchedulerTick = async ({
     publish = publishFacebookContent,
     workerId,
 } = {}) => {
+    if (isEgressMaintenanceActive()) {
+        return { paused: true, materialized: 0, recovered: 0, processed: 0, published: 0, retried: 0, failed: 0, deferred: 0 };
+    }
     const materialized = materializeDueCampaigns(database, { now, limit });
     const processed = await processDuePublications(database, {
         now,

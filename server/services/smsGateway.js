@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { assertEgressAvailable } from '../runtime/egressMaintenance.js';
 
 import { decrypt, encrypt } from './encryption.js';
 import { safeOutboundFetch, validateOutboundUrl } from '../security/outboundUrl.js';
@@ -255,6 +256,7 @@ const gatewayJson = async (account, path, {
     idempotencyKey,
     authenticated = true,
 } = {}) => {
+    assertEgressAvailable();
     const apiKey = authenticated ? decrypt(account.api_key_encrypted) : null;
     if (authenticated && !apiKey) {
         throw new SmsGatewayError('تعذر فك مفتاح حساب SMS', 503, 'SMS_GATEWAY_CREDENTIALS_INVALID');
@@ -277,6 +279,7 @@ const gatewayJson = async (account, path, {
             allowedPrivateHostnames: privateGatewayHostnames(),
         });
     } catch (error) {
+        if (error?.code === 'WA_EGRESS_MAINTENANCE') throw error;
         const gatewayError = new SmsGatewayError(
             account.management_mode === 'managed'
                 ? 'تعذر الاتصال بخدمة SMS المُدارة'
@@ -382,6 +385,7 @@ export class SmsGatewayService {
     }
 
     async directApiAccess(tenantId, accountId) {
+        assertEgressAvailable();
         // An explicit tenant-owned account id is mandatory. Never fall back to
         // another tenant's account or to a platform-wide credential.
         const account = this.getAccount(tenantId, accountId);
@@ -491,6 +495,7 @@ export class SmsGatewayService {
     }
 
     async configure(tenantId, payload = {}, accountId = null, internal = {}) {
+        assertEgressAvailable();
         const tenant = this.db.prepare('SELECT id, status FROM tenants WHERE id = ?').get(tenantId);
         if (!tenant) throw new SmsGatewayError('العميل غير موجود', 404, 'TENANT_NOT_FOUND');
         if (tenant.status === 'Suspended') {
@@ -895,6 +900,7 @@ export class SmsGatewayService {
     }
 
     async disable(tenantId, accountId, { allowManaged = false, revokedAt = null } = {}) {
+        assertEgressAvailable();
         const account = this.getAccount(tenantId, accountId);
         if (!account) throw new SmsGatewayError('حساب SMS غير موجود', 404, 'SMS_ACCOUNT_NOT_FOUND');
         if (account.management_mode === 'managed' && !allowManaged) {
@@ -942,6 +948,7 @@ export class SmsGatewayService {
     }
 
     async health(tenantId, accountId) {
+        assertEgressAvailable();
         const account = this.getAccount(tenantId, accountId);
         if (!account) throw new SmsGatewayError('حساب SMS غير موجود', 404, 'SMS_ACCOUNT_NOT_FOUND');
         try {
@@ -960,6 +967,7 @@ export class SmsGatewayService {
     }
 
     async devices(tenantId, accountId) {
+        assertEgressAvailable();
         const account = this.requireActiveAccount(tenantId, accountId, false);
         if (account.management_mode === 'managed') {
             throw new SmsGatewayError(
@@ -993,6 +1001,7 @@ export class SmsGatewayService {
         devices,
         simSlot,
     } = {}) {
+        assertEgressAvailable();
         const account = this.requireActiveAccount(tenantId, accountId);
         if (account.management_mode === 'managed'
             && (devices !== undefined || simSlot !== undefined)) {
@@ -1043,6 +1052,7 @@ export class SmsGatewayService {
                 });
                 break;
             } catch (error) {
+                if (error?.code === 'WA_EGRESS_MAINTENANCE') throw error;
                 lastError = error;
                 const retryable = error.status >= 500 || error.code === 'request_in_progress';
                 if (!retryable || attempt === 3) break;
@@ -1068,6 +1078,7 @@ export class SmsGatewayService {
         simSlot,
         idempotencyKey,
     } = {}) {
+        assertEgressAvailable();
         const account = this.requireActiveAccount(tenantId, accountId);
         if (account.management_mode === 'managed'
             && (deviceId !== undefined || simSlot !== undefined)) {
@@ -1113,6 +1124,7 @@ export class SmsGatewayService {
                 });
                 break;
             } catch (error) {
+                if (error?.code === 'WA_EGRESS_MAINTENANCE') throw error;
                 lastError = error;
                 const retryable = error.status >= 500 || error.code === 'request_in_progress';
                 if (!retryable || attempt === 3) break;
@@ -1233,6 +1245,7 @@ export class SmsGatewayService {
     }
 
     async refreshUssd(tenantId, accountId, gatewayUssdId) {
+        assertEgressAvailable();
         const account = this.requireActiveAccount(tenantId, accountId, false);
         const normalizedId = String(gatewayUssdId || '').trim();
         if (!/^\d+$/.test(normalizedId)) {
@@ -1518,6 +1531,7 @@ export class SmsGatewayService {
     }
 
     async provisionManaged(payload = {}) {
+        assertEgressAvailable();
         const action = String(payload.action || '').trim().toLowerCase();
         const assignmentId = String(payload.assignment_id || '').trim();
         if (!['upsert', 'revoke'].includes(action)) {
@@ -1653,6 +1667,7 @@ export class SmsGatewayService {
     }
 
     async acceptProvisioningDelivery({ deliveryId, requestHash, payload }) {
+        assertEgressAvailable();
         const normalizedDeliveryId = String(deliveryId || '').trim();
         if (!DELIVERY_PATTERN.test(normalizedDeliveryId)) {
             throw new SmsGatewayError('معرف طلب الربط غير صالح', 401, 'SMS_PROVISION_DELIVERY_INVALID');
@@ -1764,6 +1779,7 @@ export class SmsGatewayService {
         backfillPages = 2,
         limit = 100,
     } = {}) {
+        assertEgressAvailable();
         let account = this.requireActiveAccount(tenantId, accountId, false);
         const attemptedAt = new Date().toISOString();
         this.db.prepare(`
@@ -1916,6 +1932,7 @@ export class SmsGatewayService {
     }
 
     async stats(tenantId, options = {}) {
+        assertEgressAvailable();
         const range = this.resolveStatsRange(options);
         const requestedAccount = String(options.accountId ?? 'all').trim().toLowerCase();
         let accounts;

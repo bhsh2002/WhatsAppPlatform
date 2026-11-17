@@ -568,6 +568,7 @@ const MessengerBotManager = ({
 }) => {
   const {
     locale,
+    language,
     t
   } = useLanguage();
   const [tab, setTab] = useState(0);
@@ -581,6 +582,7 @@ const MessengerBotManager = ({
   const [selectedEventsFlow, setSelectedEventsFlow] = useState(null);
   const [loading, setLoading] = useState(true);
   const [productDialog, setProductDialog] = useState(false);
+  const [managedProduct, setManagedProduct] = useState(null);
   const [flowDialog, setFlowDialog] = useState(false);
   const [productForm, setProductForm] = useState(emptyProduct);
   const [flowForm, setFlowForm] = useState(emptyFlow);
@@ -689,6 +691,10 @@ const MessengerBotManager = ({
     }
   };
   const saveProduct = async () => {
+    if (productForm.integration_management?.read_only || productForm.savana_projection_key) {
+      setManagedProduct(productForm);
+      return;
+    }
     try {
       if (!productForm.name.trim()) {
         setSnackbar({
@@ -721,6 +727,10 @@ const MessengerBotManager = ({
     }
   };
   const deleteProduct = async product => {
+    if (product.integration_management?.read_only || product.savana_projection_key) {
+      setManagedProduct(product);
+      return;
+    }
     try {
       if (tenantMode) await api.deletePortalMessengerBotProduct(product.id);else await api.deleteMessengerBotProduct(tenantId, product.id);
       await loadAll();
@@ -740,8 +750,10 @@ const MessengerBotManager = ({
         open: true,
         message: t('messengerBot.messages.productsImported', {
           count: result.imported || 0
-        }),
-        severity: 'success'
+        }) + (result.skipped_managed
+          ? (language === 'ar' ? `؛ تُركت ${result.skipped_managed} نسخة مشتركة دون تعديل. حدّثها من المصدر المعتمد.` : `; ${result.skipped_managed} shared copies were left unchanged. Update them at the authoritative source.`)
+          : ''),
+        severity: result.skipped_managed ? 'warning' : 'success'
       });
       await loadAll();
     } catch (err) {
@@ -1140,7 +1152,9 @@ const MessengerBotManager = ({
                                                     </Stack>
                                                 </TableCell>
                                                 <TableCell>{product.category || t('messengerBot.general')}</TableCell>
-                                                <TableCell>{Number(product.price || 0).toLocaleString(locale)} {product.currency}</TableCell>
+                                                <TableCell>{product.price != null && String(product.price).trim() !== '' && Number.isFinite(Number(product.price)) && product.currency
+                                                  ? `${Number(product.price).toLocaleString(locale)} ${product.currency}`
+                                                  : (language === 'ar' ? 'السعر أو العملة غير مكتمل' : 'Price or currency incomplete')}</TableCell>
                                                 <TableCell>
                                                     <Chip
                                                         size="small"
@@ -1154,8 +1168,14 @@ const MessengerBotManager = ({
 
                                                 </TableCell>
                                                 <TableCell align="right">
-                                                    <IconButton size="small" aria-label="Edit product" onClick={() => openProductDialog(product)}><EditIcon fontSize="small" /></IconButton>
-                                                    <IconButton size="small" color="error" aria-label="Delete product" onClick={() => deleteProduct(product)}><DeleteIcon fontSize="small" /></IconButton>
+                                                    {product.integration_management?.read_only || product.savana_projection_key ? (
+                                                      <Button size="small" aria-haspopup="dialog" onClick={() => setManagedProduct(product)}>
+                                                        {language === 'ar' ? 'نسخة مشتركة — لماذا؟' : 'Shared copy — Why?'}
+                                                      </Button>
+                                                    ) : <>
+                                                      <IconButton size="small" aria-label="Edit product" onClick={() => openProductDialog(product)}><EditIcon fontSize="small" /></IconButton>
+                                                      <IconButton size="small" color="error" aria-label="Delete product" onClick={() => deleteProduct(product)}><DeleteIcon fontSize="small" /></IconButton>
+                                                    </>}
                                                 </TableCell>
                                             </TableRow>)}
                                         {products.length === 0 && <TableRow><TableCell colSpan={5} align="center">{t('messengerBot.noProducts')}</TableCell></TableRow>}
@@ -1367,6 +1387,17 @@ const MessengerBotManager = ({
                     </Paper>
                 </>}
 
+            <Dialog open={Boolean(managedProduct)} onClose={() => setManagedProduct(null)} fullWidth maxWidth="sm" aria-labelledby="managed-product-title">
+                <DialogTitle id="managed-product-title">{managedProduct?.name}</DialogTitle>
+                <DialogContent>
+                    <Alert severity="info">
+                        {language === 'ar'
+                          ? 'هذه نسخة عرض من مصدر معتمد. عدّل المنتج والسعر والميديا من ذلك المصدر حتى يصل التحديث بالمزامنة. إرسال طلب تعديل إلى المرجع من هنا غير متاح بعد؛ لا يفعّله شراء اشتراك.'
+                          : 'This is a display copy from an authoritative source. Update its product, price and media there so changes arrive through synchronization. Requesting a reference change here is not available yet; purchasing a subscription does not enable it.'}
+                    </Alert>
+                </DialogContent>
+                <DialogActions><Button onClick={() => setManagedProduct(null)}>{language === 'ar' ? 'إغلاق' : 'Close'}</Button></DialogActions>
+            </Dialog>
             <Dialog open={productDialog} onClose={() => setProductDialog(false)} maxWidth="md" fullWidth slotProps={{ paper: { 'aria-label': productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct') } }}>
                 <DialogTitle>{productForm.id ? t('messengerBot.editProduct') : t('messengerBot.addProduct')}</DialogTitle>
                 <DialogContent>

@@ -7,6 +7,7 @@ import {
     createContentPublication,
     materializeDueCampaigns,
     processDuePublications,
+    runFacebookContentSchedulerTick,
     selectCampaignSource,
 } from '../services/facebookContentScheduler.js';
 import {
@@ -44,6 +45,52 @@ const createDatabase = () => {
     `);
     return database;
 };
+
+test('maintenance preserves campaign cursors and pending publications before resuming the same publication', async t => {
+    const database = createDatabase();
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    t.after(() => {
+        database.close();
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    const now = new Date('2026-07-16T12:00:00.000Z');
+    database.exec(`
+        INSERT INTO facebook_content_campaigns (
+            id, tenant_id, linked_page_id, name, source_mode, rotation_mode,
+            timezone, allowed_days_json, schedule_times_json, no_repeat_days,
+            max_posts_per_day, approval_required, status, next_run_at, created_by
+        ) VALUES (401, 1, 11, 'Maintenance campaign', 'library', 'sequential',
+            'Africa/Tripoli', '[0,1,2,3,4,5,6]', '["09:00"]', 14, 2, 1,
+            'active', '2026-07-16T11:59:00.000Z', 1);
+        INSERT INTO facebook_content_campaign_items (campaign_id, content_item_id, sort_order, is_active)
+        VALUES (401, 301, 0, 1);
+    `);
+    const publication = materializeDueCampaigns(database, { now })[0];
+    const snapshot = () => JSON.stringify({
+        campaigns: database.prepare('SELECT * FROM facebook_content_campaigns').all(),
+        publications: database.prepare('SELECT * FROM facebook_content_publications').all(),
+    });
+    const before = snapshot();
+    const calls = [];
+    const publish = async ({ publication: item }) => {
+        calls.push(item.id);
+        return { post_id: 'maintenance-post', billing_warning: null };
+    };
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    assert.equal((await runFacebookContentSchedulerTick({ database, now, publish })).paused, true);
+    assert.equal((await processDuePublications(database, { now, publish })).paused, true);
+    assert.deepEqual(materializeDueCampaigns(database, { now }), []);
+    assert.equal(snapshot(), before);
+    await assert.rejects(() => publishFacebookContent({ database, publication,
+        credentialResolver: () => assert.fail('no credentials or billing during maintenance'),
+    }), error => error.code === 'WA_EGRESS_MAINTENANCE' && error.dispatched === false);
+    assert.deepEqual(calls, []);
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
+    await processDuePublications(database, { now, publish });
+    await processDuePublications(database, { now, publish });
+    assert.deepEqual(calls, [publication.id]);
+});
 
 test('Facebook publisher sends text and photo posts with idempotent billing', async () => {
     const billingEvents = [];

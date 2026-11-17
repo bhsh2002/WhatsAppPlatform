@@ -52,6 +52,50 @@ const insertAccount = (database, {
 process.env.CRYPTO_KEY = process.env.CRYPTO_KEY || 'b'.repeat(64);
 initEncryption();
 
+test('maintenance blocks SMS, USSD, provisioning and probes before any account or ledger change', async t => {
+    const database = createDatabase();
+    const previous = process.env.SAVANA_EGRESS_MAINTENANCE;
+    t.after(() => {
+        database.close();
+        if (previous === undefined) delete process.env.SAVANA_EGRESS_MAINTENANCE;
+        else process.env.SAVANA_EGRESS_MAINTENANCE = previous;
+    });
+    insertAccount(database, { id: 24, name: 'Paused fixture', key: 'fixture-webhook-24', secret: 'fixture-secret', isDefault: true });
+    const calls = [];
+    const service = new SmsGatewayService({ database, gatewayRequest: async (...args) => {
+        calls.push(args);
+        return { success: true, data: { id: 'fixture-send-24' } };
+    } });
+    const tables = ['sms_gateway_accounts', 'sms_messages', 'sms_ussd_requests', 'sms_api_requests', 'sms_gateway_provision_deliveries', 'sms_gateway_management_audit'];
+    const snapshot = () => JSON.stringify(Object.fromEntries(tables.map(table => [table, database.prepare(`SELECT * FROM ${table}`).all()])));
+    const before = snapshot();
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'true';
+    const operations = [
+        () => service.send(1, { accountId: 24 }),
+        () => service.sendUssd(1, { accountId: 24 }),
+        () => service.configure(1, {}),
+        () => service.disable(1, 24),
+        () => service.provisionManaged({}),
+        () => service.acceptProvisioningDelivery({}),
+        () => service.health(1, 24),
+        () => service.devices(1, 24),
+        () => service.directApiAccess(1, 24),
+        () => service.refreshUssd(1, 24, 'fixture-ussd'),
+        () => service.syncHistory(1, 24),
+        () => service.stats(1),
+    ];
+    for (const operation of operations) {
+        await assert.rejects(operation, error => error.code === 'WA_EGRESS_MAINTENANCE'
+            && error.dispatched === false && error.deliveryUncertain !== true);
+    }
+    assert.equal(snapshot(), before);
+    assert.equal(calls.length, 0);
+    process.env.SAVANA_EGRESS_MAINTENANCE = 'false';
+    await service.send(1, { accountId: 24, recipient: '218910000024', message: 'Fixture', idempotencyKey: 'maintenance-fixture-24' });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][2].idempotencyKey, 'maintenance-fixture-24');
+});
+
 test('Gateway mutation responses distinguish uncertain delivery from a confirmed send failure', () => {
     const account = {
         base_url: 'https://sms.example.test',

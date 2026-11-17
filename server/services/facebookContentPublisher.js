@@ -1,4 +1,5 @@
 import { META_API_BASE } from '../config/index.js';
+import { assertEgressAvailable } from '../runtime/egressMaintenance.js';
 import { decrypt } from './encryption.js';
 import {
     BILLING_OPERATIONS,
@@ -59,6 +60,7 @@ export async function publishFacebookContent({
     },
     metaApiBase = META_API_BASE,
 } = {}) {
+    assertEgressAvailable();
     if (!database) throw new TypeError('database is required');
     if (!publication?.id) throw new TypeError('publication is required');
     const { page, accessToken } = credentialResolver(
@@ -109,6 +111,7 @@ export async function publishFacebookContent({
         metaResult = await readMetaResponse(response);
     } catch (error) {
         billing.release(reservation, error.message);
+        if (error?.code === 'WA_EGRESS_MAINTENANCE') throw error;
         throw publisherError('تعذر الاتصال بخدمة Meta لنشر المحتوى', {
             code: 'META_TRANSPORT_ERROR',
             retryable: true,

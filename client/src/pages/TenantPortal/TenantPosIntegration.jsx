@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert, Box, Button, Card, CardActionArea, CardContent, Chip,
-    CircularProgress, Divider, FormControl, InputLabel, MenuItem,
+    CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, InputLabel, MenuItem,
     Stack, TextField, Typography,
 } from '@mui/material';
 import {
@@ -13,15 +13,20 @@ import api from '../../api';
 import Select from '../../components/Form/AccessibleSelect';
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { useLanguage } from '../../context/LanguageContext';
+import SharedProductReadPanel from './SharedProductReadPanel';
+import SharedReadSetupPanel from './SharedReadSetupPanel';
+import SharedReadOwnerSetupPanel from './SharedReadOwnerSetupPanel';
 import {
     presentServiceRequest,
     shouldLoadServiceRequests,
 } from './serviceRequestPresentation';
 import {
     integrationCandidatesForPlatform,
+    integrationCandidateIsSelectable,
     integrationIsConnectable,
     integrationLoadIsCurrent,
     integrationSubscriptionBadge,
+    integrationRequirements,
     resolveAvailablePlatform,
     shouldRequestIntegrationCandidates,
 } from './integrationPlatformAvailability';
@@ -59,6 +64,7 @@ const TenantPosIntegration = () => {
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [requirementsOpen, setRequirementsOpen] = useState(false);
     const loadRevision = useRef(0);
     const selectedPlatformRef = useRef(selectedPlatform);
     selectedPlatformRef.current = selectedPlatform;
@@ -180,13 +186,14 @@ const TenantPosIntegration = () => {
     );
     useEffect(() => {
         const connectable = candidates.filter(
-            (item) => item.target.connectable || integration.status === 'error',
+            (item) => integrationCandidateIsSelectable(item, integration),
         );
         setSelectedTarget(connectable.length === 1 ? connectable[0].key : '');
-    }, [selectedPlatform, candidates, integration.status]);
+    }, [selectedPlatform, candidates, integration]);
     const selectedCandidate = candidates.find((item) => item.key === selectedTarget);
 
     const connect = async () => {
+        if (!integrationCandidateIsSelectable(selectedCandidate, integration)) return;
         setWorking(true); setError(''); setSuccess('');
         try {
             await api.connectPortalPlatform(selectedPlatform, {
@@ -284,6 +291,24 @@ const TenantPosIntegration = () => {
     const canConnect = integrationIsConnectable(integration);
     const counts = diagnostics?.counts || {};
     const outboxCounts = diagnostics?.outbox?.counts || {};
+    const requirements = integrationRequirements({ integration, bound: binding?.bound }, language);
+    const capabilityLabels = {
+        'wa_savana.notifications.send': ar ? 'رسائل وإشعارات' : 'Messages and notifications',
+        'wa_savana.campaigns.send': ar ? 'حملات' : 'Campaigns',
+        'wa_savana.content.publish': ar ? 'نشر محتوى' : 'Content publication',
+    };
+    const capabilities = Array.isArray(integration.capabilities) && integration.capabilities.length
+        ? integration.capabilities
+        : Object.keys(capabilityLabels).map(capabilityId => ({
+            capability_id: capabilityId,
+            can_request_review: false,
+            execution_blockers: [{
+                code: 'readiness_unavailable',
+                message: ar
+                    ? 'لم تصل أهلية هذه القدرة من الخادم. حدّث الحالة أو راجع المسؤول؛ لا يمكن التنفيذ دون تحقق.'
+                    : 'The server has not provided readiness for this capability. Refresh the status or contact your administrator; execution requires verification.',
+            }],
+        }));
 
     return (
         <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: 'auto' }}>
@@ -391,7 +416,9 @@ const TenantPosIntegration = () => {
                     return (
                         <Card key={code} variant={selectedPlatform === code ? 'elevation' : 'outlined'} sx={{ flex: 1 }}>
                             <CardActionArea
-                                disabled={!available || loading || working}
+                                disabled={loading || working}
+                                aria-pressed={selectedPlatform === code}
+                                aria-label={`${ar ? item.ar : item.en} — ${ar ? 'عرض الحالة والمتطلبات' : 'View status and requirements'}`}
                                 onClick={() => setSelectedPlatform(code)}
                             >
                                 <CardContent>
@@ -426,6 +453,13 @@ const TenantPosIntegration = () => {
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                             <Chip label={ar ? STATUS_AR[status] : status} color={STATUS_COLORS[status] || 'default'} />
                             <Chip label={entitlementBadge.label} color={entitlementBadge.color} variant="outlined" />
+                            <Button
+                                variant="outlined"
+                                aria-haspopup="dialog"
+                                onClick={() => setRequirementsOpen(true)}
+                            >
+                                {ar ? 'لماذا؟ والمتطلبات' : 'Why? View requirements'}
+                            </Button>
                         </Stack>
                     </Stack>
 
@@ -460,11 +494,11 @@ const TenantPosIntegration = () => {
                                         <MenuItem
                                             key={candidate.key}
                                             value={candidate.key}
-                                            disabled={!candidate.target.connectable && status !== 'error'}
+                                            disabled={!integrationCandidateIsSelectable(candidate, integration)}
                                         >
                                             {candidate.organization.name} — {candidate.target.display_name}
                                             {!candidate.target.connectable
-                                                ? (status === 'error'
+                                                ? (integrationCandidateIsSelectable(candidate, integration)
                                                     ? (ar ? ' (إصلاح الرابط الحالي)' : ' (repair current link)')
                                                     : (ar ? ' (مربوط بالفعل)' : ' (already connected)'))
                                                 : ''}
@@ -518,6 +552,37 @@ const TenantPosIntegration = () => {
                     )}
                 </CardContent>
             </Card>
+
+            {capabilities.length > 0 && (
+                <Card sx={{ mb: 3 }}>
+                    <CardContent>
+                        <Typography variant="h6" fontWeight={800}>{ar ? 'قدرات التواصل بين المنصات' : 'Cross-platform communication capabilities'}</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ my: 1 }}>
+                            {ar ? 'استلام الطلب ومراجعته مرحلتان منفصلتان عن الإرسال أو تنفيذ حملة أو نشر محتوى.' : 'Receiving and reviewing a request are separate from sending, running a campaign or publishing content.'}
+                        </Typography>
+                        <Stack spacing={1.5}>
+                            {capabilities.map(capability => (
+                                <Box key={capability.capability_id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                                    <Stack direction="row" justifyContent="space-between" gap={1} flexWrap="wrap">
+                                        <Typography fontWeight={700}>{capabilityLabels[capability.capability_id] || capability.capability_id}</Typography>
+                                        <Chip size="small" color={capability.can_request_review ? 'info' : 'default'} label={capability.can_request_review
+                                            ? (ar ? 'استقبال للمراجعة' : 'Review requests available')
+                                            : (ar ? 'عرض المتطلبات' : 'Requirements available')} />
+                                        <Chip size="small" variant="outlined" label={ar ? 'التنفيذ العابر غير مفعّل' : 'Cross-platform execution unavailable'} />
+                                    </Stack>
+                                    <Button sx={{ mt: 1 }} size="small" aria-haspopup="dialog" onClick={() => setRequirementsOpen(capability.capability_id)}>
+                                        {ar ? 'لماذا؟' : 'Why?'}
+                                    </Button>
+                                </Box>
+                            ))}
+                        </Stack>
+                    </CardContent>
+                </Card>
+            )}
+
+            <SharedReadSetupPanel />
+            <SharedReadOwnerSetupPanel />
+            <SharedProductReadPanel />
 
             <Card>
                 <CardContent>
@@ -577,7 +642,7 @@ const TenantPosIntegration = () => {
                                         />
                                     </Stack>
                                     <Typography variant="body2">{presentation.summary}</Typography>
-                                    {request.status === 'pending_review' && !presentation.dismissible && (
+                                    {['pending_review', 'approved'].includes(request.status) && (
                                         <Typography variant="caption" color="text.secondary">
                                             {ar
                                                 ? 'هذا النوع محفوظ للمراجعة؛ لا يتوفر تنفيذه أو إرساله من هذه الصفحة.'
@@ -590,6 +655,38 @@ const TenantPosIntegration = () => {
                     })}
                 </CardContent>
             </Card>
+            <Dialog
+                open={Boolean(requirementsOpen)}
+                onClose={() => setRequirementsOpen(false)}
+                fullWidth
+                maxWidth="sm"
+                aria-labelledby="integration-requirements-title"
+            >
+                <DialogTitle id="integration-requirements-title">{ar ? 'المتطلبات والخطوة التالية' : 'Requirements and next step'}</DialogTitle>
+                <DialogContent>
+                    <Stack spacing={1.5}>
+                        {requirements.map(reason => <Alert key={reason.code} severity="warning">{reason.message}</Alert>)}
+                        {requirements.length === 0 && <Alert severity="success">{ar ? 'متطلبات الربط الأساسية متاحة. لكل إجراء تحقق مستقل من الصلاحية والحساب والموافقة والتكلفة قبل التنفيذ.' : 'Basic connection requirements are met. Each action still requires separate permission, account, consent and cost checks before execution.'}</Alert>}
+                        {capabilities.filter(capability => requirementsOpen === true || requirementsOpen === capability.capability_id).map(capability => (
+                            <Box key={capability.capability_id}>
+                                <Typography fontWeight={700} sx={{ mb: 1 }}>{capabilityLabels[capability.capability_id] || capability.capability_id}</Typography>
+                                {[...(capability.review_blockers || []), ...(capability.execution_blockers || [])].filter((reason, index, rows) => rows.findIndex(row => row.code === reason.code) === index).map(reason => (
+                                    <Alert key={reason.code} severity="info" sx={{ mt: 1 }}>
+                                        {reason.message}
+                                    </Alert>
+                                ))}
+                            </Box>
+                        ))}
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button disabled={loading || working} onClick={() => {
+                        setRequirementsOpen(false);
+                        load();
+                    }}>{ar ? 'إعادة التحقق' : 'Check again'}</Button>
+                    <Button onClick={() => setRequirementsOpen(false)}>{ar ? 'إغلاق' : 'Close'}</Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };

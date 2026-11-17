@@ -1,0 +1,369 @@
+WA Savana operational package — deployment review plan
+Date: 17 November 2026 — Africa/Tripoli
+Status: prepared for review; not deployed or activated
+
+1. Reference and scope
+
+The current Git HEAD is only a baseline. It does not contain the uncommitted
+WA integration work and must not be named as its release version. The final
+selective review archive and its SHA-256 identify the exact source candidate.
+Its manifest lists every included source path, content hash and mode, the
+selected tracked diff, excluded dirty paths and official contract hashes.
+Byte-identical contract copies are noncanonical evidence only; the center
+continues to own the canonical contracts and their readiness declaration.
+
+The package includes WA product-read/onboarding/session authorization, its
+portal UI, isolation/acceptance fixtures, migrations and the deployment review
+material. Exclude runtime .env files, credentials, databases, uploads, logs,
+node_modules, generated dist/build, unrelated changes and all other projects.
+No archive is a whole-project backup or an executable deployment installer.
+Do not stage all changes, reset/clean a checkout, or copy another project's
+source to make a review candidate. If an included file changes, create a new
+reference; never relabel the old content or pretend baseline HEAD changed.
+
+Only the current central operational contract may define requests, approvals,
+grants, provisioning or revocation. The current source-derived operational
+OpenAPI and operational-http.md define owner routes. The center reports local
+runtime/schema parity and center-only cookie-BFF acceptance; native concurrent
+four-application acceptance is separately pending and production readiness is
+false. Consumed read/ingest/operational/connect-v2/control-center-v2 hashes and exact lifecycles
+must be pinned in the immutable review manifest. Owner actions use the existing
+ControlCenter signed session cookie at its server BFF, followed by request-bound
+HMAC portal assertion and a fresh exact-scope central authorization check. An
+OIDC access token is a separate identity/delegated-read input and cannot perform
+those owner operations. WA never manufactures portal assertions from a local
+role or copies a central HMAC key. Its optional native owner bridge uses actual
+ControlCenter password/MFA login HTTP, retains only the resulting cookie under
+its own encrypted purpose, and invokes the real cookie-authenticated BFF. The
+password is transient, never persisted or returned. Cookie identity must match
+the fresh server-owned OIDC actor/organization, and every BFF action rechecks
+current central membership and exact-scope permissions.
+A prepared UI/mock or an in-memory registry seed is not evidence of a real owner
+authorization journey. WA now implements native OIDC begin/callback, encrypted
+identity/read state, actual service enrollment and explicit reader binding. The
+binding resolves the native tenant through the existing platform-bindings route
+and verifies a fresh central read context for the selected installation/scope.
+It accepts no browser actor, organization, platform token or publisher key as
+read authority. The native owner overview now supplies filtered current scopes,
+owned WA enrollments/installations, active Catalog source fields and current
+member choices for the native chooser. The chooser and typed owner operation
+controls are available and final client source is frozen after independent
+review. The remaining selection gap is a verified native activity candidate list for creating the
+initial scope: keep scope-create UI hidden and do not invent activity IDs.
+Existing scope metadata or an API alone does not prove native activity selection.
+The center owns the four-application concurrent acceptance runner;
+WA supplies its official owned temporary process, private database and real
+local authentication/owner/read routes. Previous Catalog7/WA11/Saw5 evidence
+is not the new simultaneous acceptance and is not added to the new counts.
+
+Current review evidence: 167 unique tests passed in the selected 17 WA server
+files; this includes 19 owner-portal cases and four real-process SQLite/AES
+cases. All 131 client tests passed; the focused 29 are included, not added to
+that total. Owned client lint/build and main-server syntax passed. Six separate
+selective-packager tests passed. The final EN/AR synthetic desktop/mobile and
+keyboard checks passed; axe reported zero violations, 22 passes and two
+incomplete checks. Actual screen-reader speech was not tested. The independent
+frozen-client review found no actionable issue; all 17 published UI source
+hashes were checked again after a timestamp-direction-only fix. That display
+fix passed targeted lint/build and Arabic visual review; no test-logic or
+backend change was implied. These are selected verification results, not a full-server
+suite or production deployment claim.
+
+The official native Catalog -> center -> WA read-sharing journey passed:
+sealed Catalog credential delivery, signed native origin and native goods,
+actual owner/OIDC/native-account binding, staff denial and WA read denial after
+read-grant revocation while source publishing remained active. Real owner and
+unknown-ack smoke checks were refreshed on final code; native_reference stayed
+stable across a fresh JWT, by-key state/hash stayed unknown with result:null,
+and the unknown scenario executed exactly one owner mutation. The existing
+owner smoke was refreshed once after completing its counters: nine actual owned
+SQL table counts, including billing_payments, stayed zero before/after; legacy
+state was unchanged, with 175 owned HTTP calls and five metadata mutations.
+External/channel/forbidden effects remained zero and cleanup/contract pins
+passed. These are the same scenario, not extra scenario counts. Orders, stock
+and business-measurement counters are N/A where no corresponding owned model
+exists; absence is not reported as a measured zero. This actual HTTP evidence
+is separate from mocked-central cold-process durability.
+
+The center additionally reports an exploratory all-four source/read parity run
+and 19 lifecycle cases passed. Formal four-application acceptance is still
+false pending the exact Catalog/Saw counter evidence and final guard rerun.
+Do not add exploratory/rerun counts to the local totals or relabel three-app
+success as formal four-app acceptance. No result authorizes deployment or
+activation.
+
+2. Required invariants
+
+- A local tenant/owner role is not a central grant or permission for every
+  activity, branch, warehouse, source installation, field or account.
+- Pending/rejected/expired/revoked requests cannot open reading. An edited
+  request revision needs approval valid for that revision; retain history.
+- Read delegation, publisher credentials, origin approval and field authority
+  are distinct. Revoking a source publishing key does not itself revoke a
+  reading grant. Name and test the actual effect of each action.
+- OIDC tokens, PKCE secrets and client/service secrets stay server-side and
+  encrypted where persisted. The ControlCenter cookie, HMAC assertion signing
+  key and request-bound assertions follow their own central BFF boundary;
+  OIDC identity is not an owner authority. Never put secrets in reports, HTML,
+  browser storage, URLs, screenshots, diagnostic logs or the reference bundle.
+- The new read view remains separate from legacy bot products and outbound
+  messages. Current product identity/provenance is not inferred from a SKU,
+  barcode, phone, local user role or a successful old read.
+- Missing/inaccessible data, a 404 or an outage is not an archive/tombstone.
+  Explicit lifecycle facts and current authorization govern new reads.
+- Unknown/lost-ack outcomes require reconciliation. Do not rewrite an
+  immutable request/outbox message, force an authority mapping or issue a new
+  side effect because its original result is unknown.
+
+3. Proposed configuration matrix — no deployment values assigned
+
+Item                                  Proposed state/value          Gate
+Project Node runtime                  Existing Node20.20.2          Do not change host default
+SAVANA_SHARED_PRODUCT_READS_ENABLED    false                         Enable only after approval
+SAVANA_SHARED_READ_SETUP_ENABLED      false                         Independent stop for local setup
+SAVANA_SHARED_READ_OWNER_PORTAL_ENABLED false                        Independent native owner bridge
+SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN empty                        Explicit trusted ControlCenter origin
+DISABLE_BACKGROUND_JOBS               true during acceptance       Not a universal send blocker
+SAVANA_INTEGRATIONS_ENABLED           retain existing approved      Do not broaden by this plan
+SAVANA_CONNECT_URL                    approved trusted origin       No guessed real target
+SAVANA_CONNECT_PLATFORM_TOKEN         server secret reference       Never browser or bundle value
+OIDC client/issuer/redirect settings   unset until approved mapping  Identity/delegated read, not owner
+Central integration_operational_enabled false; central-owned        Separate owner HTTP availability
+Central portal HMAC signing material   central secret reference only Never copied to WA or bundle
+Organization/activity/account map     unset actual identifiers      Owner selects exact scope
+Installation/source/field map         unset actual identifiers      No SKU/barcode inference
+Local session encryption material     approved secret-store alias   No key bytes in plan
+Read-session expiry/revocation        contract/current server state No reusable old eligibility
+Central publisher credential          not a WA read credential      Source owner manages separately
+Measurement/stock/payment/send        not enabled by this package   Separate scope and approval
+
+The exact WA OIDC environment names currently implemented are
+SAVANA_SHARED_READ_OIDC_ISSUER, SAVANA_SHARED_READ_OIDC_CLIENT_ID,
+SAVANA_SHARED_READ_OIDC_REDIRECT_URI,
+SAVANA_SHARED_READ_OIDC_AUTHORIZATION_ENDPOINT,
+SAVANA_SHARED_READ_OIDC_TOKEN_ENDPOINT, SAVANA_SHARED_READ_OIDC_JWKS_URI and
+SAVANA_SHARED_READ_OIDC_USERINFO_ENDPOINT. Leave their deployment values empty.
+The central contract additionally names integration_operational_portal_secret;
+that central-owned HMAC secret is not a WA setting and is never bundled. Review
+final consumed contract fingerprints and native acceptance before activation.
+A synthetic fixture's
+IDs, grants, currencies/units, credentials and loopback origins are not runtime
+settings. Do not fill this matrix from a production .env or business database
+under the current authorization.
+
+4. Migration plan for a later separately approved deployment
+
+No migration or business-data inspection is authorized now. The existing
+read-only check-savana-migration-impact.js is prepared for later explicitly
+approved file inspection. It does not load .env, bootstrap the app, migrate or
+publish anything. Its counts must not be presented as actual business impact
+until that separate inspection happens.
+
+The owner explicitly approved hiding synchronized copies whose price is
+missing, malformed or stale on upgrade until the authoritative source is
+corrected. Do not ask that decision again or revive inferred prices.
+
+055_savana_request_review_evidence.sql:
+  Add local review hash, actor and time. Historical approved rows do not become
+  proof of external execution. Raw ALTER replay is unsupported; use tracking.
+056_savana_incomplete_product_pricing.sql:
+  Quarantine derived copies lacking explicit valid source pricing/currency.
+  Keep source projection data, IDs, source events, images and source membership.
+057_savana_pricing_contract_guard.sql:
+  Forward-only stricter decimal/currency and stale-copy quarantine. Never edit
+  applied 055/056 checksums or use a stock/link refresh to approve a draft.
+058_savana_delegated_read_sessions.sql:
+  Apply only its final reviewed SQL/checksum and migration acceptance evidence.
+  savana_delegated_read_sessions, savana_delegated_read_flows,
+  savana_operational_owner_sessions and savana_operational_read_actions contain
+  encrypted local delegated/session/PKCE/request state, not central grants.
+  savana_delegated_read_audit retains nonsecret action references/history.
+  Preserve nonempty audit and unknown-action history across restart/forward
+  recovery; do not remove the schema or silently downgrade it to start old code.
+  Expired/disconnected local credentials do not imply central grant revocation.
+059_savana_consumer_enrollment.sql:
+  Add tenant-bound native consumer enrollment and retained audit history only.
+  One encrypted RSA private key (at least 2048 bits) and immutable exact request
+  bytes bind the native wa_savana:tenant:<id> identity to one verified OIDC
+  organization and trusted center origin. Changing organization, key or request
+  is a conflict; a retry does not reset or rotate them. Tenant/key deletion is
+  restricted while enrollment/audit references exist. This is not an owner
+  request, installation, read grant, publisher key or field authority.
+  Dispatch claims prepared once. Lost acknowledgement remains unknown;
+  interrupted inflight is never automatically reclaimed. Explicit same-byte
+  reconciliation stays unavailable until the canonical enrollment contract
+  documents safe identical replay, and is not a general retry/force control.
+  Wrong/unavailable decryption material blocks usable status and dispatch;
+  preserve the stored key/request and correct the key access forward.
+060_savana_owner_portal.sql:
+  Add dedicated encrypted ControlCenter cookie sessions, immutable owner intent
+  bytes and audit records. These are separate from 058 OIDC/read sessions and
+  059 RSA enrollment state. Cookie expiry is capped by actual central cookie
+  TTL, verified OIDC expiry and the native JWT. No password/MFA code is saved.
+  Intent input hash, exact method/path/body hash and encrypted request remain
+  immutable. Atomic unresolved check/insert/one-use claim is scoped to native
+  tenant + actual central actor + organization, across native users/JWTs and
+  portal reconnects. An interrupted inflight/lost-ack result blocks every new
+  owner mutation; a new idempotency key cannot force another side effect.
+  Enabled owner status/login/overview/disconnect includes native_reference,
+  an opaque SHA-256 of canonical native tenant_id and local user_id. It remains
+  stable across JWTs; the UI partitions retained holds by that reference plus
+  actual central actor and organization, preserving other partitions.
+  GET intent by id returns original-principal metadata only. GET by original key
+  checks fresh OIDC identity and actual portal account/membership, then resolves
+  metadata for the same native tenant + central actor + organization across
+  JWTs/local users. Both always hide saved response/request/body/scope details;
+  by-key result is always null. No hold or original intent is reset or cleared.
+  Its 404 does not prove no handler prepared or executed.
+  Fresh BFF overview is the source of current visible policy. Unknown outcomes
+  require explicit reviewed reconciliation; no retry/reclaim/force API exists.
+  Local disconnect clears the retained cookie and fences unfinished responses;
+  it preserves uncertain intent/audit history and claims no global central
+  logout, read-grant revocation or source-key rotation. Retain nonempty history
+  during forward recovery; foreign-key restrictions prevent silent deletion.
+
+The tracked migrator verifies checksums, applies each SQL file with its
+tracking row in one local immediate transaction and skips recorded files on
+rerun. A failed tracking write must roll back that migration's schema/data.
+The whole set is not one global transaction: if 055 succeeds and 056 fails,
+keep the valid 055 record, fix the cause, and resume at pending migrations.
+Never delete tracking rows or force a version. Missing files/checksum drift,
+unknown schema, SQLite integrity/FK problems or a busy database block startup.
+
+Later approval must cover a coherent database recovery point and retention
+procedure before changing operating state. This plan creates no production
+backup or full-project copy. Do not replace a current database with an older
+one over newer correct operations. Prefer a compatible forward correction.
+If recovery ever requires a historical restore, first stop writes and prove a
+reviewed fence with no later valid operations, or reconcile those operations
+through a separately approved recovery process. No automatic restore here.
+
+5. Candidate deployment order — execute only after separate approval
+
+A. Freeze the exact source reference, official contract hashes and results.
+   Review included/excluded paths and any unrelated hunks. Build the candidate
+   from the recorded baseline plus this reviewed overlay in an isolated build
+   environment; do not build/deploy directly from a changing dirty checkout.
+
+B. Approve the maintenance window, affected-product impact, recovery fence,
+   old-client treatment and exact feature configuration. Keep setup/approval
+   and reading disabled. No real map, grant, source authority or secret is
+   provisioned simply because this plan or a test passed.
+
+C. Establish and verify an independently scoped native outgoing maintenance
+   gate for the update window. Current review-only acceptance does NOT block
+   every native sending API. DISABLE_BACKGROUND_JOBS does not block direct
+   API-key sends, old UI requests or all webhook-triggered automation. The
+   selected edge/backend/egress gate must cover those paths and preserve queued
+   work and unknown results. This is a release prerequisite, not a claim that
+   a universal production gate is already implemented by the new read flag.
+   If receipt-only webhook processing is unavailable, approve a bounded
+   provider retry/quiescence and reconciliation procedure rather than silently
+   losing receipts or dispatching while the update is incomplete.
+
+D. Stop old worker/executor instances and verify no old process can still open
+   the operating SQLite file or execute a queued request. Later run the
+   approved read-only impact check; capture aggregate counts without business
+   values. Apply the approved recovery protection, then the exact reviewed
+   migrations through one controlled migrator with workers disabled. Startup
+   auto-migrates, so starting the new server against the operating database is
+   itself a schema-changing action requiring that approval.
+
+E. Deploy the compatible tightened server and matching client as one release
+   window, with all new feature flags still false. Do not deploy the new client
+   first to an old server that lacks review/read controls or deploy an old
+   client against the new server and call a later /complete409 a send blocker.
+   Refresh client assets/service-worker caches and invalidate/rotate local
+   sessions using the approved jti/auth_version mechanism. Verify old cookies,
+   old bearer sessions and previously open contextual review tabs cannot be
+   reused. A current local role still does not grant central authority.
+
+F. Verify health, no pending migrations, exact checksums, SQLite quick/FK
+   checks, unchanged identity/source/audit/outbox history, encrypted local
+   session fields, no secret exposure and hidden affected legacy products.
+   Include the child-process persistence regression: a writer commits then exits,
+   fresh Node processes reopen the owned SQLite file, expired/other principals
+   cannot read credentials, and inflight intent is never reclaimed. Separate
+   060 owner-process tests use the actual service, real SQLite/AES and fresh OS
+   children: the writer exits inside explicit mock portal HTTP after its claim,
+   a new process restores the cookie and checks mocked current membership, a new
+   JWT/portal login cannot force a second mutation, and wrong-key status remains
+   unknown. This is mock-central process durability, not actual-center HTTP or
+   simultaneous acceptance. Pausing a listener alone proves no process restart.
+   Validate desktop/mobile/keyboard, active session expiry/revocation and the
+   owner request lifecycle through the real ControlCenter cookie BFF and its
+   HMAC-bound HTTP requests against the staged counterpart. Separately prove
+   OIDC registration/PKCE and the delegated read binding; OIDC success alone
+   proves no owner action or read grant. Do not seed a registry/read binding as
+   a substitute for that journey. Shared reads must fail closed while flags remain false; public metadata may
+   describe why, but cannot activate a request or grant from browser input.
+
+G. Present those results plus the simultaneous center-owned four-application
+   acceptance evidence to the owner. Only a later explicit activation approval
+   can permit setup for the narrowly chosen scope, then central owner approval
+   for that exact request revision and read fields, and finally the reading
+   flag. Confirm pending/rejected/revoked/expired states stay unavailable.
+   Neither approval step enables publishing, messages, stock, sales, payment,
+   financial reservations, measurement or source ownership transfer.
+
+H. Remove the temporary native outgoing maintenance gate only under its own
+   reviewed normal-service plan. That is not implied by enabling shared reads.
+   Start no new scheduler/worker merely because the read UI is healthy.
+
+6. Verification, monitoring and stopping work
+
+Monitor aggregate request/revision/grant states; owner pending/rejected/expired
+counts; local session expiry/reauthorization; 401/403/409/503 rates; context and
+authorization revision changes; source version/freshness lag; cursor-invalid
+and unknown/lost-ack reconciliation; SQLite busy/lock/checksum/secret-key errors;
+unmatched identities and legacy quarantines. Keep token values, product/customer
+fields and full scopes out of logs and metric labels. Report an event's
+observation, transport receipt and actual result as different states.
+
+Stopping local setup, central owner approval and shared reads are separate
+controls. SAVANA_SHARED_READ_SETUP_ENABLED pauses local identity/setup work;
+SAVANA_SHARED_PRODUCT_READS_ENABLED pauses WA reads. The separately default-off
+SAVANA_SHARED_READ_OWNER_PORTAL_ENABLED pauses the native cookie owner bridge;
+this does not disable owner actions performed directly in ControlCenter.
+Global central owner actions are stopped through its own operational capability and current exact-scope
+authorizations, not by revoking an OIDC token or changing a local UI flag.
+Disable the relevant reviewed gates, revoke the particular local read
+session or central read grant when needed, and preserve requests, revisions,
+audits and unknown outcomes. Do not delete a grant/history row or rotate a
+publisher key and claim all reads were revoked. Do not retry an unknown effect
+as a new request or a different channel.
+
+Key handling is scoped and server-only. The current application cipher uses
+CRYPTO_KEY for existing native credentials as well as the new local vault;
+058/059/060 do not establish automatic keyring/key-ID rotation. Track secret-store
+aliases and the encrypted record population that still needs the old key;
+never discard it while retained state requires it. A later reviewed forward
+keyring/reencryption or reauthorization procedure must cover all dependent
+state before retirement. No CRYPTO_KEY/JWT_SECRET rotation is performed here.
+Rotate or reauthorize through the reviewed flow, retaining audit/history and
+exposing only status. Local WA JWT
+session revocation, central OIDC/read grant revocation and a source publisher
+credential rotation have different effects and require separate verification.
+The review report may list aliases/counts but no key values.
+
+7. Rollback and release verdict
+
+The first response to a failed read/setup release is to stop the new reads and
+new setup/approval, keep histories and unknown work, and diagnose/reconcile.
+An app-only rollback is permitted only to a candidate that understands the
+already applied schema, encrypted key/state versions and tightened safety
+behavior. Old code without applied migration files will fail checksum/history
+verification; do not delete migration records or copy old schema to bypass it.
+Do not return to the old recipient-only /complete behavior or uncorrelated
+review-send flow as an emergency fix. A forward-compatible fix is preferred.
+
+Release labels must remain distinct:
+  Passed local tests: only the explicitly reported unique test cases.
+  Passed simultaneous acceptance: only the final center-owned four-app run.
+  Ready for review: immutable source/contract reference plus this plan/results.
+  Deployed/activated: false unless a later approved action actually happens.
+
+POS remains represented in capability/configuration design, with the approved
+one-database/one-organization/all-branches scope. Nothing in this package reads
+its runtime settings/business data or runs/builds/tests/modifies its source or
+installed package. Its source availability is not the blocker for this plan.

@@ -9,7 +9,7 @@ const KIND_LABELS = {
 
 const STATUS_LABELS = {
     pending_review: { ar: 'قيد المراجعة', en: 'Pending review' },
-    approved: { ar: 'معتمد', en: 'Approved' },
+    approved: { ar: 'مراجَع؛ لم يُنفذ', en: 'Reviewed; not executed' },
     sent: { ar: 'مرسل', en: 'Sent' },
     dismissed: { ar: 'تم التجاهل', en: 'Dismissed' },
     failed: { ar: 'متعذر', en: 'Failed' },

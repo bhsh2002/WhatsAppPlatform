@@ -1,13 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Avatar,
   Box,
+  Button,
   Chip,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   InputAdornment,
   List,
+  ListItem,
   ListItemButton,
   ListItemText,
   Stack,
@@ -17,27 +21,12 @@ import {
 import { Inventory2, Search } from '@mui/icons-material';
 import { useLanguage } from '../../context/LanguageContext';
 
-const productMessage = (product, t) => {
-  const parts = [product.name || product.sku || product.barcode || t('inbox.integratedProductFallback')];
-  if (product.price !== null && product.price !== undefined && product.price !== '') {
-    parts.push(t('inbox.integratedProductPrice', {
-      price: product.price,
-      currency: product.currency || 'LYD',
-    }));
-  }
-  const quantity = product.quantity_available ?? product.quantity_on_hand;
-  if (quantity !== null && quantity !== undefined && quantity !== '') {
-    parts.push(t('inbox.integratedProductAvailable', { quantity }));
-  }
-  if (product.shelf_code) {
-    parts.push(t('inbox.integratedProductShelf', { shelf: product.shelf_code }));
-  }
-  return parts.join(' — ');
-};
+import { integratedProductCanPrepareMessage, integratedProductMessage, integratedProductPreparationReason, integratedProductPricing } from './integratedProductPresentation';
 
 const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => {
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
+  const [blockedProduct, setBlockedProduct] = useState(null);
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return products;
@@ -50,7 +39,13 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
   }, [products, search]);
 
   const handleSelect = product => {
-    onSelect(productMessage(product, t), product);
+    const message = integratedProductMessage(product, t);
+    if (message === null) {
+      setBlockedProduct(product);
+      return;
+    }
+    setBlockedProduct(null);
+    onSelect(message, product);
     setSearch('');
     onClose();
   };
@@ -65,6 +60,7 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
     >
       <DialogTitle>{t('inbox.integratedProductDialogTitle')}</DialogTitle>
       <DialogContent>
+        {blockedProduct && <Alert severity="warning" sx={{ mt: 1 }}>{integratedProductPreparationReason(blockedProduct, t)}</Alert>}
         <TextField
           fullWidth
           size="small"
@@ -94,34 +90,43 @@ const IntegratedProductPicker = ({ open, onClose, products = [], onSelect }) => 
                 || product.sku
                 || `${product.barcode}-${index}`;
               const quantity = product.quantity_available ?? product.quantity_on_hand;
+              const pricing = integratedProductPricing(product);
               return (
-                <ListItemButton key={key} onClick={() => handleSelect(product)} divider>
-                  <Avatar src={product.image_url || undefined} variant="rounded" sx={{ mr: 1.5 }}>
-                    <Inventory2 />
-                  </Avatar>
-                  <ListItemText
-                    primary={product.name || product.sku || product.barcode}
-                    secondary={[product.sku, product.barcode].filter(Boolean).join(' • ')}
-                  />
-                  <Stack spacing={0.5} alignItems="flex-end">
-                    {product.price !== null && product.price !== undefined && (
-                      <Chip size="small" color="primary" variant="outlined" label={`${product.price} ${product.currency || 'LYD'}`} />
-                    )}
-                    <Typography variant="caption" color="text.secondary">
-                      {quantity !== null && quantity !== undefined
-                        ? t('inbox.integratedProductStock', { quantity })
-                        : t('inbox.integratedProductStockUnavailable')}
-                      {product.shelf_code
-                        ? ` • ${t('inbox.integratedProductShelfShort', { shelf: product.shelf_code })}`
-                        : ''}
-                    </Typography>
-                  </Stack>
-                </ListItemButton>
+                <ListItem key={key} disablePadding>
+                  <ListItemButton onClick={() => handleSelect(product)} divider>
+                    <Avatar src={product.image_url || undefined} variant="rounded" sx={{ mr: 1.5 }}>
+                      <Inventory2 />
+                    </Avatar>
+                    <ListItemText
+                      primary={product.name || product.sku || product.barcode}
+                      secondary={[product.sku, product.barcode].filter(Boolean).join(' • ')}
+                    />
+                    <Stack spacing={0.5} alignItems="flex-end">
+                      {pricing.ready ? (
+                        <Chip size="small" color="primary" variant="outlined" label={`${pricing.price} ${pricing.currency}`} />
+                      ) : (
+                        <Typography variant="caption" color="warning.dark">{integratedProductPreparationReason(product, t)}</Typography>
+                      )}
+                      {pricing.ready && !integratedProductCanPrepareMessage(product) && (
+                        <Typography variant="caption" color="warning.dark">{integratedProductPreparationReason(product, t)}</Typography>
+                      )}
+                      <Typography variant="caption" color="text.secondary">
+                        {quantity !== null && quantity !== undefined
+                          ? t('inbox.integratedProductStock', { quantity })
+                          : t('inbox.integratedProductStockUnavailable')}
+                        {product.shelf_code
+                          ? ` • ${t('inbox.integratedProductShelfShort', { shelf: product.shelf_code })}`
+                          : ''}
+                      </Typography>
+                    </Stack>
+                  </ListItemButton>
+                </ListItem>
               );
             })}
           </List>
         )}
       </DialogContent>
+      <DialogActions><Button onClick={onClose}>{t('common.close')}</Button></DialogActions>
     </Dialog>
   );
 };
