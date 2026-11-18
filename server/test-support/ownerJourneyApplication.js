@@ -35,6 +35,7 @@ import { createGuidedWhatsAppSetupRouter } from '../routes/guidedWhatsAppSetup.j
 import { createSqliteReadPrincipalVerifier, SharedProductReadError } from '../services/centralProductRead.js';
 import { createOwnerJourneyCapabilityProofs } from './ownerJourneyCapabilityProofs.js';
 import { createOwnerJourneyConsumerEvidence } from './ownerJourneyConsumerEvidence.js';
+import { createOwnerJourneyProviderFault } from './ownerJourneyProviderFault.js';
 
 const fail = code => { const error = new Error(code); error.code = code; throw error; };
 
@@ -49,6 +50,9 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
     database.exec(`CREATE TABLE IF NOT EXISTS owner_journey_observations(
         id INTEGER PRIMARY KEY,run_id TEXT NOT NULL,service TEXT NOT NULL,method TEXT NOT NULL,
         path_template TEXT NOT NULL,status INTEGER NOT NULL,observed_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS owner_journey_outbound_observations(
+        id INTEGER PRIMARY KEY,run_id TEXT NOT NULL,service TEXT NOT NULL,method TEXT NOT NULL,
+        path_template TEXT NOT NULL,status INTEGER NOT NULL,observed_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS owner_journey_counters(name TEXT PRIMARY KEY,value INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS owner_journey_native_result_fetches(
         id TEXT PRIMARY KEY,run_id TEXT NOT NULL,status INTEGER NOT NULL,encrypted_result TEXT NOT NULL);
@@ -60,10 +64,13 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
     database.prepare('INSERT OR IGNORE INTO owner_journey_processes VALUES(?,?,?)').run(process.pid, runId, new Date().toISOString());
     if (previous && database.prepare('SELECT COUNT(*) n FROM users WHERE id=? AND tenant_id=?').get(nativeOwner.userId, nativeOwner.tenantId).n === 1) bump('persisted_resume_checks');
     const record = observation => {
+        if (!['wa_savana', 'wa_frontend'].includes(observation.service || 'wa_savana')) fail('owned_server_observation_invalid');
         observe(observation);
         database.prepare('INSERT INTO owner_journey_observations(run_id,service,method,path_template,status,observed_at) VALUES(?,?,?,?,?,?)')
             .run(runId, observation.service || 'wa_savana', observation.method, observation.path_template, observation.status, new Date().toISOString());
     };
+    const recordOutbound = observation => database.prepare('INSERT INTO owner_journey_outbound_observations(run_id,service,method,path_template,status,observed_at) VALUES(?,?,?,?,?,?)')
+        .run(runId, observation.service, observation.method, observation.path_template, observation.status, new Date().toISOString());
     const servicesByOrigin = new Map(Object.entries(urls).map(([service, value]) => [new URL(value).origin, service]));
     const pathTemplate = pathname => pathname
         .replace(/^\/v25\.0\/[^/]+\/(messages|phone_numbers|subscribed_apps|owned_whatsapp_business_accounts|media|feed|photos|posts|message_templates|permissions)$/, '/v25.0/:account/$1')
@@ -72,16 +79,17 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         .replace(/\/[0-9a-f]{32,}(?=\/|$)/gi, '/:id')
         .replace(/\/[0-9]+(?=\/|$)/g, '/:id')
         .replace(/\/(?:wa_savana:tenant:)[^/]+/g, '/:account');
-    let dropNextProviderAck = false;
-    let faultCorrelation = null;
-    const fetchImpl = async (input, options = {}) => {
+    const providerFault = createOwnerJourneyProviderFault({ database, runId, providerOrigin: new URL(urls.message_provider).origin });
+    const fetchImpl = providerFault.wrapFetch(async (input, options = {}) => {
         const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
         const service = servicesByOrigin.get(url.origin);
         if (!service || service === 'catalog_domain_proxy') fail('undeclared_application_outbound');
         const method = options.method || 'GET';
         const response = await globalThis.fetch(input, { ...options, redirect: 'error', signal: options.signal || AbortSignal.timeout(5000) });
         const template = pathTemplate(url.pathname);
-        record({ service, method, path_template: template, status: response.status });
+        // This is evidence of a WA outbound request, not an independent
+        // observation served by the target Core/provider application.
+        recordOutbound({ service, method, path_template: template, status: response.status });
         if (response.ok && url.pathname.startsWith('/v1/integration/data/')) bump('provenance_reads');
         const messageEffect = service === 'message_provider' && method === 'POST'
             && (url.pathname === '/services/v1/messages.php' || /^\/v25\.0\/[^/]+\/messages$/.test(url.pathname));
@@ -102,19 +110,9 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
             if (contentEffect) bump('owned_content_http_requests');
             else if (execution?.capability_code === 'campaigns.execute') bump('owned_campaign_http_requests');
             else if (execution?.capability_code === 'messaging.send') bump('owned_message_http_requests');
-            let acknowledgement;
-            if (dropNextProviderAck && response.ok && (!faultCorrelation || faultCorrelation === key || faultCorrelation === token)) {
-                try { acknowledgement = await response.clone().json(); } catch { acknowledgement = null; }
-                const accepted = url.pathname === '/services/v1/messages.php'
-                    ? acknowledgement?.success === true && typeof acknowledgement.data?.message_id === 'string'
-                    : typeof acknowledgement?.messages?.[0]?.id === 'string' || typeof acknowledgement?.message_id === 'string'
-                        || typeof acknowledgement?.id === 'string' || typeof acknowledgement?.post_id === 'string';
-                if (accepted) { dropNextProviderAck = false; faultCorrelation = null; bump('commit_then_drop_ack');
-                    await response.body?.cancel(); throw new Error('Owned business provider acknowledgement intentionally dropped after its actual acceptance receipt'); }
-            }
         }
         return response;
-    };
+    });
     const billing = { ...billingModule, operations: billingModule.BILLING_OPERATIONS, database };
     const requestStore = new SmsApiRequestStore({ database });
     const providerOrigin = new URL(urls.message_provider).origin;
@@ -301,16 +299,10 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         const resultFetchRows = database.prepare('SELECT id,status,encrypted_result FROM owner_journey_native_result_fetches WHERE run_id=? ORDER BY id').all(runId)
             .map(row => ({ id: row.id, status: row.status, result: JSON.parse(decrypt(row.encrypted_result)) }));
         return { facts, capability_proofs: await capabilityEvidence.collect({ resultFetchRows }),
-            observations: database.prepare('SELECT service,method,path_template,status,observed_at FROM owner_journey_observations WHERE run_id=? ORDER BY id LIMIT 10000').all(runId) };
+            observations: database.prepare("SELECT service,method,path_template,status,observed_at FROM owner_journey_observations WHERE run_id=? AND service IN ('wa_savana','wa_frontend') ORDER BY id LIMIT 10000").all(runId) };
     };
     return { diagnostics, checkpoint: diagnostics, httpRouteTemplates,
-        fault: async input => {
-            if (!input || input.target !== 'message_provider' || !['commit_then_drop_ack', 'restore'].includes(input.mode)
-                || Object.keys(input).some(key => !['target', 'mode', 'run_id', 'correlation'].includes(key))
-                || (input.correlation !== undefined && (typeof input.correlation !== 'string' || !input.correlation || input.correlation.length > 1024))
-                || (input.run_id && input.run_id !== runId) || (dropNextProviderAck && input.mode !== 'restore')) fail('unsupported_owned_fault');
-            dropNextProviderAck = input.mode === 'commit_then_drop_ack'; faultCorrelation = dropNextProviderAck ? input.correlation || null : null; return diagnostics();
-        },
+        fault: input => providerFault.control(input),
         privateBrowserContext: { base_url: urls.message_provider, meta_api_base: `${urls.message_provider}/v25.0`, meta_app_id: metaAppId, meta_app_secret: metaAppSecret,
             webhook_verify_token: process.env.WEBHOOK_VERIFY_TOKEN, webhook_url: `${urls.wa_savana}/api/webhook`, oauth_redirect_uri: `${urls.wa_frontend}/auth/facebook/callback` },
         close: async () => { configureCollaborativeWebhookEvidence(null); configureNativeMessengerProfileTransport(null); } };

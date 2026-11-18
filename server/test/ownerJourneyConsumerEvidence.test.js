@@ -111,6 +111,70 @@ test('HTTP-shaped success alone, changed context/command, bad hash, empty result
     assert.deepEqual(service.snapshot().facts, { same_identity_result_fetches: 1 });
 });
 
+test('published Catalog inventory and order results count authorized result reads without inventing stock effects or deficit semantics', t => {
+    const { service } = fixture(t);
+    const resource = '11111111-1111-4111-8111-111111111111';
+    const line = { product_ref: resource, quantity: 1, unit_code: 'each', currency: 'LYD', unit_price: '12.345' };
+    const fact = { source_event_id: 'source-event-private', occurred_at: new Date(at).toISOString(), movement_type: 'sale', reason: 'private evidence', lines: [line] };
+    const operations = [
+        ['inventory.read', 'inventory.read', { limit: 20, cursor: 0 }],
+        ['inventory.facts', 'inventory.fact', fact],
+        ['inventory.transfer', 'inventory.transfer', { ...fact, movement_type: 'transfer', destination_warehouse_ref: resource }],
+        ['inventory.count', 'inventory.count_delta', { ...fact, movement_type: 'adjustment', direction: 'in' }],
+        ['orders.request', 'order.request', { quantity: '1', note: 'private order' }],
+        ['orders.request', 'order.cancel', { reason: 'private order reason' }],
+        ['orders.fulfil', 'order.transition', { transition: 'fulfill' }],
+        ['orders.fulfil', 'order.read', { fields: ['state'] }],
+    ];
+    for (const [index, [capability, action, parameters]] of operations.entries()) {
+        const raw = command(capability, action);
+        raw.command_id = `private-${action}`;
+        raw.payload = { payload_type: 'native_action', resource_ref: resource, parameters };
+        // NativeResult.data has no published inventory/order body contract. These
+        // bytes prove a scoped result read, not the names/values inside them.
+        const bytes = index % 2 ? representation('permitted_field\r\nprivate source value\r\n', 'text/csv')
+            : representation({ permitted_field: 'private source value', deficit: 999, reconciled: true });
+        assert.equal(service.recordResult(resultInput(raw, bytes)).recorded, true);
+    }
+    const snapshot = service.snapshot();
+    assert.deepEqual(snapshot.facts, { catalog_ledger_reads: 1, native_order_result_reads: 4, same_identity_result_fetches: 8 });
+    assert.equal(snapshot.resultFetchRows.length, 8);
+    for (const [capability, action] of operations) {
+        const row = snapshot.resultFetchRows.find(value => value.capability_code === capability && value.operation === action);
+        assert.equal(row.source_platform, 'catalog'); assert.equal(row.result_fetches, 1);
+        assert.equal(row.json_fetches + row.csv_fetches, 1);
+    }
+    for (const name of ['observed_catalog_deficits', 'requested_catalog_reconciliations', 'wa_owned_inventory_ledgers',
+        'native_sale_effects', 'native_order_fulfilments', 'native_order_cancellations', 'duplicate_order_effects']) {
+        assert.equal(Object.hasOwn(snapshot.facts, name), false);
+    }
+    assert.match(snapshot.observer.deficit_and_reconciliation, /Unmeasured/);
+});
+
+test('new inventory/order facts require the exact Catalog action and unchanged current positive source receipt', t => {
+    const { service } = fixture(t);
+    for (const [capability, action] of [['inventory.read', 'inventory.read'], ['orders.fulfil', 'order.read']]) {
+        for (const mutate of [
+            value => { value.before.command.source_result.source_revision = value.after.command.source_result.source_revision = null; },
+            value => { value.before.command.source_result.result_reference = value.after.command.source_result.result_reference = ''; },
+            value => { value.after.command.source_result.source_revision += 1; },
+            value => { value.after.identity.coreAccountId = 'other-current-core-account'; },
+            value => { value.representation.sha256 = '0'.repeat(64); },
+        ]) {
+            const input = resultInput(command(capability, action)); mutate(input);
+            assert.equal(service.recordResult(input).recorded, false);
+        }
+    }
+    assert.deepEqual(service.snapshot().facts, {});
+    for (const [capability, action] of [['inventory.facts', 'inventory.read'], ['orders.request', 'order.read'], ['services.reserve', 'reservation.request']]) {
+        assert.equal(service.recordResult(resultInput(command(capability, action))).recorded, true);
+    }
+    const own = resultInput(command('orders.fulfil', 'order.read'));
+    own.before.provider.platform = own.after.provider.platform = 'wa_savana';
+    assert.equal(service.recordResult(own).recorded, true);
+    assert.deepEqual(service.snapshot().facts, { same_identity_result_fetches: 4 });
+});
+
 test('customer denial requires actual Core403 after prior same-owner/run/command/version qualified customer.read, never WA-native substitution', t => {
     const { service, db } = fixture(t), raw = command();
     const denied = { principal, command: raw, identity, provider, scope, status: 403, pathTemplate: '/v1/integration/workspace/commands/:command/result' };

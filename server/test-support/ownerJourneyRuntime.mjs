@@ -35,8 +35,14 @@ export const ownerJourneyProviderEnvironment = config => ({
     SMS_GATEWAY_ALLOW_TENANT_MANUAL_CONFIG: 'true',
 });
 
-export const ownerJourneyObservations = (source, observed, nativeAuth) => source === undefined
-    ? [...observed] : [...source, ...nativeAuth];
+export const ownerJourneyObservations = (source, observed, nativeAuth) => {
+    // Persisted application observations are authoritative when available;
+    // in-process copies must not double count them. Auth exists only in the
+    // automatic runtime stream. Preserve repeated real calls, even identical
+    // tuples/timestamps. The existing recorders bound each source stream.
+    const ownServer = row => row?.service === 'wa_savana' || row?.service === 'wa_frontend';
+    return (source === undefined ? [...observed] : [...source, ...nativeAuth]).filter(ownServer);
+};
 
 export function privateOwnerBrowserContext(owner, provider, routeTemplates = []) {
     const output = { ordinary_owner: { username: owner.username, password: owner.password } };

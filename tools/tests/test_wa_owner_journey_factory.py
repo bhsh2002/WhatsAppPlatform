@@ -130,15 +130,44 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
         self.assert_code('owned_state_identity_changed', instance.stop, {})
         self.assertTrue(owned.is_symlink())
 
-    def test_faults_are_typed_owned_provider_controls_never_arbitrary_methods(self):
+    def test_canonical_fault_calls_owned_driver_once_and_returns_only_actual_typed_arming_receipt(self):
         instance = self.instance()
-        with mock.patch.object(instance, 'exchange', return_value={'configured': True}) as exchange:
-            instance.dispatch('fault', {'target': 'message_provider', 'mode': 'commit_then_drop_ack'})
-            self.assertEqual(exchange.call_count, 1)
-            self.assert_code('unsupported_fault', instance.dispatch, 'fault', {'target': 'public', 'mode': 'commit_then_drop_ack'})
-            self.assert_code('unsupported_fault', instance.dispatch, 'fault', {'target': 'message_provider', 'mode': 'success'})
-            self.assert_code('invalid_request', instance.dispatch, 'fault', {'target': 'message_provider', 'mode': 'restore', 'body': {}})
-            self.assertEqual(exchange.call_count, 1)
+        for boundary in ('owned_provider_http', 'native_adapter_http'):
+            receipt = {'fault': 'commit_then_drop_ack_once', 'armed': True, 'boundary': boundary}
+            with mock.patch.object(instance, 'exchange', return_value=receipt) as exchange, \
+                    mock.patch.object(factory, 'validate_schema') as diagnostic_validator:
+                self.assertEqual(instance.dispatch('fault', {'fault': 'commit_then_drop_ack_once'}), receipt)
+                exchange.assert_called_once_with('fault', {'target': 'message_provider', 'mode': 'commit_then_drop_ack'})
+                diagnostic_validator.assert_not_called()
+
+    def test_fault_rejects_unpublished_controls_and_unknown_keys_before_driver(self):
+        instance = self.instance()
+        with mock.patch.object(instance, 'exchange') as exchange:
+            for params in ({}, {'target': 'message_provider', 'mode': 'commit_then_drop_ack'},
+                           {'fault': 'commit_then_drop_ack_once', 'target': 'payment_provider'},
+                           {'fault': 'commit_then_drop_ack_once', 'correlation': 'unpublished-selector'},
+                           {'fault': 'commit_then_drop_ack_once', 'url': 'https://outside.invalid'},
+                           {'fault': 'commit_then_drop_ack_once', 'body': {}}, []):
+                self.assert_code('invalid_request', instance.dispatch, 'fault', params)
+            for fault in ('restore', 'commit_then_drop_ack', 'success', None, True, {}):
+                self.assert_code('unsupported_fault', instance.dispatch, 'fault', {'fault': fault})
+            exchange.assert_not_called()
+
+    def test_fault_never_fabricates_armed_ack_from_diagnostic_false_or_malformed_runtime_response(self):
+        instance = self.instance()
+        valid = {'fault': 'commit_then_drop_ack_once', 'armed': True, 'boundary': 'owned_provider_http'}
+        malformed = [None, {}, {'configured': True}, {'facts': {}}, {**valid, 'armed': False},
+                     {**valid, 'armed': 1}, {**valid, 'armed': 'true'}, {**valid, 'fault': 'restore'},
+                     {**valid, 'boundary': 'public_provider'}, {**valid, 'boundary': []},
+                     {key: value for key, value in valid.items() if key != 'boundary'},
+                     {**valid, 'secret': 'synthetic-private-value'}]
+        for response in malformed:
+            with self.subTest(response=response), mock.patch.object(instance, 'exchange', return_value=response) as exchange:
+                self.assert_code('runtime_protocol_invalid', instance.dispatch, 'fault', {'fault': 'commit_then_drop_ack_once'})
+                exchange.assert_called_once()
+        with mock.patch.object(instance, 'exchange', side_effect=factory.ProtocolError('runtime_not_running')) as exchange:
+            self.assert_code('runtime_not_running', instance.dispatch, 'fault', {'fault': 'commit_then_drop_ack_once'})
+            exchange.assert_called_once()
 
     def test_restart_reuses_private_memory_and_drops_credentials_from_response(self):
         instance = self.instance()
@@ -175,7 +204,28 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
                          '/portal/integrations?workspace=shared&action=capability-grants.manage')
         self.assertEqual(journeys['units_variants_owner_context']['capability_codes'], ['products.read'])
         self.assertNotIn('units.variants', journeys['units_variants_owner_context']['capability_codes'])
-        self.assertNotIn('inventory_sales_transfers_counts', journeys)
+        linked = {
+            'deficit_and_reconciliation': ['inventory.read'],
+            'inventory_sales_transfers_counts': ['inventory.read', 'inventory.facts', 'inventory.transfer', 'inventory.count'],
+            'orders_request_fulfil_cancel': ['orders.request', 'orders.fulfil'],
+        }
+        for scenario, codes in linked.items():
+            self.assertEqual(journeys[scenario], {
+                'owner_entrypoints': [{'service': 'wa_frontend', 'path': '/portal/integrations?workspace=shared'}],
+                'capability_codes': codes,
+            })
+        declarations = manifest['owner_journey_declarations']
+        self.assertIn('current operator-validated source owner_action_url', declarations['inventory_and_order_scope'])
+        self.assertIn('WA declares no native stock/order handler or inventory ledger', declarations['inventory_and_order_scope'])
+        self.assertIn('not WA native handler registration or every-provider support', declarations['linked_source_capability_tags'])
+        self.assertIn('global proof union', declarations['linked_source_capability_tags'])
+        self.assertIn('do not prove initiation', declarations['deficit_reconciliation_evidence'])
+        self.assertIn('source-native Catalog deficit body', declarations['deficit_reconciliation_evidence'])
+        self.assertIn('checked absence of WA inventory ledgers', declarations['deficit_reconciliation_evidence'])
+        self.assertIn('explicit Parent criterion correction', declarations['deficit_reconciliation_evidence'])
+        self.assertIn('no counter is invented', declarations['deficit_reconciliation_evidence'])
+        self.assertFalse(any('http://' in entry['path'] or 'https://' in entry['path']
+                             for scenario in linked for entry in journeys[scenario]['owner_entrypoints']))
         self.assertNotIn('collections_payment_refund', journeys)
         self.assertIn('does not certify a Catalog-owned', manifest['owner_journey_declarations']['media_scope'])
         app_routes = (factory.ROOT / 'client/src/App.jsx').read_text()
@@ -191,10 +241,10 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
                 mock.patch.object(factory, 'executable', side_effect=lambda value, kind: value):
             self.assert_code('new_absolute_output_required', factory.publish_manifest, instance_args)
 
-    def test_factory_identity_invalidates_when_either_fixture_only_evidence_helper_changes(self):
+    def test_factory_identity_invalidates_when_any_fixture_only_helper_changes(self):
         controller = self.root / 'tools/factory.py'; controller.parent.mkdir(); controller.write_text('synthetic controller')
         support = self.root / 'server/test-support'; support.mkdir(parents=True)
-        helpers = [support / name for name in ['ownerJourneyCapabilityProofs.js', 'ownerJourneyConsumerEvidence.js']]
+        helpers = [support / name for name in ['ownerJourneyCapabilityProofs.js', 'ownerJourneyConsumerEvidence.js', 'ownerJourneyProviderFault.js']]
         for helper in helpers:
             helper.write_text('synthetic evidence helper version one')
         with mock.patch.object(factory, 'ROOT', self.root), mock.patch.object(factory, '__file__', str(controller)), \

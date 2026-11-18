@@ -164,6 +164,7 @@ def factory_identity():
     rows = []
     for file in (Path(__file__), RUNTIME, APPLICATION, ROOT / 'server/test-support/ownerJourneyRouteTemplates.js',
                  ROOT / 'server/test-support/ownerJourneyCapabilityProofs.js', ROOT / 'server/test-support/ownerJourneyConsumerEvidence.js',
+                 ROOT / 'server/test-support/ownerJourneyProviderFault.js',
                  ROOT / 'tools/package_wa_production_candidate.py',
                  *sorted(CONTRACTS.glob('*.schema.json'))):
         if file.is_symlink() or (file.exists() and file.resolve() != file):
@@ -368,11 +369,21 @@ class Factory:
             if params and (not isinstance(params['scenario'], str) or not re.fullmatch(r'[a-z_]{1,100}', params['scenario'])):
                 raise ProtocolError('invalid_request')
         elif command == 'fault':
-            strict_object(params, ('target', 'mode'), ('correlation',))
-            if params['target'] not in {'message_provider', 'payment_provider'} or params['mode'] not in {'commit_then_drop_ack', 'restore'}:
+            strict_object(params, ('fault',))
+            if params['fault'] != 'commit_then_drop_ack_once':
                 raise ProtocolError('unsupported_fault')
-            if 'correlation' in params and (not isinstance(params['correlation'], str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', params['correlation'])):
-                raise ProtocolError('invalid_request')
+            # The public runner names a fault, never a provider/URL or payload.
+            # Only the owned application's existing HTTP fault boundary is used.
+            result = self.exchange('fault', {'target': 'message_provider', 'mode': 'commit_then_drop_ack'})
+            try:
+                strict_object(result, ('fault', 'armed', 'boundary'))
+                if result['fault'] != params['fault'] or result['armed'] is not True \
+                        or not isinstance(result['boundary'], str) \
+                        or result['boundary'] not in {'owned_provider_http', 'native_adapter_http'}:
+                    raise ProtocolError('runtime_protocol_invalid')
+            except ProtocolError:
+                raise ProtocolError('runtime_protocol_invalid') from None
+            return result
         else:
             raise ProtocolError('invalid_request')
         result = self.exchange(command, params)
@@ -422,6 +433,9 @@ def publish_manifest(args):
         'shared_search_detail_provenance': ([workspace], ['products.read']),
         'authoritative_product_create_change': ([workspace + '&action=product.create', workspace + '&action=product.change'], ['products.write']),
         'unknown_outcome_reconciliation': ([workspace], ['owner.operations']),
+        'deficit_and_reconciliation': ([workspace], ['inventory.read']),
+        'inventory_sales_transfers_counts': ([workspace], ['inventory.read', 'inventory.facts', 'inventory.transfer', 'inventory.count']),
+        'orders_request_fulfil_cancel': ([workspace], ['orders.request', 'orders.fulfil']),
         'permission_and_read_withdrawal': ([workspace], ['products.read']),
         'persisted_reload_resume': ([workspace], ['owner.operations']),
         'units_variants_owner_context': ([workspace], ['products.read']),
@@ -451,7 +465,10 @@ def publish_manifest(args):
             'unit_and_price_scope': 'WA displays actual granted source product unit/price context. Unit/variant or price-list mutations remain at the actual authoritative source, not a WA native implementation.',
             'media_scope': 'The media form manages native WhatsApp assets. Catalog-owned product media uses the current operator-validated source owner_action_url, actual source-owned form and Core peer preview, with WA command/results consumption. This declaration does not certify a Catalog-owned media journey or substitute native assets for Catalog asset/rights authority.',
             'customer_scope': 'The customer form manages native scoped CRM contacts. Catalog-owned customer actions use the current operator-validated source owner_action_url, actual source-owned purpose/consent form and Core peer preview, with WA command/results consumption. Native CRM does not substitute for Catalog authority; joint acceptance is unproved here.',
-            'other_platform_operations': 'No WA native domain, stock, order, capacity or payment form is declared. Their authoritative platform journeys require their own real source entrypoints and evidence.',
+            'inventory_and_order_scope': 'These three journeys start in the real shared workspace and its current named activity/source capability cards. Authoritative Catalog forms open only through the current operator-validated source owner_action_url; no static Catalog URL is declared. WA is the requester/consumer and reads current Core command status and actual source JSON/CSV results. Catalog owns stock facts, warehouses, transfers, counts, order fulfilment and cancellation; WA declares no native stock/order handler or inventory ledger.',
+            'linked_source_capability_tags': 'Inventory/order capability_codes describe the actual linked source operation navigation and scoped WA consumption, not WA native handler registration or every-provider support. Required native capability_proofs are supplied by the actual authoritative source in the global proof union; a card or this declaration proves no native effect.',
+            'deficit_reconciliation_evidence': 'WA may observe an actual Catalog deficit and navigate to its current authorized source reconciliation form. requested_catalog_reconciliations requires a separately correlated actual owner request at that source; generic result reads or opening a source link do not prove initiation. Generic Core result JSON/CSV also does not establish the source-native Catalog deficit body or a checked absence of WA inventory ledgers. Unmeasured deficit, initiation and inventory-invariant facts remain pending for actual observer proof or explicit Parent criterion correction; no counter is invented.',
+            'other_platform_operations': 'No WA native domain, stock, order, capacity or payment form is declared. Stock/order requester-consumer navigation is declared separately above; authoritative platform forms and effects still require their own real source entrypoints and evidence.',
             'required_evidence': 'Same-run browser observations plus actual per-operation capability_proofs and correlated native results; declarations, descriptors and queue acceptance are insufficient.',
         },
         **PEER_METADATA,

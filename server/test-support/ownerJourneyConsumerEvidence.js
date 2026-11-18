@@ -16,6 +16,11 @@ const semanticResults = new Map([
     [pair('units.variants', 'unit.define'), 'unit_variant_consumer_reads'],
     [pair('prices.manage', 'price.set'), 'price_list_consumer_reads'],
     [pair('media.manage', 'media.replace'), 'authorized_media_reads'],
+    [pair('inventory.read', 'inventory.read'), 'catalog_ledger_reads'],
+    [pair('orders.request', 'order.request'), 'native_order_result_reads'],
+    [pair('orders.request', 'order.cancel'), 'native_order_result_reads'],
+    [pair('orders.fulfil', 'order.transition'), 'native_order_result_reads'],
+    [pair('orders.fulfil', 'order.read'), 'native_order_result_reads'],
 ]);
 const mediaDescription = count => `ملفات مرفقة مشتركة: ${count} — عرض المحتوى غير متاح من هنا`;
 const safeLabel = value => text(value) && !/^[a-f0-9]{64}$/i.test(value) && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
@@ -167,6 +172,8 @@ export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () =
         observer: { started_at: database.prepare('SELECT started_at FROM owner_journey_consumer_runs WHERE run_id=?').get(runId).started_at,
             events: database.prepare('SELECT COUNT(*) n FROM owner_journey_consumer_events WHERE run_id=?').get(runId).n,
             semantic_loss_zeros: 'Measured only against actual decoded product fields/current named source policy and exact presented output.',
+            inventory_and_order_reads: 'Counts current authorized bytes of the exact published Catalog capability/action result, not stock quantities, fulfilled orders or body-field preservation. Other inventory actions remain in resultFetchRows only.',
+            deficit_and_reconciliation: 'Unmeasured: generic result JSON/CSV does not establish a deficit, a reconciliation request or absence of a WA inventory ledger. A count_delta result alone does not establish reconciliation.',
             customer_field_exposure_zero: 'Unmeasured: unconstrained result JSON/CSV cannot prove every customer field mask.',
             denial_meaning: 'A prior same-owner/run/command Catalog customer.read result was followed by an actual current Core403; the independent owner withdrawal proof establishes its cause.' },
     });
