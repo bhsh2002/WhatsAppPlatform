@@ -416,24 +416,21 @@ export class SavanaIntegrationService {
     }
 
     commitLifecycleConnection(item, snapshot, { baseline, secret, proof = null, entitlement = null, fill = false,
-        clearPendingKey = false, allowConnectionChange = false, harmlessDuplicate = false }) {
+        allowConnectionChange = false, harmlessDuplicate = false }) {
         const actual = this.get(item.tenant_id, item.platform_code);
         try {
-            const expectedConnectionId = harmlessDuplicate && !fill && !clearPendingKey && actual.connection_id === snapshot.connectionId
+            const expectedConnectionId = harmlessDuplicate && !fill && actual.connection_id === snapshot.connectionId
                 ? actual.connection_id : baseline.row.connection_id;
             return this.lifecycle.applyVerified(snapshot, { expectedConnectionId, allowConnectionChange,
                 verifyCurrentState: proof,
-                duplicateEffect: clearPendingKey ? 'pending_key_clear' : 'initial_key_fill',
-                onDuplicate: clearPendingKey ? () => {
-                    this.db.prepare('UPDATE savana_integrations SET webhook_secret_encrypted=NULL WHERE id=?').run(item.id);
-                    this.reconcileIntegrationMembershipVisibility(item.id, item.tenant_id);
-                } : fill ? () => {
+                duplicateEffect: 'initial_key_fill',
+                onDuplicate: fill ? () => {
                     this.db.prepare('UPDATE savana_integrations SET webhook_secret_encrypted=? WHERE id=? AND webhook_secret_encrypted IS NULL')
                         .run(encryptConnectionSecret(this.config, secret), item.id);
                 } : null,
                 onApply: value => {
                     const current = this.db.prepare('SELECT * FROM savana_integrations WHERE id=?').get(item.id);
-                    const encrypted = clearPendingKey || ['revoked', 'rejected'].includes(value.status) ? null : this.lifecycleSecret(current, value.connectionId, secret);
+                    const encrypted = ['revoked', 'rejected'].includes(value.status) ? null : this.lifecycleSecret(current, value.connectionId, secret);
                     if (current.connection_id && current.connection_id !== value.connectionId) {
                         this.ensureSnapshotMembershipBackfill(item.tenant_id);
                         this.db.prepare('UPDATE savana_product_snapshot_memberships SET is_active=0 WHERE integration_id=?').run(item.id);
@@ -464,7 +461,7 @@ export class SavanaIntegrationService {
     }
 
     async applyLifecycleConnection(item, connection, { baseline = this.lifecycleBaseline(item), secret,
-        prefetchEntitlement = false, verifiedEntitlement = null, currentConnection = null, allowConnectionChange = false, clearPendingKey = false } = {}) {
+        prefetchEntitlement = false, verifiedEntitlement = null, currentConnection = null, allowConnectionChange = false } = {}) {
         const snapshot = this.lifecycleSnapshot(item, connection), fingerprint = fingerprintSavanaLifecycleSnapshot(snapshot);
         const stored = this.lifecycle.read(snapshot.connectionId);
         const equal = stored?.version === snapshot.version && stored.snapshotFingerprint === fingerprint;
@@ -474,14 +471,14 @@ export class SavanaIntegrationService {
         if (secret !== undefined && actual.connection_id === snapshot.connectionId && actual.webhook_secret_encrypted) {
             this.lifecycleSecret(actual, snapshot.connectionId, secret);
         }
-        const keyFill = !clearPendingKey && equal && secret !== undefined && actual.webhook_secret_encrypted === null
+        const keyFill = equal && secret !== undefined && actual.webhook_secret_encrypted === null
             && ['pending_authorization', 'active', 'degraded'].includes(snapshot.status);
         const apply = (proof, entitlement, fill = false) => this.commitLifecycleConnection(item, snapshot,
-            { baseline, secret, proof, entitlement, fill, clearPendingKey, allowConnectionChange, harmlessDuplicate: equal });
-        if ((stored && stored.version !== null && snapshot.version <= stored.version) && !keyFill && !clearPendingKey) {
+            { baseline, secret, proof, entitlement, fill, allowConnectionChange, harmlessDuplicate: equal });
+        if ((stored && stored.version !== null && snapshot.version <= stored.version) && !keyFill) {
             apply(null, null); return this.get(item.tenant_id, item.platform_code);
         }
-        const needsCurrent = !stored || stored.version === null || keyFill || clearPendingKey || actual.connection_id !== snapshot.connectionId;
+        const needsCurrent = !stored || stored.version === null || keyFill || actual.connection_id !== snapshot.connectionId;
         if (needsCurrent) {
             currentConnection ||= await this.currentLifecycleConnection(item, snapshot.connectionId);
             const currentSnapshot = this.lifecycleSnapshot(item, currentConnection);
@@ -508,7 +505,7 @@ export class SavanaIntegrationService {
         actual = this.get(item.tenant_id, item.platform_code);
         const fill = keyFill && actual?.webhook_secret_encrypted === null;
         if (keyFill && !fill) this.lifecycleSecret(actual, snapshot.connectionId, secret);
-        if ((!equal || fill || clearPendingKey) && !this.lifecycleBaselineCurrent(baseline)) lifecycleFailure('lifecycle_binding_changed', 409);
+        if ((!equal || fill) && !this.lifecycleBaselineCurrent(baseline)) lifecycleFailure('lifecycle_binding_changed', 409);
         apply(proof, entitlement, fill);
         return this.get(item.tenant_id, item.platform_code);
     }
@@ -1430,20 +1427,38 @@ export class SavanaIntegrationService {
         }
         if (!payload || Object.keys(payload).length !== 2 || !Object.hasOwn(payload, 'connection') || !Object.hasOwn(payload, 'action')) lifecycleFailure();
         const parsed = this.parseLifecycleConnection(payload.connection);
-        const compensation = deliveryId === undefined && version === undefined && payload.action === 'revoked';
-        if (compensation && parsed.connection.status !== 'pending_authorization') lifecycleFailure('lifecycle_compensation_requires_reconciliation', 503);
-        if (!compensation && (typeof deliveryId !== 'string' || deliveryId.length !== 36 || !UUID_PATTERN.test(deliveryId)
+        const compensation = deliveryId === undefined && version === undefined && payload.action === 'revoked'
+            && lifecycleLocalStatus(parsed.connection.status) !== 'revoked';
+        if (compensation) {
+            // A legacy cleanup is only a hint to read current Core state. It
+            // cannot delete a key, declare revoked or reclaim another binding.
+            const item = this.get(parsed.tenantId, parsed.platformCode);
+            if (!item) lifecycleFailure('lifecycle_recovery_required', 404);
+            if (item.connection_id !== null && item.connection_id !== parsed.connection.id) lifecycleFailure('lifecycle_binding_conflict', 409);
+            const baseline = this.lifecycleBaseline(item), hinted = this.lifecycleSnapshot(item, parsed.connection);
+            const current = await this.currentLifecycleConnection(item, parsed.connection.id);
+            const verified = this.lifecycleSnapshot(item, current);
+            const immutableFields = ['id', 'organization_id', 'source_platform', 'target_platform', 'source_tenant_id', 'target_tenant_id',
+                'source_external_tenant_id', 'target_external_tenant_id'];
+            if (immutableFields.some(key => parsed.connection[key] !== current[key])
+                || hinted.connectionId !== verified.connectionId || canonicalJson(hinted.binding) !== canonicalJson(verified.binding)) {
+                lifecycleFailure('lifecycle_binding_conflict', 409);
+            }
+            if (!this.lifecycleBaselineCurrent(baseline)) lifecycleFailure('lifecycle_binding_changed', 409);
+            return this.applyLifecycleConnection(item, current, { baseline, currentConnection: current });
+        }
+        if (typeof deliveryId !== 'string' || deliveryId.length !== 36 || !UUID_PATTERN.test(deliveryId)
             || typeof version !== 'string' || !/^(0|[1-9][0-9]*)$/.test(version)
             || !Number.isSafeInteger(Number(version)) || String(Number(version)) !== version
-            || Number(version) !== parsed.connection.lifecycle_version)) lifecycleFailure('lifecycle_headers_invalid');
-        if (!compensation && (!['active', 'paused', 'degraded', 'revoked'].includes(payload.action)
-            || payload.action !== lifecycleLocalStatus(parsed.connection.status))) lifecycleFailure();
+            || Number(version) !== parsed.connection.lifecycle_version) lifecycleFailure('lifecycle_headers_invalid');
+        if (!['active', 'paused', 'degraded', 'revoked'].includes(payload.action)
+            || payload.action !== lifecycleLocalStatus(parsed.connection.status)) lifecycleFailure();
         if (!this.db.prepare('SELECT id FROM tenants WHERE id=?').get(parsed.tenantId)) {
             throw new SavanaIntegrationError('Tenant was not found', 404, 'tenant_not_found');
         }
         const item = this.incomingLifecycleItem(parsed);
         const baseline = this.lifecycleBaseline(item);
-        return this.applyLifecycleConnection(item, parsed.connection, { baseline, allowConnectionChange: !compensation, clearPendingKey: compensation });
+        return this.applyLifecycleConnection(item, parsed.connection, { baseline, allowConnectionChange: true });
     }
 
     async transition(item, action, actorId) {

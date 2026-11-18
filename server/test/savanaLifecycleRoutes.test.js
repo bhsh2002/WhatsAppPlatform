@@ -419,33 +419,119 @@ test('invalid entitlement cannot partially provision a key or ordering cursor af
     assert.deepEqual(f.state.requests.map(row => row.kind), ['current', 'entitlement']);
 });
 
-test('pending-zero compensation only clears unused key after exact fresh proof, and a proven refill never rotates on retry', async t => {
+test('pending-zero compensation is a fresh-current hint that preserves the encrypted but unusable pending key', async t => {
     const f = await fixture(t);
+    const hint = () => f.post('lifecycle', { connection: connection(), action: 'revoked' });
+    const missing = await hint();
+    assert.equal(missing.status, 404); assert.equal(missing.body.code, 'lifecycle_recovery_required');
+    assert.equal(f.db.prepare('SELECT COUNT(*) n FROM savana_integrations').get().n, 0);
+    assert.equal(f.state.requests.length, 0);
     assert.equal((await f.provision()).status, 200);
-    const cursor = copy(f.cursor());
-    assert.equal((await f.post('lifecycle', { connection: f.state.current, action: 'revoked' })).status, 200);
+    const before = f.saved(), requests = f.state.requests.length;
+    assert.ok(before.integration.webhook_secret_encrypted);
+    assert.equal((await hint()).status, 200);
+    assert.deepEqual(f.saved(), before);
     assert.equal(f.service.get(1, 'catalog').status, 'pending_authorization');
-    assert.equal(f.service.get(1, 'catalog').webhook_secret_encrypted, null);
-    const cleaned = f.cursor();
-    for (const key of ['connectionId', 'version', 'status', 'scopes', 'binding', 'snapshotFingerprint']) {
-        assert.deepEqual(cleaned[key], cursor[key]);
-    }
-    assert.equal(cleaned.pendingCleanupVersion, 0);
-    assert.equal(cleaned.pendingCleanupFingerprint, cleaned.snapshotFingerprint);
+    assert.equal(f.cursor().pendingCleanupVersion, null); assert.equal(f.cursor().pendingCleanupFingerprint, null);
+    // The retained credential is not usable while the actual canonical status
+    // is pending. Even correctly signed delivery cannot bypass that state.
+    const timestamp = String(Math.floor(Date.now() / 1000)), deliveryId = crypto.randomUUID();
+    const rejectedEvent = await f.post('events', {}, { 'X-Savana-Connection-Id': f.state.current.id,
+        'X-Savana-Delivery-Id': deliveryId, 'X-Savana-Timestamp': timestamp,
+        'X-Savana-Signature': signWebhook(f.config.callbackToken, timestamp, deliveryId, Buffer.from('{}')) });
+    assert.equal(rejectedEvent.status, 404); assert.equal(rejectedEvent.body.code, 'connection_not_found');
+    assert.deepEqual(f.saved(), before);
     assert.equal((await f.provision()).status, 200);
-    const encrypted = f.service.get(1, 'catalog').webhook_secret_encrypted;
-    assert.ok(encrypted);
-    const before = f.saved(); assert.equal((await f.provision()).status, 200); assert.deepEqual(f.saved(), before);
-    // Retrying an already-applied cleanup must not erase a subsequently repaired
-    // key for that same canonical pending tuple, including after lost ACK.
-    assert.equal((await f.post('lifecycle', { connection: connection(), action: 'revoked' })).status, 200);
+    assert.equal((await hint()).status, 200);
     assert.deepEqual(f.saved(), before);
-    assert.equal(f.service.get(1, 'catalog').webhook_secret_encrypted, encrypted);
-    f.state.current = connection({ status: 'active', lifecycle_version: 1 });
-    assert.equal((await f.post('lifecycle', { connection: connection(), action: 'revoked' })).status, 409);
+    assert.deepEqual(f.state.requests.slice(requests).map(row => row.kind), ['current', 'current']);
+});
+
+test('noncanonical compensation projects only fresh exact Core state and cannot replace or repair credentials from a hint', async t => {
+    const f = await fixture(t); await f.activate(); f.seedProduct();
+    const consentId = crypto.randomUUID(), actor = 'synthetic-retained-owner';
+    const recorded = new Date(Date.now() - 20_000).toISOString(), revokedAt = new Date(Date.now() - 10_000).toISOString();
+    const scope = canonicalJson({ organization_id: organizationId, activity_id: 'synthetic-retained-activity', branch_id: null, warehouse_id: null });
+    const evidence = canonicalJson({ kind: 'owner_recorded', reference: 'synthetic-withdrawn-evidence',
+        note: 'Synthetic withdrawn historical evidence; it grants no current rights.' });
+    const sha = value => crypto.createHash('sha256').update(value).digest('hex');
+    // A real063 row plus its revocation audit is deliberately nonempty and
+    // revoked. Refresh/reprovision cannot silently recreate consent or version1.
+    f.db.prepare(`INSERT INTO savana_collaborative_consents(id,tenant_id,organization_id,activity_id,scope_json,scope_hash,
+        channel,account_ref,account_fingerprint,recipient_ref,recipient_fingerprint,purpose,evidence_kind,evidence_json,evidence_hash,
+        recorded_by_actor,recorded_at,valid_until,version,revoked_at,revoked_by_actor,operation_key,operation_hash,created_at,updated_at)
+        VALUES(?,1,?,?,?,?, 'native','native_contacts',?,'native_contact:900001',?,'business_record','owner_recorded',?,?,?, ?,?,2,?,?,?,?,?,?)`)
+        .run(consentId, organizationId, 'synthetic-retained-activity', scope, sha(scope), sha('synthetic-native-account'),
+            sha('synthetic-historical-recipient'), evidence, sha(evidence), actor, recorded,
+            new Date(Date.now() + 86_400_000).toISOString(), revokedAt, actor, 'synthetic-withdrawn-consent',
+            sha('synthetic-recorded-operation'), recorded, revokedAt);
+    f.db.prepare(`INSERT INTO savana_collaborative_consent_audit(id,consent_id,version,action,actor_id,evidence_hash,occurred_at)
+        VALUES(?,?,2,'revoked',?,?,?)`).run(crypto.randomUUID(), consentId, actor, sha(evidence), revokedAt);
+    const consentState = () => ({ row: f.db.prepare('SELECT * FROM savana_collaborative_consents WHERE id=?').get(consentId),
+        audit: f.db.prepare('SELECT * FROM savana_collaborative_consent_audit WHERE consent_id=? ORDER BY version').all(consentId) });
+    const retainedConsent = consentState();
+    assert.equal(retainedConsent.row.version, 2); assert.equal(retainedConsent.row.revoked_at, revokedAt);
+    assert.equal(retainedConsent.audit.length, 1);
+    const consentUnchanged = () => assert.deepEqual(consentState(), retainedConsent);
+    const hint = value => f.post('lifecycle', { connection: value, action: 'revoked' });
+    const active = copy(f.state.current);
+    let before = f.saved(), requests = f.state.requests.length;
+    assert.equal((await hint(active)).status, 200);
     assert.deepEqual(f.saved(), before);
-    assert.equal((await f.post('lifecycle', { connection: f.state.current, action: 'revoked' })).status, 503);
-    assert.equal(f.service.get(1, 'catalog').webhook_secret_encrypted, encrypted);
+    consentUnchanged();
+    assert.deepEqual(f.state.requests.slice(requests).map(row => row.kind), ['current']);
+    const degraded = connection({ status: 'degraded', lifecycle_version: 2 });
+    assert.equal((await f.deliver(degraded)).status, 200); f.state.current = degraded;
+    assert.equal((await f.provision()).status, 200);
+    before = f.saved(); requests = f.state.requests.length;
+    assert.equal((await hint(degraded)).status, 200);
+    assert.deepEqual(f.saved(), before);
+    consentUnchanged();
+    assert.deepEqual(f.state.requests.slice(requests).map(row => row.kind), ['current']);
+    assert.equal(f.db.prepare('SELECT is_active FROM bot_products').get().is_active, 1);
+
+    f.state.currentStatus = 503;
+    const unavailable = await hint(active);
+    assert.equal(unavailable.status, 502); assert.equal(unavailable.body.code, 'lifecycle_current_state_required');
+    assert.deepEqual(f.saved(), before);
+    f.state.currentStatus = 200;
+    f.state.current = { ...degraded, source_tenant_id: 'synthetic-foreign-catalog-account' };
+    const foreignCurrent = await hint(active);
+    assert.equal(foreignCurrent.status, 409); assert.equal(foreignCurrent.body.code, 'lifecycle_binding_conflict');
+    assert.deepEqual(f.saved(), before);
+    f.state.current = degraded;
+    const foreignHint = await hint({ ...active, source_tenant_id: 'synthetic-foreign-catalog-account' });
+    assert.equal(foreignHint.status, 409); assert.equal(foreignHint.body.code, 'lifecycle_binding_conflict');
+    assert.deepEqual(f.saved(), before);
+    consentUnchanged();
+
+    // A current GET contains no credential. Losing the local key cannot cause
+    // a synthetic repair, reset of entitlements, or a new approval/version.
+    f.db.prepare('UPDATE savana_integrations SET webhook_secret_encrypted=NULL').run();
+    before = f.saved();
+    assert.equal((await hint(degraded)).status, 200); assert.deepEqual(f.saved(), before);
+    requests = f.state.requests.length;
+    assert.equal((await f.provision()).status, 200);
+    const repaired = f.service.get(1, 'catalog');
+    assert.ok(repaired.webhook_secret_encrypted);
+    const { webhook_secret_encrypted: _missingKey, ...missingKeyRow } = before.integration;
+    const { webhook_secret_encrypted: _repairedKey, ...repairedRow } = repaired;
+    assert.deepEqual(repairedRow, missingKeyRow); assert.deepEqual(f.saved().cursor, before.cursor);
+    assert.deepEqual(f.state.requests.slice(requests).map(row => row.kind), ['current']);
+    consentUnchanged();
+    before = f.saved();
+    assert.equal((await hint(degraded)).status, 200); assert.deepEqual(f.saved(), before);
+    f.state.current = connection({ status: 'revoked', lifecycle_version: 3 });
+    assert.equal((await hint(active)).status, 200);
+    assert.equal(f.cursor().version, 3); assert.equal(f.service.get(1, 'catalog').status, 'revoked');
+    assert.equal(f.service.get(1, 'catalog').webhook_secret_encrypted, null);
+    assert.equal(f.db.prepare('SELECT is_active FROM bot_products').get().is_active, 0);
+    f.state.current = connection({ status: 'rejected', lifecycle_version: 4 });
+    assert.equal((await hint(active)).status, 200);
+    assert.equal(f.cursor().version, 4); assert.equal(f.cursor().status, 'rejected');
+    assert.equal(f.service.get(1, 'catalog').status, 'revoked');
+    assert.equal(f.service.get(1, 'catalog').webhook_secret_encrypted, null);
+    consentUnchanged();
 });
 
 const childProgram = `

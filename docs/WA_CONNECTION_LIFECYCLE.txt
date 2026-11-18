@@ -8,7 +8,8 @@ is valid; a missing local or incoming version is never converted to zero.
 The existing public connection document also supplies transition/current-GET
 responses. No callback creates an actor grant, consent or subscription approval.
 
-Migration 071 adds a per-connection ordering cursor and a pending-cleanup receipt.
+Migration 071 adds a per-connection ordering cursor and retains cleanup-receipt
+metadata for compatibility with earlier local lifecycle handling.
 It does not seed versions for existing connections or change their keys, rows,
 grants or event history. State, scopes, permitted key changes, membership backfill,
 product visibility and the cursor commit in one immediate SQLite transaction.
@@ -37,13 +38,15 @@ previous account's cached products visible. Snapshot history and ordering remain
 intact; only fresh authorized source data can establish the new memberships.
 
 Legacy partial-provision compensation has only the callback token and may request
-revoked while its snapshot remains pending. The bounded pending cleanup first
-verifies the exact current Core pending state, then clears the unused key and
-reconciles visibility without inventing a canonical revoked version. Its durable
-receipt makes a later identical cleanup a no-op even after a same-version repair.
-The receipt also fences an older in-flight key fill when cleanup changed no key.
-Nonpending token-only cleanup requires reconciliation; it is not interpreted as
-an authoritative same-version Core revocation.
+revoked while carrying an older, different snapshot status. This is only a hint:
+validate its account binding, read the actual scoped current Core connection,
+then apply that current document through the same version and transaction gate.
+The hint never deletes a key or supplies a canonical revoked version. Current
+active/degraded state preserves its valid encrypted key; pending remains unusable
+and may retain its encrypted key. Only current canonical revoked/rejected state
+clears it. A failed lookup, conflicting binding or changed local baseline leaves
+all state untouched and requires recovery. A GET cannot fill a missing key;
+explicit verified reprovision remains necessary and does not renew consent.
 
 Deployment remains Root-owned. Apply the exact reviewed migrations through 071
 before starting this server, with actual schema/history checks and the existing
