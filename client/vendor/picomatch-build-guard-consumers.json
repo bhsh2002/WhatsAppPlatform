@@ -98,7 +98,7 @@
     },
     "vendor/picomatch-build-guard-verifier.json": {
       "bytes": 1854,
-      "sha256": "1a0123af3a577d164ec0f4aa0c50ac640cc5824606789fdfc8f6f1208ef665d1"
+      "sha256": "da1ebbee786e1fdca916842d31475e11bfaadf50a379917b87fbf68289e03005"
     },
     "vite.config.js": {
       "bytes": 1048,

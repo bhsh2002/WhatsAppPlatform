@@ -53,7 +53,7 @@ jobs:
     # this actual finite Linux cgroup limit, not an asserted config value.
     container:
       image: node:22.23.5-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb
-      options: --memory=1g --memory-swap=1g --pids-limit=256 --cpus=2
+      options: --memory=2g --memory-swap=2g --pids-limit=256 --cpus=2
     env:
       NODE_OPTIONS: ''
     steps:

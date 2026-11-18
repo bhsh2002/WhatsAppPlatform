@@ -54,6 +54,6 @@
   "limits": {
     "npmDeadlineMilliseconds": 30000,
     "proofDeadlineMilliseconds": 15000,
-    "maxCIMemoryLimitBytes": 1073741824
+    "maxCIMemoryLimitBytes": 2147483648
   }
 }

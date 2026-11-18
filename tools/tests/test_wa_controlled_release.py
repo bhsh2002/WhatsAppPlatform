@@ -122,7 +122,7 @@ class ControlledReleaseTests(unittest.TestCase):
             self.assertIn('org.opencontainers.image.revision=' + revision, cmd)
             self.assertIn('savana.candidate.source-sha256=' + marker, cmd)
             self.assertEqual([cmd[index + 1] for index, flag in enumerate(cmd) if flag == '--resource'],
-                             ['memory=1g', 'memory-swap=1g', 'cpu-period=100000', 'cpu-quota=200000'])
+                             ['memory=2g', 'memory-swap=2g', 'cpu-period=100000', 'cpu-quota=200000'])
             self.assertEqual(cmd[cmd.index('--metadata-file') + 1], str(f.root / f'evidence/{part}-buildx.json'))
             self.assertNotIn('--no-cache', cmd)
         self.assertIn('VITE_WA_CLIENT_RELEASE=' + marker, builds[1])
@@ -251,7 +251,9 @@ class ControlledReleaseTests(unittest.TestCase):
             self.assertLess(text.index('tools/wa_controlled_release.py verify-builder'), text.index('tools/wa_controlled_release.py build'))
             self.assertNotIn('pids-limit=', text.split('driver-opts:')[-1].split('\n\n')[0])
             self.assertNotIn('no-process-sandbox', text); self.assertNotIn('rootless', text)
-        self.assertIn('options: --memory=1g --memory-swap=1g --pids-limit=256 --cpus=2', ci)
+        self.assertIn('options: --memory=2g --memory-swap=2g --pids-limit=256 --cpus=2', ci)
+        approved_guard = json.loads((root / 'client/vendor/picomatch-build-guard-verifier.json').read_text())
+        self.assertEqual(approved_guard['limits']['maxCIMemoryLimitBytes'], 2147483648)
         self.assertIn('node scripts/verify-picomatch-build-guard.cjs\n', ci)
         for path in ('client/Dockerfile', 'ops/release/client.Dockerfile'):
             recipe = (root / path).read_text()
