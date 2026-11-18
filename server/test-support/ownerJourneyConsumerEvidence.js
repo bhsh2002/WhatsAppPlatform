@@ -25,6 +25,11 @@ const semanticResults = new Map([
 const mediaDescription = count => `ملفات مرفقة مشتركة: ${count} — عرض المحتوى غير متاح من هنا`;
 const safeLabel = value => text(value) && !/^[a-f0-9]{64}$/i.test(value) && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const evidenceText = (value, max = 255) => text(value) && [...value].length <= max && !value.includes('\0');
+const exactResultScope = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === scopeKeys.length && scopeKeys.every(key => Object.hasOwn(value, key))
+    && evidenceText(value.organization_id) && evidenceText(value.activity_id)
+    && ['branch_id', 'warehouse_id'].every(key => value[key] === null || evidenceText(value[key]))
+    && (value.warehouse_id === null || value.branch_id !== null);
 const catalogEvidencePairs = new Set([pair('inventory.read', 'inventory.read'), pair('inventory.count', 'inventory.count_delta')]);
 
 // Factory-only observer. No Database constructor, business reads, network calls
@@ -141,13 +146,17 @@ export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () =
             || command.payload?.payload_type !== 'native_action' || !command.payload.parameters
             || typeof command.payload.parameters !== 'object' || Array.isArray(command.payload.parameters)
             || !evidenceText(command.command_id) || !evidenceText(command.provider_ref)
-            || !/^[a-f0-9]{64}$/.test(command.approval_fingerprint || '')
+            || typeof command.approval_fingerprint !== 'string' || command.approval_fingerprint.length !== 64
+            || !/^[a-f0-9]{64}$/.test(command.approval_fingerprint)
             || !evidenceText(command.source_result.local_entity_id) || !evidenceText(command.source_result.result_reference, 1000)
             || !evidenceText(before.sourceInstallationId) || before.sourceInstallationId !== after.sourceInstallationId) return null;
-        const scope = scopeOf(before.scope);
-        if (!evidenceText(scope.organization_id) || !evidenceText(scope.activity_id)
-            || ['branch_id', 'warehouse_id'].some(key => scope[key] !== null && !evidenceText(scope[key]))
-            || (scope.warehouse_id !== null && scope.branch_id === null)
+        // The current activity scope remains the identity/context fence above.
+        // Only the verified immutable result binding supplies the result scope.
+        if (!exactResultScope(before.resultScope) || !exactResultScope(after.resultScope)
+            || !same(before.resultScope, after.resultScope)) return null;
+        const scope = { ...before.resultScope };
+        if (![before, after].every(value => scope.organization_id === value.scope.organization_id && scope.activity_id === value.scope.activity_id
+                && ['branch_id', 'warehouse_id'].every(key => value.scope[key] == null || value.scope[key] === scope[key]))
             || ![before, after].every(value => value.provider.installations?.some(installation =>
                 installation.installation_id === value.sourceInstallationId && installation.activity_id === scope.activity_id))) return null;
         return { command_id: command.command_id, version: command.version, approval_fingerprint: command.approval_fingerprint,

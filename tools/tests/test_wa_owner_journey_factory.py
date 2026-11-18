@@ -245,7 +245,8 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
     def test_factory_identity_invalidates_when_any_fixture_only_helper_changes(self):
         controller = self.root / 'tools/factory.py'; controller.parent.mkdir(); controller.write_text('synthetic controller')
         support = self.root / 'server/test-support'; support.mkdir(parents=True)
-        helpers = [support / name for name in ['ownerJourneyCapabilityProofs.js', 'ownerJourneyConsumerEvidence.js', 'ownerJourneyProviderFault.js', 'ownerJourneyResultDelivery.js']]
+        helpers = [support / name for name in ['ownerJourneyCapabilityProofs.js', 'ownerJourneyConsumerEvidence.js', 'ownerJourneyProviderFault.js', 'ownerJourneyResultDelivery.js',
+                                               'ownerJourneyResultBinding.js', 'ownerJourneyResultBindingCapture.js']]
         for helper in helpers:
             helper.write_text('synthetic evidence helper version one')
         with mock.patch.object(factory, 'ROOT', self.root), mock.patch.object(factory, '__file__', str(controller)), \
@@ -280,6 +281,7 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
         for filename, expected in {
             'owner-factory-diagnostic-v2.schema.json': '922f8d711eeb725e586270a4e3f3e15cf05ec23a6a64860207f19130bb534ca3',
             'wa-catalog-result-evidence-v1.schema.json': 'facde2374b1b5ef2a0e48c230ebbc173e828455e5b7f3f3628b8a8c274bbd5c9',
+            'fixture-result-binding-header-v1.schema.json': '2eae5ad8c01d12c3c904fa9f5c3a3fd6007bfb5f180ab37e31360b746649ea17',
             'owner-factory-diagnostic.schema.json': '315e835eaf0b98e5ee47e2fde6f7f893857f0e358b6deb380e34705575eaab50',
         }.items():
             self.assertEqual(factory.digest((factory.CONTRACTS / filename).read_bytes()), expected)

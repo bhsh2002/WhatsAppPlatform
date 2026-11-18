@@ -186,6 +186,7 @@ def factory_identity():
     for file in (Path(__file__), RUNTIME, APPLICATION, ROOT / 'server/test-support/ownerJourneyRouteTemplates.js',
                  ROOT / 'server/test-support/ownerJourneyCapabilityProofs.js', ROOT / 'server/test-support/ownerJourneyConsumerEvidence.js',
                  ROOT / 'server/test-support/ownerJourneyProviderFault.js', ROOT / 'server/test-support/ownerJourneyResultDelivery.js',
+                 ROOT / 'server/test-support/ownerJourneyResultBinding.js', ROOT / 'server/test-support/ownerJourneyResultBindingCapture.js',
                  ROOT / 'tools/package_wa_production_candidate.py',
                  *sorted(CONTRACTS.glob('*.schema.json'))):
         if file.is_symlink() or (file.exists() and file.resolve() != file):

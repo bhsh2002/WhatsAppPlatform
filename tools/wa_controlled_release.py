@@ -17,7 +17,7 @@ IMAGE_ROOT = 'ghcr.io/bhsh2002'
 BUILDX_VERSION = 'v0.38.2'
 BUILDKIT_VERSION = 'v0.34.2'
 BUILDKIT_IMAGE = 'moby/buildkit:' + BUILDKIT_VERSION
-RUN_RESOURCES = ('memory=2g', 'memory-swap=2g', 'cpu-period=100000', 'cpu-quota=200000')
+RUN_RESOURCES = ('memory=1g', 'memory-swap=1g', 'cpu-period=100000', 'cpu-quota=200000')
 
 
 def verify_builder(builder, nodes_json):

@@ -37,6 +37,8 @@ const catalogEvidenceInput = (action = 'inventory.read', mime = 'application/jso
     input.before.sourceInstallationId = input.after.sourceInstallationId = 'private-source-installation';
     input.before.scope.branch_id = input.after.scope.branch_id = 'private-branch';
     input.before.scope.warehouse_id = input.after.scope.warehouse_id = 'private-warehouse';
+    input.before.resultScope = structuredClone(input.before.scope);
+    input.after.resultScope = structuredClone(input.after.scope);
     return input;
 };
 const rowsInput = () => {
@@ -196,7 +198,7 @@ test('closed Catalog result rows bind actual installation, approval, full scope,
         const row = service.snapshot().catalog_result_reads.at(-1);
         assert.deepEqual(row, { command_id: input.before.command.command_id, version: 2,
             approval_fingerprint: input.before.command.approval_fingerprint, provider_ref: provider.provider_ref,
-            source_installation_id: 'private-source-installation', scope: input.before.scope,
+            source_installation_id: 'private-source-installation', scope: input.before.resultScope,
             capability_code: input.before.command.capability, operation: action,
             source_result: input.before.command.source_result, content_type: mime,
             byte_length: input.representation.bytes.length, content_sha256: hash(input.representation.bytes),
@@ -210,6 +212,53 @@ test('closed Catalog result rows bind actual installation, approval, full scope,
     assert.equal(Object.hasOwn(service.snapshot().facts, 'requested_catalog_reconciliations'), false);
 });
 
+test('immutable result scope preserves branch and warehouse under a broader current activity scope', t => {
+    const { service } = fixture(t);
+    for (const current of [
+        { branch_id: null, warehouse_id: null },
+        { branch_id: 'private-branch', warehouse_id: null },
+    ]) {
+        const input = catalogEvidenceInput();
+        Object.assign(input.before.scope, current); Object.assign(input.after.scope, current);
+        const currentScope = structuredClone(input.before.scope);
+        assert.equal(service.recordResult(input).recorded, true);
+        assert.deepEqual(service.snapshot().catalog_result_reads.at(-1).scope, input.before.resultScope);
+        assert.equal(service.snapshot().catalog_result_reads.at(-1).scope.warehouse_id, 'private-warehouse');
+        assert.deepEqual(input.before.scope, currentScope);
+        assert.deepEqual(input.after.scope, currentScope);
+    }
+    assert.equal(service.snapshot().facts.catalog_ledger_reads, 2);
+    assert.equal(service.snapshot().facts.same_identity_result_fetches, 2);
+});
+
+test('missing, changed, open or conflicting immutable scopes do not qualify closed rows or alter generic result counts', t => {
+    const { service } = fixture(t);
+    const mutations = [
+        value => { delete value.before.resultScope; delete value.after.resultScope; },
+        value => { delete value.after.resultScope; },
+        value => { value.after.resultScope.warehouse_id = 'different-warehouse'; },
+        value => { delete value.before.resultScope.branch_id; delete value.after.resultScope.branch_id; },
+        value => { value.before.resultScope.extra = value.after.resultScope.extra = true; },
+        value => { value.before.resultScope = value.after.resultScope = []; },
+        value => { value.before.resultScope.branch_id = value.after.resultScope.branch_id = 5; },
+        value => { value.before.resultScope.organization_id = value.after.resultScope.organization_id = 'different-org'; },
+        value => { value.before.resultScope.activity_id = value.after.resultScope.activity_id = 'different-activity'; },
+        value => { value.before.command.approval_fingerprint = value.after.command.approval_fingerprint = `${'a'.repeat(64)}\n`; },
+        value => { value.before.scope.branch_id = value.after.scope.branch_id = 'restricted-other-branch'; },
+        value => { value.before.scope.warehouse_id = value.after.scope.warehouse_id = 'restricted-other-warehouse'; },
+    ];
+    for (const mutate of mutations) {
+        const input = catalogEvidenceInput(); mutate(input);
+        assert.equal(service.recordResult(input).recorded, true);
+        assert.deepEqual(service.snapshot().catalog_result_reads, []);
+    }
+    assert.equal(service.snapshot().facts.catalog_ledger_reads, mutations.length);
+    assert.equal(service.snapshot().facts.same_identity_result_fetches, mutations.length);
+    const changedCurrent = catalogEvidenceInput(); changedCurrent.after.scope.branch_id = null;
+    assert.equal(service.recordResult(changedCurrent).recorded, false);
+    assert.equal(service.snapshot().facts.same_identity_result_fetches, mutations.length);
+});
+
 test('missing or changed source binding and invalid closed metadata cannot become exact Catalog rows', t => {
     const { service } = fixture(t);
     for (const mutate of [
@@ -220,7 +269,7 @@ test('missing or changed source binding and invalid closed metadata cannot becom
         value => { value.before.provider.installations[0].activity_id = value.after.provider.installations[0].activity_id = 'other-activity'; },
         value => { value.before.command.approval_fingerprint = value.after.command.approval_fingerprint = null; },
         value => { value.before.command.approval_fingerprint = value.after.command.approval_fingerprint = 'A'.repeat(64); },
-        value => { value.before.scope.branch_id = value.after.scope.branch_id = null; },
+        value => { value.before.resultScope.branch_id = value.after.resultScope.branch_id = null; },
         value => { value.before.scope.branch_id = value.after.scope.branch_id = 'invalid\0branch'; },
         value => { value.before.command.source_result.result_reference = value.after.command.source_result.result_reference = 'r'.repeat(1001); },
         value => { value.before.command.command_id = value.after.command.command_id = 'c'.repeat(256); },

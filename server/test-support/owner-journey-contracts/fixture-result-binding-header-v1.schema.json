@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decoded fixture-only actual Core result binding diagnostic header",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "run_id",
+    "command_id",
+    "version",
+    "approval_fingerprint",
+    "provider_ref",
+    "source_installation_id",
+    "scope",
+    "capability_code",
+    "operation",
+    "source_result",
+    "content_type",
+    "byte_length",
+    "content_sha256"
+  ],
+  "properties": {
+    "format": {
+      "const": "savana-owner-fixture-result-binding/1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "command_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "\\S",
+      "not": {
+        "pattern": "\u0000"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+    },
+    "approval_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "provider_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "\\S",
+      "not": {
+        "pattern": "\u0000"
+      }
+    },
+    "source_installation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "\\S",
+      "not": {
+        "pattern": "\u0000"
+      }
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope"
+    },
+    "capability_code": {
+      "enum": [
+        "inventory.read",
+        "inventory.count"
+      ]
+    },
+    "operation": {
+      "enum": [
+        "inventory.read",
+        "inventory.count_delta"
+      ]
+    },
+    "source_result": {
+      "$ref": "#/$defs/SourceResult"
+    },
+    "content_type": {
+      "enum": [
+        "application/json",
+        "text/csv"
+      ]
+    },
+    "byte_length": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4194304,
+      "description": "Exact actual delivered filtered JSON or CSV UTF8 byte length; strict integer, no bool/float."
+    },
+    "content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "organization_id",
+        "activity_id",
+        "branch_id",
+        "warehouse_id"
+      ],
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "activity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "warehouse_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "warehouse_id": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "pattern": "\\S",
+                "not": {
+                  "pattern": "\u0000"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "SourceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_entity_id",
+        "source_revision",
+        "result_reference"
+      ],
+      "properties": {
+        "local_entity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "result_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "capability_code": {
+          "const": "inventory.count"
+        },
+        "operation": {
+          "const": "inventory.count_delta"
+        }
+      }
+    },
+    {
+      "properties": {
+        "capability_code": {
+          "const": "inventory.read"
+        },
+        "operation": {
+          "const": "inventory.read"
+        }
+      }
+    }
+  ],
+  "$comment": "Decoded closed JSON shape only. Header transport is ASCII unpadded base64url of compact UTF8 JSON, encoded length1..8192bytes. Actual wrapper/consumer must enforce strict canonical base64url/UTF8/JSON, exact run/command/binding/bytes/authorization/audit rules from fixture-result-binding-header-v1.json. This header is never authority and is never a production feature."
+}

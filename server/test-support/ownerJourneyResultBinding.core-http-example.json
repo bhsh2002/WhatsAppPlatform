@@ -1,0 +1,78 @@
+{
+  "format": "wa-owned-Core-header-compatibility-fixture/1",
+  "provenance": {
+    "source_path": "/Users/savana/Dev/.organization/2026-11-18/operational-completion/core-interface-v1/fixture-result-binding-owned-http-example-v1.json",
+    "source_sha256": "614a1bc267923f041ebc3c6d2826ae60dc9a969adc76a7e1dcd5f78d414145de",
+    "source_format": "owned-Core-Portal-result-binding-HTTP-example/1",
+    "source_scope": "Synthetic current-principal/grant boundary fixture; actual Core command services/routes, owned native SQLite receipt/result, TCP and Portal public bridge. Not OIDC, actual Catalog inventory or four-application acceptance.",
+    "verified_source_pins": {
+      "tools/owner_journey_core_fixture.py": "2c09758885d582b0443f393509f91e0e2eb809dbdd17c068023d4492bd13da8b",
+      "tests/test_owner_fixture_result_binding.py": "b3aa169bf4a2c76838d021de14af8d513959e7243e00846128cbf58a242ecaba"
+    },
+    "published_Core_focused_tests": 13,
+    "copied_fields_only": [
+      "wire_header",
+      "decoded"
+    ],
+    "response_body_published": false,
+    "compatibility_claim": "Decode the two actual published owned Core/Portal TCP headers exactly. No body reconstruction, delivered-byte matcher proof, Catalog/OIDC or four-application acceptance."
+  },
+  "examples": [
+    {
+      "wire_header": "eyJhcHByb3ZhbF9maW5nZXJwcmludCI6IjFjYTA5OTFmMWMwODRkZjEyODhjOTI4Y2YzZWUxMzExYTk4MTEwZjZmMWYzODIzMzhlMGI5NTg5MmE5ZDM0YTMiLCJieXRlX2xlbmd0aCI6MTA5LCJjYXBhYmlsaXR5X2NvZGUiOiJpbnZlbnRvcnkucmVhZCIsImNvbW1hbmRfaWQiOiI2M2I0NmViYS01MzFlLTQxZDAtOWFlMi0zY2Q3NTYxOGUxODUiLCJjb250ZW50X3NoYTI1NiI6IjE0ZmQwNTliNTA1OTQzOWZlMDM5NmFkN2U3MmM3NTc2ZjY2MzU3ODVlZGRjMzA1YzJlYTg0NjQ0NzI5ODMwZjYiLCJjb250ZW50X3R5cGUiOiJhcHBsaWNhdGlvbi9qc29uIiwiZm9ybWF0Ijoic2F2YW5hLW93bmVyLWZpeHR1cmUtcmVzdWx0LWJpbmRpbmcvMSIsIm9wZXJhdGlvbiI6ImludmVudG9yeS5yZWFkIiwicHJvdmlkZXJfcmVmIjoicHJvdmlkZXIiLCJydW5faWQiOiJvd25lZC1jb3JlLXJlc3VsdC1ib3VuZGFyeSIsInNjb3BlIjp7ImFjdGl2aXR5X2lkIjoiYWN0aXZpdHkiLCJicmFuY2hfaWQiOiJicmFuY2giLCJvcmdhbml6YXRpb25faWQiOiJvcmciLCJ3YXJlaG91c2VfaWQiOiJ3YXJlaG91c2UifSwic291cmNlX2luc3RhbGxhdGlvbl9pZCI6ImFjdHVhbC1zb3VyY2UiLCJzb3VyY2VfcmVzdWx0Ijp7ImxvY2FsX2VudGl0eV9pZCI6Im93bmVkLW9ic2VydmF0aW9uLTYzYjQ2ZWJhLTUzMWUtNDFkMC05YWUyLTNjZDc1NjE4ZTE4NSIsInJlc3VsdF9yZWZlcmVuY2UiOiJvd25lZC1uYXRpdmUtb2JzZXJ2YXRpb25zL293bmVkLW9ic2VydmF0aW9uLTYzYjQ2ZWJhLTUzMWUtNDFkMC05YWUyLTNjZDc1NjE4ZTE4NSIsInNvdXJjZV9yZXZpc2lvbiI6M30sInZlcnNpb24iOjF9",
+      "decoded": {
+        "approval_fingerprint": "1ca0991f1c084df1288c928cf3ee1311a98110f6f1f382338e0b95892a9d34a3",
+        "byte_length": 109,
+        "capability_code": "inventory.read",
+        "command_id": "63b46eba-531e-41d0-9ae2-3cd75618e185",
+        "content_sha256": "14fd059b5059439fe0396ad7e72c7576f6635785eddc305c2ea84644729830f6",
+        "content_type": "application/json",
+        "format": "savana-owner-fixture-result-binding/1",
+        "operation": "inventory.read",
+        "provider_ref": "provider",
+        "run_id": "owned-core-result-boundary",
+        "scope": {
+          "activity_id": "activity",
+          "branch_id": "branch",
+          "organization_id": "org",
+          "warehouse_id": "warehouse"
+        },
+        "source_installation_id": "actual-source",
+        "source_result": {
+          "local_entity_id": "owned-observation-63b46eba-531e-41d0-9ae2-3cd75618e185",
+          "result_reference": "owned-native-observations/owned-observation-63b46eba-531e-41d0-9ae2-3cd75618e185",
+          "source_revision": 3
+        },
+        "version": 1
+      }
+    },
+    {
+      "wire_header": "eyJhcHByb3ZhbF9maW5nZXJwcmludCI6IjFjYTA5OTFmMWMwODRkZjEyODhjOTI4Y2YzZWUxMzExYTk4MTEwZjZmMWYzODIzMzhlMGI5NTg5MmE5ZDM0YTMiLCJieXRlX2xlbmd0aCI6NjIsImNhcGFiaWxpdHlfY29kZSI6ImludmVudG9yeS5yZWFkIiwiY29tbWFuZF9pZCI6IjYzYjQ2ZWJhLTUzMWUtNDFkMC05YWUyLTNjZDc1NjE4ZTE4NSIsImNvbnRlbnRfc2hhMjU2IjoiNWVkMGFkNDFjZTNmNDZmMDNhYjA0MWZjYTk5MmEyNGUzYWRkMzVlZWJiYTA3NmY3YjBmY2NlNDhkNTRiZjA2ZSIsImNvbnRlbnRfdHlwZSI6InRleHQvY3N2IiwiZm9ybWF0Ijoic2F2YW5hLW93bmVyLWZpeHR1cmUtcmVzdWx0LWJpbmRpbmcvMSIsIm9wZXJhdGlvbiI6ImludmVudG9yeS5yZWFkIiwicHJvdmlkZXJfcmVmIjoicHJvdmlkZXIiLCJydW5faWQiOiJvd25lZC1jb3JlLXJlc3VsdC1ib3VuZGFyeSIsInNjb3BlIjp7ImFjdGl2aXR5X2lkIjoiYWN0aXZpdHkiLCJicmFuY2hfaWQiOiJicmFuY2giLCJvcmdhbml6YXRpb25faWQiOiJvcmciLCJ3YXJlaG91c2VfaWQiOiJ3YXJlaG91c2UifSwic291cmNlX2luc3RhbGxhdGlvbl9pZCI6ImFjdHVhbC1zb3VyY2UiLCJzb3VyY2VfcmVzdWx0Ijp7ImxvY2FsX2VudGl0eV9pZCI6Im93bmVkLW9ic2VydmF0aW9uLTYzYjQ2ZWJhLTUzMWUtNDFkMC05YWUyLTNjZDc1NjE4ZTE4NSIsInJlc3VsdF9yZWZlcmVuY2UiOiJvd25lZC1uYXRpdmUtb2JzZXJ2YXRpb25zL293bmVkLW9ic2VydmF0aW9uLTYzYjQ2ZWJhLTUzMWUtNDFkMC05YWUyLTNjZDc1NjE4ZTE4NSIsInNvdXJjZV9yZXZpc2lvbiI6M30sInZlcnNpb24iOjF9",
+      "decoded": {
+        "approval_fingerprint": "1ca0991f1c084df1288c928cf3ee1311a98110f6f1f382338e0b95892a9d34a3",
+        "byte_length": 62,
+        "capability_code": "inventory.read",
+        "command_id": "63b46eba-531e-41d0-9ae2-3cd75618e185",
+        "content_sha256": "5ed0ad41ce3f46f03ab041fca992a24e3add35eebba076f7b0fcce48d54bf06e",
+        "content_type": "text/csv",
+        "format": "savana-owner-fixture-result-binding/1",
+        "operation": "inventory.read",
+        "provider_ref": "provider",
+        "run_id": "owned-core-result-boundary",
+        "scope": {
+          "activity_id": "activity",
+          "branch_id": "branch",
+          "organization_id": "org",
+          "warehouse_id": "warehouse"
+        },
+        "source_installation_id": "actual-source",
+        "source_result": {
+          "local_entity_id": "owned-observation-63b46eba-531e-41d0-9ae2-3cd75618e185",
+          "result_reference": "owned-native-observations/owned-observation-63b46eba-531e-41d0-9ae2-3cd75618e185",
+          "source_revision": 3
+        },
+        "version": 1
+      }
+    }
+  ]
+}

@@ -37,6 +37,8 @@ import { createOwnerJourneyCapabilityProofs } from './ownerJourneyCapabilityProo
 import { createOwnerJourneyConsumerEvidence } from './ownerJourneyConsumerEvidence.js';
 import { createOwnerJourneyProviderFault } from './ownerJourneyProviderFault.js';
 import { createOwnerJourneyResultDelivery } from './ownerJourneyResultDelivery.js';
+import { matchOwnerJourneyResultBinding } from './ownerJourneyResultBinding.js';
+import { createOwnerJourneyResultBindingCapture } from './ownerJourneyResultBindingCapture.js';
 
 const fail = code => { const error = new Error(code); error.code = code; throw error; };
 
@@ -81,7 +83,8 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         .replace(/\/[0-9]+(?=\/|$)/g, '/:id')
         .replace(/\/(?:wa_savana:tenant:)[^/]+/g, '/:account');
     const providerFault = createOwnerJourneyProviderFault({ database, runId, providerOrigin: new URL(urls.message_provider).origin });
-    const fetchImpl = providerFault.wrapFetch(async (input, options = {}) => {
+    const resultBindings = createOwnerJourneyResultBindingCapture({ coreOrigin: new URL(oidc.api_base_url).origin });
+    const fetchImpl = providerFault.wrapFetch(resultBindings.wrapFetch(async (input, options = {}) => {
         const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
         const service = servicesByOrigin.get(url.origin);
         if (!service || service === 'catalog_domain_proxy') fail('undeclared_application_outbound');
@@ -113,7 +116,7 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
             else if (execution?.capability_code === 'messaging.send') bump('owned_message_http_requests');
         }
         return response;
-    });
+    }));
     const billing = { ...billingModule, operations: billingModule.BILLING_OPERATIONS, database };
     const requestStore = new SmsApiRequestStore({ database });
     const providerOrigin = new URL(urls.message_provider).origin;
@@ -190,8 +193,20 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         let before;
         try {
             before = consumerContext(await gateway.commandRead(principal, input.command));
-            const representation = await originalResult(principal, input);
+            const { value: representation, header } = await resultBindings.run(before.command.command_id,
+                () => originalResult(principal, input));
             const after = consumerContext(await gateway.commandRead(principal, input.command));
+            const initialBinding = matchOwnerJourneyResultBinding({ header, runId, ...before, representation });
+            const finalBinding = matchOwnerJourneyResultBinding({ header, runId, ...after, representation });
+            if (initialBinding && finalBinding) {
+                // The same authenticated Core result header owns its frozen
+                // command scope. Keep current activity scopes separate for the
+                // existing pre/post context fence; never infer an installation.
+                before.sourceInstallationId = initialBinding.sourceInstallationId;
+                before.resultScope = initialBinding.scope;
+                after.sourceInstallationId = finalBinding.sourceInstallationId;
+                after.resultScope = finalBinding.scope;
+            }
             resultDelivery.capture({ principal, before, after, representation });
             return representation;
         } catch (error) {
