@@ -121,6 +121,10 @@ class ControlledReleaseTests(unittest.TestCase):
             for flag in ('--push', '--sbom=true', '--provenance=mode=max'): self.assertIn(flag, cmd)
             self.assertIn('org.opencontainers.image.revision=' + revision, cmd)
             self.assertIn('savana.candidate.source-sha256=' + marker, cmd)
+            self.assertEqual([cmd[index + 1] for index, flag in enumerate(cmd) if flag == '--resource'],
+                             ['memory=2g', 'memory-swap=2g', 'cpu-period=100000', 'cpu-quota=200000'])
+            self.assertEqual(cmd[cmd.index('--metadata-file') + 1], str(f.root / f'evidence/{part}-buildx.json'))
+            self.assertNotIn('--no-cache', cmd)
         self.assertIn('VITE_WA_CLIENT_RELEASE=' + marker, builds[1])
         self.assertEqual(evidence['runtime_setting_assignment'], 'WA_BROWSER_RELEASE=' + marker)
         self.assertEqual(evidence['git_revision'], revision); self.assertEqual(evidence['recipes'], manifest['recipes'])
@@ -132,6 +136,68 @@ class ControlledReleaseTests(unittest.TestCase):
         self.assertEqual(sum(cmd[:3] == ['docker', 'image', 'inspect'] for cmd in commands), 2)
         self.assertTrue(all('--load' in cmd and '--push' not in cmd for cmd in commands if cmd[:3] == ['docker', 'buildx', 'build']))
         self.assertFalse(evidence['published'])
+        for cmd in commands:
+            if cmd[:3] == ['docker', 'buildx', 'build']:
+                self.assertEqual([cmd[index + 1] for index, flag in enumerate(cmd) if flag == '--resource'], list(release.RUN_RESOURCES))
+
+    def builder_fixture(self):
+        builder = 'wa-savana-ci-123-1'
+        container = 'buildx_buildkit_' + builder + '0'
+        state = {'Id': 'a' * 64, 'Name': '/' + container, 'Config': {'Image': 'moby/buildkit:v0.34.2'},
+                 'State': {'Running': True}, 'HostConfig': {'Memory': 2147483648, 'MemorySwap': 2147483648,
+                    'CpuPeriod': 100000, 'CpuQuota': 200000, 'PidsLimit': 0}}
+        nodes = json.dumps([{'name': builder + '0'}])
+        def output(command):
+            if command[:2] == ['docker', 'inspect']: return json.dumps(state).encode()
+            if command == ['docker', 'buildx', 'version']: return b'github.com/docker/buildx v0.38.2 actual-release-commit\n'
+            if command == ['docker', 'exec', container, 'buildkitd', '--version']: return b'buildkitd github.com/moby/buildkit v0.34.2 actual-release-commit\n'
+            self.fail(f'Unexpected command: {command}')
+        return builder, container, state, nodes, output
+
+    def test_owned_pinned_builder_gets_real_docker_pid_limit_then_exact_same_container_is_verified(self):
+        builder, container, state, nodes, output = self.builder_fixture()
+        def update(command, check):
+            self.assertEqual(command, ['docker', 'update', '--pids-limit=256', container]); self.assertIs(check, True)
+            state['HostConfig']['PidsLimit'] = 256
+        with mock.patch.object(release.subprocess, 'check_output', side_effect=output), mock.patch.object(release.subprocess, 'run', side_effect=update) as mutation:
+            evidence = release.verify_builder(builder, nodes)
+        mutation.assert_called_once()
+        self.assertEqual(evidence['buildx'], 'v0.38.2'); self.assertEqual(evidence['buildkit'], 'v0.34.2')
+        self.assertEqual(evidence['outer_pids_limit'], 256)
+        self.assertEqual(evidence['run_resources'], list(release.RUN_RESOURCES))
+
+    def test_unowned_node_container_or_unbounded_daemon_is_rejected_before_any_update(self):
+        for change in ('builder', 'node', 'many_nodes', 'image', 'container', 'memory', 'swap', 'cpu', 'stopped'):
+            with self.subTest(change=change):
+                builder, _, state, nodes, output = self.builder_fixture()
+                if change == 'builder': builder = 'other-unowned-builder'
+                if change == 'node': nodes = json.dumps([{'name': 'foreign-node'}])
+                if change == 'many_nodes': nodes = json.dumps([{'name': builder + '0'}, {'name': builder + '1'}])
+                if change == 'image': state['Config']['Image'] = 'moby/buildkit:latest'
+                if change == 'container': state['Name'] = '/different-container'
+                if change == 'memory': state['HostConfig']['Memory'] = 0
+                if change == 'swap': state['HostConfig']['MemorySwap'] = -1
+                if change == 'cpu': state['HostConfig']['CpuQuota'] = 0
+                if change == 'stopped': state['State']['Running'] = False
+                with mock.patch.object(release.subprocess, 'check_output', side_effect=output), mock.patch.object(release.subprocess, 'run') as mutation:
+                    with self.assertRaises(ValueError): release.verify_builder(builder, nodes)
+                mutation.assert_not_called()
+
+    def test_wrong_tool_versions_or_unapplied_limits_fail_closed(self):
+        for change in ('buildx', 'buildkit', 'update_failed', 'pids_not_applied', 'replaced_container'):
+            with self.subTest(change=change):
+                builder, _, state, nodes, output = self.builder_fixture()
+                def versions(command):
+                    result = output(command)
+                    if change == 'buildx' and command == ['docker', 'buildx', 'version']: return result.replace(b'v0.38.2', b'v0.37.0')
+                    if change == 'buildkit' and command[1] == 'exec': return result.replace(b'v0.34.2', b'v0.33.0')
+                    return result
+                def update(command, check):
+                    if change == 'update_failed': raise subprocess.CalledProcessError(1, command)
+                    if change == 'replaced_container': state['Id'] = 'b' * 64; state['HostConfig']['PidsLimit'] = 256
+                with mock.patch.object(release.subprocess, 'check_output', side_effect=versions), mock.patch.object(release.subprocess, 'run', side_effect=update) as mutation:
+                    with self.assertRaises((ValueError, subprocess.CalledProcessError)): release.verify_builder(builder, nodes)
+                if change in ('buildx', 'buildkit'): mutation.assert_not_called()
 
     def test_both_image_revision_and_source_marker_mismatches_block_release_evidence(self):
         for part in ('server', 'client'):
@@ -177,6 +243,21 @@ class ControlledReleaseTests(unittest.TestCase):
             self.assertIn('--expected-manifest-sha256', text)
             self.assertNotIn('docker build --tag', text)
             self.assertNotIn('          docker buildx build', text)
+            self.assertIn('docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435', text)
+            self.assertIn('version: v0.38.2', text); self.assertIn('image=moby/buildkit:v0.34.2', text)
+            self.assertIn('buildkitd-flags: --oci-worker-gc=true', text)
+            self.assertIn('BUILDX_BUILDER: ${{ steps.image-builder.outputs.name }}', text)
+            self.assertIn('tools/wa_controlled_release.py verify-builder', text)
+            self.assertLess(text.index('tools/wa_controlled_release.py verify-builder'), text.index('tools/wa_controlled_release.py build'))
+            self.assertNotIn('pids-limit=', text.split('driver-opts:')[-1].split('\n\n')[0])
+            self.assertNotIn('no-process-sandbox', text); self.assertNotIn('rootless', text)
+        self.assertIn('options: --memory=1g --memory-swap=1g --pids-limit=256 --cpus=2', ci)
+        self.assertIn('node scripts/verify-picomatch-build-guard.cjs\n', ci)
+        for path in ('client/Dockerfile', 'ops/release/client.Dockerfile'):
+            recipe = (root / path).read_text()
+            self.assertIn('node scripts/verify-picomatch-build-guard.cjs \\\n', recipe)
+            self.assertNotIn('--mode inspect', recipe)
+            self.assertIn('npm run build', recipe)
         self.assertIn('WA_BROWSER_RELEASE=%s', workflow)
 
     def test_build_trusted_export_marker_and_manifest_cannot_be_substituted(self):

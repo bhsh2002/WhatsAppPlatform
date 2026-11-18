@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import io
 import json
@@ -244,7 +245,7 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
     def test_factory_identity_invalidates_when_any_fixture_only_helper_changes(self):
         controller = self.root / 'tools/factory.py'; controller.parent.mkdir(); controller.write_text('synthetic controller')
         support = self.root / 'server/test-support'; support.mkdir(parents=True)
-        helpers = [support / name for name in ['ownerJourneyCapabilityProofs.js', 'ownerJourneyConsumerEvidence.js', 'ownerJourneyProviderFault.js']]
+        helpers = [support / name for name in ['ownerJourneyCapabilityProofs.js', 'ownerJourneyConsumerEvidence.js', 'ownerJourneyProviderFault.js', 'ownerJourneyResultDelivery.js']]
         for helper in helpers:
             helper.write_text('synthetic evidence helper version one')
         with mock.patch.object(factory, 'ROOT', self.root), mock.patch.object(factory, '__file__', str(controller)), \
@@ -258,6 +259,93 @@ class OwnerJourneyFactoryTests(unittest.TestCase):
                 self.assertNotEqual(factory.factory_identity()[0], original)
                 helper.write_text('synthetic evidence helper version one')
                 self.assertEqual(factory.factory_identity()[0], original)
+
+    def diagnostic(self, platform='wa_savana', **extra):
+        return {'run_id': 'synthetic', 'platform': platform, 'source_revision': 'a' * 40,
+                'source_sha256': 'b' * 64, 'owned_state': True, 'facts': {}, 'observations': [], **extra}
+
+    def catalog_result_row(self):
+        # Published synthetic example only: shape validation, no delivered-data or acceptance claim.
+        return {'command_id': 'synthetic-count-command', 'version': 2, 'approval_fingerprint': 'a' * 64,
+                'provider_ref': 'synthetic-catalog-provider', 'source_installation_id': 'synthetic-catalog-source',
+                'scope': {'organization_id': 'synthetic-org', 'activity_id': 'synthetic-activity',
+                          'branch_id': 'synthetic-branch', 'warehouse_id': 'synthetic-warehouse'},
+                'capability_code': 'inventory.count', 'operation': 'inventory.count_delta',
+                'source_result': {'local_entity_id': 'synthetic-reconciliation-fact', 'source_revision': 1,
+                                  'result_reference': '/synthetic/owner/reconciliation-result'},
+                'content_type': 'application/json', 'byte_length': 27, 'content_sha256': 'b' * 64,
+                'observed_at': '2026-11-18T00:00:02+00:00', 'consumer_identity_sha256': 'c' * 64}
+
+    def test_diagnostic_v2_primary_schema_pins_and_historical_snapshot_are_exact(self):
+        for filename, expected in {
+            'owner-factory-diagnostic-v2.schema.json': '922f8d711eeb725e586270a4e3f3e15cf05ec23a6a64860207f19130bb534ca3',
+            'wa-catalog-result-evidence-v1.schema.json': 'facde2374b1b5ef2a0e48c230ebbc173e828455e5b7f3f3628b8a8c274bbd5c9',
+            'owner-factory-diagnostic.schema.json': '315e835eaf0b98e5ee47e2fde6f7f893857f0e358b6deb380e34705575eaab50',
+        }.items():
+            self.assertEqual(factory.digest((factory.CONTRACTS / filename).read_bytes()), expected)
+        self.assertEqual(factory.validate_schema('diagnostic', self.diagnostic()), self.diagnostic())
+        schema = json.loads((factory.CONTRACTS / 'wa-catalog-result-evidence-v1.schema.json').read_text())
+        self.assertTrue(factory.schema_matches(schema, {'catalog_result_reads': [self.catalog_result_row()]}))
+
+    def test_populated_v2_diagnostic_is_accepted_on_actual_controller_start_diagnostics_and_checkpoint_paths(self):
+        proof = self.diagnostic(catalog_result_reads=[self.catalog_result_row()])
+        instance = self.instance(); instance.config = self.params()
+        with mock.patch.object(factory, 'source_identity', return_value=('b' * 64, [])), \
+                mock.patch.object(factory, 'factory_identity', return_value=('c' * 64, [])), \
+                mock.patch.object(factory.subprocess, 'check_output', return_value=('a' * 40 + '\n').encode()), \
+                mock.patch.object(factory, 'refuse_listeners'), mock.patch.object(factory.subprocess, 'Popen'), \
+                mock.patch.object(instance, 'exchange', return_value={**copy.deepcopy(proof), '_private_runtime': {'synthetic': 'private'}}) as exchange:
+            self.assertEqual(instance.launch(), proof)
+            self.assertEqual(exchange.call_args.args[0], 'start')
+        for command, params in [('diagnostics', {}), ('checkpoint', {'scenario': 'deficit_and_reconciliation'})]:
+            with mock.patch.object(instance, 'exchange', return_value=copy.deepcopy(proof)) as exchange:
+                self.assertEqual(instance.dispatch(command, params), proof)
+                exchange.assert_called_once_with(command, params)
+
+    def test_v2_closed_evidence_rows_reject_bad_types_scopes_dates_and_unpublished_fields(self):
+        changes = [{'unexpected': 'not a published field'}, {'command_id': ' '}, {'command_id': 'x' * 256},
+                   {'command_id': 'synthetic\x00value'}, {'version': True}, {'version': 2.0}, {'version': 0},
+                   {'version': 9007199254740992}, {'byte_length': True}, {'byte_length': 1.0}, {'byte_length': 0},
+                   {'byte_length': 4194305}, {'approval_fingerprint': 'A' * 64}, {'approval_fingerprint': 'a' * 64 + '\n'},
+                   {'content_sha256': 'b' * 64 + '\n'}, {'content_sha256': 'bad'},
+                   {'consumer_identity_sha256': False}, {'content_type': 'text/html'},
+                   {'observed_at': '2026-11-18T00:00:02'}, {'observed_at': '2026-02-31T00:00:02Z'},
+                   {'capability_code': 'inventory.read'}, {'operation': 'inventory.read'},
+                   {'source_result': {'local_entity_id': 'x', 'source_revision': True, 'result_reference': 'x'}},
+                   {'source_result': {'local_entity_id': 'x', 'source_revision': 1, 'result_reference': 'x', 'secret': 'unpublished'}},
+                   {'scope': {'organization_id': 'synthetic-org', 'activity_id': 'synthetic-activity'}},
+                   {'scope': {'organization_id': 'synthetic-org', 'activity_id': 'synthetic-activity', 'branch_id': None, 'warehouse_id': 'warehouse'}},
+                   {'scope': {'organization_id': 'synthetic-org', 'activity_id': 'synthetic-activity', 'branch_id': None, 'warehouse_id': None, 'tenant_id': 1}}]
+        for change in changes:
+            with self.subTest(change=change):
+                row = {**self.catalog_result_row(), **change}
+                self.assert_code('published_schema_invalid', factory.validate_schema, 'diagnostic', self.diagnostic(catalog_result_reads=[row]))
+        for invalid in (None, {}, True, 'not an array'):
+            self.assert_code('published_schema_invalid', factory.validate_schema, 'diagnostic', self.diagnostic(catalog_result_reads=invalid))
+
+    def test_v2_evidence_maximum_and_platform_ownership_are_enforced_without_native_authority_inference(self):
+        row = self.catalog_result_row()
+        self.assertEqual(len(factory.validate_schema('diagnostic', self.diagnostic(catalog_result_reads=[row] * 512))['catalog_result_reads']), 512)
+        self.assert_code('published_schema_invalid', factory.validate_schema, 'diagnostic', self.diagnostic(catalog_result_reads=[row] * 513))
+        read = {**row, 'capability_code': 'inventory.read', 'operation': 'inventory.read',
+                'scope': {**row['scope'], 'branch_id': None, 'warehouse_id': None}}
+        factory.validate_schema('diagnostic', self.diagnostic(catalog_result_reads=[read]))
+        reconciliation = {key: value for key, value in row.items() if key != 'consumer_identity_sha256'}
+        reconciliation.update(ledger_record_ref=row['source_result']['local_entity_id'], deficit_ledger_record_ref='synthetic-preceding-deficit-fact')
+        factory.validate_schema('diagnostic', self.diagnostic('catalog', catalog_reconciliations=[reconciliation]))
+        for platform in ('core', 'catalog', 'sawemly'):
+            self.assert_code('published_schema_invalid', factory.validate_schema, 'diagnostic', self.diagnostic(platform, catalog_result_reads=[row]))
+        for platform in ('core', 'wa_savana', 'sawemly'):
+            self.assert_code('published_schema_invalid', factory.validate_schema, 'diagnostic', self.diagnostic(platform, catalog_reconciliations=[reconciliation]))
+        for platform in ('core', 'catalog', 'sawemly', 'wa_savana'):
+            factory.validate_schema('diagnostic', self.diagnostic(platform, catalog_result_reads=[], catalog_reconciliations=[]))
+
+    def test_invalid_v2_child_diagnostic_never_escapes_controller_checkpoint_validation(self):
+        instance = self.instance()
+        invalid = self.diagnostic(catalog_result_reads=[{**self.catalog_result_row(), 'arbitrary_header': 'unpublished'}])
+        for command in ('diagnostics', 'checkpoint'):
+            with mock.patch.object(instance, 'exchange', return_value=invalid):
+                self.assert_code('published_schema_invalid', instance.dispatch, command, {})
 
     def test_actual_schema_rejects_legacy_wire_authority_fields_wrong_identity_and_unmeasured_counters(self):
         params = self.params(); factory.start_params(params)

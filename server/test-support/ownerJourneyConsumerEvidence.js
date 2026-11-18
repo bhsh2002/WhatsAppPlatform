@@ -24,11 +24,13 @@ const semanticResults = new Map([
 ]);
 const mediaDescription = count => `ملفات مرفقة مشتركة: ${count} — عرض المحتوى غير متاح من هنا`;
 const safeLabel = value => text(value) && !/^[a-f0-9]{64}$/i.test(value) && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
+const evidenceText = (value, max = 255) => text(value) && [...value].length <= max && !value.includes('\0');
+const catalogEvidencePairs = new Set([pair('inventory.read', 'inventory.read'), pair('inventory.count', 'inventory.count_delta')]);
 
 // Factory-only observer. No Database constructor, business reads, network calls
 // or application mutation lives here. Caller flushes only after its actual
-// gateway read and fresh identity/context fence succeed. Persist hashes/counts,
-// never customer/product values, source URLs, credentials, payloads or bytes.
+// delivery and fresh identity/context fence succeed. Persist hashes/counts and
+// the closed Catalog receipt metadata, never credentials, payloads or body bytes.
 export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () => Date.now() }) => {
     if (!database?.prepare || !database?.transaction || !/^[A-Za-z0-9_.:-]{1,200}$/.test(runId || '') || typeof now !== 'function') throw new TypeError('Explicit owned SQLite/run observer required');
     database.exec(`CREATE TABLE IF NOT EXISTS owner_journey_consumer_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL);
@@ -37,7 +39,8 @@ export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () =
         source_platform TEXT NOT NULL,capability_code TEXT,operation TEXT,format TEXT,content_sha256 TEXT,byte_length INTEGER,
         status INTEGER,path_template TEXT,observed_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS owner_journey_consumer_facts(run_id TEXT NOT NULL,name TEXT NOT NULL,value INTEGER NOT NULL,
-        PRIMARY KEY(run_id,name));`);
+        PRIMARY KEY(run_id,name));
+        CREATE TABLE IF NOT EXISTS owner_journey_catalog_result_reads(id INTEGER PRIMARY KEY,run_id TEXT NOT NULL,row_json TEXT NOT NULL);`);
     database.prepare('INSERT OR IGNORE INTO owner_journey_consumer_runs VALUES(?,?)').run(runId, new Date(now()).toISOString());
     const bump = (name, amount = 1) => database.prepare(`INSERT INTO owner_journey_consumer_facts VALUES(?,?,?)
         ON CONFLICT(run_id,name) DO UPDATE SET value=value+excluded.value`).run(runId, name, amount);
@@ -124,15 +127,41 @@ export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () =
         if (mime === 'application/json') {
             const value = JSON.parse(decoded);
             if (!value || typeof value !== 'object' || Object.keys(value).length === 0) return null;
-            canonicalWorkspaceJson(value); // bounded finite JSON, no invented per-action wrapper
+            canonicalWorkspaceJson(value, 4_194_304); // finite/bounded validation only; producer owns serialization
         }
         return { ...bound, command: hash([command.command_id, command.organization_id, command.activity_id, command.provider_ref]),
             version: command.version, model: hash(command), capability: command.capability, operation: command.action,
             format: mime === 'text/csv' ? 'csv' : 'json', sha: representation.sha256, length: bytes.length, raw: command };
     };
+    // Explicit IDs must come from the actual command/result's immutable source
+    // binding. Current provider installations are only a consistency check.
+    const catalogResultRow = (input, verified) => {
+        const { before, after, representation } = input, command = verified.raw;
+        if (verified.platform !== 'catalog' || !catalogEvidencePairs.has(pair(verified.capability, verified.operation))
+            || command.payload?.payload_type !== 'native_action' || !command.payload.parameters
+            || typeof command.payload.parameters !== 'object' || Array.isArray(command.payload.parameters)
+            || !evidenceText(command.command_id) || !evidenceText(command.provider_ref)
+            || !/^[a-f0-9]{64}$/.test(command.approval_fingerprint || '')
+            || !evidenceText(command.source_result.local_entity_id) || !evidenceText(command.source_result.result_reference, 1000)
+            || !evidenceText(before.sourceInstallationId) || before.sourceInstallationId !== after.sourceInstallationId) return null;
+        const scope = scopeOf(before.scope);
+        if (!evidenceText(scope.organization_id) || !evidenceText(scope.activity_id)
+            || ['branch_id', 'warehouse_id'].some(key => scope[key] !== null && !evidenceText(scope[key]))
+            || (scope.warehouse_id !== null && scope.branch_id === null)
+            || ![before, after].every(value => value.provider.installations?.some(installation =>
+                installation.installation_id === value.sourceInstallationId && installation.activity_id === scope.activity_id))) return null;
+        return { command_id: command.command_id, version: command.version, approval_fingerprint: command.approval_fingerprint,
+            provider_ref: command.provider_ref, source_installation_id: before.sourceInstallationId, scope,
+            capability_code: command.capability, operation: command.action,
+            source_result: { local_entity_id: command.source_result.local_entity_id, source_revision: command.source_result.source_revision,
+                result_reference: command.source_result.result_reference },
+            content_type: representation.contentType, byte_length: verified.length, content_sha256: verified.sha,
+            observed_at: new Date(now()).toISOString(), consumer_identity_sha256: verified.owner };
+    };
     const recordResult = input => {
         try {
             const verified = checkedResult(input); if (!verified) return { recorded: false };
+            const catalogRow = catalogResultRow(input, verified);
             database.transaction(() => {
                 const candidate = semanticResults.get(pair(verified.capability, verified.operation));
                 const fact = verified.platform === 'catalog' && positive(verified.raw.source_result.source_revision)
@@ -140,6 +169,11 @@ export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () =
                     && typeof verified.raw.payload.parameters === 'object' && !Array.isArray(verified.raw.payload.parameters) ? candidate : null;
                 event({ ...verified, kind: fact ? 'result_semantic' : 'result' }); bump('same_identity_result_fetches');
                 if (fact) bump(fact);
+                if (catalogRow) {
+                    database.prepare('INSERT INTO owner_journey_catalog_result_reads(run_id,row_json) VALUES(?,?)').run(runId, JSON.stringify(catalogRow));
+                    database.prepare(`DELETE FROM owner_journey_catalog_result_reads WHERE run_id=? AND id NOT IN
+                        (SELECT id FROM owner_journey_catalog_result_reads WHERE run_id=? ORDER BY id DESC LIMIT 512)`).run(runId, runId);
+                }
             }).immediate();
             return { recorded: true };
         } catch { return { recorded: false }; }
@@ -165,6 +199,7 @@ export const createOwnerJourneyConsumerEvidence = ({ database, runId, now = () =
     };
     const snapshot = () => ({
         facts: Object.fromEntries(database.prepare('SELECT name,value FROM owner_journey_consumer_facts WHERE run_id=? ORDER BY name').all(runId).map(row => [row.name, row.value])),
+        catalog_result_reads: database.prepare('SELECT row_json FROM owner_journey_catalog_result_reads WHERE run_id=? ORDER BY id').all(runId).map(row => JSON.parse(row.row_json)),
         resultFetchRows: database.prepare(`SELECT source_platform,capability_code,operation,COUNT(*) result_fetches,
             SUM(CASE WHEN format='json' THEN 1 ELSE 0 END) json_fetches,SUM(CASE WHEN format='csv' THEN 1 ELSE 0 END) csv_fetches
             FROM owner_journey_consumer_events WHERE run_id=? AND kind IN ('result','result_semantic') GROUP BY source_platform,capability_code,operation

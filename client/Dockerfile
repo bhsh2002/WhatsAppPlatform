@@ -11,7 +11,7 @@ RUN npm ci --include=dev --include=optional
 
 COPY . .
 
-RUN node scripts/verify-picomatch-build-guard.cjs --mode inspect \
+RUN node scripts/verify-picomatch-build-guard.cjs \
     && npm ls --all --include=dev --include=optional \
     && npm run build
 

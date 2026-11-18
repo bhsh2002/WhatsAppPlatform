@@ -44,6 +44,19 @@ export const ownerJourneyObservations = (source, observed, nativeAuth) => {
     return (source === undefined ? [...observed] : [...source, ...nativeAuth]).filter(ownServer);
 };
 
+export const ownerJourneyDiagnosticEnvelope = ({ source, config, traces = [], nativeAuthTraces = [] }) => {
+    object(source, ['facts'], ['observations', 'capability_proofs', 'catalog_result_reads']);
+    object(source.facts, Object.keys(source.facts));
+    if (Object.values(source.facts).some(value => !Number.isSafeInteger(value) || value < 0)
+        || (source.catalog_result_reads !== undefined
+            && (!Array.isArray(source.catalog_result_reads) || source.catalog_result_reads.length > 512))) fail('diagnostic_invalid');
+    return { run_id: config.run_id, platform: 'wa_savana', source_revision: config.source_revision, source_sha256: config.source_sha256,
+        owned_state: true, facts: { ...source.facts, actual_process_restarts: config.process_generation - 1 },
+        observations: ownerJourneyObservations(source.observations, traces, nativeAuthTraces),
+        ...(source.capability_proofs ? { capability_proofs: source.capability_proofs } : {}),
+        ...(source.catalog_result_reads === undefined ? {} : { catalog_result_reads: source.catalog_result_reads }) };
+};
+
 export function privateOwnerBrowserContext(owner, provider, routeTemplates = []) {
     const output = { ordinary_owner: { username: owner.username, password: owner.password } };
     if (!Array.isArray(routeTemplates) || routeTemplates.length > 2000) fail('private_route_templates_invalid');
@@ -253,13 +266,7 @@ export async function startOwnerJourneyRuntime(input) {
         await vite.listen();
         const proof = async (method, params) => {
             const source = await services[method](params);
-            object(source, ['facts'], ['observations', 'capability_proofs']);
-            object(source.facts, Object.keys(source.facts));
-            if (Object.values(source.facts).some(value => !Number.isSafeInteger(value) || value < 0)) fail('diagnostic_invalid');
-            return { run_id: config.run_id, platform: 'wa_savana', source_revision: config.source_revision, source_sha256: config.source_sha256,
-                owned_state: true, facts: { ...source.facts, actual_process_restarts: config.process_generation - 1 },
-                observations: ownerJourneyObservations(source.observations, traces, nativeAuthTraces),
-                ...(source.capability_proofs ? { capability_proofs: source.capability_proofs } : {}) };
+            return ownerJourneyDiagnosticEnvelope({ source, config, traces, nativeAuthTraces });
         };
         return { startup: { ...await proof('diagnostics'), api_url: config.urls.wa_savana, frontend_url: config.urls.wa_frontend,
                 browser_context: privateOwnerBrowserContext(privateNative, services.privateBrowserContext,

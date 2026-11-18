@@ -6,10 +6,30 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import express from 'express';
-import { validateRuntimeConfig, ownerJourneyJsonParserOptions, ownerJourneyProviderEnvironment, ownerJourneyObservations, privateOwnerBrowserContext } from '../test-support/ownerJourneyRuntime.mjs';
+import { validateRuntimeConfig, ownerJourneyJsonParserOptions, ownerJourneyProviderEnvironment, ownerJourneyObservations, ownerJourneyDiagnosticEnvelope, privateOwnerBrowserContext } from '../test-support/ownerJourneyRuntime.mjs';
 import { ownerJourneyRouteTemplates } from '../test-support/ownerJourneyRouteTemplates.js';
 
 const moduleUrl = new URL('../test-support/ownerJourneyRuntime.mjs', import.meta.url).href;
+
+test('actual diagnostic envelope preserves closed published Catalog result rows and separates source ownership', () => {
+    const published = JSON.parse(fs.readFileSync(new URL('../test-fixtures/wa-catalog-result-evidence-v1.synthetic-example.json', import.meta.url)));
+    const rows = published.catalog_result_reads;
+    assert.ok(Array.isArray(rows) && rows.length > 0);
+    const source = { facts: { catalog_ledger_reads: 1 }, observations: [
+        { service: 'wa_savana', method: 'GET', path_template: '/api/portal/integrations/workspace/commands/:command/result', status: 200 },
+        { service: 'portal', method: 'GET', path_template: '/v1/integration/workspace/commands/:command/result', status: 200 },
+    ], catalog_result_reads: rows };
+    const config = { run_id: 'owned-diagnostic-row-unit', source_revision: 'a'.repeat(40), source_sha256: 'b'.repeat(64), process_generation: 3 };
+    const output = ownerJourneyDiagnosticEnvelope({ source, config });
+    assert.deepEqual(JSON.parse(JSON.stringify(output)).catalog_result_reads, rows);
+    assert.equal(output.facts.actual_process_restarts, 2);
+    assert.equal(output.observations.length, 1); assert.equal(output.observations[0].service, 'wa_savana');
+    assert.equal(Object.hasOwn(output, 'catalog_reconciliations'), false);
+    assert.throws(() => ownerJourneyDiagnosticEnvelope({ source: { ...source, catalog_reconciliations: published.catalog_reconciliations }, config }), { code: 'invalid_request' });
+    for (const invalid of [null, {}, Array.from({ length: 513 }, () => rows[0])]) {
+        assert.throws(() => ownerJourneyDiagnosticEnvelope({ source: { ...source, catalog_result_reads: invalid }, config }), { code: 'diagnostic_invalid' });
+    }
+});
 
 test('browser route metadata comes from actual nested Express routes and matches the registered trace mapper', async t => {
     const app = express(), root = express.Router(), child = express.Router(); const traces = [];

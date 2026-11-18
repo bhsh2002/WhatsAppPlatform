@@ -194,8 +194,33 @@ jobs:
                   output.write(f'{key}={data[key]}\n')
           PYOUTPUT
 
+      - name: Set up pinned isolated image builder
+        id: image-builder
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          version: v0.38.2
+          name: wa-savana-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          driver: docker-container
+          # Keep the normal process sandbox; do not enable insecure entitlements.
+          buildkitd-flags: --oci-worker-gc=true
+          driver-opts: |
+            image=moby/buildkit:v0.34.2
+            memory=2g
+            memory-swap=2g
+            cpu-period=100000
+            cpu-quota=200000
+
+      - name: Verify owned builder versions and outer memory and PID bounds
+        env:
+          BUILDER_NAME: ${{ steps.image-builder.outputs.name }}
+          BUILDER_NODES: ${{ steps.image-builder.outputs.nodes }}
+        run: |
+          python3 -B tools/wa_controlled_release.py verify-builder \
+            --builder "$BUILDER_NAME" --nodes "$BUILDER_NODES"
+
       - name: Build reviewed images from controlled contexts
         env:
+          BUILDX_BUILDER: ${{ steps.image-builder.outputs.name }}
           VERIFIED_REVISION: ${{ steps.controlled.outputs.git_revision }}
           CONTROLLED_SOURCE_SHA256: ${{ steps.controlled.outputs.source_sha256 }}
           CONTROLLED_MANIFEST_SHA256: ${{ steps.controlled.outputs.context_manifest_sha256 }}

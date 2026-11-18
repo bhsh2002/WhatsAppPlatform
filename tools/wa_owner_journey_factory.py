@@ -36,12 +36,25 @@ PEER_METADATA = {'oidc_redirect_path': '/api/portal/integrations/shared-read-set
     'signature_target_prefix': '', 'owner_action_service': 'wa_frontend', 'owner_action_base_path': '/portal/integrations'}
 
 
-def schema_matches(schema, value):
+def schema_matches(schema, value, root=None):
     """Strict standard-library validation for the published fixture schema subset."""
     if schema is True:
         return True
     if schema is False:
         return False
+    root = schema if root is None else root
+    if '$ref' in schema:
+        reference = schema['$ref']
+        if not isinstance(reference, str) or not reference.startswith('#/'):
+            return False
+        target = root
+        try:
+            for part in reference[2:].split('/'):
+                target = target[part.replace('~1', '/').replace('~0', '~')]
+        except (KeyError, TypeError):
+            return False
+        if not schema_matches(target, value, root):
+            return False
     if 'const' in schema and (type(value) is not type(schema['const']) or value != schema['const']):
         return False
     if 'enum' in schema and not any(type(value) is type(option) and value == option for option in schema['enum']):
@@ -51,16 +64,23 @@ def schema_matches(schema, value):
              'boolean': lambda x: type(x) is bool, 'null': lambda x: x is None}
     if 'type' in schema and (schema['type'] not in types or not types[schema['type']](value)):
         return False
-    if 'oneOf' in schema and sum(schema_matches(option, value) for option in schema['oneOf']) != 1:
+    if 'oneOf' in schema and sum(schema_matches(option, value, root) for option in schema['oneOf']) != 1:
         return False
-    for rule in schema.get('allOf', []):
-        if 'if' in rule:
-            if schema_matches(rule['if'], value) and not schema_matches(rule.get('then', {}), value):
-                return False
-        elif not schema_matches(rule, value):
+    if 'anyOf' in schema and not any(schema_matches(option, value, root) for option in schema['anyOf']):
+        return False
+    if 'not' in schema and schema_matches(schema['not'], value, root):
+        return False
+    if any(not schema_matches(rule, value, root) for rule in schema.get('allOf', [])):
+        return False
+    if 'if' in schema:
+        branch = 'then' if schema_matches(schema['if'], value, root) else 'else'
+        if not schema_matches(schema.get(branch, {}), value, root):
             return False
     if isinstance(value, str):
-        if len(value) < schema.get('minLength', 0) or ('pattern' in schema and not re.search(schema['pattern'], value)):
+        pattern = schema.get('pattern')
+        matched = True if pattern is None else (re.fullmatch(pattern, value)
+            if pattern.startswith('^') and pattern.endswith('$') else re.search(pattern, value))
+        if len(value) < schema.get('minLength', 0) or len(value) > schema.get('maxLength', len(value)) or not matched:
             return False
         if schema.get('format') == 'date-time':
             try:
@@ -74,28 +94,29 @@ def schema_matches(schema, value):
     if type(value) is int and (value < schema.get('minimum', value) or value > schema.get('maximum', value)):
         return False
     if isinstance(value, list):
-        if len(value) < schema.get('minItems', 0):
+        if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', len(value)):
             return False
         if schema.get('uniqueItems') and len({json.dumps(item, sort_keys=True) for item in value}) != len(value):
             return False
-        if 'items' in schema and not all(schema_matches(schema['items'], item) for item in value):
+        if 'items' in schema and not all(schema_matches(schema['items'], item, root) for item in value):
             return False
     if isinstance(value, dict):
         if len(value) < schema.get('minProperties', 0) or set(schema.get('required', [])) - set(value):
             return False
         for key, item in value.items():
-            if 'propertyNames' in schema and not schema_matches(schema['propertyNames'], key):
+            if 'propertyNames' in schema and not schema_matches(schema['propertyNames'], key, root):
                 return False
             if key in schema.get('properties', {}):
-                if not schema_matches(schema['properties'][key], item):
+                if not schema_matches(schema['properties'][key], item, root):
                     return False
-            elif not schema_matches(schema.get('additionalProperties', True), item):
+            elif not schema_matches(schema.get('additionalProperties', True), item, root):
                 return False
     return True
 
 
 def validate_schema(name, value):
-    schema = json.loads((CONTRACTS / f'owner-factory-{name}.schema.json').read_text())
+    filename = 'owner-factory-diagnostic-v2.schema.json' if name == 'diagnostic' else f'owner-factory-{name}.schema.json'
+    schema = json.loads((CONTRACTS / filename).read_text())
     if not schema_matches(schema, value):
         raise ProtocolError('published_schema_invalid')
     return value
@@ -164,7 +185,7 @@ def factory_identity():
     rows = []
     for file in (Path(__file__), RUNTIME, APPLICATION, ROOT / 'server/test-support/ownerJourneyRouteTemplates.js',
                  ROOT / 'server/test-support/ownerJourneyCapabilityProofs.js', ROOT / 'server/test-support/ownerJourneyConsumerEvidence.js',
-                 ROOT / 'server/test-support/ownerJourneyProviderFault.js',
+                 ROOT / 'server/test-support/ownerJourneyProviderFault.js', ROOT / 'server/test-support/ownerJourneyResultDelivery.js',
                  ROOT / 'tools/package_wa_production_candidate.py',
                  *sorted(CONTRACTS.glob('*.schema.json'))):
         if file.is_symlink() or (file.exists() and file.resolve() != file):

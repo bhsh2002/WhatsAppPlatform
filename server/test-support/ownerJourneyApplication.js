@@ -36,6 +36,7 @@ import { createSqliteReadPrincipalVerifier, SharedProductReadError } from '../se
 import { createOwnerJourneyCapabilityProofs } from './ownerJourneyCapabilityProofs.js';
 import { createOwnerJourneyConsumerEvidence } from './ownerJourneyConsumerEvidence.js';
 import { createOwnerJourneyProviderFault } from './ownerJourneyProviderFault.js';
+import { createOwnerJourneyResultDelivery } from './ownerJourneyResultDelivery.js';
 
 const fail = code => { const error = new Error(code); error.code = code; throw error; };
 
@@ -177,6 +178,13 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         provider: value.context.raw.providers.find(row => row.provider_ref === value.raw.provider_ref && row.activity_id === value.raw.activity_id), scope: value.activity.scope });
     const contextKey = (identity, commandId) => crypto.createHash('sha256').update(JSON.stringify([runId,
         identity.actorId, identity.organizationId, identity.nativeAccountId, identity.coreAccountId, identity.generation, commandId])).digest('hex');
+    const resultDelivery = createOwnerJourneyResultDelivery({ onDelivered: event => {
+        gateway.setup.assertLocal(event.principal);
+        if (!gateway.setup.store.ownerCurrent(event.principal, event.after.identity)) return;
+        const recorded = consumerEvidence.recordResult(event);
+        if (recorded.recorded === true) database.prepare('INSERT INTO owner_journey_consumer_result_contexts VALUES(?,?,?) ON CONFLICT(context_key) DO UPDATE SET encrypted_context=excluded.encrypted_context')
+            .run(contextKey(event.after.identity, event.after.command.command_id), runId, encrypt(JSON.stringify(event.after)));
+    } });
     const originalResult = gateway.result.bind(gateway);
     gateway.result = async (principal, input) => {
         let before;
@@ -184,9 +192,7 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
             before = consumerContext(await gateway.commandRead(principal, input.command));
             const representation = await originalResult(principal, input);
             const after = consumerContext(await gateway.commandRead(principal, input.command));
-            consumerEvidence.recordResult({ principal, before, after, representation });
-            database.prepare('INSERT INTO owner_journey_consumer_result_contexts VALUES(?,?,?) ON CONFLICT(context_key) DO UPDATE SET encrypted_context=excluded.encrypted_context')
-                .run(contextKey(after.identity, after.command.command_id), runId, encrypt(JSON.stringify(after)));
+            resultDelivery.capture({ principal, before, after, representation });
             return representation;
         } catch (error) {
             if (error instanceof SharedProductReadError && error.code === 'workspace_rejected' && error.status === 403) {
@@ -248,7 +254,7 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
     mount('/api/webhook', webhooksRouter);
     mount('/api/integrations/sms-gateway/events', createSmsGatewayWebhookRouter({ service: smsService, eventBus }));
     mount('/api/integrations/sms-gateway/provision', createSmsGatewayProvisioningRouter({ service: smsService }));
-    mount('/api/portal/integrations', authMiddleware, tenantMiddleware,
+    mount('/api/portal/integrations', authMiddleware, tenantMiddleware, resultDelivery.middleware,
         createOperationalWorkspaceRouter({ service: runtime.workspace, appOrigin: urls.wa_frontend }),
         createOperationalReadSetupRouter({ service: readServices.setupService }),
         createSharedProductReadsRouter({ service: readServices.readService }), runtime.native.ownerRouter,
@@ -298,7 +304,7 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         Object.assign(facts, consumer.facts);
         const resultFetchRows = database.prepare('SELECT id,status,encrypted_result FROM owner_journey_native_result_fetches WHERE run_id=? ORDER BY id').all(runId)
             .map(row => ({ id: row.id, status: row.status, result: JSON.parse(decrypt(row.encrypted_result)) }));
-        return { facts, capability_proofs: await capabilityEvidence.collect({ resultFetchRows }),
+        return { facts, capability_proofs: await capabilityEvidence.collect({ resultFetchRows }), catalog_result_reads: consumer.catalog_result_reads,
             observations: database.prepare("SELECT service,method,path_template,status,observed_at FROM owner_journey_observations WHERE run_id=? AND service IN ('wa_savana','wa_frontend') ORDER BY id LIMIT 10000").all(runId) };
     };
     return { diagnostics, checkpoint: diagnostics, httpRouteTemplates,

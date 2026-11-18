@@ -14,6 +14,42 @@ _spec.loader.exec_module(candidate)
 PIN = 'ops/release/runtime-source.sha256'
 RECIPES = {part: f'ops/release/{part}.Dockerfile' for part in ('server', 'client')}
 IMAGE_ROOT = 'ghcr.io/bhsh2002'
+BUILDX_VERSION = 'v0.38.2'
+BUILDKIT_VERSION = 'v0.34.2'
+BUILDKIT_IMAGE = 'moby/buildkit:' + BUILDKIT_VERSION
+RUN_RESOURCES = ('memory=2g', 'memory-swap=2g', 'cpu-period=100000', 'cpu-quota=200000')
+
+
+def verify_builder(builder, nodes_json):
+    """Bound only the exact owned, pinned builder before any image RUN executes."""
+    if not re.fullmatch(r'wa-savana-(?:ci|release)-[0-9]+-[0-9]+', builder):
+        raise ValueError('Unexpected controlled builder name')
+    nodes = json.loads(nodes_json)
+    if not isinstance(nodes, list) or len(nodes) != 1 or not isinstance(nodes[0], dict) or nodes[0].get('name') != builder + '0':
+        raise ValueError('Expected the single owned Buildx node')
+    container = 'buildx_buildkit_' + nodes[0]['name']
+    def inspect():
+        value = json.loads(subprocess.check_output(['docker', 'inspect', container, '--format', '{{json .}}']))
+        resources = value.get('HostConfig', {})
+        if (value.get('Name') != '/' + container or value.get('Config', {}).get('Image') != BUILDKIT_IMAGE
+                or value.get('State', {}).get('Running') is not True or not re.fullmatch(r'[0-9a-f]{64}', value.get('Id', ''))
+                or any(resources.get(key) != expected for key, expected in (
+                    ('Memory', 2_147_483_648), ('MemorySwap', 2_147_483_648), ('CpuPeriod', 100000), ('CpuQuota', 200000)))):
+            raise ValueError('Controlled BuildKit identity or outer resource limits differ')
+        return value
+    before = inspect()
+    version = subprocess.check_output(['docker', 'buildx', 'version']).decode().split()
+    daemon = subprocess.check_output(['docker', 'exec', container, 'buildkitd', '--version']).decode().split()
+    if len(version) < 2 or version[:2] != ['github.com/docker/buildx', BUILDX_VERSION] or len(daemon) != 4 or daemon[2] != BUILDKIT_VERSION:
+        raise ValueError('Controlled Buildx/BuildKit version differs')
+    # pids-limit is not a supported docker-container driver option. Apply it
+    # through Docker only after checking the owned node/container identity.
+    subprocess.run(['docker', 'update', '--pids-limit=256', container], check=True)
+    after = inspect()
+    if after['Id'] != before['Id'] or after['HostConfig'].get('PidsLimit') != 256:
+        raise ValueError('Controlled BuildKit PID limit was not applied')
+    return {'builder': builder, 'buildx': BUILDX_VERSION, 'buildkit': BUILDKIT_VERSION,
+            'outer_memory_bytes': 2_147_483_648, 'outer_pids_limit': 256, 'run_resources': list(RUN_RESOURCES)}
 
 
 def require_revision(value):
@@ -137,6 +173,8 @@ def build(directory, revision, evidence_directory, expected_marker, expected_man
                    '--label', f'org.opencontainers.image.revision={revision}',
                    '--label', f'savana.candidate.source-sha256={marker}', '--tag', tag,
                    '--metadata-file', str(metadata)]
+        for resource in RUN_RESOURCES:
+            command += ['--resource', resource]
         if publish:
             command += ['--provenance=mode=max', '--sbom=true', '--push']
         else:
@@ -169,12 +207,15 @@ def build(directory, revision, evidence_directory, expected_marker, expected_man
 def main():
     parser = argparse.ArgumentParser(description=__doc__); commands = parser.add_subparsers(dest='operation', required=True)
     exporter = commands.add_parser('export'); exporter.add_argument('--repository', required=True); exporter.add_argument('--revision', required=True); exporter.add_argument('--output-directory', required=True)
+    setup = commands.add_parser('verify-builder'); setup.add_argument('--builder', required=True); setup.add_argument('--nodes', required=True)
     builder = commands.add_parser('build'); builder.add_argument('--context-directory', required=True); builder.add_argument('--revision', required=True); builder.add_argument('--evidence-directory', required=True); builder.add_argument('--push', action='store_true'); builder.add_argument('--expected-source-sha256', required=True); builder.add_argument('--expected-manifest-sha256', required=True)
     args = parser.parse_args()
     try:
         if args.operation == 'export':
             result = export(args.repository, args.revision, args.output_directory)
             print(json.dumps({'git_revision': result['git_revision'], 'source_sha256': result['source_sha256'], 'runtime_file_count': len(result['files']), 'context_manifest_sha256': candidate.sha((Path(args.output_directory) / 'context-manifest.json').read_bytes())}))
+        elif args.operation == 'verify-builder':
+            print(json.dumps(verify_builder(args.builder, args.nodes)))
         else:
             result = build(args.context_directory, args.revision, args.evidence_directory, args.expected_source_sha256, args.expected_manifest_sha256, args.push)
             print(json.dumps({'git_revision': result['git_revision'], 'source_sha256': result['source_sha256'], 'published': result['published']}))

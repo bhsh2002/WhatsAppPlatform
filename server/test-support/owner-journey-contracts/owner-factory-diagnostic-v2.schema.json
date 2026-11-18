@@ -1,0 +1,703 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Official source-owned fresh-run diagnostic proof with closed WA/Catalog delivered-result evidence",
+  "type": "object",
+  "required": [
+    "run_id",
+    "platform",
+    "source_revision",
+    "source_sha256",
+    "owned_state",
+    "facts",
+    "observations"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "enum": [
+        "core",
+        "catalog",
+        "sawemly",
+        "wa_savana"
+      ]
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "owned_state": {
+      "const": true
+    },
+    "facts": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "accepted_batches",
+          "active_read_grants",
+          "actual_process_restarts",
+          "actual_tls_routed_requests",
+          "applied_product_commands",
+          "approved_source_requests",
+          "authoritative_customer_changes",
+          "authoritative_media_effects",
+          "authoritative_product_effects",
+          "authorized_customer_reads",
+          "authorized_measurement_exports",
+          "authorized_media_reads",
+          "balanced_stock_transfers",
+          "blind_unknown_outcome_retries",
+          "browser_created_activities",
+          "cancelled_capacity_releases",
+          "catalog_ledger_reads",
+          "commit_then_drop_ack",
+          "confirmed_campaign_results",
+          "confirmed_content_results",
+          "confirmed_message_results",
+          "cross_activity_measurement_exposures",
+          "documented_inventory_counts",
+          "duplicate_attempts",
+          "duplicate_effects",
+          "duplicate_order_effects",
+          "duplicate_payment_effects",
+          "duplicate_product_effects",
+          "duplicate_reservations",
+          "interest_report_reads",
+          "inventory_effects_from_shelf_reads",
+          "ledger_deficits",
+          "ledger_reconciliations",
+          "lookup_reconciliations",
+          "native_capacity_reservations",
+          "native_collection_results",
+          "native_order_cancellations",
+          "native_order_fulfilments",
+          "native_order_result_reads",
+          "native_refund_results",
+          "native_return_effects",
+          "native_sale_effects",
+          "observed_source_archives",
+          "offering_consumer_reads",
+          "offering_mutations",
+          "offering_semantic_losses",
+          "operator_logins",
+          "ordinary_owner_logins",
+          "other_reader_continued_after_withdrawal",
+          "out_of_order_source_rejections",
+          "owned_campaign_http_requests",
+          "owned_content_http_requests",
+          "owned_message_http_requests",
+          "owner_domain_requests",
+          "owner_operation_state_reads",
+          "persisted_policy_versions",
+          "persisted_resume_checks",
+          "pkce_token_exchanges",
+          "previous_domain_preserved_checks",
+          "price_changes",
+          "price_list_consumer_reads",
+          "price_list_mutations",
+          "price_list_semantic_losses",
+          "provenance_reads",
+          "public_message_requests",
+          "public_payment_requests",
+          "public_publish_requests",
+          "publisher_continued_after_withdrawal",
+          "quota_rejections",
+          "reconciliation_requests",
+          "rejected_domain_route_exposures",
+          "reservation_conflict_rejections",
+          "reviewed_campaign_requests",
+          "reviewed_content_requests",
+          "reviewed_message_requests",
+          "reviewed_native_order_requests",
+          "sale_labels_for_interest",
+          "same_identity_result_fetches",
+          "scan_detail_shelf_reads",
+          "scoped_permission_assignments",
+          "shared_detail_requests",
+          "shared_search_requests",
+          "source_lost_ack_retries",
+          "source_matching_report_reads",
+          "source_ui_archives",
+          "source_ui_changes",
+          "source_ui_creates",
+          "sourced_shelf_reads",
+          "stale_campaign_approval_rejections",
+          "stale_content_approval_rejections",
+          "stale_message_approval_rejections",
+          "standalone_measurement_accepted",
+          "transactional_source_outbox_checks",
+          "unauthorized_customer_fields",
+          "unauthorized_media_exposures",
+          "unconsented_accepted",
+          "unit_variant_consumer_reads",
+          "unit_variant_mutations",
+          "unit_variant_semantic_losses",
+          "unsupported_available_claims",
+          "verified_domain_approvals",
+          "verified_owner_accounts",
+          "visible_capability_count",
+          "withdrawal_denials",
+          "withdrawn_purpose_denials",
+          "withdrawn_read_grants"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "method",
+          "path_template",
+          "status",
+          "observed_at"
+        ],
+        "properties": {
+          "service": {
+            "enum": [
+              "connect",
+              "subscriptions",
+              "portal",
+              "catalog",
+              "sawemly",
+              "wa_savana",
+              "wa_frontend",
+              "message_provider",
+              "payment_provider",
+              "controller",
+              "catalog_domain_proxy"
+            ]
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE",
+              "OPTIONS"
+            ]
+          },
+          "path_template": {
+            "type": "string",
+            "pattern": "^/[A-Za-z0-9_./{}:-]*$"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "capability_proofs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability_code",
+          "operation",
+          "service",
+          "handler_registered",
+          "configured",
+          "owner_form_requests",
+          "confirmed_native_results",
+          "result_fetches"
+        ],
+        "properties": {
+          "capability_code": {
+            "enum": [
+              "campaigns.execute",
+              "campaigns.review",
+              "collections.manage",
+              "content.publish",
+              "content.review",
+              "customers.manage",
+              "inventory.count",
+              "inventory.facts",
+              "inventory.read",
+              "inventory.transfer",
+              "measurement.export",
+              "measurement.read",
+              "media.manage",
+              "messaging.review",
+              "messaging.send",
+              "offerings.manage",
+              "orders.fulfil",
+              "orders.request",
+              "owner.operations",
+              "prices.manage",
+              "products.read",
+              "products.write",
+              "services.reserve",
+              "shelves.read",
+              "units.variants"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,100}$"
+          },
+          "service": {
+            "enum": [
+              "connect",
+              "subscriptions",
+              "portal",
+              "catalog",
+              "sawemly",
+              "wa_savana",
+              "wa_frontend",
+              "message_provider",
+              "payment_provider",
+              "controller",
+              "catalog_domain_proxy"
+            ]
+          },
+          "handler_registered": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "owner_form_requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confirmed_native_results": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "result_fetches": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "catalog_result_reads": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/WACatalogResultRead"
+      }
+    },
+    "catalog_reconciliations": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/CatalogReconciliation"
+      }
+    }
+  },
+  "$comment": "Start may additionally return browser_context privately and actual registered oidc clients from Core. Runner excludes them from public evidence. New evidence rows and nested scope/receipt are closed. Wrong-owner nonempty arrays rejected; missing rows stay pending. Semantic state/digest joins are mandatory runtime rules, not generic JSON key assertions.",
+  "$defs": {
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "organization_id",
+        "activity_id",
+        "branch_id",
+        "warehouse_id"
+      ],
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "activity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "warehouse_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "warehouse_id": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "pattern": "\\S",
+                "not": {
+                  "pattern": "\u0000"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "SourceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_entity_id",
+        "source_revision",
+        "result_reference"
+      ],
+      "properties": {
+        "local_entity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "result_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        }
+      }
+    },
+    "WACatalogResultRead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "version",
+        "approval_fingerprint",
+        "provider_ref",
+        "source_installation_id",
+        "scope",
+        "capability_code",
+        "operation",
+        "source_result",
+        "content_type",
+        "byte_length",
+        "content_sha256",
+        "observed_at",
+        "consumer_identity_sha256"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "approval_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "provider_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_installation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "capability_code": {
+          "enum": [
+            "inventory.read",
+            "inventory.count"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "inventory.read",
+            "inventory.count_delta"
+          ]
+        },
+        "source_result": {
+          "$ref": "#/$defs/SourceResult"
+        },
+        "content_type": {
+          "enum": [
+            "application/json",
+            "text/csv"
+          ]
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4194304,
+          "description": "Exact actual delivered filtered JSON or CSV UTF8 byte length; strict integer, no bool/float."
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Actual offset-aware ISO timestamp; runner additionally validates via timestamp()."
+        },
+        "consumer_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "capability_code": {
+              "const": "inventory.count"
+            },
+            "operation": {
+              "const": "inventory.count_delta"
+            }
+          }
+        },
+        {
+          "properties": {
+            "capability_code": {
+              "const": "inventory.read"
+            },
+            "operation": {
+              "const": "inventory.read"
+            }
+          }
+        }
+      ]
+    },
+    "CatalogReconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "version",
+        "approval_fingerprint",
+        "provider_ref",
+        "source_installation_id",
+        "scope",
+        "capability_code",
+        "operation",
+        "source_result",
+        "content_type",
+        "byte_length",
+        "content_sha256",
+        "observed_at",
+        "ledger_record_ref",
+        "deficit_ledger_record_ref"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "approval_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "provider_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_installation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "capability_code": {
+          "const": "inventory.count"
+        },
+        "operation": {
+          "const": "inventory.count_delta"
+        },
+        "source_result": {
+          "$ref": "#/$defs/SourceResult"
+        },
+        "content_type": {
+          "enum": [
+            "application/json",
+            "text/csv"
+          ]
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4194304,
+          "description": "Exact actual delivered filtered JSON or CSV UTF8 byte length; strict integer, no bool/float."
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Actual offset-aware ISO timestamp; runner additionally validates via timestamp()."
+        },
+        "ledger_record_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "deficit_ledger_record_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        }
+      },
+      "$comment": "Runtime additionally requires ledger_record_ref == source_result.local_entity_id and deficit_ledger_record_ref != ledger_record_ref. Standard JSON Schema cannot express this cross-field equality/difference; actual runner enforces them."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "wa_savana"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "catalog_result_reads": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "catalog"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "catalog_reconciliations": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ]
+}

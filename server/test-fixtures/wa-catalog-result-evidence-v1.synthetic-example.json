@@ -1,0 +1,58 @@
+{
+  "attribution": "Synthetic shape illustration only; IDs/digests/byte lengths do not assert real delivered content, native results or acceptance. Both producers still require actual emission.",
+  "catalog_reconciliations": [
+    {
+      "command_id": "synthetic-count-command",
+      "version": 2,
+      "approval_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "provider_ref": "synthetic-catalog-provider",
+      "source_installation_id": "synthetic-catalog-source",
+      "scope": {
+        "organization_id": "synthetic-org",
+        "activity_id": "synthetic-activity",
+        "branch_id": "synthetic-branch",
+        "warehouse_id": "synthetic-warehouse"
+      },
+      "capability_code": "inventory.count",
+      "operation": "inventory.count_delta",
+      "source_result": {
+        "local_entity_id": "synthetic-reconciliation-fact",
+        "source_revision": 1,
+        "result_reference": "/synthetic/owner/reconciliation-result"
+      },
+      "content_type": "application/json",
+      "byte_length": 27,
+      "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "observed_at": "2026-11-18T00:00:01+00:00",
+      "ledger_record_ref": "synthetic-reconciliation-fact",
+      "deficit_ledger_record_ref": "synthetic-preceding-deficit-fact"
+    }
+  ],
+  "catalog_result_reads": [
+    {
+      "command_id": "synthetic-count-command",
+      "version": 2,
+      "approval_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "provider_ref": "synthetic-catalog-provider",
+      "source_installation_id": "synthetic-catalog-source",
+      "scope": {
+        "organization_id": "synthetic-org",
+        "activity_id": "synthetic-activity",
+        "branch_id": "synthetic-branch",
+        "warehouse_id": "synthetic-warehouse"
+      },
+      "capability_code": "inventory.count",
+      "operation": "inventory.count_delta",
+      "source_result": {
+        "local_entity_id": "synthetic-reconciliation-fact",
+        "source_revision": 1,
+        "result_reference": "/synthetic/owner/reconciliation-result"
+      },
+      "content_type": "application/json",
+      "byte_length": 27,
+      "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "observed_at": "2026-11-18T00:00:02+00:00",
+      "consumer_identity_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

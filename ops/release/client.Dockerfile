@@ -8,7 +8,7 @@ COPY . .
 ARG VITE_WA_CLIENT_RELEASE
 ENV VITE_WA_CLIENT_RELEASE=${VITE_WA_CLIENT_RELEASE}
 RUN node -e 'if(!/^[0-9a-f]{64}$/.test(process.env.VITE_WA_CLIENT_RELEASE||""))process.exit(1)' \
-    && node scripts/verify-picomatch-build-guard.cjs --mode inspect \
+    && node scripts/verify-picomatch-build-guard.cjs \
     && npm ls --all --include=dev --include=optional \
     && npm run build
 

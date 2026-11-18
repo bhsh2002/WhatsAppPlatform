@@ -1,0 +1,382 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Closed fresh-run WA consumed Catalog result and authoritative reconciliation evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "catalog_result_reads": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/WACatalogResultRead"
+      }
+    },
+    "catalog_reconciliations": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/CatalogReconciliation"
+      }
+    }
+  },
+  "$defs": {
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "organization_id",
+        "activity_id",
+        "branch_id",
+        "warehouse_id"
+      ],
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "activity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "warehouse_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "warehouse_id": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "branch_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "pattern": "\\S",
+                "not": {
+                  "pattern": "\u0000"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "SourceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_entity_id",
+        "source_revision",
+        "result_reference"
+      ],
+      "properties": {
+        "local_entity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "result_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        }
+      }
+    },
+    "WACatalogResultRead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "version",
+        "approval_fingerprint",
+        "provider_ref",
+        "source_installation_id",
+        "scope",
+        "capability_code",
+        "operation",
+        "source_result",
+        "content_type",
+        "byte_length",
+        "content_sha256",
+        "observed_at",
+        "consumer_identity_sha256"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "approval_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "provider_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_installation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "capability_code": {
+          "enum": [
+            "inventory.read",
+            "inventory.count"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "inventory.read",
+            "inventory.count_delta"
+          ]
+        },
+        "source_result": {
+          "$ref": "#/$defs/SourceResult"
+        },
+        "content_type": {
+          "enum": [
+            "application/json",
+            "text/csv"
+          ]
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4194304,
+          "description": "Exact actual delivered filtered JSON or CSV UTF8 byte length; strict integer, no bool/float."
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Actual offset-aware ISO timestamp; runner additionally validates via timestamp()."
+        },
+        "consumer_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "capability_code": {
+              "const": "inventory.count"
+            },
+            "operation": {
+              "const": "inventory.count_delta"
+            }
+          }
+        },
+        {
+          "properties": {
+            "capability_code": {
+              "const": "inventory.read"
+            },
+            "operation": {
+              "const": "inventory.read"
+            }
+          }
+        }
+      ]
+    },
+    "CatalogReconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "version",
+        "approval_fingerprint",
+        "provider_ref",
+        "source_installation_id",
+        "scope",
+        "capability_code",
+        "operation",
+        "source_result",
+        "content_type",
+        "byte_length",
+        "content_sha256",
+        "observed_at",
+        "ledger_record_ref",
+        "deficit_ledger_record_ref"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Actual strict positive JavaScript-safe integer. Runner rejects bool/float values."
+        },
+        "approval_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "provider_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "source_installation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "capability_code": {
+          "const": "inventory.count"
+        },
+        "operation": {
+          "const": "inventory.count_delta"
+        },
+        "source_result": {
+          "$ref": "#/$defs/SourceResult"
+        },
+        "content_type": {
+          "enum": [
+            "application/json",
+            "text/csv"
+          ]
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4194304,
+          "description": "Exact actual delivered filtered JSON or CSV UTF8 byte length; strict integer, no bool/float."
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Actual offset-aware ISO timestamp; runner additionally validates via timestamp()."
+        },
+        "ledger_record_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        "deficit_ledger_record_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        }
+      },
+      "$comment": "Runtime additionally requires ledger_record_ref == source_result.local_entity_id and deficit_ledger_record_ref != ledger_record_ref. Standard JSON Schema cannot express this cross-field equality/difference; actual runner enforces them."
+    }
+  },
+  "$comment": "This is the diagnostic extension shape only, not a new Native business/RPC DTO. Arrays are optional; omission/empty is not successful evidence. Runtime enforces factory ownership, strict integer representation, timestamps, receipt-ref comparisons and cross-source joins."
+}

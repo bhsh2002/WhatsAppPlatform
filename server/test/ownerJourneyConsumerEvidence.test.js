@@ -27,6 +27,18 @@ const command = (capability = 'customers.manage', action = 'customer.read') => (
 const resultInput = (raw = command(), rendered = representation()) => ({ principal,
     before: { command: structuredClone(raw), identity: structuredClone(identity), provider: structuredClone(provider), scope: structuredClone(scope) },
     after: { command: structuredClone(raw), identity: structuredClone(identity), provider: structuredClone(provider), scope: structuredClone(scope) }, representation: rendered });
+const catalogEvidenceInput = (action = 'inventory.read', mime = 'application/json') => {
+    const raw = command(action === 'inventory.read' ? 'inventory.read' : 'inventory.count', action);
+    raw.command_id = `private-${action}`;
+    raw.approval_fingerprint = hash(Buffer.from('actual synthetic approved command fingerprint'));
+    raw.payload.parameters = action === 'inventory.read' ? { limit: 20 } : { direction: 'in' };
+    const input = resultInput(raw, mime === 'application/json' ? representation({ quantity: -3, unit_price: '12.345' })
+        : representation('quantity,unit_price\r\n-3,12.345\r\n', mime));
+    input.before.sourceInstallationId = input.after.sourceInstallationId = 'private-source-installation';
+    input.before.scope.branch_id = input.after.scope.branch_id = 'private-branch';
+    input.before.scope.warehouse_id = input.after.scope.warehouse_id = 'private-warehouse';
+    return input;
+};
 const rowsInput = () => {
     const record = { entity_id: 'private-product-id', version: 1, scope, source: { installation_id: 'private-source-installation' }, freshness: 'current',
         data: { base_unit: 'each', price: { amount: '12.300', currency: 'LYD', unit_code: 'each', price_list_id: 'private-price-list', channel: 'private-channel' },
@@ -46,6 +58,7 @@ test('observer starts without invented zero facts; actual presented source seman
     const { service } = fixture(t);
     assert.deepEqual(service.snapshot().facts, {});
     assert.deepEqual(service.snapshot().resultFetchRows, []);
+    assert.deepEqual(service.snapshot().catalog_result_reads, []);
     assert.equal(service.recordRows(rowsInput()).recorded, true);
     assert.deepEqual(service.snapshot().facts, { authorized_media_reads: 1, price_list_consumer_reads: 1, price_list_semantic_losses: 0,
         unauthorized_media_exposures: 0, unit_variant_consumer_reads: 1, unit_variant_semantic_losses: 0 });
@@ -175,6 +188,97 @@ test('new inventory/order facts require the exact Catalog action and unchanged c
     assert.deepEqual(service.snapshot().facts, { same_identity_result_fetches: 4 });
 });
 
+test('closed Catalog result rows bind actual installation, approval, full scope, receipt and delivered JSON/CSV bytes', t => {
+    const { service } = fixture(t);
+    for (const [action, mime] of [['inventory.read', 'application/json'], ['inventory.count_delta', 'text/csv']]) {
+        const input = catalogEvidenceInput(action, mime);
+        assert.equal(service.recordResult(input).recorded, true);
+        const row = service.snapshot().catalog_result_reads.at(-1);
+        assert.deepEqual(row, { command_id: input.before.command.command_id, version: 2,
+            approval_fingerprint: input.before.command.approval_fingerprint, provider_ref: provider.provider_ref,
+            source_installation_id: 'private-source-installation', scope: input.before.scope,
+            capability_code: input.before.command.capability, operation: action,
+            source_result: input.before.command.source_result, content_type: mime,
+            byte_length: input.representation.bytes.length, content_sha256: hash(input.representation.bytes),
+            observed_at: new Date(at).toISOString(), consumer_identity_sha256: hash(Buffer.from(JSON.stringify([
+                principal.tenantId, principal.userId, identity.actorId, identity.organizationId, identity.nativeAccountId, identity.coreAccountId]))) });
+        assert.equal(Object.keys(row).length, 14); assert.equal(Object.keys(row.scope).length, 4);
+        assert.equal(Object.keys(row.source_result).length, 3);
+    }
+    assert.equal(service.snapshot().catalog_result_reads[0].consumer_identity_sha256,
+        service.snapshot().catalog_result_reads[1].consumer_identity_sha256);
+    assert.equal(Object.hasOwn(service.snapshot().facts, 'requested_catalog_reconciliations'), false);
+});
+
+test('missing or changed source binding and invalid closed metadata cannot become exact Catalog rows', t => {
+    const { service } = fixture(t);
+    for (const mutate of [
+        value => { delete value.before.sourceInstallationId; delete value.after.sourceInstallationId; },
+        value => { value.after.sourceInstallationId = 'other-installation'; },
+        value => { value.before.sourceInstallationId = value.after.sourceInstallationId = 'unknown-installation'; },
+        value => { value.after.provider.installations = []; },
+        value => { value.before.provider.installations[0].activity_id = value.after.provider.installations[0].activity_id = 'other-activity'; },
+        value => { value.before.command.approval_fingerprint = value.after.command.approval_fingerprint = null; },
+        value => { value.before.command.approval_fingerprint = value.after.command.approval_fingerprint = 'A'.repeat(64); },
+        value => { value.before.scope.branch_id = value.after.scope.branch_id = null; },
+        value => { value.before.scope.branch_id = value.after.scope.branch_id = 'invalid\0branch'; },
+        value => { value.before.command.source_result.result_reference = value.after.command.source_result.result_reference = 'r'.repeat(1001); },
+        value => { value.before.command.command_id = value.after.command.command_id = 'c'.repeat(256); },
+        value => { value.before.command.capability = value.after.command.capability = 'inventory.facts'; },
+        value => { value.before.provider.platform = value.after.provider.platform = 'wa_savana'; },
+    ]) {
+        const input = catalogEvidenceInput(); mutate(input); service.recordResult(input);
+        assert.deepEqual(service.snapshot().catalog_result_reads, []);
+    }
+    for (const mutate of [
+        value => { value.representation.sha256 = '0'.repeat(64); },
+        value => { value.after.identity.generation = 'new-generation'; },
+        value => { value.after.command.approval_fingerprint = 'a'.repeat(64); },
+        value => { value.before.command.source_result.source_revision = value.after.command.source_result.source_revision = 0; },
+        value => { const bytes = Buffer.from([0xc3, 0x28]); value.representation = { bytes, contentType: 'text/csv', sha256: hash(bytes) }; },
+    ]) {
+        const input = catalogEvidenceInput(); mutate(input);
+        assert.equal(service.recordResult(input).recorded, false);
+        assert.deepEqual(service.snapshot().catalog_result_reads, []);
+    }
+});
+
+test('producer-owned Python JSON number and Arabic encodings retain actual delivered bytes and reject digest/body tampering', t => {
+    const { service } = fixture(t), input = catalogEvidenceInput();
+    const bytes = Buffer.from('{"quantity":1.0,"adjustment":-0.0,"label":"دفتر المصدر"}', 'utf8');
+    input.representation = { bytes, contentType: 'application/json', sha256: hash(bytes) };
+    assert.equal(service.recordResult(input).recorded, true);
+    const [row] = service.snapshot().catalog_result_reads;
+    assert.equal(row.content_sha256, hash(bytes)); assert.equal(row.byte_length, bytes.length);
+    assert.notEqual(row.content_sha256, hash(Buffer.from(JSON.stringify(JSON.parse(bytes.toString('utf8'))))));
+    assert.equal(input.representation.bytes, bytes);
+    const wrongDigest = structuredClone(input); wrongDigest.representation = { ...input.representation, sha256: '0'.repeat(64) };
+    assert.equal(service.recordResult(wrongDigest).recorded, false);
+    const tampered = { ...input, representation: { ...input.representation, bytes: Buffer.from(bytes.toString('utf8').replace('1.0', '2.0')) } };
+    assert.equal(service.recordResult(tampered).recorded, false);
+    const invalid = Buffer.from('{"quantity":1.0,');
+    assert.equal(service.recordResult({ ...input, representation: { bytes: invalid, contentType: 'application/json', sha256: hash(invalid) } }).recorded, false);
+    assert.equal(service.snapshot().catalog_result_reads.length, 1);
+});
+
+test('latest512 exact rows retain real repeated reads per run without result bodies, payloads or customer values', t => {
+    const { db, service } = fixture(t), input = catalogEvidenceInput();
+    for (let i = 0; i < 514; i += 1) {
+        input.before.command.command_id = input.after.command.command_id = `actual-read-${i}`;
+        assert.equal(service.recordResult(input).recorded, true);
+    }
+    const restored = createOwnerJourneyConsumerEvidence({ database: db, runId: 'owned-run', now: () => at + 1000 });
+    const rows = restored.snapshot().catalog_result_reads;
+    assert.equal(rows.length, 512); assert.equal(rows[0].command_id, 'actual-read-2'); assert.equal(rows.at(-1).command_id, 'actual-read-513');
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM owner_journey_catalog_result_reads WHERE run_id=?').get('owned-run').n, 512);
+    assert.equal(restored.snapshot().facts.catalog_ledger_reads, 514);
+    assert.deepEqual(createOwnerJourneyConsumerEvidence({ database: db, runId: 'another-run', now: () => at }).snapshot().catalog_result_reads, []);
+    const stored = db.prepare('SELECT row_json FROM owner_journey_catalog_result_reads').all().map(row => row.row_json).join('');
+    for (const excluded of ['12.345', 'quantity', 'unit_price', 'parameters', 'fields', 'private-native-session', 'private-core-owner', 'private-bound-account']) {
+        assert.equal(stored.includes(excluded), false);
+    }
+});
+
 test('customer denial requires actual Core403 after prior same-owner/run/command/version qualified customer.read, never WA-native substitution', t => {
     const { service, db } = fixture(t), raw = command();
     const denied = { principal, command: raw, identity, provider, scope, status: 403, pathTemplate: '/v1/integration/workspace/commands/:command/result' };
@@ -196,11 +300,18 @@ test('persisted ledger survives observer recreation and contains no source value
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     let db = new Database(filename);
     let service = createOwnerJourneyConsumerEvidence({ database: db, runId: 'owned-restart-run', now: () => at });
-    service.recordRows(rowsInput()); service.recordResult(resultInput()); db.close();
+    service.recordRows(rowsInput()); service.recordResult(resultInput()); service.recordResult(catalogEvidenceInput()); db.close();
     db = new Database(filename); t.after(() => db.close());
     service = createOwnerJourneyConsumerEvidence({ database: db, runId: 'owned-restart-run', now: () => at + 1000 });
     assert.equal(service.snapshot().facts.authorized_customer_reads, 1);
     assert.equal(service.snapshot().facts.unit_variant_semantic_losses, 0);
+    assert.equal(service.snapshot().catalog_result_reads.length, 1);
+    assert.equal(service.snapshot().catalog_result_reads[0].command_id, 'private-inventory.read');
+    assert.equal(service.snapshot().catalog_result_reads[0].source_installation_id, 'private-source-installation');
+    const closedStored = JSON.stringify(db.prepare('SELECT row_json FROM owner_journey_catalog_result_reads').all());
+    for (const excluded of ['12.345', 'quantity', 'unit_price', 'parameters', 'private-native-session', 'private-core-owner']) {
+        assert.equal(closedStored.includes(excluded), false);
+    }
     const stored = JSON.stringify(db.prepare('SELECT * FROM owner_journey_consumer_events').all());
     for (const secret of ['private customer value', 'private product name', 'private-core-owner', 'private-native-session', 'private-command-id',
         'private-access-attestation', 'private-rights-attestation', 'private-price-list', provider.label]) assert.equal(stored.includes(secret), false);
