@@ -144,7 +144,7 @@ test('raw product picker endpoints expose readiness and never authorize archived
     }
 });
 
-test('a stock delta and connection refresh cannot undo price quarantine without a new complete price fact', t => {
+test('inventory, sale and Sawemly availability cannot replace source pricing or undo quarantine without a product snapshot', t => {
     const database = fixture(t);
     runMigrationsSync(database);
     const service = new SavanaIntegrationService({ database, config: {}, fetchImpl: async () => { throw new Error('External calls forbidden'); } });
@@ -154,19 +154,65 @@ test('a stock delta and connection refresh cannot undo price quarantine without 
     };
     service.reconcileIntegrationMembershipVisibility(1);
     quarantined();
-    service.applyInventorySnapshot(1, { captured_at: '2026-11-17T11:00:00Z', items: [
-        { canonical_product_id: 'stale-copy', quantity_available: '8' },
-    ] });
+    const untrustedItems = quantity => ['stale-copy', 'missing-price', 'valid', 'nonpricing-only-new'].map(canonical => ({
+        canonical_product_id: canonical,
+        name: `Synthetic nonpricing ${canonical}`,
+        quantity_available: String(quantity), quantity_on_hand: String(quantity + 2),
+        // These extra fields are deliberately plausible but not a product-price
+        // fact. Presence of price fields cannot promote an inventory/sale delta.
+        price: '900.000', online_price: '901.000', currency: 'LYD', is_active: true,
+    }));
+    const assertNonpricingState = quantity => {
+        quarantined();
+        const expected = new Map([
+            ['stale-copy', { price: '12', currency: 'USD', copyPrice: 12, approved: false }],
+            ['missing-price', { price: null, currency: 'USD', copyPrice: null, approved: false }],
+            ['valid', { price: '12.500', currency: 'USD', copyPrice: 12.5, approved: true }],
+            ['nonpricing-only-new', { price: null, currency: null, copyPrice: null, approved: false }],
+        ]);
+        for (const [canonical, pricing] of expected) {
+            const projection = database.prepare(`SELECT price,currency,quantity_available,quantity_on_hand
+                FROM savana_product_projection WHERE projection_key=?`).get(`canonical:${canonical}`);
+            assert.equal(projection.price, pricing.price, canonical);
+            assert.equal(projection.currency, pricing.currency, canonical);
+            assert.equal(String(projection.quantity_available), String(quantity), canonical);
+            assert.equal(String(projection.quantity_on_hand), String(quantity + 2), canonical);
+            const copy = database.prepare(`SELECT price,currency,is_active,availability,approval_status
+                FROM bot_products WHERE savana_projection_key=?`).get(`canonical:${canonical}`);
+            assert.equal(copy.price, pricing.copyPrice, canonical);
+            assert.equal(copy.currency, pricing.currency, canonical);
+            assert.equal(copy.approval_status, pricing.approved ? 'approved' : 'draft', canonical);
+            assert.equal(copy.is_active, pricing.approved ? 1 : 0, canonical);
+            if (!pricing.approved) assert.equal(copy.availability, 'hidden', canonical);
+        }
+    };
+    service.applyInventorySnapshot(1, { captured_at: '2026-11-17T11:00:00Z', items: untrustedItems(8) });
     service.reconcileIntegrationMembershipVisibility(1);
-    quarantined();
+    assertNonpricingState(8);
+    service.applySale(1, { local_sale_id: 'synthetic-quarantine-sale', sold_at: '2026-11-17T11:10:00Z',
+        currency: 'LYD', total: '1.000', items: untrustedItems(7) });
+    service.reconcileIntegrationMembershipVisibility(1);
+    assertNonpricingState(7);
+    service.applySawemlyAvailability(1, { occurred_at: '2026-11-17T11:20:00Z', items: untrustedItems(6) });
+    service.reconcileIntegrationMembershipVisibility(1);
+    assertNonpricingState(6);
     service.applyProductSnapshot(1, {
         snapshot_id: 'new-price-fact', generated_at: '2026-11-17T12:00:00Z',
         page_number: 1, page_count: 1, complete: true,
         products: [{ canonical_product_id: 'stale-copy', name: 'New explicit source price',
-            online_price: '12.000', currency: 'USD', is_active: true }],
+            online_price: '12.000', currency: 'USD', is_active: true },
+        { canonical_product_id: 'missing-price', name: 'Source corrected missing price',
+            online_price: '5.500', currency: 'USD', is_active: true }],
     }, { integrationId: 1, source: 'catalog', eventType: 'catalog.product_snapshot.v1' });
     assert.deepEqual(database.prepare('SELECT is_active, approval_status FROM bot_products WHERE id = 10').get(), {
         is_active: 1, approval_status: 'approved',
+    });
+    assert.deepEqual(database.prepare('SELECT price,currency,is_active,approval_status FROM bot_products WHERE id=3').get(), {
+        price: 5.5, currency: 'USD', is_active: 1, approval_status: 'approved',
+    });
+    assert.deepEqual(database.prepare(`SELECT price,currency,is_active,availability,approval_status
+        FROM bot_products WHERE savana_projection_key='canonical:nonpricing-only-new'`).get(), {
+        price: null, currency: null, is_active: 0, availability: 'hidden', approval_status: 'draft',
     });
     assert.equal(database.prepare('SELECT is_active FROM bot_products WHERE id = 6').get().is_active, 0);
 });

@@ -1941,6 +1941,8 @@ export class SavanaIntegrationService {
     }
 
     upsertProduct(tenantId, row, sourceUpdatedAt, { pricingSnapshot = false } = {}) {
+        // Only a product snapshot supplies authoritative online pricing.
+        // Inventory, sales and availability facts cannot lift price quarantine.
         const projectionKey = this.productProjectionKey(row);
         const existing = this.db.prepare(`
             SELECT local_product_id FROM savana_product_projection
@@ -1987,20 +1989,17 @@ export class SavanaIntegrationService {
             tenantId, projectionKey, row.canonical_product_id || null,
             row.local_product_id || null, row.sku || null, row.barcode || null,
             row.name || null, row.description || null,
-            row.online_price === undefined ? (row.price ?? null) : row.online_price,
-            row.currency || null, row.image_url || null,
+            pricingSnapshot ? (row.online_price === undefined ? (row.price ?? null) : row.online_price) : null,
+            pricingSnapshot ? (row.currency || null) : null, row.image_url || null,
             row.quantity_on_hand ?? null, row.quantity_available ?? null,
             row.unit_code || row.base_unit || null, sourceUpdatedAt || nowIso(),
-            pricingSnapshot || Object.hasOwn(row, 'online_price') || Object.hasOwn(row, 'price') ? 1 : 0,
-            pricingSnapshot || Object.hasOwn(row, 'currency') ? 1 : 0,
+            pricingSnapshot ? 1 : 0,
+            pricingSnapshot ? 1 : 0,
             Object.hasOwn(row, 'quantity_on_hand') ? 1 : 0,
             Object.hasOwn(row, 'quantity_available') ? 1 : 0,
         );
         this.synchronizeBotProduct(tenantId, projectionKey, row, {
-            pricingRefreshed: pricingSnapshot || (
-                (Object.hasOwn(row, 'online_price') || Object.hasOwn(row, 'price'))
-                && Object.hasOwn(row, 'currency')
-            ),
+            pricingRefreshed: pricingSnapshot,
         });
     }
 

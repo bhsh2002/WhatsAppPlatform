@@ -162,6 +162,11 @@ until that separate inspection happens.
 The owner explicitly approved hiding synchronized copies whose price is
 missing, malformed or stale on upgrade until the authoritative source is
 corrected. Do not ask that decision again or revive inferred prices.
+Inventory, retail-sale and shelf-availability events do not authorize online
+pricing, even if their items carry price/currency fields. They preserve retained
+pricing and cannot lift draft quarantine; an explicit product snapshot supplies
+the correction. Stale-copy quarantine compares the copy with its source rather
+than imposing an invented age-based expiry.
 
 055_savana_request_review_evidence.sql:
   Add local review hash, actor and time. Historical approved rows do not become
