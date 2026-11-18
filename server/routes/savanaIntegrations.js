@@ -765,11 +765,12 @@ export const createConnectCallbacksRouter = ({ service }) => {
             return respondError(res, error);
         }
     });
-    router.post('/lifecycle', (req, res) => {
+    router.post('/lifecycle', async (req, res) => {
         try {
-            const item = service.applyLifecycle(
+            const item = await service.applyLifecycle(
                 req.body || {},
                 req.get('X-Savana-Callback-Token'),
+                { deliveryId: req.get('X-Savana-Lifecycle-Delivery-Id'), version: req.get('X-Savana-Lifecycle-Version') },
             );
             return res.json(service.serialize(item, item.platform_code));
         } catch (error) {

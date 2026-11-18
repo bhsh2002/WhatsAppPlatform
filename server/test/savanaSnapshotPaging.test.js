@@ -7,9 +7,16 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
 import { SavanaIntegrationService } from '../services/savanaIntegration.js';
+import { createSavanaLifecycleFixture, savanaLifecycleDelivery } from '../test-support/savanaLifecycleFixture.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDirectory = path.join(testDirectory, '..', 'db', 'migrations');
+const lifecycleConfig = { callbackToken: 'snapshot-callback-token', connectUrl: 'https://connect.test',
+    connectPlatformToken: 'synthetic-snapshot-platform-token', timeoutMs: 1000 };
+const catalogConnection = (status, version) => ({ id: 'connection-1', organization_id: 'organization-1',
+    source_platform: 'catalog', target_platform: 'wa_savana', source_tenant_id: 'catalog-account', target_tenant_id: 'wa-account',
+    source_external_tenant_id: 'catalog-tenant', target_external_tenant_id: 'wa_savana:tenant:1',
+    status, lifecycle_version: version, scopes: [] });
 
 const createDatabase = () => {
     const database = new Database(':memory:');
@@ -24,9 +31,9 @@ const createDatabase = () => {
     database.prepare(`
         INSERT INTO savana_integrations (
             id, tenant_id, platform_code, organization_id, connection_id,
-            status, scopes_json, webhook_secret_encrypted
+            status, scopes_json, webhook_secret_encrypted, local_platform_tenant_id,remote_platform_tenant_id,remote_external_tenant_id
         ) VALUES (1, 1, 'catalog', 'organization-1', 'connection-1',
-            'active', '[]', 'encrypted')
+            'active', '[]', 'encrypted','wa-account','catalog-account','catalog-tenant')
     `).run();
     return database;
 };
@@ -411,20 +418,21 @@ test('membership backfill restores legacy complete snapshots without paging meta
     });
 });
 
-test('revoking an integration immediately hides its unique snapshot products', (t) => {
+test('revoking an integration immediately hides its unique snapshot products', async (t) => {
     const database = createDatabase();
     t.after(() => database.close());
+    const connection = catalogConnection('revoked', 2);
     const service = new SavanaIntegrationService({
         database,
-        fetchImpl: async () => Response.json({}),
-        config: { callbackToken: 'snapshot-callback-token' },
+        fetchImpl: createSavanaLifecycleFixture({ connections: [connection] }),
+        config: lifecycleConfig,
     });
     applyPage(database, service, 'catalog-before-revoke', 1, 1, [product('9')]);
 
-    service.applyLifecycle({
-        connection: { id: 'connection-1', scopes: [] },
+    await service.applyLifecycle({
+        connection,
         action: 'revoked',
-    }, 'snapshot-callback-token');
+    }, lifecycleConfig.callbackToken, savanaLifecycleDelivery(connection));
     assert.deepEqual(database.prepare(`
         SELECT is_active, availability FROM bot_products WHERE sku = 'SKU-9'
     `).get(), {
@@ -433,32 +441,23 @@ test('revoking an integration immediately hides its unique snapshot products', (
     });
 });
 
-test('error and disconnected lifecycle callbacks immediately reconcile product visibility', (t) => {
+test('unsupported error and disconnected callback states reject without changing product visibility', async (t) => {
     const database = createDatabase();
     t.after(() => database.close());
     const service = new SavanaIntegrationService({
         database,
-        fetchImpl: async () => Response.json({}),
-        config: { callbackToken: 'snapshot-callback-token' },
+        fetchImpl: createSavanaLifecycleFixture({ connections: [catalogConnection('active', 1)] }),
+        config: lifecycleConfig,
     });
     applyPage(database, service, 'catalog-before-error', 1, 1, [product('8')]);
 
+    const original = database.prepare('SELECT * FROM savana_integrations WHERE id=1').get();
     for (const status of ['error', 'disconnected']) {
-        service.applyLifecycle({
-            connection: { id: 'connection-1', scopes: [] },
-            action: status,
-        }, 'snapshot-callback-token');
-        assert.deepEqual(database.prepare(`
-            SELECT is_active, availability FROM bot_products WHERE sku = 'SKU-8'
-        `).get(), {
-            is_active: 0,
-            availability: 'hidden',
-        });
-
-        service.applyLifecycle({
-            connection: { id: 'connection-1', scopes: [] },
-            action: 'active',
-        }, 'snapshot-callback-token');
+        const connection = catalogConnection(status, 2);
+        await assert.rejects(() => service.applyLifecycle({ connection, action: status }, lifecycleConfig.callbackToken,
+            savanaLifecycleDelivery(connection)), error => error.statusCode === 422 && error.code === 'lifecycle_payload_invalid');
+        assert.deepEqual(database.prepare('SELECT * FROM savana_integrations WHERE id=1').get(), original);
+        assert.equal(database.prepare('SELECT COUNT(*) n FROM savana_lifecycle_state').get().n, 0);
         assert.deepEqual(database.prepare(`
             SELECT is_active, availability FROM bot_products WHERE sku = 'SKU-8'
         `).get(), {
@@ -468,13 +467,14 @@ test('error and disconnected lifecycle callbacks immediately reconcile product v
     }
 });
 
-test('lifecycle changes backfill membership before reconciling a migrated tenant', (t) => {
+test('canonical revocation backfills membership before reconciling a migrated tenant', async (t) => {
     const database = createDatabase();
     t.after(() => database.close());
+    const connection = catalogConnection('revoked', 2);
     const service = new SavanaIntegrationService({
         database,
-        fetchImpl: async () => Response.json({}),
-        config: { callbackToken: 'snapshot-callback-token' },
+        fetchImpl: createSavanaLifecycleFixture({ connections: [connection] }),
+        config: lifecycleConfig,
     });
     applyPage(database, service, 'catalog-before-state-migration', 1, 1, [product('7')]);
     database.exec(`
@@ -483,10 +483,7 @@ test('lifecycle changes backfill membership before reconciling a migrated tenant
         DELETE FROM savana_product_snapshot_streams;
     `);
 
-    service.applyLifecycle({
-        connection: { id: 'connection-1', scopes: [] },
-        action: 'disconnected',
-    }, 'snapshot-callback-token');
+    await service.applyLifecycle({ connection, action: 'revoked' }, lifecycleConfig.callbackToken, savanaLifecycleDelivery(connection));
 
     assert.equal(database.prepare(`
         SELECT COUNT(*) AS count

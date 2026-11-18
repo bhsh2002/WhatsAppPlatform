@@ -63,7 +63,7 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '070_native_media_assets.sql';
+    const latestMigration = '071_savana_lifecycle_state.sql';
     const deployedBaseline='060_savana_owner_portal.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
@@ -133,6 +133,8 @@ test('latest migration upgrades a tracked production-like snapshot without data 
     assert.deepEqual(oldRows(),preservedBefore);
     assert.equal(tableExists(db,'savana_native_media_assets'),true);
     assert.equal(db.prepare('SELECT COUNT(*) count FROM savana_native_media_assets').get().count,0);
+    assert.equal(tableExists(db,'savana_lifecycle_state'),true);
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM savana_lifecycle_state').get().count,0);
     assert.equal(db.prepare('SELECT source_revision FROM contacts WHERE tenant_id=41').get().source_revision,1);
 
     assert.deepEqual(result, {

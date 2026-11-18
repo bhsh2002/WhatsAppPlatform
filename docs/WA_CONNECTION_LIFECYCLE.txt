@@ -1,0 +1,54 @@
+WA connection lifecycle reliability
+
+The Connect callback token remains the authentication boundary. Canonical
+lifecycle callbacks keep the existing {connection, action} body and carry the
+published delivery UUID and decimal version headers. The header version must
+equal the actual connection.lifecycle_version. Explicit stored Core version 0
+is valid; a missing local or incoming version is never converted to zero.
+The existing public connection document also supplies transition/current-GET
+responses. No callback creates an actor grant, consent or subscription approval.
+
+Migration 071 adds a per-connection ordering cursor and a pending-cleanup receipt.
+It does not seed versions for existing connections or change their keys, rows,
+grants or event history. State, scopes, permitted key changes, membership backfill,
+product visibility and the cursor commit in one immediate SQLite transaction.
+Any failure during those writes rolls the whole application back. Success ACK
+follows commit. A lost response can therefore be retried without repeating work.
+
+An older version cannot replace a newer state. The same version must have the
+same normalized state, scopes and immutable account binding. Exact duplicates
+preserve the encrypted key bytes and do not refresh entitlement or approvals.
+Unknown local history and initial key repair require a bounded authenticated
+current Core GET at the fixed configured origin. The local row and cursor are
+checked again after every asynchronous lookup; redirects and guessed versions
+are rejected. An old hint may cause an atomic projection of a verified current
+restriction before returning 409; it never supplies that restriction itself.
+
+Initial provisioning can carry pending_authorization at version 0. It stays
+pending until Core commits and announces active version 1. Same-version pending,
+active or degraded reprovision may fill a missing key only after a fresh exact
+Core lookup. An existing key is preserved; a different same-version key conflicts.
+Transition, status refresh, provisioning and connection-request replies use the
+same ordering criterion. Delayed responses cannot clear a newer installed key,
+replace a newer revocation or overwrite a changed entitlement context.
+When a revoked connection is replaced, its old product memberships are retained
+but deactivated inside that same transaction. The new account cannot make the
+previous account's cached products visible. Snapshot history and ordering remain
+intact; only fresh authorized source data can establish the new memberships.
+
+Legacy partial-provision compensation has only the callback token and may request
+revoked while its snapshot remains pending. The bounded pending cleanup first
+verifies the exact current Core pending state, then clears the unused key and
+reconciles visibility without inventing a canonical revoked version. Its durable
+receipt makes a later identical cleanup a no-op even after a same-version repair.
+The receipt also fences an older in-flight key fill when cleanup changed no key.
+Nonpending token-only cleanup requires reconciliation; it is not interpreted as
+an authoritative same-version Core revocation.
+
+Deployment remains Root-owned. Apply the exact reviewed migrations through 071
+before starting this server, with actual schema/history checks and the existing
+backup procedure. Do not infer production row counts from the empty owned test
+database. Preserve the cursor and cleanup receipts during recovery; deleting them
+would erase ordering protection. Older binaries that cannot retain these safety
+rules are not a supported rollback. Actual cross-application callback convergence,
+final company CI/images and production acceptance are separate release evidence.

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import Database from 'better-sqlite3';
 import express from 'express';
+import { createSavanaLifecycleFixture, savanaLifecycleDelivery } from '../test-support/savanaLifecycleFixture.js';
 
 import {
     createAdminSubscriptionsRouter,
@@ -70,7 +71,7 @@ const entitlementSnapshot = ({
     };
 };
 
-const createFetch = ({ entitled = true, badSignature = false } = {}) => async (url, options) => {
+const createFetch = ({ entitled = true, badSignature = false } = {}) => createSavanaLifecycleFixture({ fetchImpl: async (url, options) => {
     const pathName = new URL(url).pathname;
     if (pathName.includes('/entitlements/')) {
         const snapshot = entitlementSnapshot({ entitled });
@@ -115,6 +116,7 @@ const createFetch = ({ entitled = true, badSignature = false } = {}) => async (u
                 source_external_tenant_id: 'wa_savana:tenant:1',
                 target_external_tenant_id: 'pos-company-1',
                 status: 'pending_authorization',
+                lifecycle_version: 0,
                 scopes: ['pos.sales.events'],
             },
             target_tenant: {
@@ -127,14 +129,8 @@ const createFetch = ({ entitled = true, badSignature = false } = {}) => async (u
     if (pathName === '/v1/events' && options.method === 'POST') {
         return Response.json({ event_id: crypto.randomUUID(), duplicate: false }, { status: 202 });
     }
-    if (pathName === '/v1/platform-connections/connection-1' && options.method === 'GET') {
-        return Response.json({ status: 'active', scopes: ['pos.sales.events'] });
-    }
-    if (pathName.endsWith('/pause')) return Response.json({ status: 'paused' });
-    if (pathName.endsWith('/resume')) return Response.json({ status: 'active' });
-    if (pathName.endsWith('/revoke')) return Response.json({ status: 'revoked' });
     return Response.json({ error: 'unexpected request' }, { status: 500 });
-};
+} });
 
 const config = {
     enabled: true,
@@ -349,9 +345,9 @@ test('malformed platform target discovery preserves the local list as unavailabl
 });
 
 const provision = async (database, fetchImpl = createFetch()) => {
-    const service = new SavanaIntegrationService({ database, fetchImpl, config });
-    const item = await service.provisionConnection({
-        connection: {
+    const current = createSavanaLifecycleFixture({ fetchImpl });
+    const service = new SavanaIntegrationService({ database, fetchImpl: current, config });
+    const connection = current.setConnection({
             id: 'connection-1',
             organization_id: organizationId,
             source_tenant_id: 'pos-tenant-id',
@@ -361,8 +357,10 @@ const provision = async (database, fetchImpl = createFetch()) => {
             source_external_tenant_id: 'pos-company-1',
             target_external_tenant_id: 'wa_savana:tenant:1',
             status: 'active',
+            lifecycle_version: 1,
             scopes: ['pos.sales.events'],
-        },
+    });
+    const item = await service.provisionConnection({ connection,
         webhook_secret: 'wa-savana-connection-secret',
     }, callbackToken);
     return { service, item };
@@ -480,10 +478,11 @@ test('migrations create isolated integration, projection and service request tab
         'savana_workspace_review_fences',
         'savana_native_action_facts',
         'savana_native_media_assets',
+        'savana_lifecycle_state',
     ]));
     for(const table of ['savana_collaborative_executions','savana_collaborative_effects','savana_workspace_intents',
         'savana_collaborative_consents','savana_native_owner_proofs','savana_workspace_receipts','savana_workspace_review_fences',
-        'savana_native_action_facts','savana_native_media_assets'])assert.equal(database.prepare(`SELECT COUNT(*) count FROM ${table}`).get().count,0,
+        'savana_native_action_facts','savana_native_media_assets','savana_lifecycle_state'])assert.equal(database.prepare(`SELECT COUNT(*) count FROM ${table}`).get().count,0,
             'Schema migration must not invent business actions, consent, identity links or ownership receipts');
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
@@ -539,9 +538,13 @@ test('approved POS provisioning is centrally entitled and supports explicit life
     assert.equal(service.hasEntitlement(item), true);
     assert.equal(service.serialize(item).independent_mode, true);
     assert.equal((await service.refreshStatus(item)).status, 'active');
+    assert.equal(service.lifecycle.read(item.connection_id).version, 1);
     assert.equal((await service.transition(service.get(1), 'pause', 'tenant')).status, 'paused');
+    assert.equal(service.lifecycle.read(item.connection_id).version, 2);
     assert.equal((await service.transition(service.get(1), 'resume', 'tenant')).status, 'active');
+    assert.equal(service.lifecycle.read(item.connection_id).version, 3);
     assert.equal((await service.transition(service.get(1), 'revoke', 'tenant')).status, 'revoked');
+    assert.equal(service.lifecycle.read(item.connection_id).version, 4);
     database.close();
 });
 
@@ -551,7 +554,7 @@ test('link request discovers the bound account and waits for target approval', a
     const targetTenantId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
     const snapshot = entitlementSnapshot();
-    const fetchImpl = async (url, options = {}) => {
+    const fetchImpl = createSavanaLifecycleFixture({ fetchImpl: async (url, options = {}) => {
         const parsed = new URL(url);
         if (parsed.pathname === '/v1/platform-bindings' && options.method === 'GET') {
             return Response.json([{
@@ -613,6 +616,7 @@ test('link request discovers the bound account and waits for target approval', a
                     source_external_tenant_id: 'wa_savana:tenant:1',
                     target_external_tenant_id: 'catalog:shop:42',
                     status: 'pending_authorization',
+                    lifecycle_version: 0,
                     scopes: ['catalog.products.projection'],
                 },
                 target_tenant: {
@@ -623,7 +627,7 @@ test('link request discovers the bound account and waits for target approval', a
             }, { status: 201 });
         }
         return Response.json({ error: 'unexpected request' }, { status: 500 });
-    };
+    } });
     const service = new SavanaIntegrationService({
         database,
         fetchImpl,
@@ -633,6 +637,7 @@ test('link request discovers the bound account and waits for target approval', a
     const item = await service.requestConnection(1, {}, 'tenant-user', 'catalog');
     assert.equal(item.status, 'pending_authorization');
     assert.equal(item.connection_id, connectionId);
+    assert.equal(service.lifecycle.read(connectionId).version, 0);
     assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
     assert.equal(service.serialize(item, 'catalog').entitled, true);
     database.close();
@@ -641,19 +646,15 @@ test('link request discovers the bound account and waits for target approval', a
 test('authenticated one-click provisioning configures Wa Savana as the target', async () => {
     const database = createDatabase();
     const snapshot = entitlementSnapshot();
-    const service = new SavanaIntegrationService({
-        database,
-        fetchImpl: async url => {
+    const fetchImpl = createSavanaLifecycleFixture({ fetchImpl: async url => {
             if (new URL(url).pathname.includes('/entitlements/')) {
                 return Response.json({ data: snapshot });
             }
             return Response.json({ error: 'unexpected request' }, { status: 500 });
-        },
-        config,
-    });
+    } });
+    const service = new SavanaIntegrationService({ database, fetchImpl, config });
     const connectionId = crypto.randomUUID();
-    const item = await service.provisionConnection({
-        connection: {
+    const connection = fetchImpl.setConnection({
             id: connectionId,
             organization_id: organizationId,
             source_tenant_id: crypto.randomUUID(),
@@ -663,8 +664,10 @@ test('authenticated one-click provisioning configures Wa Savana as the target', 
             source_external_tenant_id: 'catalog:shop:42',
             target_external_tenant_id: 'wa_savana:tenant:1',
             status: 'active',
+            lifecycle_version: 1,
             scopes: ['catalog.products.projection'],
-        },
+    });
+    const item = await service.provisionConnection({ connection,
         webhook_secret: 'target-provision-secret',
     }, callbackToken);
 
@@ -672,22 +675,18 @@ test('authenticated one-click provisioning configures Wa Savana as the target', 
     assert.equal(item.platform_code, 'catalog');
     assert.equal(item.remote_external_tenant_id, 'catalog:shop:42');
     assert.equal(item.status, 'active');
-    const degraded = service.applyLifecycle({
-        connection: {
-            id: connectionId,
-            scopes: ['catalog.products.projection'],
-        },
+    const degradedConnection = fetchImpl.setConnection({ ...connection, status: 'degraded', lifecycle_version: 2 });
+    const degraded = await service.applyLifecycle({
+        connection: degradedConnection,
         action: 'degraded',
-    }, callbackToken);
+    }, callbackToken, savanaLifecycleDelivery(degradedConnection));
     assert.equal(degraded.status, 'degraded');
     assert.notEqual(degraded.webhook_secret_encrypted, null);
-    const revoked = service.applyLifecycle({
-        connection: {
-            id: connectionId,
-            scopes: ['catalog.products.projection'],
-        },
+    const revokedConnection = fetchImpl.setConnection({ ...connection, status: 'revoked', lifecycle_version: 3 });
+    const revoked = await service.applyLifecycle({
+        connection: revokedConnection,
         action: 'revoked',
-    }, callbackToken);
+    }, callbackToken, savanaLifecycleDelivery(revokedConnection));
     assert.equal(revoked.status, 'revoked');
     assert.equal(revoked.webhook_secret_encrypted, null);
     await assert.rejects(
@@ -703,21 +702,17 @@ test('authenticated one-click provisioning configures Wa Savana as the target', 
 test('authenticated one-click provisioning configures Wa Savana as the source', async () => {
     const database = createDatabase();
     const snapshot = entitlementSnapshot();
-    const service = new SavanaIntegrationService({
-        database,
-        fetchImpl: async url => {
+    const fetchImpl = createSavanaLifecycleFixture({ fetchImpl: async url => {
             if (new URL(url).pathname.includes('/entitlements/')) {
                 return Response.json({ data: snapshot });
             }
             return Response.json({ error: 'unexpected request' }, { status: 500 });
-        },
-        config,
-    });
+    } });
+    const service = new SavanaIntegrationService({ database, fetchImpl, config });
     const sourceTenantId = crypto.randomUUID();
     const targetTenantId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
-    const item = await service.provisionConnection({
-        connection: {
+    const connection = fetchImpl.setConnection({
             id: connectionId,
             organization_id: organizationId,
             source_tenant_id: sourceTenantId,
@@ -727,8 +722,10 @@ test('authenticated one-click provisioning configures Wa Savana as the source', 
             source_external_tenant_id: 'wa_savana:tenant:1',
             target_external_tenant_id: 'catalog:shop:99',
             status: 'active',
+            lifecycle_version: 1,
             scopes: ['catalog.products.projection'],
-        },
+    });
+    const item = await service.provisionConnection({ connection,
         webhook_secret: 'source-provision-secret',
     }, callbackToken);
 
@@ -1564,9 +1561,9 @@ test('POS simulator sales, returns and inventory are idempotent and consent awar
 
 test('approved Catalog link creates reviewed Wa service requests without POS', async () => {
     const database = createDatabase();
-    const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
-    const item = await service.provisionConnection({
-        connection: {
+    const fetchImpl = createFetch();
+    const service = new SavanaIntegrationService({ database, fetchImpl, config });
+    const connection = fetchImpl.setConnection({
             id: 'connection-1',
             organization_id: organizationId,
             source_tenant_id: 'catalog-tenant-id',
@@ -1576,8 +1573,10 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
             source_external_tenant_id: 'catalog:shop:1',
             target_external_tenant_id: 'wa_savana:tenant:1',
             status: 'active',
+            lifecycle_version: 1,
             scopes: ['catalog.products.projection'],
-        },
+    });
+    const item = await service.provisionConnection({ connection,
         webhook_secret: 'wa-savana-connection-secret',
     }, callbackToken);
     assert.equal(item.platform_code, 'catalog');
@@ -1624,9 +1623,9 @@ test('approved Catalog link creates reviewed Wa service requests without POS', a
 
 test('tenant inbox reviews and tracks contextual requests without sending automatically', async (t) => {
     const database = createDatabase();
-    const service = new SavanaIntegrationService({ database, fetchImpl: createFetch(), config });
-    await service.provisionConnection({
-        connection: {
+    const fetchImpl = createFetch();
+    const service = new SavanaIntegrationService({ database, fetchImpl, config });
+    const connection = fetchImpl.setConnection({
             id: 'catalog-message-connection',
             organization_id: organizationId,
             source_tenant_id: 'catalog-tenant-id',
@@ -1636,8 +1635,10 @@ test('tenant inbox reviews and tracks contextual requests without sending automa
             source_external_tenant_id: 'catalog:shop:1',
             target_external_tenant_id: 'wa_savana:tenant:1',
             status: 'active',
+            lifecycle_version: 1,
             scopes: ['wa_savana.notifications.send'],
-        },
+    });
+    await service.provisionConnection({ connection,
         webhook_secret: 'catalog-message-secret',
     }, callbackToken);
     const command = envelope('wa_savana.notification_send_requested.v1', {
