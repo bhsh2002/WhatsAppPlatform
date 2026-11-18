@@ -63,7 +63,8 @@ test('migration SQL rolls back when its tracking row cannot be committed', () =>
 });
 
 test('latest migration upgrades a tracked production-like snapshot without data loss', () => {
-    const latestMigration = '060_savana_owner_portal.sql';
+    const latestMigration = '070_native_media_assets.sql';
+    const deployedBaseline='060_savana_owner_portal.sql';
     assert.equal(migrationFiles.at(-1), latestMigration);
 
     const db = createDatabase();
@@ -71,6 +72,7 @@ test('latest migration upgrades a tracked production-like snapshot without data 
 
     const billingMigrationIndex = migrationFiles.indexOf('027_billing_system.sql');
     const latestMigrationIndex = migrationFiles.indexOf(latestMigration);
+    const deployedBaselineIndex=migrationFiles.indexOf(deployedBaseline);
     for (const file of migrationFiles.slice(0, billingMigrationIndex)) {
         applyTrackedMigration(db, file);
     }
@@ -102,7 +104,7 @@ test('latest migration upgrades a tracked production-like snapshot without data 
         ) VALUES (92, 91, 'contact-92', 'facebook', '2026-07-12 12:00:00')
     `).run();
 
-    for (const file of migrationFiles.slice(billingMigrationIndex, latestMigrationIndex)) {
+    for (const file of migrationFiles.slice(billingMigrationIndex, deployedBaselineIndex+1)) {
         applyTrackedMigration(db, file);
     }
     db.prepare(`
@@ -119,11 +121,23 @@ test('latest migration upgrades a tracked production-like snapshot without data 
         )
     `).run();
 
+    // Preserve every old table's actual rows/columns, including credentials,
+    // queues and WebPush state. Newly added columns may have their own defaults.
+    const originalTables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'_migrations' ORDER BY name").all()
+        .map(({name})=>({name,columns:db.pragma(`table_info(${name})`).map(column=>column.name)}));
+    const quote=name=>`"${name.replaceAll('"','""')}"`;
+    const oldRows=()=>Object.fromEntries(originalTables.map(({name,columns})=>[name,
+        db.prepare(`SELECT ${columns.map(quote).join(',')} FROM ${quote(name)} ORDER BY rowid`).all()]));
+    const preservedBefore=oldRows();
     const result = runMigrationsSync(db);
+    assert.deepEqual(oldRows(),preservedBefore);
+    assert.equal(tableExists(db,'savana_native_media_assets'),true);
+    assert.equal(db.prepare('SELECT COUNT(*) count FROM savana_native_media_assets').get().count,0);
+    assert.equal(db.prepare('SELECT source_revision FROM contacts WHERE tenant_id=41').get().source_revision,1);
 
     assert.deepEqual(result, {
-        applied: 1,
-        skipped: migrationFiles.length - 1,
+        applied: latestMigrationIndex-deployedBaselineIndex,
+        skipped: deployedBaselineIndex+1,
     });
     assert.deepEqual(getMigrationStatusSync(db), {
         total: migrationFiles.length,

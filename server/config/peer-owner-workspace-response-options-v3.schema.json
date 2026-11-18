@@ -1,0 +1,993 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:savana:workspace:response-options:3",
+  "title": "Current closed product, service-sharing and actual native action option definitions",
+  "description": "Definitions for actual workspace response properties. No new HTTP wrapper, input permission or execution authority is defined.",
+  "$defs": {
+    "NamedPolicyChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[^*]+$",
+          "title": "Value",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "title": "NamedPolicyChoice",
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch Id"
+        },
+        "warehouse_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warehouse Id"
+        }
+      },
+      "required": [
+        "organization_id",
+        "activity_id"
+      ],
+      "title": "Scope",
+      "type": "object"
+    },
+    "WorkspaceCapabilityGrantOption": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "provider_ref": {
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "capability_code": {
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/NamedPolicyChoice"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceGrantResourceChoice"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "resource_policies": {
+          "items": {
+            "enum": [
+              "new_only",
+              "selected",
+              "activity"
+            ],
+            "type": "string"
+          },
+          "title": "Resource Policies",
+          "type": "array"
+        },
+        "source_authority_required": {
+          "title": "Source Authority Required",
+          "type": "boolean"
+        },
+        "current_authority_epoch": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Authority Epoch"
+        },
+        "current_authority_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Authority Label"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "capability_code",
+        "label",
+        "fields",
+        "resources",
+        "resource_policies",
+        "source_authority_required"
+      ],
+      "title": "WorkspaceCapabilityGrantOption",
+      "type": "object"
+    },
+    "WorkspaceCurrentCapabilityGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "person_ref": {
+          "title": "Person Ref",
+          "type": "string"
+        },
+        "provider_ref": {
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "capability_code": {
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "enum": [
+              "read",
+              "request",
+              "approve",
+              "execute",
+              "reconcile"
+            ],
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "resource_policy": {
+          "enum": [
+            "new_only",
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "person_ref",
+        "provider_ref",
+        "capability_code",
+        "actions",
+        "allowed_fields",
+        "resource_refs",
+        "resource_policy",
+        "expires_at",
+        "version"
+      ],
+      "title": "WorkspaceCurrentCapabilityGrant",
+      "type": "object"
+    },
+    "WorkspaceGrantResourceChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Resource Ref",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "resource",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_.]*$",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authority_epoch": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Epoch"
+        },
+        "authority_matches_provider": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Matches Provider"
+        },
+        "authority_assignable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Assignable"
+        },
+        "authority_source_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Source Label"
+        }
+      },
+      "required": [
+        "resource_ref",
+        "label"
+      ],
+      "title": "WorkspaceGrantResourceChoice",
+      "type": "object"
+    },
+    "WorkspaceProductCommandOption": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "provider_ref": {
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "capability": {
+          "const": "products.write",
+          "title": "Capability",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "product.create",
+            "product.change"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "authorization_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Authorization Revision"
+        },
+        "source_installation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Installation Id"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason Code"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "record_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Record Ref"
+        },
+        "record_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Record Version"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "capability",
+        "action",
+        "available",
+        "allowed_fields",
+        "authorization_revision",
+        "source_installation_id",
+        "reason_code",
+        "message"
+      ],
+      "title": "WorkspaceProductCommandOption",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "available": {
+                "const": true
+              }
+            },
+            "required": [
+              "available"
+            ]
+          },
+          "then": {
+            "properties": {
+              "authorization_revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "source_installation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "allowed_fields": {
+                "minItems": 1
+              },
+              "reason_code": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "authorization_revision": {
+                "type": "null"
+              },
+              "source_installation_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "available": {
+                "const": true
+              },
+              "action": {
+                "const": "product.change"
+              }
+            },
+            "required": [
+              "available",
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "record_ref",
+              "record_version"
+            ],
+            "properties": {
+              "record_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "record_version": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "WorkspaceServiceShareConsumerChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_ref": {
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_ref",
+        "label"
+      ],
+      "title": "WorkspaceServiceShareConsumerChoice",
+      "type": "object"
+    },
+    "WorkspaceServiceShareOption": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "source_provider_ref": {
+          "title": "Source Provider Ref",
+          "type": "string"
+        },
+        "source_label": {
+          "title": "Source Label",
+          "type": "string"
+        },
+        "capability_code": {
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/NamedPolicyChoice"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceGrantResourceChoice"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "resource_policies": {
+          "items": {
+            "enum": [
+              "new_only",
+              "selected",
+              "activity"
+            ],
+            "type": "string"
+          },
+          "title": "Resource Policies",
+          "type": "array"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceServiceSharePersonChoice"
+          },
+          "title": "People",
+          "type": "array"
+        },
+        "consumers": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceServiceShareConsumerChoice"
+          },
+          "title": "Consumers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "activity_id",
+        "source_provider_ref",
+        "source_label",
+        "capability_code",
+        "label",
+        "fields",
+        "resources",
+        "resource_policies",
+        "people",
+        "consumers"
+      ],
+      "title": "WorkspaceServiceShareOption",
+      "type": "object"
+    },
+    "WorkspaceServiceSharePersonChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "person_ref": {
+          "title": "Person Ref",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "enum": [
+              "read",
+              "request",
+              "approve",
+              "execute",
+              "reconcile"
+            ],
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "resource_policy": {
+          "enum": [
+            "new_only",
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "person_ref",
+        "label",
+        "actions",
+        "allowed_fields",
+        "resource_refs",
+        "resource_policy"
+      ],
+      "title": "WorkspaceServiceSharePersonChoice",
+      "type": "object"
+    },
+    "AvailabilityAction": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "href": {
+          "title": "Href",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "href"
+      ],
+      "title": "AvailabilityAction",
+      "type": "object"
+    },
+    "CapabilityAvailability": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "available",
+            "review_available",
+            "implementation_missing",
+            "not_supported",
+            "configuration_required",
+            "subscription_required",
+            "permission_required",
+            "resource_scope_required",
+            "provider_selection_required",
+            "connection_required",
+            "connection_pending",
+            "connection_paused",
+            "connection_revoked",
+            "approval_required",
+            "consent_required",
+            "balance_required",
+            "quote_required",
+            "offline",
+            "authorization_stale",
+            "outcome_unknown",
+            "provider_unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "next_action": {
+          "$ref": "#/$defs/AvailabilityAction"
+        }
+      },
+      "required": [
+        "state",
+        "reason_code",
+        "message",
+        "next_action"
+      ],
+      "title": "CapabilityAvailability",
+      "type": "object"
+    },
+    "WorkspaceNativeResourceChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Resource Ref",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "resource",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_.]*$",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authority_epoch": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Epoch"
+        },
+        "authority_matches_provider": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Matches Provider"
+        }
+      },
+      "required": [
+        "resource_ref",
+        "label"
+      ],
+      "title": "WorkspaceNativeResourceChoice",
+      "type": "object"
+    },
+    "WorkspaceNativeCommandOption": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Capability",
+          "type": "string"
+        },
+        "action": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Action",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "validator_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Validator Version",
+          "type": "string"
+        },
+        "permission_contract": {
+          "enum": [
+            "parameters_v1",
+            "semantic_effects_v1"
+          ],
+          "title": "Permission Contract",
+          "type": "string"
+        },
+        "creates_resource": {
+          "title": "Creates Resource",
+          "type": "boolean"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/NamedPolicyChoice"
+          },
+          "maxItems": 100,
+          "title": "Fields",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceNativeResourceChoice"
+          },
+          "maxItems": 500,
+          "title": "Resources",
+          "type": "array"
+        },
+        "resource_policy": {
+          "anyOf": [
+            {
+              "enum": [
+                "new_only",
+                "selected",
+                "activity"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource Policy"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "authorization_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authorization Revision"
+        },
+        "source_installation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Id"
+        },
+        "capability_grant_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Grant Revision"
+        },
+        "availability": {
+          "$ref": "#/$defs/CapabilityAvailability"
+        },
+        "owner_action_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Action Url"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "capability",
+        "action",
+        "label",
+        "validator_version",
+        "permission_contract",
+        "creates_resource",
+        "fields",
+        "resources",
+        "availability"
+      ],
+      "title": "WorkspaceNativeCommandOption",
+      "type": "object"
+    }
+  },
+  "x_source_native_model": "savana_connect.workspace_models.WorkspaceNativeCommandOption",
+  "x_runtime_rules": "Ready options require exact scoped hash/install/grant revision/resource policy and operator-validated URI equal availability.next_action.href. Blocked options expose no old private fields/resources/refs/proofs. Fixture loopback is private bound registry validation context only."
+}

@@ -1,5 +1,6 @@
 import express from 'express';
 import FormData from 'form-data';
+import {createNativeWhatsAppMediaTransport} from '../services/nativeWhatsAppMediaTransport.js';
 import fs from 'node:fs';
 
 import { META_API_BASE } from '../config/index.js';
@@ -88,31 +89,9 @@ export function createTenantWhatsAppMediaRouter({
         return true;
     };
 
-    const uploadToMeta = async (context, file, requestedFilename = null) => {
-        const displayFilename = normalizeFilename(requestedFilename || file.originalname, 'upload');
-        const form = formDataFactory();
-        form.append('messaging_product', 'whatsapp');
-        form.append('type', file.mimetype);
-        form.append('file', readFile(file.path), {
-            filename: displayFilename,
-            contentType: file.mimetype,
-        });
-        const response = await fetchImpl(
-            `${apiBase}/${encodeURIComponent(context.phoneNumberId)}/media`,
-            {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${context.accessToken}`,
-                    ...form.getHeaders(),
-                },
-                body: form.getBuffer(),
-            },
-        );
-        return {
-            displayFilename,
-            result: await parseMetaResponse(response),
-        };
-    };
+    const mediaTransport=createNativeWhatsAppMediaTransport({fetchImpl,apiBase,parseMetaResponse,formDataFactory});
+    const uploadToMeta = (context,file,requestedFilename=null) => mediaTransport.upload({context,bytes:readFile(file.path),
+        mimeType:file.mimetype,filename:requestedFilename||file.originalname});
 
     const persistOutcome = ({
         context,

@@ -9,7 +9,7 @@ import rateLimit from 'express-rate-limit';
 import tenantsRouter from './routes/tenants.js';
 import statsRouter from './routes/stats.js';
 import messagesRouter from './routes/messages.js';
-import webhooksRouter from './routes/webhooks.js';
+import webhooksRouter, { configureCollaborativeWebhookEvidence } from './routes/webhooks.js';
 import authRouter from './routes/auth.js';
 import tenantPortalRouter from './routes/tenantPortal.js';
 import apiV1Router, {
@@ -49,6 +49,16 @@ import { createSharedProductReadsRouter } from './routes/sharedProductReads.js';
 import { createOperationalReadSetupRouter } from './routes/operationalReadSetup.js';
 import { createOperationalOwnerPortalRouter } from './routes/operationalOwnerPortal.js';
 import { createOperationalReadServices, operationalReadConfigFromEnv } from './services/operationalReadSetup.js';
+import { createOperationalWorkspaceRouter } from './routes/operationalWorkspace.js';
+import { createOperationalCollaboration } from './services/operationalCollaboration.js';
+import { createNativeCollaborativeDependencies } from './services/nativeCollaborativeDependencies.js';
+import { getTenantCredentials } from './services/credentials.js';
+import { resolveFacebookPageCredentials } from './services/nativeFacebookContentPublisher.js';
+import * as nativeBilling from './services/billing.js';
+import { markBotHandoffForConversation } from './services/messengerBot.js';
+import { GuidedWhatsAppSetupService } from './services/guidedWhatsAppSetup.js';
+import { createGuidedWhatsAppSetupRouter } from './routes/guidedWhatsAppSetup.js';
+import { createSqliteReadPrincipalVerifier } from './services/centralProductRead.js';
 
 // Import services
 import eventBus from './services/eventBus.js';
@@ -63,7 +73,7 @@ import db from './db/database.js';
 import { getMigrationStatusSync } from './db/migrator.js';
 import { startMaintenanceScheduler } from './services/maintenance.js';
 import { botAssetsDir, uploadDir } from './config/upload.js';
-import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT } from './config/index.js';
+import { AUTH_RATE_LIMIT, GLOBAL_RATE_LIMIT, META_APP_ID, META_APP_SECRET, FACEBOOK_REDIRECT_URI, META_API_VERSION } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initEncryption, encrypt, decrypt } from './services/encryption.js';
 import { installGlobalFetchTimeout } from './runtime/fetchTimeout.js';
@@ -193,13 +203,14 @@ const savanaIntegrationService = new SavanaIntegrationService({
     database: db,
     config: savanaIntegrationConfig,
 });
-// Default off. An encrypted identity session alone is not a delegated read
-// binding or an operational approval. Actual authority stays at the center.
-const { setupService: sharedReadSetupService, readService: sharedProductReadService, ownerPortalService } = createOperationalReadServices({
+// Infrastructure availability follows complete server-owned configuration.
+// Identity alone supplies no delegated read binding or operational approval.
+const operationalReadServices = createOperationalReadServices({
     database: db,
     config: operationalReadConfigFromEnv(),
     encryption: { encrypt, decrypt },
 });
+const { setupService: sharedReadSetupService, readService: sharedProductReadService, ownerPortalService } = operationalReadServices;
 const smsApiRequestStore = new SmsApiRequestStore({ database: db });
 let smsGatewayService;
 smsGatewayService = new SmsGatewayService({
@@ -235,6 +246,21 @@ smsGatewayService = new SmsGatewayService({
         callbackSender: sendApiCallback,
     }),
 });
+const collaborativeBilling = { ...nativeBilling, database: db, operations: nativeBilling.BILLING_OPERATIONS };
+const operationalCollaboration = createOperationalCollaboration({ database: db, encryption: { encrypt, decrypt },
+    readServices: operationalReadServices, integrationService: savanaIntegrationService,
+    nativeDependencies: createNativeCollaborativeDependencies({ database: db, encryption: { encrypt, decrypt },
+        smsService: smsGatewayService, billing: collaborativeBilling, whatsappCredentials: getTenantCredentials,
+        contentCredentials: resolveFacebookPageCredentials, settleWhatsAppStatus: nativeBilling.updateMetaChargeFromStatus,
+        recordMessageCost: nativeBilling.recordMetaMessageCost, markMessengerHandoff: markBotHandoffForConversation,
+        eventBus, callbackSender: sendApiCallback }),
+    config: { callbackToken: savanaIntegrationConfig.callbackToken, signaturePathPrefix: '/api',
+        metaAppSecret: process.env.META_APP_SECRET || '', metaAppId: process.env.META_APP_ID || '' } });
+configureCollaborativeWebhookEvidence(operationalCollaboration.native?.effectEvidence || null);
+const guidedWhatsAppSetup = new GuidedWhatsAppSetupService({ database: db, encryption: { encrypt, decrypt },
+    verifyLocalPrincipal: createSqliteReadPrincipalVerifier(db),
+    config: { appId: META_APP_ID, appSecret: META_APP_SECRET, redirectUri: FACEBOOK_REDIRECT_URI, apiVersion: META_API_VERSION } });
+const guidedWhatsAppAppOrigin = FACEBOOK_REDIRECT_URI ? new URL(FACEBOOK_REDIRECT_URI).origin : null;
 if (process.env.NODE_ENV === 'production') {
     const enabledSmsAccounts = db.prepare(
         'SELECT COUNT(*) AS count FROM sms_gateway_accounts WHERE enabled = 1'
@@ -710,6 +736,7 @@ app.use(dataDeletionRouter);
 app.use('/integrations/connect', createConnectCallbacksRouter({
     service: savanaIntegrationService,
 }));
+if (operationalCollaboration.native) app.use('/savana/command-adapter/v1', operationalCollaboration.native.nativeRouter);
 app.use(
     '/integrations/sms-gateway/events',
     smsWebhookLimiter,
@@ -795,6 +822,11 @@ app.use('/messenger-bot', authMiddleware, adminMiddleware, messengerBotRouter);
 app.use('/content-studio', authMiddleware, adminMiddleware, facebookContentStudioRouter);
 
 // Protected API Routes - Tenant Portal
+app.use('/portal/integrations', authMiddleware, tenantMiddleware, createOperationalWorkspaceRouter({
+    service: operationalCollaboration.workspace, appOrigin: sharedReadSetupService.appOrigin,
+}));
+if (operationalCollaboration.native?.ownerRouter) app.use('/portal/integrations', authMiddleware, tenantMiddleware,
+    operationalCollaboration.native.ownerRouter);
 app.use('/portal/integrations', authMiddleware, tenantMiddleware, createOperationalOwnerPortalRouter({
     service: ownerPortalService, appOrigin: sharedReadSetupService.appOrigin,
 }));
@@ -812,6 +844,7 @@ app.use('/portal/integrations', authMiddleware, tenantMiddleware, createTenantIn
 }));
 app.use('/portal/fb-content', authMiddleware, tenantMiddleware, fbContentRouter);
 app.use('/portal/fb-insights', authMiddleware, tenantMiddleware, fbInsightsRouter);
+app.use('/portal', authMiddleware, tenantMiddleware, createGuidedWhatsAppSetupRouter({ service: guidedWhatsAppSetup, appOrigin: guidedWhatsAppAppOrigin }));
 app.use('/portal', authMiddleware, tenantMiddleware, tenantPortalRouter);
 
 // External API Routes - v1 (requires API key)

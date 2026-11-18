@@ -250,21 +250,21 @@ export const parseGatewayJsonResponse = (account, response, method = 'GET') => {
     return payload;
 };
 
-const gatewayJson = async (account, path, {
+export const createSmsGatewayRequest = ({ fetchImpl = safeOutboundFetch, decryptToken = decrypt } = {}) => async (account, path, {
     method = 'GET',
     body,
     idempotencyKey,
     authenticated = true,
 } = {}) => {
     assertEgressAvailable();
-    const apiKey = authenticated ? decrypt(account.api_key_encrypted) : null;
+    const apiKey = authenticated ? decryptToken(account.api_key_encrypted) : null;
     if (authenticated && !apiKey) {
         throw new SmsGatewayError('تعذر فك مفتاح حساب SMS', 503, 'SMS_GATEWAY_CREDENTIALS_INVALID');
     }
     const encodedBody = body === undefined ? undefined : JSON.stringify(body);
     let response;
     try {
-        response = await safeOutboundFetch(endpointUrl(account.base_url, path), {
+        response = await fetchImpl(endpointUrl(account.base_url, path), {
             method,
             headers: {
                 Accept: 'application/json',
@@ -294,6 +294,8 @@ const gatewayJson = async (account, path, {
     return parseGatewayJsonResponse(account, response, method);
 };
 
+const gatewayJson = createSmsGatewayRequest();
+
 export class SmsGatewayService {
     constructor({
         database,
@@ -303,6 +305,7 @@ export class SmsGatewayService {
         webhookCallbackEnqueuer = null,
         messageBillingReconciler = null,
         ussdBillingReconciler = null,
+        decryptToken = decrypt,
     }) {
         if (!database) throw new TypeError('SmsGatewayService requires database');
         if (typeof gatewayRequest !== 'function') {
@@ -330,6 +333,7 @@ export class SmsGatewayService {
         this.webhookCallbackEnqueuer = webhookCallbackEnqueuer;
         this.messageBillingReconciler = messageBillingReconciler;
         this.ussdBillingReconciler = ussdBillingReconciler;
+        this.decryptToken = decryptToken;
     }
 
     listAccounts(tenantId) {
@@ -993,6 +997,16 @@ export class SmsGatewayService {
         return account;
     }
 
+    requireCollaborativeConfiguration(tenantId, accountId) {
+        const account = this.requireActiveAccount(tenantId, accountId);
+        if (!this.decryptToken(account.api_key_encrypted)) {
+            const error = new SmsGatewayError('تعذر تأكيد إعداد حساب SMS', 503, 'SMS_GATEWAY_CREDENTIALS_INVALID');
+            error.dispatched = false;
+            throw error;
+        }
+        return account;
+    }
+
     async send(tenantId, {
         accountId = null,
         recipient,
@@ -1000,6 +1014,7 @@ export class SmsGatewayService {
         idempotencyKey,
         devices,
         simSlot,
+        maxAttempts = 3,
     } = {}) {
         assertEgressAvailable();
         const account = this.requireActiveAccount(tenantId, accountId);
@@ -1038,7 +1053,8 @@ export class SmsGatewayService {
         }
         let result;
         let lastError;
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
+        if (![1, 3].includes(maxAttempts)) throw new SmsGatewayError('Invalid native send attempts', 422, 'INVALID_SMS_ATTEMPTS');
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
             try {
                 result = await this.gatewayRequest(account, 'services/v1/messages.php', {
                     method: 'POST',
@@ -1055,7 +1071,7 @@ export class SmsGatewayService {
                 if (error?.code === 'WA_EGRESS_MAINTENANCE') throw error;
                 lastError = error;
                 const retryable = error.status >= 500 || error.code === 'request_in_progress';
-                if (!retryable || attempt === 3) break;
+                if (!retryable || attempt === maxAttempts) break;
                 await wait(250 * (2 ** (attempt - 1)));
             }
         }
@@ -1774,6 +1790,29 @@ export class SmsGatewayService {
         return { key, from: start, to: end, timezone: 'Africa/Tripoli' };
     }
 
+    async readMessageHistoryPage(account, params) {
+        const response = await this.gatewayRequest(account, `services/v1/messages.php?${params.toString()}`);
+        const data = response.data || {};
+        if (!Array.isArray(data.messages) || !data.pagination || typeof data.pagination !== 'object') {
+            throw new SmsGatewayError('أعاد حساب SMS سجلًا غير صالح', 502, 'SMS_HISTORY_INVALID_RESPONSE');
+        }
+        return data;
+    }
+
+    async readCollaborativeHistoryPage(tenantId, accountId, { beforeId = null, limit = 100 } = {}) {
+        assertEgressAvailable();
+        const account = this.requireActiveAccount(tenantId, accountId, false);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100
+            || (beforeId != null && !/^[1-9][0-9]*$/.test(String(beforeId)))) {
+            throw new SmsGatewayError('Invalid native history cursor', 422, 'SMS_HISTORY_CURSOR_INVALID');
+        }
+        const params = new URLSearchParams({ limit: String(limit), type: 'sms' });
+        if (beforeId != null) params.set('before_id', String(beforeId));
+        const data = await this.readMessageHistoryPage(account, params);
+        if (data.messages.length > limit) throw new SmsGatewayError('Invalid native history page', 502, 'SMS_HISTORY_INVALID_RESPONSE');
+        return data;
+    }
+
     async syncHistory(tenantId, accountId, {
         incrementalPages = 10,
         backfillPages = 2,
@@ -1794,19 +1833,7 @@ export class SmsGatewayService {
         let pages = 0;
 
         const importPage = async (params, phase) => {
-            const response = await this.gatewayRequest(
-                account,
-                `services/v1/messages.php?${params.toString()}`,
-            );
-            const data = response.data || {};
-            if (!Array.isArray(data.messages) || !data.pagination
-                || typeof data.pagination !== 'object') {
-                throw new SmsGatewayError(
-                    'أعاد حساب SMS سجلًا غير صالح',
-                    502,
-                    'SMS_HISTORY_INVALID_RESPONSE',
-                );
-            }
+            const data = await this.readMessageHistoryPage(account, params);
             const persist = this.db.transaction(() => data.messages.map(message => {
                 const gatewayMessageId = String(message.message_id || '').trim();
                 const externalId = String(message.external_id || '').trim();

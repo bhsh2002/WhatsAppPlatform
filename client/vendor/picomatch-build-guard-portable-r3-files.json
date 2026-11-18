@@ -1,0 +1,34 @@
+{
+  "format": "savana-portable-verifier-source-freeze/3",
+  "frozen_at_utc": "2026-11-18T08:29:21.200903+00:00",
+  "p10_archive_unchanged": true,
+  "root_resource_decision": "/Users/savana/Dev/.organization/2026-11-18/operational-completion/root-build-verifier-resource-profile-decision.json",
+  "changes_from_R2": "Only approved finite memory policy upper ceiling2GiB to4GiB, its fixed diagnostic, README rationale and example config. Actual finite cgroup requirement and all Worker/engine/proof controls unchanged.",
+  "files": [
+    {
+      "path": "verify.cjs",
+      "bytes": 17419,
+      "sha256": "d19518181a4cfc657fa6c3aba4c9e0d0602c6fda1ed1053947e608867d70b79d"
+    },
+    {
+      "path": "bounded-proof.cjs",
+      "bytes": 3385,
+      "sha256": "73a070b909148c8a7d1c3ddb037c0d4e104d902a226f72b321167d767213570a"
+    },
+    {
+      "path": "README.md",
+      "bytes": 9736,
+      "sha256": "273d7ce22c74db82254d3bdaf4d49dae63f3e5694be6033553e6debb94b3d07a"
+    },
+    {
+      "path": "config.example.json",
+      "bytes": 1856,
+      "sha256": "72418841f4cc8f715fde19ec6e2afeab93370b2719ef89f4a2b8c8b0d9a9008b"
+    },
+    {
+      "path": "package.fragment.example.json",
+      "bytes": 157,
+      "sha256": "bb2e4cd5d2461f88c3c0f18052e5a2f7b9b8e27488809334ff00721f00b34532"
+    }
+  ]
+}

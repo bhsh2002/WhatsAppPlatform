@@ -2,7 +2,6 @@ import express from 'express';
 import crypto from 'crypto';
 import db from '../db/database.js';
 import eventBus from '../services/eventBus.js';
-import { META_API_BASE } from '../config/index.js';
 import { decrypt, decryptIfEncrypted } from '../services/encryption.js';
 import { processIncomingMessage, processIncomingComment, processIncomingReaction } from '../services/autoResponder.js';
 import {
@@ -17,12 +16,29 @@ import {
     verifyMetaWebhookSignature,
 } from '../security/webhookSignature.js';
 import { safeOutboundFetch } from '../security/outboundUrl.js';
-import { readMetaResponse } from '../services/metaHttp.js';
-import { fetchMetaWithAccessToken } from '../services/metaAuthorizedFetch.js';
+import {createNativeMessengerProfileReader} from '../services/nativeMessengerProfile.js';
 import { hasWhatsAppNumbersTable } from '../services/whatsappNumbers.js';
 import { metaWebhookNotificationSource } from '../services/metaWebhookNotifications.js';
 
 const router = express.Router();
+const defaultMessengerProfileReader=createNativeMessengerProfileReader({database:db});
+let messengerProfileReader=defaultMessengerProfileReader;
+let messengerProfileConfiguration=null;
+export const configureNativeMessengerProfileTransport=configuration=>{
+    if(configuration===null){messengerProfileReader=defaultMessengerProfileReader;messengerProfileConfiguration=null;return;}
+    if(!configuration||configuration.database!==db||typeof configuration.fetchImpl!=='function')throw new TypeError('Native Messenger profile transport must use this actual database');
+    if(messengerProfileConfiguration&&messengerProfileConfiguration!==configuration)throw new TypeError('Native Messenger profile transport is already configured');
+    messengerProfileReader=createNativeMessengerProfileReader(configuration);messengerProfileConfiguration=configuration;
+};
+let collaborativeEvidence = null;
+export const configureCollaborativeWebhookEvidence = service => {
+    if (service === null) { collaborativeEvidence = null; return; }
+    if (!service || service.db !== db || typeof service.ingest !== 'function') {
+        throw new TypeError('Collaborative webhook evidence must use this actual native database');
+    }
+    if (collaborativeEvidence && collaborativeEvidence !== service) throw new TypeError('Collaborative webhook evidence is already configured');
+    collaborativeEvidence = service;
+};
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
 const APP_SECRET = process.env.META_APP_SECRET;
@@ -307,29 +323,7 @@ const refreshMessengerProfile = ({
     pageToken,
     context = 'message',
 }) => {
-    if (!conversationId || !senderId || !pageToken) return;
-
-    void fetchMetaWithAccessToken(
-        `${META_API_BASE}/${encodeURIComponent(senderId)}?fields=name,profile_pic`,
-        pageToken
-    )
-        .then(readMetaResponse)
-        .then(result => {
-            if (!result.ok) return;
-            const userName = result.data?.name || null;
-            const userPic = result.data?.profile_pic || null;
-            if (!userName && !userPic) return;
-            db.prepare(`
-                UPDATE fb_conversations
-                SET user_name = COALESCE(?, user_name),
-                    user_profile_pic = COALESCE(?, user_profile_pic),
-                    updated_at = datetime('now', 'localtime')
-                WHERE id = ? AND tenant_id = ? AND user_psid = ?
-            `).run(userName, userPic, conversationId, tenantId, senderId);
-        })
-        .catch(error => {
-            console.warn(`[Webhook/FB] Failed to fetch user profile for ${context}:`, error.message);
-        });
+    void messengerProfileReader({conversationId,tenantId,senderId,pageToken,context});
 };
 
 const persistMessengerPostback = ({
@@ -568,6 +562,7 @@ router.post('/', async (req, res) => {
     }
 
     let webhookLogId;
+    let collaborativeReceipts = { whatsapp: [], messenger: [] };
     const pageFeedJobs = [];
     try {
         // Meta is acknowledged only after the application projection and its
@@ -578,6 +573,9 @@ router.post('/', async (req, res) => {
             VALUES (?, ?)
         `).run(body.object || 'unknown', JSON.stringify(body));
         webhookLogId = logResult.lastInsertRowid;
+        if (collaborativeEvidence && APP_SECRET) collaborativeReceipts = collaborativeEvidence.ingest({
+            rawBody: req.rawBody, signature: req.headers['x-hub-signature-256'],
+        });
 
         // Process WhatsApp Business Account Events
         if (body.object === 'whatsapp_business_account') {
@@ -725,7 +723,8 @@ router.post('/', async (req, res) => {
                     if (value.statuses) {
                         value.statuses.forEach(status => {
                             db.transaction(() => {
-                                db.prepare(`
+                                if (!collaborativeReceipts.whatsapp.some(receipt => receipt.tenantId === tenant?.id
+                                    && receipt.providerId === status.id)) db.prepare(`
                                     UPDATE messages
                                     SET status = ?
                                     WHERE wamid = ?

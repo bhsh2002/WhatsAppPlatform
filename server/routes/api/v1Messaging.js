@@ -38,6 +38,7 @@ import {
     normalizeWhatsAppRecipient,
 } from '../../services/whatsappMessageValidation.js';
 import { selectedWhatsAppPhoneNumberId } from '../../services/whatsappNumbers.js';
+import { createNativeWhatsAppMessageCommand, NativeWhatsAppMessageError } from '../../services/nativeWhatsAppMessage.js';
 
 const MAX_TEMPLATE_COMPONENT_BYTES = 64 * 1024;
 const defaultDocumentUpload = documentUpload.single('file');
@@ -341,111 +342,23 @@ export function createApiV1MessagingRouter({
         return res.status(500).json({ error: fallback });
     };
 
+    const sendNativeMessage = createNativeWhatsAppMessageCommand({ database, credentialResolver, billing,
+        fetchImpl, parseMetaResponse, apiBase, callbackSender, logger, now });
     router.post('/messages/send', async (req, res) => {
         try {
-            const body = req.body || {};
-            const recipient = normalizeWhatsAppRecipient(body.recipient);
-            const shortcut = parseTemplateShortcut(body.message);
-            const rawTemplateName = body.template_name
-                || body.templateName
-                || body.template
-                || shortcut?.name;
-            const messageType = normalizeMessageType(body.type, Boolean(rawTemplateName));
-            const context = await resolveContext(req);
-            if (context.error) {
-                return res.status(context.status).json({ error: context.error, code: context.code });
-            }
-
-            let template = null;
-            let templateName = null;
-            let payload;
-            let storedContent;
-            if (messageType === 'template') {
-                templateName = normalizeTemplateName(rawTemplateName);
-                template = database.prepare(`
-                    SELECT id, tenant_id, name, language, category, header_type,
-                           header_content, body, footer, buttons, variables
-                    FROM templates
-                    WHERE tenant_id = ? AND name = ? AND status = 'approved'
-                `).get(context.tenantId, templateName);
-                if (!template) {
-                    return res.status(404).json({ error: 'Template not found or not approved' });
-                }
-                const templateLanguage = normalizeTemplateLanguage(
-                    body.template_language
-                    || body.templateLanguage
-                    || shortcut?.language
-                    || template.language
-                    || 'en',
-                );
-                const rawTemplateParams = body.template_components
-                    ?? body.templateComponents
-                    ?? body.components
-                    ?? body.template_params
-                    ?? body.templateParams
-                    ?? body.params
-                    ?? shortcut?.params
-                    ?? [];
-                const templateComponents = normalizeTemplateParameters(rawTemplateParams);
-                const expected = countTemplateBodyVariables(template.body);
-                const bodyComponent = templateComponents.find(
-                    component => component?.type?.toLowerCase?.() === 'body',
-                );
-                const provided = bodyComponent?.parameters?.length || 0;
-                if (expected > 0 && provided !== expected) {
-                    throw new InvalidWhatsAppMessageError(
-                        `Template requires ${expected} body parameters; received ${provided}`,
-                        { code: 'TEMPLATE_PARAM_MISMATCH', expected, provided },
-                    );
-                }
-                payload = {
-                    messaging_product: 'whatsapp',
-                    to: recipient,
-                    type: 'template',
-                    template: {
-                        name: templateName,
-                        language: { code: templateLanguage },
-                        ...(templateComponents.length > 0 ? { components: templateComponents } : {}),
-                    },
-                };
-                storedContent = buildRichTemplateContent(template, templateComponents)
-                    || JSON.stringify({ template: templateName, params: rawTemplateParams });
-            } else {
-                const message = normalizeMessageText(body.message, 'message', 4096);
-                if (rejectClosedWindow(res, context, recipient)) return undefined;
-                payload = {
-                    messaging_product: 'whatsapp',
-                    to: recipient,
-                    type: 'text',
-                    text: { body: message },
-                };
-                storedContent = message;
-            }
-
-            return await dispatch({
-                res,
-                context,
-                recipient,
-                messageType,
-                payload,
-                storedContent,
-                operationKey: messageType === 'template'
-                    ? billing.operations.WHATSAPP_TEMPLATE
-                    : billing.operations.WHATSAPP_TEXT,
-                billingMetadata: {
-                    recipient,
-                    message_type: messageType,
-                    template_name: templateName,
-                    template_category: template?.category || null,
-                },
-                billingDescription: messageType === 'template'
-                    ? `خصم إرسال قالب WhatsApp عبر API: ${templateName}`
-                    : 'خصم إرسال رسالة WhatsApp نصية عبر API',
-                activityDescription: 'إرسال رسالة عبر API',
-                failureFallback: 'Failed to send message',
-                callback: true,
-            });
+            const result = await sendNativeMessage({ tenantId: req.tenantId,
+                phoneNumberId: selectedWhatsAppPhoneNumberId(req), body: req.body || {} });
+            if (!result.metaResult.ok) return sendMetaFailure(res, result.metaResult, 'Failed to send message',
+                result.warnings.length ? { warnings: result.warnings } : {});
+            return res.json(result.response);
         } catch (error) {
+            if (error instanceof NativeWhatsAppMessageError) {
+                if (error.code === 'OUTSIDE_WINDOW') return res.status(400).json({
+                    error: 'WhatsApp 24-hour conversation window is closed; use an approved template.',
+                    code: 'OUTSIDE_WINDOW', window_closed_at: error.windowClosedAt,
+                });
+                return res.status(error.status).json({ error: error.message, code: error.code });
+            }
             return handleRouteError(res, error, 'Send message error', 'Failed to send message');
         }
     });

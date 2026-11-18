@@ -1,0 +1,2240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "owner-workspace-contract/1.2",
+  "status": "Actual closed DTOs. Identity is derived from authenticated sessions; native/production acceptance is separately evidenced.",
+  "models": {
+    "WorkspaceActivityCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "minLength": 2,
+          "title": "Name",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "idempotency_key"
+      ],
+      "title": "WorkspaceActivityCreate",
+      "type": "object"
+    },
+    "WorkspacePolicyChoices": {
+      "additionalProperties": false,
+      "properties": {
+        "unit_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Unit Codes",
+          "type": "array"
+        },
+        "currencies": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Currencies",
+          "type": "array"
+        },
+        "price_list_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Price List Ids",
+          "type": "array"
+        },
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Channels",
+          "type": "array"
+        }
+      },
+      "title": "WorkspacePolicyChoices",
+      "type": "object"
+    },
+    "WorkspaceRequestSelection": {
+      "$defs": {
+        "WorkspacePolicyChoices": {
+          "additionalProperties": false,
+          "properties": {
+            "unit_codes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Unit Codes",
+              "type": "array"
+            },
+            "currencies": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Currencies",
+              "type": "array"
+            },
+            "price_list_ids": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Price List Ids",
+              "type": "array"
+            },
+            "channels": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Channels",
+              "type": "array"
+            }
+          },
+          "title": "WorkspacePolicyChoices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source_registration",
+            "consumer_registration",
+            "read_sharing",
+            "native_origin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "provider_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Ref"
+        },
+        "source_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Ref"
+        },
+        "consumer_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Installation Ref"
+        },
+        "native_product_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Product Ref"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media",
+              "is_visible"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Fields",
+          "type": "array"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "allowed_operations": {
+          "items": {
+            "enum": [
+              "upsert",
+              "hide",
+              "unhide",
+              "archive",
+              "tombstone",
+              "restore"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "allow_restore": {
+          "default": false,
+          "title": "Allow Restore",
+          "type": "boolean"
+        },
+        "policy_choices": {
+          "$ref": "#/$defs/WorkspacePolicyChoices"
+        }
+      },
+      "required": [
+        "activity_id",
+        "kind"
+      ],
+      "title": "WorkspaceRequestSelection",
+      "type": "object"
+    },
+    "WorkspaceProviderPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id"
+      ],
+      "title": "WorkspaceProviderPrepare",
+      "type": "object"
+    },
+    "WorkspaceProviderConfirmation": {
+      "$defs": {
+        "Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "activity_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Activity Id",
+              "type": "string"
+            },
+            "branch_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Branch Id"
+            },
+            "warehouse_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warehouse Id"
+            }
+          },
+          "required": [
+            "organization_id",
+            "activity_id"
+          ],
+          "title": "Scope",
+          "type": "object"
+        },
+        "ServiceEnrollmentResponse": {
+          "additionalProperties": false,
+          "properties": {
+            "enrollment_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Enrollment Id",
+              "type": "string"
+            },
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "platform": {
+              "enum": [
+                "catalog",
+                "wa_savana",
+                "sawemly"
+              ],
+              "title": "Platform",
+              "type": "string"
+            },
+            "external_tenant_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "External Tenant Id",
+              "type": "string"
+            },
+            "display_name": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Display Name",
+              "type": "string"
+            },
+            "version": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Version",
+              "type": "integer"
+            },
+            "accepted_scopes": {
+              "items": {
+                "enum": [
+                  "savana.products.sync",
+                  "savana.collaboration.v1"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "title": "Accepted Scopes",
+              "type": "array"
+            },
+            "public_key_fingerprint": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Public Key Fingerprint",
+              "type": "string"
+            }
+          },
+          "required": [
+            "enrollment_id",
+            "organization_id",
+            "platform",
+            "external_tenant_id",
+            "display_name",
+            "version",
+            "accepted_scopes",
+            "public_key_fingerprint"
+          ],
+          "title": "ServiceEnrollmentResponse",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "enrollment_version": {
+          "minimum": 1,
+          "title": "Enrollment Version",
+          "type": "integer"
+        },
+        "enrollment": {
+          "$ref": "#/$defs/ServiceEnrollmentResponse"
+        },
+        "grants_created": {
+          "const": false,
+          "default": false,
+          "title": "Grants Created",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "prepared",
+            "confirmed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_ref",
+        "activity_id",
+        "scope",
+        "label",
+        "enrollment_version",
+        "enrollment",
+        "status"
+      ],
+      "title": "WorkspaceProviderConfirmation",
+      "type": "object"
+    },
+    "WorkspaceProviderReadinessRefresh": {
+      "$defs": {
+        "Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "activity_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Activity Id",
+              "type": "string"
+            },
+            "branch_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Branch Id"
+            },
+            "warehouse_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warehouse Id"
+            }
+          },
+          "required": [
+            "organization_id",
+            "activity_id"
+          ],
+          "title": "Scope",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "enrollment_version": {
+          "minimum": 1,
+          "title": "Enrollment Version",
+          "type": "integer"
+        },
+        "profile_version": {
+          "minimum": 1,
+          "title": "Profile Version",
+          "type": "integer"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "status": {
+          "const": "refreshed",
+          "default": "refreshed",
+          "title": "Status",
+          "type": "string"
+        },
+        "grants_created": {
+          "const": false,
+          "default": false,
+          "title": "Grants Created",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider_ref",
+        "activity_id",
+        "scope",
+        "enrollment_version",
+        "profile_version",
+        "checked_at"
+      ],
+      "title": "WorkspaceProviderReadinessRefresh",
+      "type": "object"
+    },
+    "WorkspaceNativeResourceChoice": {
+      "$defs": {
+        "Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "activity_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Activity Id",
+              "type": "string"
+            },
+            "branch_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Branch Id"
+            },
+            "warehouse_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warehouse Id"
+            }
+          },
+          "required": [
+            "organization_id",
+            "activity_id"
+          ],
+          "title": "Scope",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "resource_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Resource Ref",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "resource",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_.]*$",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authority_epoch": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Epoch"
+        },
+        "authority_matches_provider": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority Matches Provider"
+        }
+      },
+      "required": [
+        "resource_ref",
+        "label"
+      ],
+      "title": "WorkspaceNativeResourceChoice",
+      "type": "object"
+    },
+    "WorkspaceNativeCommandOption": {
+      "$defs": {
+        "AvailabilityAction": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "href": {
+              "title": "Href",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "label",
+            "href"
+          ],
+          "title": "AvailabilityAction",
+          "type": "object"
+        },
+        "CapabilityAvailability": {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "available",
+                "review_available",
+                "implementation_missing",
+                "not_supported",
+                "configuration_required",
+                "subscription_required",
+                "permission_required",
+                "resource_scope_required",
+                "provider_selection_required",
+                "connection_required",
+                "connection_pending",
+                "connection_paused",
+                "connection_revoked",
+                "approval_required",
+                "consent_required",
+                "balance_required",
+                "quote_required",
+                "offline",
+                "authorization_stale",
+                "outcome_unknown",
+                "provider_unavailable"
+              ],
+              "title": "State",
+              "type": "string"
+            },
+            "reason_code": {
+              "title": "Reason Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "next_action": {
+              "$ref": "#/$defs/AvailabilityAction"
+            }
+          },
+          "required": [
+            "state",
+            "reason_code",
+            "message",
+            "next_action"
+          ],
+          "title": "CapabilityAvailability",
+          "type": "object"
+        },
+        "NamedPolicyChoice": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[^*]+$",
+              "title": "Value",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "label"
+          ],
+          "title": "NamedPolicyChoice",
+          "type": "object"
+        },
+        "Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "activity_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Activity Id",
+              "type": "string"
+            },
+            "branch_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Branch Id"
+            },
+            "warehouse_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warehouse Id"
+            }
+          },
+          "required": [
+            "organization_id",
+            "activity_id"
+          ],
+          "title": "Scope",
+          "type": "object"
+        },
+        "WorkspaceNativeResourceChoice": {
+          "additionalProperties": false,
+          "properties": {
+            "resource_ref": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Resource Ref",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "resource_kind": {
+              "default": "resource",
+              "maxLength": 80,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_.]*$",
+              "title": "Resource Kind",
+              "type": "string"
+            },
+            "scope": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Scope"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "authority_epoch": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Authority Epoch"
+            },
+            "authority_matches_provider": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Authority Matches Provider"
+            }
+          },
+          "required": [
+            "resource_ref",
+            "label"
+          ],
+          "title": "WorkspaceNativeResourceChoice",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Capability",
+          "type": "string"
+        },
+        "action": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Action",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "validator_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Validator Version",
+          "type": "string"
+        },
+        "permission_contract": {
+          "enum": [
+            "parameters_v1",
+            "semantic_effects_v1"
+          ],
+          "title": "Permission Contract",
+          "type": "string"
+        },
+        "creates_resource": {
+          "title": "Creates Resource",
+          "type": "boolean"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/NamedPolicyChoice"
+          },
+          "maxItems": 100,
+          "title": "Fields",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceNativeResourceChoice"
+          },
+          "maxItems": 500,
+          "title": "Resources",
+          "type": "array"
+        },
+        "resource_policy": {
+          "anyOf": [
+            {
+              "enum": [
+                "new_only",
+                "selected",
+                "activity"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource Policy"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "authorization_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authorization Revision"
+        },
+        "source_installation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Id"
+        },
+        "capability_grant_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Grant Revision"
+        },
+        "availability": {
+          "$ref": "#/$defs/CapabilityAvailability"
+        },
+        "owner_action_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Action Url"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "capability",
+        "action",
+        "label",
+        "validator_version",
+        "permission_contract",
+        "creates_resource",
+        "fields",
+        "resources",
+        "availability"
+      ],
+      "title": "WorkspaceNativeCommandOption",
+      "type": "object"
+    },
+    "WorkspaceRequestEdit": {
+      "$defs": {
+        "WorkspacePolicyChoices": {
+          "additionalProperties": false,
+          "properties": {
+            "unit_codes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Unit Codes",
+              "type": "array"
+            },
+            "currencies": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Currencies",
+              "type": "array"
+            },
+            "price_list_ids": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Price List Ids",
+              "type": "array"
+            },
+            "channels": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Channels",
+              "type": "array"
+            }
+          },
+          "title": "WorkspacePolicyChoices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source_registration",
+            "consumer_registration",
+            "read_sharing",
+            "native_origin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "provider_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Ref"
+        },
+        "source_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Ref"
+        },
+        "consumer_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Installation Ref"
+        },
+        "native_product_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Product Ref"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media",
+              "is_visible"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Fields",
+          "type": "array"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "allowed_operations": {
+          "items": {
+            "enum": [
+              "upsert",
+              "hide",
+              "unhide",
+              "archive",
+              "tombstone",
+              "restore"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "allow_restore": {
+          "default": false,
+          "title": "Allow Restore",
+          "type": "boolean"
+        },
+        "policy_choices": {
+          "$ref": "#/$defs/WorkspacePolicyChoices"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "activity_id",
+        "kind",
+        "expected_version"
+      ],
+      "title": "WorkspaceRequestEdit",
+      "type": "object"
+    },
+    "WorkspaceRequestCreate": {
+      "$defs": {
+        "WorkspacePolicyChoices": {
+          "additionalProperties": false,
+          "properties": {
+            "unit_codes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Unit Codes",
+              "type": "array"
+            },
+            "currencies": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Currencies",
+              "type": "array"
+            },
+            "price_list_ids": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Price List Ids",
+              "type": "array"
+            },
+            "channels": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Channels",
+              "type": "array"
+            }
+          },
+          "title": "WorkspacePolicyChoices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source_registration",
+            "consumer_registration",
+            "read_sharing",
+            "native_origin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "provider_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Ref"
+        },
+        "source_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Ref"
+        },
+        "consumer_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Installation Ref"
+        },
+        "native_product_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Product Ref"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media",
+              "is_visible"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Fields",
+          "type": "array"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "allowed_operations": {
+          "items": {
+            "enum": [
+              "upsert",
+              "hide",
+              "unhide",
+              "archive",
+              "tombstone",
+              "restore"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "allow_restore": {
+          "default": false,
+          "title": "Allow Restore",
+          "type": "boolean"
+        },
+        "policy_choices": {
+          "$ref": "#/$defs/WorkspacePolicyChoices"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "kind",
+        "idempotency_key"
+      ],
+      "title": "WorkspaceRequestCreate",
+      "type": "object"
+    },
+    "WorkspaceSelectionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "expected_selection_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Selection Revision",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "external_tenant_id",
+        "expected_selection_revision",
+        "idempotency_key"
+      ],
+      "title": "WorkspaceSelectionRequest",
+      "type": "object"
+    },
+    "WorkspaceBindingRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "redirect_uri": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Redirect Uri",
+          "type": "string"
+        },
+        "state": {
+          "maxLength": 255,
+          "minLength": 32,
+          "title": "State",
+          "type": "string"
+        },
+        "expected_selection_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Selection Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "external_tenant_id",
+        "display_name",
+        "redirect_uri",
+        "state",
+        "expected_selection_revision"
+      ],
+      "title": "WorkspaceBindingRequest",
+      "type": "object"
+    },
+    "WorkspaceCapabilityGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "capability_code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "enum": [
+              "read",
+              "request",
+              "approve",
+              "execute",
+              "reconcile"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Actions",
+          "type": "array"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "resource_policy": {
+          "default": "selected",
+          "enum": [
+            "new_only",
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 0,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "assign_source_authority": {
+          "default": false,
+          "title": "Assign Source Authority",
+          "type": "boolean"
+        },
+        "expected_authority_epoch": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Expected Authority Epoch",
+          "type": "integer"
+        },
+        "expected_authority_epochs": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Expected Authority Epochs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider_ref",
+        "capability_code",
+        "actions",
+        "expires_at",
+        "expected_version"
+      ],
+      "title": "WorkspaceCapabilityGrant",
+      "type": "object"
+    },
+    "NamespaceRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "expected_enrollment_version": {
+          "minimum": 1,
+          "title": "Expected Enrollment Version",
+          "type": "integer"
+        },
+        "expected_version": {
+          "minimum": 0,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "expected_enrollment_version",
+        "expected_version",
+        "expires_at",
+        "idempotency_key"
+      ],
+      "title": "NamespaceRegistration",
+      "type": "object"
+    },
+    "NamespaceRevocation": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_version",
+        "reason"
+      ],
+      "title": "NamespaceRevocation",
+      "type": "object"
+    },
+    "NamespaceResponse": {
+      "$defs": {
+        "Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "activity_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Activity Id",
+              "type": "string"
+            },
+            "branch_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Branch Id"
+            },
+            "warehouse_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warehouse Id"
+            }
+          },
+          "required": [
+            "organization_id",
+            "activity_id"
+          ],
+          "title": "Scope",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "namespace_id": {
+          "title": "Namespace Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "provider_ref": {
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "catalog",
+            "wa_savana",
+            "sawemly"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "source_installation_id": {
+          "title": "Source Installation Id",
+          "type": "string"
+        },
+        "enrollment_id": {
+          "title": "Enrollment Id",
+          "type": "string"
+        },
+        "enrollment_version": {
+          "minimum": 1,
+          "title": "Enrollment Version",
+          "type": "integer"
+        },
+        "authority_domain": {
+          "const": "native.service_namespace",
+          "default": "native.service_namespace",
+          "title": "Authority Domain",
+          "type": "string"
+        },
+        "ownership_epoch": {
+          "minimum": 1,
+          "title": "Ownership Epoch",
+          "type": "integer"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "native_authority_revision": {
+          "title": "Native Authority Revision",
+          "type": "string"
+        },
+        "grants_created": {
+          "const": false,
+          "default": false,
+          "title": "Grants Created",
+          "type": "boolean"
+        },
+        "product_credentials_created": {
+          "const": false,
+          "default": false,
+          "title": "Product Credentials Created",
+          "type": "boolean"
+        },
+        "resource_authority_created": {
+          "const": false,
+          "default": false,
+          "title": "Resource Authority Created",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "namespace_id",
+        "organization_id",
+        "scope",
+        "provider_ref",
+        "platform",
+        "external_tenant_id",
+        "label",
+        "source_installation_id",
+        "enrollment_id",
+        "enrollment_version",
+        "ownership_epoch",
+        "version",
+        "state",
+        "expires_at",
+        "native_authority_revision"
+      ],
+      "title": "NamespaceResponse",
+      "type": "object"
+    },
+    "ServiceShareCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "source_provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Provider Ref",
+          "type": "string"
+        },
+        "consumer_provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Consumer Provider Ref",
+          "type": "string"
+        },
+        "capability_code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "enum": [
+              "read",
+              "request",
+              "approve",
+              "execute",
+              "reconcile"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Actions",
+          "type": "array"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "resource_policy": {
+          "enum": [
+            "new_only",
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "source_provider_ref",
+        "consumer_provider_ref",
+        "capability_code",
+        "people_refs",
+        "actions",
+        "allowed_fields",
+        "resource_policy",
+        "expires_at",
+        "idempotency_key"
+      ],
+      "title": "ServiceShareCreate",
+      "type": "object"
+    },
+    "ServiceShareApproval": {
+      "additionalProperties": false,
+      "properties": {
+        "side": {
+          "enum": [
+            "source",
+            "consumer"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "side",
+        "expected_version"
+      ],
+      "title": "ServiceShareApproval",
+      "type": "object"
+    },
+    "ServiceShareRevocation": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_version",
+        "reason"
+      ],
+      "title": "ServiceShareRevocation",
+      "type": "object"
+    },
+    "SharedPerson": {
+      "additionalProperties": false,
+      "properties": {
+        "person_ref": {
+          "title": "Person Ref",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "person_ref",
+        "label"
+      ],
+      "title": "SharedPerson",
+      "type": "object"
+    },
+    "ServiceShareResponse": {
+      "$defs": {
+        "SharedPerson": {
+          "additionalProperties": false,
+          "properties": {
+            "person_ref": {
+              "title": "Person Ref",
+              "type": "string"
+            },
+            "label": {
+              "title": "Label",
+              "type": "string"
+            }
+          },
+          "required": [
+            "person_ref",
+            "label"
+          ],
+          "title": "SharedPerson",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "share_id": {
+          "title": "Share Id",
+          "type": "string"
+        },
+        "activity_id": {
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "active",
+            "revoked"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "source_provider_ref": {
+          "title": "Source Provider Ref",
+          "type": "string"
+        },
+        "consumer_provider_ref": {
+          "title": "Consumer Provider Ref",
+          "type": "string"
+        },
+        "capability_code": {
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "People Refs",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "enum": [
+              "read",
+              "request",
+              "approve",
+              "execute",
+              "reconcile"
+            ],
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "resource_policy": {
+          "enum": [
+            "new_only",
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "source_label": {
+          "title": "Source Label",
+          "type": "string"
+        },
+        "consumer_label": {
+          "title": "Consumer Label",
+          "type": "string"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/SharedPerson"
+          },
+          "title": "People",
+          "type": "array"
+        },
+        "source_approved": {
+          "title": "Source Approved",
+          "type": "boolean"
+        },
+        "consumer_approved": {
+          "title": "Consumer Approved",
+          "type": "boolean"
+        },
+        "effective": {
+          "title": "Effective",
+          "type": "boolean"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "can_cancel": {
+          "default": false,
+          "title": "Can Cancel",
+          "type": "boolean"
+        },
+        "grants_created": {
+          "const": false,
+          "default": false,
+          "title": "Grants Created",
+          "type": "boolean"
+        },
+        "product_credentials_created": {
+          "const": false,
+          "default": false,
+          "title": "Product Credentials Created",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "share_id",
+        "activity_id",
+        "version",
+        "state",
+        "source_provider_ref",
+        "consumer_provider_ref",
+        "capability_code",
+        "people_refs",
+        "actions",
+        "allowed_fields",
+        "resource_policy",
+        "resource_refs",
+        "expires_at",
+        "source_label",
+        "consumer_label",
+        "people",
+        "source_approved",
+        "consumer_approved",
+        "effective",
+        "reason_code"
+      ],
+      "title": "ServiceShareResponse",
+      "type": "object"
+    }
+  }
+}

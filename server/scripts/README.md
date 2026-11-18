@@ -130,7 +130,9 @@ enables cross-platform execution, financial reservations or external sending.
 
 ### Shared product read-through adapter
 
-`SAVANA_SHARED_PRODUCT_READS_ENABLED` is independently disabled by default.
+Shared reads become available when the complete server-owned OIDC registration
+and platform credential are configured. `SAVANA_SHARED_PRODUCT_READS_ENABLED=false`
+explicitly stops reads; availability itself supplies no delegated binding or grant.
 The WA portal exposes local read-only routes for shared product search,
 individual records, and change observations. They use only the published
 central read/context/capability/eligibility HTTP contract. No product source
@@ -191,8 +193,11 @@ activation or acceptance for another application's consumer is inferred.
 `SAVANA_SHARED_READ_SETUP_ENABLED=false` keeps native OIDC/setup off.
 `SAVANA_SHARED_READ_OWNER_PORTAL_ENABLED=false` independently keeps the optional
 native owner cookie bridge off; `SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN` stays
-empty until an explicit trusted ControlCenter origin is approved. Shared reads
-retain their own default-off flag. The native bridge calls the real
+empty until an explicit trusted ControlCenter origin is approved. When flags
+are absent, complete OIDC/platform configuration makes setup and shared reads
+available; the optional cookie bridge additionally needs its trusted portal
+origin. Partial configuration remains unavailable. These infrastructure checks
+create no business permissions, enrollment or read grant. The native bridge calls the real
 ControlCenter `/api/session` password/MFA login and cookie BFF; WA never receives
 a portal HMAC key. Credentials are transient, the actual cookie is encrypted
 under a dedicated purpose, and its lifetime is capped by the central cookie,

@@ -1,0 +1,108 @@
+{
+  "format": "savana-picomatch-consumer-inventory/1",
+  "consumerVersions": {
+    "vite": [
+      "7.3.7"
+    ],
+    "tinyglobby": [
+      "0.2.15"
+    ],
+    "fdir": [
+      "6.5.0"
+    ],
+    "@vitejs/plugin-react": [
+      "5.1.2"
+    ]
+  },
+  "directConsumers": [
+    "fdir",
+    "tinyglobby",
+    "vite"
+  ],
+  "files": {
+    "eslint.config.js": {
+      "bytes": 1133,
+      "sha256": "84d17668418984b2927c02f0576a9bd439edc2304bcae36d2609750ebadd9262"
+    },
+    "node_modules/@vitejs/plugin-react/package.json": {
+      "bytes": 1646,
+      "sha256": "8b213cb51a1d8aa8cfecc1d46ff0fbbb061f119b091044e7c335f9ff021b29c2"
+    },
+    "node_modules/fdir/dist/index.cjs": {
+      "bytes": 18210,
+      "sha256": "ec92c1fdd78905a7b6d1ea3391aeca2cf19d10e6bbd04db0de158fbfc8b6cff4"
+    },
+    "node_modules/fdir/dist/index.d.cts": {
+      "bytes": 5129,
+      "sha256": "84e9a7a30adfbe64e51de98c71cc5b8403f6c1af16301c6f40fc2febc4be6fd3"
+    },
+    "node_modules/fdir/dist/index.d.mts": {
+      "bytes": 5129,
+      "sha256": "84e9a7a30adfbe64e51de98c71cc5b8403f6c1af16301c6f40fc2febc4be6fd3"
+    },
+    "node_modules/fdir/dist/index.mjs": {
+      "bytes": 17225,
+      "sha256": "4a0266bf60373bc08bcac35a813587ead767864b3a80b5dca10bff999e05e32d"
+    },
+    "node_modules/fdir/package.json": {
+      "bytes": 2694,
+      "sha256": "aca49395d61ef383a09f74555c66ed45817ca2b5724e710a4dc9e0471b83d8f5"
+    },
+    "node_modules/tinyglobby/dist/index.cjs": {
+      "bytes": 14186,
+      "sha256": "2fd3a25ad9e24990a29a059de207ea44d969240585b37dfb84c4304589055908"
+    },
+    "node_modules/tinyglobby/dist/index.mjs": {
+      "bytes": 12881,
+      "sha256": "05f81580fbd3cd2d847fe3126c07360ecc65985e40a2963296455053c8271b06"
+    },
+    "node_modules/tinyglobby/package.json": {
+      "bytes": 1818,
+      "sha256": "473bd5e2e8708e7c5700b2196c4225b42418c310d29893d4043aece3d5dea51d"
+    },
+    "node_modules/vite/dist/node/chunks/config.js": {
+      "bytes": 1342444,
+      "sha256": "2e71344450b7c25a7fe0848d5ee474fb7342614d900ab9168588986150cbb9f9"
+    },
+    "node_modules/vite/dist/node/index.d.ts": {
+      "bytes": 149631,
+      "sha256": "cbb1c5ba5dbabe42c19ca31b83e48fec95895484fe1d1a8fb649b69ea224c5b8"
+    },
+    "node_modules/vite/package.json": {
+      "bytes": 5158,
+      "sha256": "aae1f593c0e6f320989b60af6e90f8ed4ea5137e5a0b9db663f9b0088333eb3c"
+    },
+    "package-lock.json": {
+      "bytes": 131380,
+      "sha256": "77d557cdfa4bca8dfc0db01e7e2258c6f1d628dcb2fba84535d64732eeb3fcd6"
+    },
+    "package.json": {
+      "bytes": 2896,
+      "sha256": "f53a5d41cc11b6a58aa2dfdfa8a3b9007ca50a27a6036802063b14accdce6fe3"
+    },
+    "scripts/picomatch/bounded-proof.cjs": {
+      "bytes": 3385,
+      "sha256": "73a070b909148c8a7d1c3ddb037c0d4e104d902a226f72b321167d767213570a"
+    },
+    "scripts/picomatch/verify.cjs": {
+      "bytes": 17419,
+      "sha256": "d19518181a4cfc657fa6c3aba4c9e0d0602c6fda1ed1053947e608867d70b79d"
+    },
+    "scripts/verify-picomatch-build-guard.cjs": {
+      "bytes": 3078,
+      "sha256": "d447492b5d42b07f5c0fd6ae7381e20fa0e04a6ebd685a41cb03e6e15e0d4141"
+    },
+    "vendor/picomatch-build-guard-provenance.json": {
+      "bytes": 1789,
+      "sha256": "416e57c53e66e8372697fdc9f1e360d41bf75676a0a699111663fc2c1283e45d"
+    },
+    "vendor/picomatch-build-guard-verifier.json": {
+      "bytes": 1854,
+      "sha256": "1a0123af3a577d164ec0f4aa0c50ac640cc5824606789fdfc8f6f1208ef665d1"
+    },
+    "vite.config.js": {
+      "bytes": 1048,
+      "sha256": "da8fcdd145336be5ac1a27516f4fe603dcf1b073cfdc91b2505e8bdfc4cdf855"
+    }
+  }
+}

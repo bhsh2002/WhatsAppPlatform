@@ -74,6 +74,19 @@ test('new read feature defaults off, makes no request and never borrows browser/
     assert.equal(f.calls.length, 0);
 });
 
+test('published canonical availability is accepted as advisory metadata and never changes data.read authority', async () => {
+    const f = fixture();
+    const availability = { state: 'permission_required', reason_code: 'command_scope_required', message: 'Review current command permission',
+        next_action: { code: 'review', label: 'Review permission', href: '/?workspace=shared' } };
+    f.mutate((path, payload) => path === '/v1/integration/eligibility'
+        ? { ...payload, availability, provider_evaluations: [{ platform: 'catalog', account_id: 'catalog-account', installation_id: 'catalog-installation',
+            authorization_revision: 'a'.repeat(64), can_request_review: false, can_execute: false, blockers: [], availability }] } : payload);
+    const result = await f.service.search(principal);
+    assert.equal(result.records.length, 1); assert.equal(result.eligibility.availability.state, 'permission_required');
+    f.mutate((path, payload) => path === '/v1/integration/eligibility' ? { ...payload, availability: { ...availability, state: 'invented-ready' } } : payload);
+    await assert.rejects(f.service.search(principal), { code: 'shared_product_response_invalid', status: 502 });
+});
+
 test('read uses only server-bound credentials/selectors, real advisory paths and provenance without inventing prices/actions', async () => {
     const f = fixture();
     const result = await f.service.search(principal, { q: 'source', limit: 10 });

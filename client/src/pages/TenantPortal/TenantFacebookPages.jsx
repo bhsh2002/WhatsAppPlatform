@@ -6,6 +6,7 @@ import FacebookConnect from '../../components/Facebook/FacebookConnect';
 import { tx } from "../../i18n/tx";
 import { PageTitle } from '../../components/Layout/PageTitle';
 import { getCurrentLocale } from "../../utils/locale";
+import { facebookPageHasMessageEchoes, facebookPageNeedsWebhookRepair } from './facebookPageSubscription';
 const TenantFacebookPages = () => {
   const [pages, setPages] = useState([]);
   const [diagnostics, setDiagnostics] = useState(null);
@@ -326,6 +327,8 @@ const TenantFacebookPages = () => {
                                         </Box>
                                     </Box>
 
+                                    {page.is_active && page.webhook_subscribed && !facebookPageHasMessageEchoes(page) && <Alert severity="warning" sx={{ mb: 1.5 }}>{tx('facebookConnection.messageEchoesMissing')}</Alert>}
+
                                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5 }}>
                                       <Chip
                                         size="small"
@@ -369,7 +372,7 @@ const TenantFacebookPages = () => {
 
                                                 {subStatusLoading && subStatusPage === page.id ? tx("auto.k_a786bc53bb3e") : tx("auto.k_82c319206e6b")}
                                             </Button>
-                                            {page.is_active && (!page.webhook_subscribed || (subStatusPage === page.id && subStatusData?.webhook_subscribed_in_meta === false)) && !['expired', 'invalid'].includes(page.token_status) && <Button size="small" variant="outlined" onClick={() => repairWebhook(page)} disabled={repairingPage === page.id}>
+                                            {facebookPageNeedsWebhookRepair(page, subStatusPage === page.id && subStatusData?.webhook_subscribed_in_meta === false) && <Button size="small" variant="outlined" onClick={() => repairWebhook(page)} disabled={repairingPage === page.id}>
                                               {repairingPage === page.id ? <CircularProgress size={16} /> : tx('facebookConnection.repairWebhook')}
                                             </Button>}
                                             {(!page.is_active || ['expired', 'invalid'].includes(page.token_status)) && <Button size="small" variant="outlined" onClick={() => setShowConnect(true)}>

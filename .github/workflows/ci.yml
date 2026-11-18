@@ -49,6 +49,13 @@ jobs:
     name: Client lint, build and audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Worker V8 limits are not a total-RSS cap. The mandatory guard must read
+    # this actual finite Linux cgroup limit, not an asserted config value.
+    container:
+      image: node:22.23.5-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb
+      options: --memory=1g --memory-swap=1g --pids-limit=256 --cpus=2
+    env:
+      NODE_OPTIONS: ''
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,7 +71,14 @@ jobs:
           package-manager-cache: false
 
       - name: Install client dependencies
-        run: npm ci
+        run: npm ci --include=dev --include=optional
+        working-directory: client
+
+      - name: Verify reviewed bounded matcher and complete dependency tree
+        run: |
+          node --test scripts/verify-picomatch-build-guard.test.cjs
+          node scripts/verify-picomatch-build-guard.cjs
+          npm ls --all --include=dev --include=optional --strict-peer-deps
         working-directory: client
 
       - name: Run client tests

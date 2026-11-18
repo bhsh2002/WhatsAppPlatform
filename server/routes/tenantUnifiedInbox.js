@@ -12,6 +12,7 @@ import { requestMetaJson, sendMetaFailure } from '../services/metaHttp.js';
 import { parseListPagination } from '../services/pagination.js';
 import { getWhatsAppConversationWindow } from '../services/whatsappConversationWindow.js';
 import { SmsGatewayError } from '../services/smsGateway.js';
+import { createNativeMessengerMessageCommand, NativeMessengerMessageError } from '../services/nativeMessengerMessage.js';
 import {
     resolveTenantWhatsAppContext,
     selectedWhatsAppPhoneNumberId,
@@ -80,6 +81,7 @@ export function createTenantUnifiedInboxRouter({
         throw new TypeError('Tenant unified inbox router requires database, credentials and billing');
     }
     const router = express.Router();
+    const sendNativeMessenger = createNativeMessengerMessageCommand({ database, decryptToken, requestMeta, billing, markHandoff, broadcast });
 
     const resolveWhatsAppContext = (req, res, options = {}) => {
         const context = resolveTenantWhatsAppContext({
@@ -654,99 +656,16 @@ export function createTenantUnifiedInboxRouter({
                 });
             }
 
-            const linkedPageId = parsePositiveId(req.body?.linked_page_id);
-            if (!linkedPageId) return res.status(400).json({ error: 'linked_page_id غير صالح' });
-            const page = database.prepare(`
-                SELECT id, tenant_id, page_id, page_name, page_access_token_encrypted
-                FROM tenant_pages
-                WHERE id = ? AND tenant_id = ? AND is_active = 1
-            `).get(linkedPageId, tenantId);
-            if (!page) return res.status(404).json({ error: 'الصفحة غير موجودة' });
-            const accessToken = decryptToken(page.page_access_token_encrypted);
-            if (!accessToken) return res.status(400).json({ error: 'رمز الوصول غير متوفر' });
-            const conversation = database.prepare(`
-                SELECT id, tenant_id, linked_page_id, page_id, user_psid
-                FROM fb_conversations
-                WHERE user_psid = ? AND linked_page_id = ? AND tenant_id = ? AND is_active = 1
-                LIMIT 1
-            `).get(contactId, linkedPageId, tenantId);
-            reservation = billing.reserve({
-                tenantId,
-                operationKey: billing.operations.MESSENGER_REPLY,
-                quantity: 1,
-                referenceType: 'messenger_message',
-                metadata: {
-                    linked_page_id: linkedPageId,
-                    conversation_id: conversation?.id || null,
-                    user_psid: contactId,
-                },
-            });
-            const result = await requestMeta(
-                `${META_API_BASE}/${encodeURIComponent(page.page_id)}/messages`,
-                {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        recipient: { id: contactId },
-                        messaging_type: 'RESPONSE',
-                        message: { text: message },
-                    }),
-                }
-            );
-            if (!result.ok) {
-                billing.release(reservation, result.error?.message || 'Meta Messenger send failed');
-                if (result.error?.code === 10) {
-                    return res.status(403).json({
-                        error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
-                        error_code: 'OUTSIDE_WINDOW',
-                    });
-                }
-                return sendMetaFailure(res, result, 'فشل إرسال الرسالة');
-            }
-            const messageId = result.data?.message_id || null;
-            billing.commit(reservation, {
-                referenceId: messageId,
-                description: 'خصم رد Messenger من الرسائل',
-            });
-            if (conversation) {
-                const createdAt = normalizeMessengerTimestamp();
-                database.transaction(() => {
-                    insertMessengerMessage(database, {
-                        conversationId: conversation.id,
-                        tenantId,
-                        mid: messageId,
-                        direction: 'outgoing',
-                        senderId: page.page_id,
-                        senderName: page.page_name,
-                        messageText: message,
-                        createdAt,
-                    });
-                    database.prepare(`
-                        UPDATE fb_conversations
-                        SET last_message = ?, last_message_time = ?,
-                            updated_at = datetime('now', 'localtime')
-                        WHERE id = ? AND tenant_id = ?
-                    `).run(message.slice(0, 100), createdAt, conversation.id, tenantId);
-                })();
-                markHandoff({
-                    tenantId,
-                    linkedPageId,
-                    conversationId: conversation.id,
-                    userPsid: conversation.user_psid,
-                    reason: 'manual_reply',
-                    actor: 'tenant',
+            const result = await sendNativeMessenger({ tenantId, linkedPageId: req.body?.linked_page_id,
+                recipient: contactId, message });
+            if (!result.metaResult.ok) {
+                if (result.metaResult.error?.code === 10) return res.status(403).json({
+                    error: 'انتهت نافذة الـ 24 ساعة للرد. استخدم "رسالة خدمية" للتواصل خارج هذه النافذة.',
+                    error_code: 'OUTSIDE_WINDOW',
                 });
-                broadcast(`tenant:${tenantId}`, 'fb_message:new', {
-                    tenant_id: tenantId,
-                    page_id: page.page_id,
-                    conversation_id: conversation.id,
-                    direction: 'outgoing',
-                });
+                return sendMetaFailure(res, result.metaResult, 'فشل إرسال الرسالة');
             }
-            return res.json({ success: true, message_id: messageId });
+            return res.json(result.response);
         } catch (error) {
             const responseError = smsGatewayAccepted ? postAcceptanceSmsError(error) : error;
             if (smsGatewayAccepted) {
@@ -759,6 +678,7 @@ export function createTenantUnifiedInboxRouter({
                     console.error('[TenantUnifiedInbox] Billing release error:', releaseError);
                 }
             }
+            if (responseError instanceof NativeMessengerMessageError) return res.status(responseError.status).json({ error: responseError.message, code: responseError.code });
             if (billing.handleError(res, responseError)) return undefined;
             if (responseError instanceof SmsGatewayError) {
                 return res.status(responseError.status).json({

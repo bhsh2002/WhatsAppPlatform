@@ -1,0 +1,388 @@
+{
+  "authentication": "Actual normal Portal-cookie PKCE organization access token plus matching native service platform code/token; actor/org/client/session derived server-side. No PortalAssertion, admin credential or cookie forwarded by public bridge.",
+  "causal_assertions": [
+    "wrong/missing/duplicate/foreign-platform consumer, foreign organization, wrong OIDC audience, unknown/duplicate query and body claims denied",
+    "PUT native client revoked during signed native discovery rolls back grant/profile/audit",
+    "GET client revoked after record load withholds response; consumer read grant withdrawal independently denies",
+    "freshly refreshed signed native subscription inactive blocks write options/intents while historical readonly projection stays visible",
+    "preview/metadata refresh create no grants/credentials/authority/command/effect/stock records"
+  ],
+  "examples": [
+    {
+      "method": "GET",
+      "path_template": "/v1/integration/workspace/records",
+      "query": {
+        "activity_id": "synthetic-operational-activity-a",
+        "q": "Synthetic"
+      },
+      "request_body": null,
+      "response": {
+        "context": {
+          "actor_id": "00000000-0000-4000-8000-000000000002",
+          "authorization_revision": "7d7f097cb6c559bac3d637badcca3184a17307723e89f18cacfbbb4dbd11db38",
+          "checked_at": "2026-11-18T09:54:19.223893+00:00",
+          "consumer_account_id": "00000000-0000-4000-8000-000000000003",
+          "consumer_installation_id": "00000000-0000-4000-8000-000000000004",
+          "consumer_platform": "sawemly",
+          "freshness_max_age_seconds": 300,
+          "permissions": [
+            "capabilities.view_requirements",
+            "data.read"
+          ],
+          "scope": {
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "organization_id": "00000000-0000-4000-8000-000000000001",
+            "warehouse_id": null
+          },
+          "valid_until": "2026-11-18T10:09:19+00:00"
+        },
+        "has_more": false,
+        "next_cursor": null,
+        "records": [
+          {
+            "data": {
+              "name": "Synthetic owner-approved goods"
+            },
+            "domain": "product.core",
+            "entity_id": "00000000-0000-4000-8000-000000000005",
+            "entity_type": "product",
+            "expected_version": 0,
+            "field_visibility": "explicit_grants_only",
+            "fields": [
+              {
+                "authoritative": true,
+                "freshness": "current",
+                "key": "name",
+                "label": "اسم المنتج",
+                "observed_at": "2026-11-18T09:54:18.956613Z",
+                "received_at": "2026-11-18T09:54:18.958890+00:00",
+                "source_label": "Synthetic native Catalog source",
+                "value": "Synthetic owner-approved goods"
+              }
+            ],
+            "freshness": "current",
+            "label": "Synthetic owner-approved goods",
+            "observed_at": "2026-11-18T09:54:18.956613Z",
+            "ownership_epoch": 1,
+            "received_at": "2026-11-18T09:54:18.958890+00:00",
+            "record_ref": "00000000-0000-4000-8000-000000000005",
+            "scope": {
+              "activity_id": "synthetic-operational-activity-a",
+              "branch_id": null,
+              "organization_id": "00000000-0000-4000-8000-000000000001",
+              "warehouse_id": null
+            },
+            "source": {
+              "entity_type": "product",
+              "installation_id": "00000000-0000-4000-8000-000000000006",
+              "local_entity_id": "synthetic-native-goods-1"
+            },
+            "source_revision": "1",
+            "state": "active",
+            "version": 1
+          }
+        ],
+        "spec_version": "1.0"
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path_template": "/v1/integration/workspace/records/{entity_id}",
+      "query": {
+        "activity_id": "synthetic-operational-activity-a"
+      },
+      "request_body": null,
+      "response": {
+        "context": {
+          "actor_id": "00000000-0000-4000-8000-000000000002",
+          "authorization_revision": "7d7f097cb6c559bac3d637badcca3184a17307723e89f18cacfbbb4dbd11db38",
+          "checked_at": "2026-11-18T09:54:19.296587+00:00",
+          "consumer_account_id": "00000000-0000-4000-8000-000000000003",
+          "consumer_installation_id": "00000000-0000-4000-8000-000000000004",
+          "consumer_platform": "sawemly",
+          "freshness_max_age_seconds": 300,
+          "permissions": [
+            "capabilities.view_requirements",
+            "data.read"
+          ],
+          "scope": {
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "organization_id": "00000000-0000-4000-8000-000000000001",
+            "warehouse_id": null
+          },
+          "valid_until": "2026-11-18T10:09:19+00:00"
+        },
+        "record": {
+          "available_actions": [
+            {
+              "action": "product.change",
+              "activity_id": "synthetic-operational-activity-a",
+              "allowed_fields": [
+                "name"
+              ],
+              "authorization_revision": "0082dd9228bb360e944b3727c58537d5de244df36e241f391eba175742033a92",
+              "available": true,
+              "capability": "products.write",
+              "message": "يمكنك اقتراح تغيير هذه النسخة؛ يُراجع الطلب قبل تنفيذه لدى المصدر.",
+              "provider_ref": "00000000-0000-4000-8000-000000000007",
+              "reason_code": null,
+              "record_ref": "00000000-0000-4000-8000-000000000005",
+              "record_version": 1,
+              "source_installation_id": "00000000-0000-4000-8000-000000000006"
+            }
+          ],
+          "data": {
+            "name": "Synthetic owner-approved goods"
+          },
+          "domain": "product.core",
+          "entity_id": "00000000-0000-4000-8000-000000000005",
+          "entity_type": "product",
+          "expected_version": 0,
+          "field_visibility": "explicit_grants_only",
+          "fields": [
+            {
+              "authoritative": true,
+              "freshness": "current",
+              "key": "name",
+              "label": "اسم المنتج",
+              "observed_at": "2026-11-18T09:54:18.956613Z",
+              "received_at": "2026-11-18T09:54:18.958890+00:00",
+              "source_label": "Synthetic native Catalog source",
+              "value": "Synthetic owner-approved goods"
+            }
+          ],
+          "freshness": "current",
+          "label": "Synthetic owner-approved goods",
+          "observed_at": "2026-11-18T09:54:18.956613Z",
+          "ownership_epoch": 1,
+          "received_at": "2026-11-18T09:54:18.958890+00:00",
+          "record_ref": "00000000-0000-4000-8000-000000000005",
+          "scope": {
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "organization_id": "00000000-0000-4000-8000-000000000001",
+            "warehouse_id": null
+          },
+          "source": {
+            "entity_type": "product",
+            "installation_id": "00000000-0000-4000-8000-000000000006",
+            "local_entity_id": "synthetic-native-goods-1"
+          },
+          "source_revision": "1",
+          "state": "active",
+          "version": 1
+        },
+        "spec_version": "1.0"
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path_template": "/v1/integration/workspace/activities/{activity_id}/capability-grants/{person_ref}",
+      "query": {},
+      "request_body": {
+        "actions": [
+          "read",
+          "request",
+          "approve",
+          "execute",
+          "reconcile"
+        ],
+        "allowed_fields": [
+          "name"
+        ],
+        "assign_source_authority": false,
+        "capability_code": "products.write",
+        "expected_authority_epoch": 0,
+        "expected_authority_epochs": {},
+        "expected_version": 0,
+        "expires_at": "2026-11-18T10:24:19.334219Z",
+        "provider_ref": "00000000-0000-4000-8000-000000000007",
+        "resource_policy": "selected",
+        "resource_refs": [
+          "synthetic-native-goods-1"
+        ]
+      },
+      "response": {
+        "actions": [
+          "read",
+          "request",
+          "approve",
+          "execute",
+          "reconcile"
+        ],
+        "allowed_fields": [
+          "name"
+        ],
+        "assign_source_authority": false,
+        "capability_code": "products.write",
+        "expected_authority_epoch": 0,
+        "expected_authority_epochs": {},
+        "expires_at": "2026-11-18T10:24:19.334219Z",
+        "person_ref": "00000000-0000-4000-8000-000000000008",
+        "provider_ref": "00000000-0000-4000-8000-000000000007",
+        "resource_policy": "selected",
+        "resource_refs": [
+          "synthetic-native-goods-1"
+        ],
+        "version": 1
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path_template": "/v1/integration/workspace/providers/{provider_ref}/refresh",
+      "query": {},
+      "request_body": {
+        "activity_id": "synthetic-operational-activity-a"
+      },
+      "response": {
+        "activity_id": "synthetic-operational-activity-a",
+        "checked_at": "2026-11-18T09:54:19.470058Z",
+        "enrollment_version": 1,
+        "grants_created": false,
+        "profile_version": 2,
+        "provider_ref": "00000000-0000-4000-8000-000000000007",
+        "scope": {
+          "activity_id": "synthetic-operational-activity-a",
+          "branch_id": null,
+          "organization_id": "00000000-0000-4000-8000-000000000001",
+          "warehouse_id": null
+        },
+        "status": "refreshed"
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path_template": "/v1/integration/workspace/commands/preview",
+      "query": {},
+      "request_body": {
+        "action": "product.change",
+        "activity_id": "synthetic-operational-activity-a",
+        "capability": "products.write",
+        "payload": {
+          "entity_id": "00000000-0000-4000-8000-000000000005",
+          "expected_record_version": 1,
+          "fields": {
+            "name": "Owned preview only"
+          }
+        },
+        "provider_ref": "00000000-0000-4000-8000-000000000007"
+      },
+      "response": {
+        "action": "product.change",
+        "action_label": "تعديل منتج",
+        "allowed_fields": [
+          "name",
+          "description",
+          "sku",
+          "base_unit"
+        ],
+        "capability": "products.write",
+        "errors": [],
+        "normalized_payload": {
+          "clear_fields": [],
+          "entity_id": "00000000-0000-4000-8000-000000000005",
+          "expected_record_version": 1,
+          "fields": {
+            "name": "Owned preview only"
+          },
+          "kind": "goods"
+        },
+        "spec_version": "1.0",
+        "summary": [],
+        "valid": true,
+        "valid_until": "2026-11-18T09:59:19.547857Z",
+        "validation_revision": "owned-typed-goods-1"
+      },
+      "status": 200
+    }
+  ],
+  "format": "native-peer-record-grant-http/1",
+  "limitations": [
+    "Owned signed native fixture is not the actual Catalog/Saw/WA application or four-application owner acceptance.",
+    "Actual native typed validator/private authorization remains source-owned; final Native joint run remains pending."
+  ],
+  "observed_preview_counts": {
+    "command_execution_dispatch": 0,
+    "command_execution_requests": 0,
+    "operations": 0,
+    "stock_entries": 0
+  },
+  "owner_routes": "Existing Portal /api/member/organizations/{organization_id}/integration/workspace/... cookie+CSRF signed BFF supports refresh/preview; peer routes never require manufactured assertions.",
+  "public_ingress": "Portal fixed-origin public Connect bridge extends exact GET record/list/detail, PUT capability-grant path, POST refresh/preview allowlists only; raw headers/body/query/status preserved under existing limits.",
+  "routes": [
+    {
+      "consumer_header": "X-Savana-Consumer-Installation REQUIRED actual platform_tenant installation/scope/current binding/org/platform; actual product read grants/link/field policies remain separately required",
+      "method": "GET",
+      "path": "/v1/integration/workspace/records",
+      "query": [
+        "activity_id",
+        "q(optional,max200)",
+        "cursor(optional,max4096)"
+      ]
+    },
+    {
+      "consumer_header": "same required exact current native consumer; no query override",
+      "method": "GET",
+      "path": "/v1/integration/workspace/records/{entity_id}",
+      "query": [
+        "activity_id"
+      ]
+    },
+    {
+      "body": "WorkspaceCapabilityGrant",
+      "consumer_header": "optional; if present exact registered account/scope/current binding; no product read grant is needed merely to assign explicit rights; absent remains absent",
+      "method": "PUT",
+      "path": "/v1/integration/workspace/activities/{activity_id}/capability-grants/{person_ref}",
+      "query": []
+    },
+    {
+      "body": "WorkspaceProviderPrepare(activity_id)",
+      "method": "POST",
+      "path": "/v1/integration/workspace/providers/{provider_ref}/refresh",
+      "query": [],
+      "response": "WorkspaceProviderReadinessRefresh; requires actual retained same-key/id/version/scopes ACK; discovery+enrollments GET only, profile/audit writes only"
+    },
+    {
+      "body": "CommandPreviewRequest; no idempotency or actor claims",
+      "method": "POST",
+      "path": "/v1/integration/workspace/commands/preview",
+      "query": [],
+      "response": "AdapterValidation actual normalized payload/validation_revision/valid_until/summary; no durable command identity/outbox/business effects"
+    }
+  ],
+  "sanitization": "Owned synthetic UUIDs consistently replaced; opaque revisions remain observed hashes, not reusable authorization. No auth headers/cookies/passwords/keys emitted.",
+  "source_sha256": {
+    "services/connect/src/savana_connect/command_execution_http.py": "2187db6d96a127e2d6b377b20a67901e3c3111f2359934963477c1b5cf419622",
+    "services/connect/src/savana_connect/workspace_http.py": "247649bd7805ba3d7ed02e5d10b36825f78eb05f99e3840b26a764718315551c",
+    "services/connect/tests/test_workspace_peer_records.py": "a383af6c14c31f72d19ecb47f6d83d63aea1ecf8a5e53039912929de977104b3",
+    "services/control-center/src/savana_control_center/operational.py": "bd5345dd4a2866387341c6f7708e3068e92d55efb1351cba64fe6d7031926d88",
+    "services/control-center/src/savana_control_center/public_connect.py": "6f5f6188eedc151fd63460c53cbc03d32a1cfaecb934c8ba79ac08446895b481"
+  },
+  "status": "ACTUAL_OWNED_PUBLIC_HTTP_PASSED_NATIVE_JOINT_SEPARATE",
+  "validation": {
+    "additional_targeted": "Actual caller OIDC client withdrawn after signed native preview validation is denied at final fresh resolve; zero durable command/dispatch/audit.",
+    "additional_targeted_passed": 1,
+    "duration_seconds": 28.08,
+    "failed": 0,
+    "files": [
+      "test_workspace_peer_records.py",
+      "test_workspace_readiness_refresh.py",
+      "test_public_owner_ingress.py",
+      "test_public_connect.py",
+      "test_command_execution_http.py",
+      "test_operational_portal.py"
+    ],
+    "new_peer_http_cases": 10,
+    "passed": 66,
+    "readiness_refresh_cases": 8,
+    "runtime": "Python3.13.9",
+    "scope": "focused current Core/Portal/native-fixture boundary only; no broad910 or real native-app claim",
+    "skipped": 0
+  }
+}

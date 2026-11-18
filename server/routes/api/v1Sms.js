@@ -8,14 +8,13 @@ import {
     release as releaseBilling,
     reserve as reserveBilling,
 } from '../../services/billing.js';
-import { SmsApiRequestStore, smsApiRequestHash } from '../../services/smsApiRequests.js';
+import { SmsApiRequestStore } from '../../services/smsApiRequests.js';
+import { createNativeSmsMessageCommand } from '../../services/nativeSmsMessage.js';
 import {
     presentTenantSmsGatewayError,
     SmsGatewayError,
     SmsGatewayService,
 } from '../../services/smsGateway.js';
-
-const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
 const defaultBilling = {
     operations: BILLING_OPERATIONS,
@@ -43,18 +42,6 @@ const respondError = (res, error, billing, logger) => {
         error: 'SMS request failed',
         code: 'SMS_REQUEST_FAILED',
     });
-};
-
-const postAcceptanceError = error => {
-    if (error?.deliveryUncertain) return error;
-    const wrapped = new SmsGatewayError(
-        'SMS was accepted but local confirmation is incomplete; retry the same request',
-        503,
-        'SMS_POST_ACCEPT_RECOVERY_REQUIRED',
-    );
-    wrapped.deliveryUncertain = true;
-    wrapped.cause = error;
-    return wrapped;
 };
 
 export function createApiV1SmsRouter({
@@ -143,167 +130,19 @@ export function createApiV1SmsRouter({
         }
     });
 
+    const sendMessage = createNativeSmsMessageCommand({ database, service, billing, requestStore, callbackSender, logger });
     router.post('/sms/messages', async (req, res) => {
-        let reservation = null;
-        let gatewayAccepted = false;
-        let apiRequest = null;
         try {
-            const { tenantId, tenant } = tenantContext(req);
-            const idempotencyKey = String(
-                req.get?.('Idempotency-Key')
-                || req.headers?.['idempotency-key']
-                || '',
-            ).trim();
-            if (!IDEMPOTENCY_PATTERN.test(idempotencyKey)) {
-                throw new SmsGatewayError(
-                    'A valid Idempotency-Key header is required (8-128 characters)',
-                    400,
-                    'INVALID_IDEMPOTENCY_KEY',
-                );
-            }
-            const rawAccountId = req.body?.sms_account_id;
-            const accountId = rawAccountId == null || rawAccountId === ''
-                ? null
-                : Number(rawAccountId);
-            if (accountId !== null && (!Number.isSafeInteger(accountId) || accountId <= 0)) {
-                throw new SmsGatewayError(
-                    'sms_account_id is invalid',
-                    422,
-                    'SMS_ACCOUNT_INVALID',
-                );
-            }
-            const requestHash = smsApiRequestHash({
-                smsAccountSelector: accountId,
+            const response = await sendMessage({
+                tenantId: req.tenantId,
+                accountId: req.body?.sms_account_id,
                 recipient: req.body?.recipient,
                 message: req.body?.message,
+                idempotencyKey: req.get?.('Idempotency-Key') || req.headers?.['idempotency-key'],
             });
-            const previous = requestStore.inspect({
-                tenantId,
-                idempotencyKey,
-                requestHash,
-            });
-            if (previous?.status === 'accepted') {
-                if (!previous.response) {
-                    throw new SmsGatewayError(
-                        'تعذر استعادة نتيجة طلب SMS السابق',
-                        500,
-                        'SMS_REQUEST_RESULT_INVALID',
-                    );
-                }
-                return res.status(202).json(previous.response);
-            }
-            const resolvedAccountId = previous?.sms_account_id
-                || service.requireActiveAccount(tenantId, accountId).id;
-            const claim = requestStore.claim({
-                tenantId,
-                idempotencyKey,
-                smsAccountId: resolvedAccountId,
-                requestHash,
-            });
-            if (claim.mode === 'accepted') {
-                if (!claim.response) {
-                    throw new SmsGatewayError(
-                        'تعذر استعادة نتيجة طلب SMS السابق',
-                        500,
-                        'SMS_REQUEST_RESULT_INVALID',
-                    );
-                }
-                return res.status(202).json(claim.response);
-            }
-            apiRequest = claim.request;
-            const resolvedAccount = service.requireActiveAccount(
-                tenantId,
-                apiRequest.sms_account_id,
-            );
-            reservation = claim.reservation;
-            if (!reservation) {
-                reservation = billing.reserve({
-                    tenantId,
-                    operationKey: billing.operations.SMS_TEXT,
-                    quantity: 1,
-                    referenceType: 'api_sms_message',
-                    idempotencyKey: `billing:${tenantId}:api-sms:${idempotencyKey}:attempt:${apiRequest.attempt}`,
-                    metadata: {
-                        channel: 'sms',
-                        api_version: 'v1',
-                        sms_account_id: resolvedAccount.id,
-                        api_request_id: apiRequest.id,
-                        attempt: apiRequest.attempt,
-                    },
-                });
-                requestStore.attachBilling(apiRequest.id, reservation?.id);
-            }
-            const result = await service.send(tenantId, {
-                accountId: resolvedAccount.id,
-                recipient: req.body?.recipient,
-                message: req.body?.message,
-                idempotencyKey,
-            });
-            gatewayAccepted = true;
-            billing.commit(reservation, {
-                referenceId: result.message.message_id,
-                description: 'خصم رسالة SMS عبر API',
-            });
-            const stored = service.storeMessage(result.account, result.message);
-            try {
-                await callbackSender(tenantId, 'sms_message_accepted', {
-                    message_id: stored.id,
-                    gateway_message_id: stored.gateway_message_id,
-                    sms_account_id: stored.sms_account_id,
-                    recipient: stored.recipient,
-                    status: stored.status,
-                }, {
-                    dedupeKey: `sms-api-accepted:${tenantId}:${idempotencyKey}`,
-                });
-            } catch (error) {
-                logger.error('[ApiV1Sms] Callback failed:', error);
-            }
-            try {
-                database.prepare(`
-                    INSERT INTO activity_logs (
-                        tenant_id, tenant_name, event_type, description, status
-                    ) VALUES (?, ?, 'api_sms_sent', ?, 'success')
-                `).run(tenantId, tenant.name || 'Unknown', `SMS API message ${stored.id} accepted`);
-            } catch (error) {
-                logger.error('[ApiV1Sms] Activity log failed:', error);
-            }
-            const response = {
-                success: true,
-                data: {
-                    message_id: stored.id,
-                    gateway_message_id: stored.gateway_message_id,
-                    external_id: stored.external_id,
-                    sms_account_id: stored.sms_account_id,
-                    sms_account_name: stored.sms_account_name,
-                    recipient: stored.recipient,
-                    status: stored.status,
-                },
-            };
-            requestStore.accept(apiRequest.id, response);
-            reservation = null;
-            apiRequest = null;
             return res.status(202).json(response);
         } catch (error) {
-            const responseError = gatewayAccepted ? postAcceptanceError(error) : error;
-            if (gatewayAccepted) {
-                logger.error('[ApiV1Sms] Post-acceptance recovery required:', error);
-            }
-            if (reservation && !gatewayAccepted && reservation.status !== 'committed'
-                && !responseError.deliveryUncertain) {
-                try {
-                    billing.release(reservation, responseError.message);
-                } catch (releaseError) {
-                    logger.error('[ApiV1Sms] Billing release failed:', releaseError);
-                }
-            }
-            if (apiRequest) {
-                try {
-                    requestStore.fail(apiRequest.id, responseError);
-                } catch (stateError) {
-                    logger.error('[ApiV1Sms] Request state update failed:', stateError);
-                }
-            }
-            return respondError(res, responseError, billing, logger);
+            return respondError(res, error, billing, logger);
         }
     });
 

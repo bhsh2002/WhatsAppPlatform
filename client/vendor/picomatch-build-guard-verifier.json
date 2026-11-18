@@ -1,0 +1,59 @@
+{
+  "format": "savana-picomatch-verifier/1",
+  "repoRoot": "..",
+  "packageRoot": ".",
+  "archive": {
+    "path": "vendor/savana-picomatch-build-guard-4.1.2-p10.tgz",
+    "sha256": "31d7076b4659842619be2114b3c318e483d67510cdadd82a667133ae1ffe3602",
+    "sri": "sha512-YLAjOZDfo7IIpRHhG7jeL0DFFyClZjOYh3al2bx4DCaOlImZyLxq+UAc5CZqXfKkLaY4WXBgACBRUEp8dRd4UQ=="
+  },
+  "manifest": {
+    "path": "vendor/picomatch-build-guard-manifest.json",
+    "sha256": "592e6f9cd1075286f48d4381ddf7b4d7a325e0048ef3f4d2b78e0f15818377a6",
+    "fileCount": 19
+  },
+  "owned": {
+    "alias": "picomatch",
+    "name": "@savana-internal/picomatch-build-guard",
+    "version": "4.1.2"
+  },
+  "inventory": {
+    "snapshot": "vendor/picomatch-build-guard-consumers.json",
+    "files": [
+      "package.json",
+      "package-lock.json",
+      "vite.config.js",
+      "eslint.config.js",
+      "scripts/picomatch/verify.cjs",
+      "scripts/picomatch/bounded-proof.cjs",
+      "scripts/verify-picomatch-build-guard.cjs",
+      "vendor/picomatch-build-guard-verifier.json",
+      "vendor/picomatch-build-guard-provenance.json"
+    ],
+    "consumerPackages": {
+      "vite": "7.3.7",
+      "tinyglobby": "0.2.15",
+      "fdir": "6.5.0",
+      "@vitejs/plugin-react": "5.1.2"
+    },
+    "scanRoots": [
+      "src"
+    ],
+    "resolutionAnchors": {}
+  },
+  "tracking": {
+    "advisory": "GHSA-fc5q-39xc-vjpf",
+    "upstreamVersion": "4.0.5",
+    "embeddedEnginePatched": false,
+    "reviewRequired": "Guarded adapter; not an official upstream patched engine or universal drop-in replacement."
+  },
+  "proof": {
+    "entry": "scripts/picomatch/bounded-proof.cjs",
+    "sha256": "73a070b909148c8a7d1c3ddb037c0d4e104d902a226f72b321167d767213570a"
+  },
+  "limits": {
+    "npmDeadlineMilliseconds": 30000,
+    "proofDeadlineMilliseconds": 15000,
+    "maxCIMemoryLimitBytes": 1073741824
+  }
+}

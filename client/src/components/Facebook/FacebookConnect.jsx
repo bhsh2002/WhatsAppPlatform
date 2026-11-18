@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Paper, Typography, Button, CircularProgress, Alert, Stepper, Step, StepLabel, Checkbox, FormControlLabel, Avatar, List, ListItem, ListItemAvatar, ListItemText, ListItemSecondaryAction, Snackbar, Divider } from '@mui/material';
 import { Facebook as FacebookIcon, Link as LinkIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 import api from '../../api';
+import { matchMetaOAuthPopup } from '../../pages/TenantPortal/guidedWhatsAppPresentation';
 import { tx } from "../../i18n/tx";
 const getSteps = () => [tx("auto.k_8c6117b67c8b"), tx("auto.k_5c9ce184e9eb"), tx("auto.k_af9a0b2ae503")];
 const clearPopupWatch = (popupRef, pollRef, closePopup = false) => {
@@ -27,6 +28,7 @@ const FacebookConnect = ({
   const [waitingForOAuth, setWaitingForOAuth] = useState(false);
   const popupRef = useRef(null);
   const popupPollRef = useRef(null);
+  const pendingStateRef = useRef(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -39,7 +41,8 @@ const FacebookConnect = ({
   }, []);
   useEffect(() => {
     const handleMessage = event => {
-      if (event.origin !== window.location.origin) return;
+      if (!matchMetaOAuthPopup({ event, origin: window.location.origin, popup: popupRef.current, state: pendingStateRef.current })) return;
+      pendingStateRef.current = null;
       if (event.data?.type === 'FB_OAUTH_CALLBACK') {
         clearPopupWatch(popupRef, popupPollRef);
         setWaitingForOAuth(false);
@@ -54,12 +57,13 @@ const FacebookConnect = ({
         clearPopupWatch(popupRef, popupPollRef);
         setWaitingForOAuth(false);
         setActiveStep(0);
-        setError(event.data.error_description || event.data.error || tx("auto.k_a95d4366b1ac"));
+        setError(tx("auto.k_a95d4366b1ac"));
       }
     };
     window.addEventListener('message', handleMessage);
     return () => {
       window.removeEventListener('message', handleMessage);
+      pendingStateRef.current = null;
       clearPopupWatch(popupRef, popupPollRef);
     };
   }, []);
@@ -86,17 +90,20 @@ const FacebookConnect = ({
         return;
       }
       setOauthState(data.state);
+      pendingStateRef.current = data.state;
       popup.location.href = data.url;
       setWaitingForOAuth(true);
       setActiveStep(1);
       popupPollRef.current = window.setInterval(() => {
         if (!popup.closed) return;
         clearPopupWatch(popupRef, popupPollRef);
+        pendingStateRef.current = null;
         setWaitingForOAuth(false);
         setActiveStep(0);
         setError(tx('facebookConnection.popupClosed'));
       }, 500);
     } catch (err) {
+      pendingStateRef.current = null;
       clearPopupWatch(popupRef, popupPollRef, true);
       setError(err.message || tx("auto.k_dca9f4d201f6"));
     } finally {
@@ -164,6 +171,7 @@ const FacebookConnect = ({
     handleConnect(code, oauthState);
   };
   const handleCancelOAuth = () => {
+    pendingStateRef.current = null;
     clearPopupWatch(popupRef, popupPollRef, true);
     setWaitingForOAuth(false);
     setActiveStep(0);

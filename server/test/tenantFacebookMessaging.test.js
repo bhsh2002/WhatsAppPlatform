@@ -218,7 +218,8 @@ test('page webhook repair updates only an owned page after Meta confirms it', as
     assert.equal(forbidden.statusCode, 404);
     assert.equal(calls.length, 0);
 
-    db.prepare('UPDATE tenant_pages SET webhook_subscribed = 0 WHERE id = 1').run();
+    db.prepare('UPDATE tenant_pages SET webhook_subscribed = 1, subscribed_fields = ? WHERE id = 1')
+        .run(JSON.stringify(['feed', 'messages', 'messaging_postbacks']));
     const repaired = await invokeRoute(router, 'post', '/pages/:id/repair-webhook', {
         user: { tenant_id: 1 }, params: { id: '1' },
     });
@@ -227,7 +228,9 @@ test('page webhook repair updates only an owned page after Meta confirms it', as
     assert.equal(calls[0].init.method, 'POST');
     assert.equal(calls[0].init.headers.Authorization, 'Bearer token-a');
     assert.doesNotMatch(calls[0].url, /access_token|token-a/);
-    assert.match(calls[0].init.body, /subscribed_fields=feed%2Cmessages%2Cmessaging_postbacks/);
+    assert.equal(new URLSearchParams(calls[0].init.body).get('subscribed_fields'), 'feed,messages,messaging_postbacks,message_echoes');
+    assert.deepEqual(JSON.parse(db.prepare('SELECT subscribed_fields FROM tenant_pages WHERE id=1').get().subscribed_fields),
+        ['feed', 'messages', 'messaging_postbacks', 'message_echoes']);
 
     const failing = createTenantFacebookMessagingRouter({
         database: db,
@@ -241,6 +244,24 @@ test('page webhook repair updates only an owned page after Meta confirms it', as
     });
     assert.equal(failed.statusCode, 403);
     assert.equal(db.prepare('SELECT webhook_subscribed FROM tenant_pages WHERE id = 1').get().webhook_subscribed, 0);
+});
+
+test('missing or false webhook repair acknowledgement preserves the recorded subscription and cannot mark echoes configured', async t => {
+    const db = createDatabase(); t.after(() => db.close());
+    const legacyFields = JSON.stringify(['feed', 'messages', 'messaging_postbacks']);
+    db.prepare('UPDATE tenant_pages SET webhook_subscribed=1,subscribed_fields=? WHERE id=1').run(legacyFields);
+    const before = db.prepare('SELECT webhook_subscribed,subscribed_fields,updated_at FROM tenant_pages WHERE id=1').get();
+    for (const data of [{}, { success: false }, { success: 'true' }]) {
+        const router = createTenantFacebookMessagingRouter({ database: db, ...createDependencies({
+            requestMeta: async () => ({ ok: true, status: 200, data }),
+        }) });
+        const result = await invokeRoute(router, 'post', '/pages/:id/repair-webhook', { user: { tenant_id: 1 }, params: { id: '1' } });
+        assert.equal(result.statusCode, 502);
+        assert.equal(result.body.code, 'page_webhook_subscription_unverified');
+        assert.match(result.body.error, /تعذر تأكيد/);
+        assert.equal(result.body.webhook_subscribed, undefined);
+        assert.deepEqual(db.prepare('SELECT webhook_subscribed,subscribed_fields,updated_at FROM tenant_pages WHERE id=1').get(), before);
+    }
 });
 
 test('tenant Messenger exposes only the reviewed human-agent message tag', async (t) => {

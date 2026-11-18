@@ -463,7 +463,28 @@ test('migrations create isolated integration, projection and service request tab
         'savana_owner_portal_sessions',
         'savana_owner_portal_intents',
         'savana_owner_portal_audit',
+        'savana_collaborative_executions',
+        'savana_collaborative_effects',
+        'savana_collaborative_nonces',
+        'savana_collaborative_command_receipts',
+        'savana_collaborative_correlations',
+        'savana_collaborative_provider_evidence',
+        'savana_workspace_intents',
+        'savana_workspace_intent_audit',
+        'savana_collaborative_consents',
+        'savana_collaborative_consent_audit',
+        'savana_native_owner_proofs',
+        'savana_native_owner_proof_audit',
+        'savana_native_enrollment_service_audit',
+        'savana_workspace_receipts',
+        'savana_workspace_review_fences',
+        'savana_native_action_facts',
+        'savana_native_media_assets',
     ]));
+    for(const table of ['savana_collaborative_executions','savana_collaborative_effects','savana_workspace_intents',
+        'savana_collaborative_consents','savana_native_owner_proofs','savana_workspace_receipts','savana_workspace_review_fences',
+        'savana_native_action_facts','savana_native_media_assets'])assert.equal(database.prepare(`SELECT COUNT(*) count FROM ${table}`).get().count,0,
+            'Schema migration must not invent business actions, consent, identity links or ownership receipts');
     assert.equal(database.pragma('foreign_key_check').length, 0);
     database.close();
 });

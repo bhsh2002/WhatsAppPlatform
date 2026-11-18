@@ -116,10 +116,12 @@ export function createTenantFacebookMessagingRouter({
                     }).toString(),
                 }
             );
-            if (!result.ok || result.data?.success === false) {
-                return sendMetaFailure(res, result.ok
-                    ? { status: 502, error: { message: 'لم تؤكد Meta تجديد الاشتراك' } }
-                    : result, 'تعذر تجديد اشتراك الصفحة');
+            if (!result.ok) return sendMetaFailure(res, result, 'تعذر تجديد اشتراك الصفحة');
+            if (result.data?.success !== true) {
+                return res.status(502).json({
+                    error: 'تعذر تأكيد تجديد اشتراك الصفحة. بقي الإعداد المسجل كما هو؛ تحقق من الحالة قبل المتابعة.',
+                    code: 'page_webhook_subscription_unverified',
+                });
             }
             database.prepare(`
                 UPDATE tenant_pages

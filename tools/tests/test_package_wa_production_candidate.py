@@ -122,6 +122,43 @@ class ProductionCandidateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             packager.package(self.repo, self.overlay + ['server/package.json'], self.refs, self.output)
 
+    def test_reviewed_build_guard_inputs_are_exact_and_do_not_admit_arbitrary_vendor_content(self):
+        for name in packager.CLIENT_BUILD_INPUTS:
+            with self.subTest(name=name):
+                self.assertTrue(packager.runtime_input(name))
+        for name in ('client/vendor/private.env', 'client/vendor/unreviewed.js',
+                     'client/vendor/picomatch-build-guard/unreviewed.cjs',
+                     'client/vendor/picomatch-build-guard/upstream/.env',
+                     'client/scripts/verify-picomatch-build-guard.test.cjs'):
+            with self.subTest(name=name):
+                self.assertFalse(packager.runtime_input(name))
+
+    def test_only_exact_reviewed_local_alias_with_archive_integrity_is_allowed(self):
+        archive = (SCRIPT.parents[1] / packager.BUILD_GUARD_ARCHIVE).read_bytes()
+        dependency = 'file:vendor/savana-picomatch-build-guard-4.1.2-p10.tgz'
+        package = {'name': 'client', 'devDependencies': {'picomatch': dependency}, 'overrides': {'picomatch': '$picomatch'}}
+        row = {'name': '@savana-internal/picomatch-build-guard', 'version': '4.1.2', 'resolved': dependency,
+               'integrity': packager.BUILD_GUARD_SRI, 'dev': True}
+        lock = {'lockfileVersion': 3, 'packages': {'': package, 'node_modules/picomatch': row}}
+        payload = {f'source/{component}/{name}': ((self.repo / component / name).read_bytes(), 0o644)
+                   for component in ('server', 'client') for name in ('package.json', 'package-lock.json')}
+        payload['source/client/package.json'] = (json.dumps(package).encode(), 0o644)
+        payload['source/client/package-lock.json'] = (json.dumps(lock).encode(), 0o644)
+        payload['source/' + packager.BUILD_GUARD_ARCHIVE] = (archive, 0o644)
+        adopted = packager.locks(payload)['client']['packages'][0]
+        self.assertFalse(adopted['official_upstream_patch'])
+        self.assertEqual(adopted['embedded_component']['advisory'], 'GHSA-fc5q-39xc-vjpf')
+        for invalid in (archive + b'changed', b''):
+            with self.subTest(archive_bytes=len(invalid)), self.assertRaisesRegex(ValueError, 'archive/alias integrity'):
+                packager.locks({**payload, 'source/' + packager.BUILD_GUARD_ARCHIVE: (invalid, 0o644)})
+        for invalid in ({**row, 'resolved': 'file:/private/tmp/guard.tgz'}, {**row, 'integrity': 'sha512-AAAA'}):
+            changed = {**lock, 'packages': {**lock['packages'], 'node_modules/picomatch': invalid}}
+            with self.subTest(row=invalid), self.assertRaises(ValueError):
+                packager.locks({**payload, 'source/client/package-lock.json': (json.dumps(changed).encode(), 0o644)})
+        other = {**lock, 'packages': {**lock['packages'], 'node_modules/other': {**row, 'resolved': 'file:other.tgz'}}}
+        with self.assertRaisesRegex(ValueError, 'pinned public npm'):
+            packager.locks({**payload, 'source/client/package-lock.json': (json.dumps(other).encode(), 0o644)})
+
     def test_changed_official_contract_and_output_inside_repository_are_refused(self):
         reference = {**self.refs[0], 'expected_sha256': '0' * 64}
         with self.assertRaises(ValueError):

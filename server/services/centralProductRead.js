@@ -16,6 +16,18 @@ const publicObject = (value, keys) => {
     if (!value || Array.isArray(value) || typeof value !== 'object'
         || Object.keys(value).some(key => !keys.includes(key))) fail('shared_product_response_invalid', 502);
 };
+const availabilityStates = new Set(['available', 'review_available', 'implementation_missing', 'not_supported',
+    'configuration_required', 'subscription_required', 'permission_required', 'resource_scope_required',
+    'provider_selection_required', 'connection_required', 'connection_pending', 'connection_paused', 'connection_revoked',
+    'approval_required', 'consent_required', 'balance_required', 'quote_required', 'offline', 'authorization_stale',
+    'outcome_unknown', 'provider_unavailable']);
+const checkAvailability = value => {
+    if (value === undefined) return;
+    publicObject(value, ['state', 'reason_code', 'message', 'next_action']);
+    publicObject(value.next_action, ['code', 'label', 'href']);
+    if (!availabilityStates.has(value.state) || ![value.reason_code, value.message,
+        value.next_action.code, value.next_action.label, value.next_action.href].every(text)) fail('shared_product_response_invalid', 502);
+};
 const keyFor = principal => JSON.stringify([
     String(principal.userId), String(principal.tenantId), principal.sessionId, principal.authVersion,
 ]);
@@ -202,11 +214,13 @@ export class CentralProductReadService {
         publicObject(eligibility, ['spec_version', 'capability_code', 'scope', 'actor_id', 'consumer_platform',
             'checked_at', 'view_requirements', 'request_review', 'execute', 'selected_platform',
             'selected_account_id', 'selected_installation_id', 'eligible_providers',
-            'provider_evaluations', 'blockers', 'next_action', 'authorization_token']);
+            'provider_evaluations', 'blockers', 'next_action', 'authorization_token', 'availability']);
+        checkAvailability(eligibility.availability);
         publicObject(eligibility.scope, scopeKeys);
         for (const blocker of eligibility.blockers || []) publicObject(blocker, ['code', 'message', 'blocks', 'next_action']);
         for (const provider of [...(eligibility.provider_evaluations || []), ...(eligibility.eligible_providers || [])]) {
-            publicObject(provider, ['platform', 'account_id', 'installation_id', 'authorization_revision', 'can_request_review', 'can_execute', 'blockers']);
+            publicObject(provider, ['platform', 'account_id', 'installation_id', 'authorization_revision', 'can_request_review', 'can_execute', 'blockers', 'availability']);
+            checkAvailability(provider.availability);
             for (const blocker of provider.blockers || []) publicObject(blocker, ['code', 'message', 'blocks', 'next_action']);
         }
         if (eligibility.consumer_platform !== 'wa_savana' || eligibility.actor_id !== binding.centralActorId

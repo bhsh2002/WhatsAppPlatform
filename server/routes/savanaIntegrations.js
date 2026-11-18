@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { canonicalJson, SavanaIntegrationError } from '../services/savanaIntegration.js';
 import { evaluateLocalIntegrationCapabilities } from '../services/integrationCapabilities.js';
 import { sharedPricingIsValid } from '../services/sharedProductPricing.js';
+import { localReadPrincipal } from '../services/centralProductRead.js';
 
 const customerErrorMessages = {
     central_subscription_unbound: 'اربط حسابك بمؤسستك أولًا.',
@@ -63,16 +64,16 @@ const parseMessageRequest = row => ({
     review_only: true,
     execution_ready: false,
     execution_blockers: [{
-        code: 'adapter_execution_not_implemented',
-        message: 'الطلب متاح للمراجعة؛ تنفيذ الأثر ينتظر عقدًا يربط النشاط والحساب والموافقة والتكلفة بالطلب.',
-        action: 'await_adapter',
+        code: 'approved_native_command_required',
+        message: 'راجع تفاصيل الحساب والمستلم والموافقة والتكلفة في مساحة التشغيل ثم اعتمد أمرًا مرتبطًا بهذا النطاق.',
+        action: 'open_workspace',
     }],
 });
 
 const requestPayloadHash = row => crypto.createHash('sha256')
     .update(canonicalJson(JSON.parse(row.payload_json || '{}'))).digest('hex');
 
-export const createTenantIntegrationsRouter = ({ database, service }) => {
+export const createTenantIntegrationsRouter = ({ database, service, availabilityService = null }) => {
     const router = express.Router();
     const projectedProducts = (tenantId, limit) => database.prepare(`
         SELECT projection.canonical_product_id, projection.local_product_id,
@@ -224,13 +225,15 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                 console.warn('[SavanaIntegrations] Subscription entitlement lookup failed:', error.message);
             }
             return res.json({
-                data: service.knownPlatforms().map(platformCode => ({
+                data: await Promise.all(service.knownPlatforms().map(async platformCode => ({
                     ...service.serialize(existing.get(platformCode), platformCode),
                     available: available.has(platformCode),
                     subscription_entitled: service.subscriptionIntegrationEntitlement(
                         subscriptionContext, platformCode
                     ),
-                    capabilities: evaluateLocalIntegrationCapabilities({
+                    capabilities: availabilityService
+                        ? await availabilityService.forPlatform(localReadPrincipal(req.user), platformCode)
+                        : evaluateLocalIntegrationCapabilities({
                         sourcePlatform: platformCode,
                         integrationEnabled: service.config?.enabled === true,
                         providerAvailable: available.has(platformCode),
@@ -244,7 +247,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
                         canReview: null,
                         scopeAuthorized: null,
                     }),
-                })),
+                }))),
             });
         } catch (error) {
             return respondError(res, error);
@@ -499,7 +502,7 @@ export const createTenantIntegrationsRouter = ({ database, service }) => {
             // approved account/content/consent. The legacy receipt cannot grant
             // execution or attach an unrelated native inbox message as proof.
             throw new SavanaIntegrationError(
-                'تنفيذ الطلب العابر للمنصات غير مفعّل بعد؛ المراجعة لا تثبت إرسال رسالة.',
+                'يلزم أمر تشغيل معتمد بتفاصيله الحالية؛ قبول المراجعة القديم لا يثبت إرسال رسالة.',
                 409,
                 'integration_execution_unavailable',
             );

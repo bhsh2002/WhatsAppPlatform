@@ -19,7 +19,7 @@ test('inflight inventory verifies the full migrated schema without changing any 
     const inventory = getEgressInflightInventory(database);
     assert.equal(inventory.schema_complete, true);
     assert.equal(inventory.unresolved_count, 0);
-    assert.equal(Object.keys(inventory.categories).length, 16);
+    assert.equal(Object.keys(inventory.categories).length, 19);
     assert.deepEqual(database.serialize(), before);
 });
 
@@ -47,12 +47,41 @@ test('inflight inventory retains unknown categories and never reports an absent 
     assert.equal(inventory.schema_complete, false);
     assert.equal(inventory.categories.consumer_enrollment.unresolved_count, null);
     assert.equal(inventory.categories.consumer_enrollment.reason, 'table_missing');
+    assert.equal(inventory.categories.collaborative_executions.unresolved_count, null);
+    assert.equal(inventory.categories.collaborative_effects.reason, 'table_missing');
+    assert.equal(inventory.categories.workspace_intents.unresolved_count, null);
     assert.equal(inventory.categories.broadcast_jobs.states.pending, 1);
     assert.equal(inventory.categories.tenant_callbacks.states.processing, 1);
     assert.equal(inventory.categories.owner_portal_intents.states.unknown, 1);
     assert.equal(inventory.categories.sms_api_requests.states.failed, 1);
     assert.equal(inventory.categories.billing_reservations.states.reserved, 1);
     assert.equal(JSON.stringify(inventory).includes('recipient-secret'), false);
+    assert.deepEqual(database.serialize(), before);
+});
+
+test('collaborative claims and uncertain individual effects block resume without exposing content', t => {
+    const database = new Database(':memory:');
+    t.after(() => database.close());
+    database.exec(`
+        CREATE TABLE savana_collaborative_executions(state TEXT, selection_json TEXT);
+        INSERT INTO savana_collaborative_executions VALUES
+            ('approved','private-native-selection'), ('scheduled','private-native-selection'),
+            ('executing','private-native-selection'), ('unknown','private-native-selection'),
+            ('completed','private-native-selection');
+        CREATE TABLE savana_collaborative_effects(state TEXT, receipt_json TEXT);
+        INSERT INTO savana_collaborative_effects VALUES
+            ('prepared','private-native-receipt'), ('dispatching','private-native-receipt'),
+            ('unknown','private-native-receipt'), ('accepted','private-native-receipt');
+    `);
+    const before = database.serialize();
+    database.pragma('query_only = ON');
+    const inventory = getEgressInflightInventory(database);
+    assert.equal(inventory.unresolved_count, 4);
+    assert.equal(inventory.categories.collaborative_executions.states.executing, 1);
+    assert.equal(inventory.categories.collaborative_executions.states.unknown, 1);
+    assert.equal(inventory.categories.collaborative_effects.states.dispatching, 1);
+    assert.equal(inventory.categories.collaborative_effects.states.unknown, 1);
+    assert.equal(JSON.stringify(inventory).includes('private-native'), false);
     assert.deepEqual(database.serialize(), before);
 });
 

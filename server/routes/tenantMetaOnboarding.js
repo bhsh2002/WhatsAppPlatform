@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { persistVerifiedWhatsAppNumbers } from '../services/verifiedWhatsAppNumbers.js';
+import { createSqliteReadPrincipalVerifier, localReadPrincipal } from '../services/centralProductRead.js';
 import express from 'express';
 
 import {
@@ -24,6 +26,16 @@ const FACEBOOK_ACCOUNTS_FIELDS = 'id,name,category,picture.width(100).height(100
 const FACEBOOK_ACCOUNTS_PAGE_SIZE = 100;
 const MAX_FACEBOOK_ACCOUNT_REQUESTS = 10;
 const MAX_FACEBOOK_ACCOUNTS = 1000;
+class NativeMetaOwnerSessionError extends Error {
+    constructor(code = 'META_OWNER_SESSION_REQUIRED') { super(code); this.code = code; this.status = 403; }
+}
+const principalBinding = principal => crypto.createHash('sha256').update(JSON.stringify([
+    principal.userId, principal.tenantId, principal.sessionId, principal.authVersion,
+    principal.issuedAt, principal.role, principal.sessionExpiresAt,
+])).digest('hex');
+const ownerSessionFailure = (res, error) => res.status(403).json({
+    error: 'انتهت صلاحية جلسة مالك الحساب. سجّل الدخول مجددًا قبل الربط.', code: error.code, clear_previous: true,
+});
 const PAGE_WEBHOOK_SUBSCRIBE_FAILURE = 'تعذر تفعيل استقبال أحداث الصفحة لدى Meta. تحقق من الصلاحيات ثم أعد المحاولة.';
 const PAGE_WEBHOOK_UNSUBSCRIBE_FAILURE = 'تعذر إلغاء اشتراك Webhook لدى Meta';
 const SAFE_ONBOARDING_ERROR_CODES = new Set([
@@ -179,6 +191,9 @@ export function createTenantMetaOnboardingRouter({
     now = Date.now,
     sessionTtlMs = DEFAULT_SESSION_TTL_MS,
     config = {},
+    authorizationEndpoint = null,
+    allowLoopbackAuthorizationEndpoint = false,
+    verifyLocalPrincipal = null,
 } = {}) {
     if (
         !database
@@ -187,6 +202,7 @@ export function createTenantMetaOnboardingRouter({
         || typeof buildReadiness !== 'function'
         || typeof listSnapshots !== 'function'
         || typeof saveSnapshot !== 'function'
+        || (verifyLocalPrincipal !== null && typeof verifyLocalPrincipal !== 'function')
     ) {
         throw new TypeError('Tenant Meta onboarding router requires database, token and readiness dependencies');
     }
@@ -201,7 +217,33 @@ export function createTenantMetaOnboardingRouter({
         reviewScopes: Object.freeze([...(config.reviewScopes || [])]),
         webhookFields: Object.freeze([...(config.webhookFields || [])]),
     };
+    const authorizationUrl = new URL(authorizationEndpoint || `https://www.facebook.com/${meta.apiVersion}/dialog/oauth`);
+    const ownedLoopback = allowLoopbackAuthorizationEndpoint === true && authorizationUrl.protocol === 'http:'
+        && ['127.0.0.1', '[::1]', 'localhost'].includes(authorizationUrl.hostname);
+    if (!(authorizationUrl.protocol === 'https:' || ownedLoopback) || authorizationUrl.username || authorizationUrl.password
+        || authorizationUrl.search || authorizationUrl.hash) throw new TypeError('Meta authorization endpoint must be an explicit trusted server URL');
     const oauthSessions = new Map();
+    const verifyNativePrincipal = verifyLocalPrincipal ?? createSqliteReadPrincipalVerifier(database);
+    const ownerFence = (req, code = 'META_OWNER_SESSION_REQUIRED') => {
+        const principal = Object.freeze(localReadPrincipal(req.user));
+        const original = principalBinding(principal);
+        const assertCurrent = () => {
+            if (principal.role !== 'tenant' || !Number.isSafeInteger(principal.sessionExpiresAt)
+                || principal.sessionExpiresAt * 1000 <= now() || principalBinding(localReadPrincipal(req.user)) !== original
+                || verifyNativePrincipal(principal) !== true) throw new NativeMetaOwnerSessionError(code);
+            return true;
+        };
+        const currentRequestMeta = async (...args) => {
+            assertCurrent();
+            let result;
+            try { result = await requestMeta(...args); }
+            catch (error) { assertCurrent(); throw error; }
+            assertCurrent();
+            return result;
+        };
+        assertCurrent();
+        return { principal, assertCurrent, requestMeta: currentRequestMeta };
+    };
 
     const pruneSessions = () => {
         const currentTime = now();
@@ -210,19 +252,19 @@ export function createTenantMetaOnboardingRouter({
         }
     };
 
-    const createSession = (kind, tenantId, values = {}) => {
+    const createSession = (kind, principal, values = {}) => {
         pruneSessions();
         const state = randomBytes(32).toString('hex');
-        oauthSessions.set(state, { kind, tenantId, createdAt: now(), ...values });
+        oauthSessions.set(state, { kind, tenantId: principal.tenantId, principal: principalBinding(principal), createdAt: now(), ...values });
         return state;
     };
 
-    const consumeSession = (stateValue, tenantId, kind) => {
+    const consumeSession = (stateValue, principal, kind) => {
         pruneSessions();
         const state = normalizeString(stateValue, 256);
         if (!state) return null;
         const session = oauthSessions.get(state);
-        if (!session || session.tenantId !== tenantId || session.kind !== kind) return null;
+        if (!session || session.tenantId !== principal.tenantId || session.principal !== principalBinding(principal) || session.kind !== kind) return null;
         oauthSessions.delete(state);
         return session;
     };
@@ -286,10 +328,13 @@ export function createTenantMetaOnboardingRouter({
     }));
 
     router.get('/facebook/auth-url', (req, res) => {
+        let fence;
+        try { fence = ownerFence(req); }
+        catch (error) { if (error instanceof NativeMetaOwnerSessionError) return ownerSessionFailure(res, error); throw error; }
         if (!meta.appId || !meta.appSecret || !meta.redirectUri) {
             return res.status(400).json({ error: 'Facebook OAuth not configured' });
         }
-        const state = createSession('facebook_auth', req.user.tenant_id);
+        const state = createSession('facebook_auth', fence.principal);
         const params = new URLSearchParams({
             client_id: meta.appId,
             redirect_uri: meta.redirectUri,
@@ -298,22 +343,23 @@ export function createTenantMetaOnboardingRouter({
             response_type: 'code',
         });
         return res.json({
-            url: `https://www.facebook.com/${meta.apiVersion}/dialog/oauth?${params.toString()}`,
+            url: `${authorizationUrl.href}?${params.toString()}`,
             state,
         });
     });
 
     router.post('/facebook/connect', async (req, res) => {
         try {
-            const tenantId = req.user.tenant_id;
+            const fence = ownerFence(req);
+            const tenantId = fence.principal.tenantId;
             const code = normalizeString(req.body?.code, 4096);
             const state = normalizeString(req.body?.state, 256);
             if (!code || !state) return res.status(400).json({ error: 'code and state are required' });
 
-            const session = consumeSession(state, tenantId, 'facebook_auth');
+            const session = consumeSession(state, fence.principal, 'facebook_auth');
             if (!session) return res.status(400).json({ error: 'Invalid or expired OAuth state' });
 
-            const tokenResult = await requestMeta(
+            const tokenResult = await fence.requestMeta(
                 `${meta.apiBase}/oauth/access_token`,
                 buildFormRequest({
                     client_id: meta.appId,
@@ -326,7 +372,7 @@ export function createTenantMetaOnboardingRouter({
             const shortLivedToken = normalizeString(tokenResult.data?.access_token, 8192);
             if (!shortLivedToken) return res.status(502).json({ error: 'Token exchange returned no access token' });
 
-            const longLivedResult = await requestMeta(
+            const longLivedResult = await fence.requestMeta(
                 `${meta.apiBase}/oauth/access_token`,
                 buildFormRequest({
                     grant_type: 'fb_exchange_token',
@@ -350,7 +396,7 @@ export function createTenantMetaOnboardingRouter({
             let facebookUserProfile = null;
             if (meta.appId && meta.appSecret) {
                 try {
-                    const debugResult = await requestMeta(
+                    const debugResult = await fence.requestMeta(
                         `${meta.apiBase}/debug_token?input_token=${encodeURIComponent(longLivedToken)}`,
                         { headers: { Authorization: `Bearer ${meta.appId}|${meta.appSecret}` } }
                     );
@@ -364,12 +410,13 @@ export function createTenantMetaOnboardingRouter({
                         tokenAppId = debugTokenData.app_id || null;
                     }
                 } catch (error) {
+                    if (error instanceof NativeMetaOwnerSessionError) throw error;
                     logOnboardingFailure('Facebook token debug failed', error, 'warn');
                 }
             }
 
             try {
-                const profileResult = await requestMeta(
+                const profileResult = await fence.requestMeta(
                     `${meta.apiBase}/me?fields=id,name,email,picture.width(100).height(100)`,
                     { headers: { Authorization: `Bearer ${longLivedToken}` } }
                 );
@@ -388,10 +435,12 @@ export function createTenantMetaOnboardingRouter({
                     }, 'warn');
                 }
             } catch (error) {
+                if (error instanceof NativeMetaOwnerSessionError) throw error;
                 logOnboardingFailure('Facebook profile fetch failed', error, 'warn');
             }
 
             database.transaction(() => {
+                fence.assertCurrent();
                 database.prepare(`
                     UPDATE tenants
                     SET facebook_user_access_token_encrypted = ?,
@@ -428,12 +477,13 @@ export function createTenantMetaOnboardingRouter({
                         tenantId
                     );
                 }
-            })();
+                fence.assertCurrent();
+            }).immediate();
 
             const accountsResult = await fetchFacebookAccounts({
                 apiBase: meta.apiBase,
                 accessToken: longLivedToken,
-                requestMeta,
+                requestMeta: fence.requestMeta,
             });
             if (!accountsResult.ok) {
                 return sendMetaFailure(res, accountsResult.result, 'تعذر جلب صفحات Facebook');
@@ -445,7 +495,8 @@ export function createTenantMetaOnboardingRouter({
                 category: page.category,
                 picture_url: page.picture?.data?.url || null,
             }));
-            const linkState = createSession('facebook_link', tenantId, { longLivedToken });
+            fence.assertCurrent();
+            const linkState = createSession('facebook_link', fence.principal, { longLivedToken });
             const missingScopes = meta.reviewScopes.filter(scope => !grantedScopes.includes(scope));
             return res.json({
                 pages,
@@ -458,6 +509,7 @@ export function createTenantMetaOnboardingRouter({
                 pages_pagination_warning: accountsResult.paginationWarning,
             });
         } catch (error) {
+            if (error instanceof NativeMetaOwnerSessionError) return ownerSessionFailure(res, error);
             logOnboardingFailure('Facebook connect error', error);
             return res.status(500).json({ error: 'فشل ربط فيسبوك' });
         }
@@ -551,7 +603,8 @@ export function createTenantMetaOnboardingRouter({
 
     router.post('/facebook/link-pages', async (req, res) => {
         try {
-            const tenantId = req.user.tenant_id;
+            const fence = ownerFence(req);
+            const tenantId = fence.principal.tenantId;
             const linkState = normalizeString(req.body?.link_state, 256);
             const requestedPageIds = Array.isArray(req.body?.page_ids)
                 ? [...new Set(req.body.page_ids.map(value => normalizeString(value, 256)).filter(Boolean))]
@@ -559,14 +612,14 @@ export function createTenantMetaOnboardingRouter({
             if (!linkState || !requestedPageIds?.length || requestedPageIds.length > 100) {
                 return res.status(400).json({ error: 'بيانات جلسة الربط والصفحات المحددة مطلوبة' });
             }
-            const session = consumeSession(linkState, tenantId, 'facebook_link');
+            const session = consumeSession(linkState, fence.principal, 'facebook_link');
             if (!session) return res.status(400).json({ error: 'Invalid or expired link state' });
 
             const requestedSet = new Set(requestedPageIds);
             const accountsResult = await fetchFacebookAccounts({
                 apiBase: meta.apiBase,
                 accessToken: session.longLivedToken,
-                requestMeta,
+                requestMeta: fence.requestMeta,
                 stopWhenIds: requestedSet,
             });
             if (!accountsResult.ok) {
@@ -612,40 +665,49 @@ export function createTenantMetaOnboardingRouter({
                 }
                 let linkedPageDbId;
                 if (existing) {
-                    database.prepare(`
-                        UPDATE tenant_pages
-                        SET page_access_token_encrypted = ?, page_name = ?, page_category = ?,
-                            page_picture_url = ?, is_active = 1,
-                            webhook_subscribed = 0, subscribed_fields = '[]',
-                            token_status = 'unchecked', token_expires_at = NULL,
-                            token_checked_at = NULL, token_app_id = NULL, token_scopes = NULL,
-                            updated_at = datetime('now', 'localtime')
-                        WHERE id = ? AND tenant_id = ?
-                    `).run(
-                        encryptedToken,
-                        page.name || null,
-                        page.category || null,
-                        pagePictureUrl,
-                        existing.id,
-                        tenantId
-                    );
+                    database.transaction(() => {
+                        fence.assertCurrent();
+                        database.prepare(`
+                            UPDATE tenant_pages
+                            SET page_access_token_encrypted = ?, page_name = ?, page_category = ?,
+                                page_picture_url = ?, is_active = 1,
+                                webhook_subscribed = 0, subscribed_fields = '[]',
+                                token_status = 'unchecked', token_expires_at = NULL,
+                                token_checked_at = NULL, token_app_id = NULL, token_scopes = NULL,
+                                updated_at = datetime('now', 'localtime')
+                            WHERE id = ? AND tenant_id = ?
+                        `).run(
+                            encryptedToken,
+                            page.name || null,
+                            page.category || null,
+                            pagePictureUrl,
+                            existing.id,
+                            tenantId
+                        );
+                        fence.assertCurrent();
+                    }).immediate();
                     linkedPageDbId = existing.id;
                 } else {
                     try {
-                        linkedPageDbId = database.prepare(`
-                            INSERT INTO tenant_pages (
-                                tenant_id, platform, page_id, page_name, page_access_token_encrypted,
-                                page_category, page_picture_url, subscribed_fields,
-                                webhook_subscribed, token_status
-                            ) VALUES (?, 'facebook', ?, ?, ?, ?, ?, '[]', 0, 'unchecked')
-                        `).run(
-                            tenantId,
-                            pageId,
-                            page.name || null,
-                            encryptedToken,
-                            page.category || null,
-                            pagePictureUrl
-                        ).lastInsertRowid;
+                        linkedPageDbId = database.transaction(() => {
+                            fence.assertCurrent();
+                            const saved = database.prepare(`
+                                INSERT INTO tenant_pages (
+                                    tenant_id, platform, page_id, page_name, page_access_token_encrypted,
+                                    page_category, page_picture_url, subscribed_fields,
+                                    webhook_subscribed, token_status
+                                ) VALUES (?, 'facebook', ?, ?, ?, ?, ?, '[]', 0, 'unchecked')
+                            `).run(
+                                tenantId,
+                                pageId,
+                                page.name || null,
+                                encryptedToken,
+                                page.category || null,
+                                pagePictureUrl
+                            );
+                            fence.assertCurrent();
+                            return saved.lastInsertRowid;
+                        }).immediate();
                     } catch (error) {
                         if (error?.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
                         linked.push({
@@ -662,29 +724,34 @@ export function createTenantMetaOnboardingRouter({
                 let pageTokenStatus = 'unchecked';
                 if (meta.appId && meta.appSecret) {
                     try {
-                        const debugResult = await requestMeta(
+                        const debugResult = await fence.requestMeta(
                             `${meta.apiBase}/debug_token?input_token=${encodeURIComponent(pageToken)}`,
                             { headers: { Authorization: `Bearer ${meta.appId}|${meta.appSecret}` } }
                         );
                         if (debugResult.ok) {
                             const data = debugResult.data?.data || {};
                             pageTokenStatus = classifyMetaTokenStatus(data, { now: now() });
-                            database.prepare(`
-                                UPDATE tenant_pages
-                                SET token_status = ?, token_expires_at = ?,
-                                    token_checked_at = datetime('now', 'localtime'),
-                                    token_app_id = ?, token_scopes = ?
-                                WHERE id = ? AND tenant_id = ?
-                            `).run(
-                                pageTokenStatus,
-                                data.expires_at > 0 ? new Date(data.expires_at * 1000).toISOString() : null,
-                                data.app_id || null,
-                                JSON.stringify(Array.isArray(data.scopes) ? data.scopes : []),
-                                linkedPageDbId,
-                                tenantId
-                            );
+                            database.transaction(() => {
+                                fence.assertCurrent();
+                                database.prepare(`
+                                    UPDATE tenant_pages
+                                    SET token_status = ?, token_expires_at = ?,
+                                        token_checked_at = datetime('now', 'localtime'),
+                                        token_app_id = ?, token_scopes = ?
+                                    WHERE id = ? AND tenant_id = ?
+                                `).run(
+                                    pageTokenStatus,
+                                    data.expires_at > 0 ? new Date(data.expires_at * 1000).toISOString() : null,
+                                    data.app_id || null,
+                                    JSON.stringify(Array.isArray(data.scopes) ? data.scopes : []),
+                                    linkedPageDbId,
+                                    tenantId
+                                );
+                                fence.assertCurrent();
+                            }).immediate();
                         }
                     } catch (error) {
+                        if (error instanceof NativeMetaOwnerSessionError) throw error;
                         logOnboardingFailure('Page token debug failed', error, 'warn');
                     }
                 }
@@ -692,7 +759,7 @@ export function createTenantMetaOnboardingRouter({
                 let webhookSubscribed = false;
                 let webhookError = null;
                 try {
-                    const subscribeResult = await requestMeta(
+                    const subscribeResult = await fence.requestMeta(
                         `${meta.apiBase}/${encodeURIComponent(pageId)}/subscribed_apps`,
                         {
                             method: 'POST',
@@ -705,16 +772,18 @@ export function createTenantMetaOnboardingRouter({
                             }).toString(),
                         }
                     );
-                    webhookSubscribed = subscribeResult.ok && subscribeResult.data?.success !== false;
+                    webhookSubscribed = subscribeResult.ok && subscribeResult.data?.success === true;
                     webhookError = webhookSubscribed
                         ? null
                         : PAGE_WEBHOOK_SUBSCRIBE_FAILURE;
                 } catch (error) {
+                    if (error instanceof NativeMetaOwnerSessionError) throw error;
                     logOnboardingFailure('Page webhook subscription failed', error, 'warn');
                     webhookError = PAGE_WEBHOOK_SUBSCRIBE_FAILURE;
                 }
 
                 database.transaction(() => {
+                    fence.assertCurrent();
                     database.prepare(`
                         UPDATE tenant_pages
                         SET webhook_subscribed = ?,
@@ -733,7 +802,8 @@ export function createTenantMetaOnboardingRouter({
                             tenant_id, tenant_name, event_type, description, status
                         ) VALUES (?, ?, 'page_linked', ?, 'success')
                     `).run(tenantId, tenant?.name, `ربط صفحة فيسبوك: ${page.name || pageId}`);
-                })();
+                    fence.assertCurrent();
+                }).immediate();
 
                 linked.push({
                     id: pageId,
@@ -766,6 +836,7 @@ export function createTenantMetaOnboardingRouter({
                 pages_pagination_warning: accountsResult.paginationWarning,
             });
         } catch (error) {
+            if (error instanceof NativeMetaOwnerSessionError) return ownerSessionFailure(res, error);
             logOnboardingFailure('Facebook link-pages error', error);
             return res.status(500).json({ error: 'فشل ربط الصفحات' });
         }
@@ -773,7 +844,8 @@ export function createTenantMetaOnboardingRouter({
 
     router.delete('/facebook/disconnect/:linkedPageId', async (req, res) => {
         try {
-            const tenantId = req.user.tenant_id;
+            const fence = ownerFence(req);
+            const tenantId = fence.principal.tenantId;
             const linkedPageId = parsePositiveId(req.params.linkedPageId);
             if (!linkedPageId) return res.status(400).json({ error: 'معرّف الصفحة غير صالح' });
             const page = database.prepare(`
@@ -788,15 +860,16 @@ export function createTenantMetaOnboardingRouter({
             let unsubscribeError = null;
             if (accessToken) {
                 try {
-                    const unsubscribeResult = await requestMeta(
+                    const unsubscribeResult = await fence.requestMeta(
                         `${meta.apiBase}/${encodeURIComponent(page.page_id)}/subscribed_apps`,
                         { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
                     );
-                    webhookUnsubscribed = unsubscribeResult.ok && unsubscribeResult.data?.success !== false;
+                    webhookUnsubscribed = unsubscribeResult.ok && unsubscribeResult.data?.success === true;
                     if (!webhookUnsubscribed) {
                         unsubscribeError = PAGE_WEBHOOK_UNSUBSCRIBE_FAILURE;
                     }
                 } catch (error) {
+                    if (error instanceof NativeMetaOwnerSessionError) throw error;
                     logOnboardingFailure('Webhook unsubscribe failed', error, 'warn');
                     unsubscribeError = PAGE_WEBHOOK_UNSUBSCRIBE_FAILURE;
                 }
@@ -806,6 +879,7 @@ export function createTenantMetaOnboardingRouter({
 
             const tenant = database.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
             database.transaction(() => {
+                fence.assertCurrent();
                 database.prepare(`
                     UPDATE tenant_pages
                     SET is_active = 0,
@@ -847,7 +921,8 @@ export function createTenantMetaOnboardingRouter({
                         : `تعطيل صفحة فيسبوك محلياً مع تعذر إلغاء Webhook لدى Meta: ${page.page_name || page.page_id}`,
                     webhookUnsubscribed ? 'success' : 'failed'
                 );
-            })();
+                fence.assertCurrent();
+            }).immediate();
             return res.json({
                 success: webhookUnsubscribed,
                 partial_success: !webhookUnsubscribed,
@@ -857,6 +932,7 @@ export function createTenantMetaOnboardingRouter({
                 data_preserved: true,
             });
         } catch (error) {
+            if (error instanceof NativeMetaOwnerSessionError) return ownerSessionFailure(res, error);
             logOnboardingFailure('Facebook disconnect error', error);
             return res.status(500).json({ error: 'فشل إلغاء ربط الصفحة' });
         }
@@ -978,7 +1054,11 @@ export function createTenantMetaOnboardingRouter({
 
     router.post('/whatsapp/connect', async (req, res) => {
         try {
-            const tenantId = req.user.tenant_id;
+            // Legacy embedded signup remains supported, but its HTTP awaits
+            // cannot outlive the native owner/session that authorized them.
+            const fence = ownerFence(req, 'WHATSAPP_OWNER_SESSION_REQUIRED');
+            const { assertCurrent } = fence;
+            const tenantId = fence.principal.tenantId;
             const code = normalizeString(req.body?.code, 4096);
             const phoneNumberId = normalizeString(req.body?.phone_number_id, 256);
             const wabaId = normalizeString(req.body?.waba_id, 256);
@@ -1006,10 +1086,11 @@ export function createTenantMetaOnboardingRouter({
                 return res.status(400).json({ error: 'Meta app not configured' });
             }
 
-            const tokenResult = await requestMeta(
+            const tokenResult = await fence.requestMeta(
                 `${meta.apiBase}/oauth/access_token`,
                 buildFormRequest({ client_id: meta.appId, client_secret: meta.appSecret, code })
             );
+            assertCurrent();
             if (!tokenResult.ok) return sendMetaFailure(res, tokenResult, 'Token exchange failed');
             const accessToken = normalizeString(tokenResult.data?.access_token, 8192);
             if (!accessToken) return res.status(502).json({ error: 'Token exchange returned no access token' });
@@ -1018,10 +1099,11 @@ export function createTenantMetaOnboardingRouter({
             const initialPhoneNumbersUrl = `${meta.apiBase}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,status,name_status&limit=100`;
             let phoneNumbersUrl = initialPhoneNumbersUrl;
             for (let page = 0; phoneNumbersUrl && page < 10; page += 1) {
-                const phoneNumbersResult = await requestMeta(
+                const phoneNumbersResult = await fence.requestMeta(
                     phoneNumbersUrl,
                     { headers: { Authorization: `Bearer ${accessToken}` } }
                 );
+                assertCurrent();
                 if (!phoneNumbersResult.ok) {
                     return sendMetaFailure(res, phoneNumbersResult, 'Failed to verify WhatsApp account');
                 }
@@ -1046,82 +1128,32 @@ export function createTenantMetaOnboardingRouter({
 
             const encryptedToken = encryptToken(accessToken);
             const tenant = database.prepare('SELECT name FROM tenants WHERE id = ?').get(tenantId);
-            let importedCount = 1;
-            if (hasWhatsAppNumbersTable(database)) {
-                const conflicting = database.prepare(`
-                    SELECT tenant_id, phone_number_id
-                    FROM tenant_whatsapp_numbers
-                    WHERE phone_number_id IN (${authorizedPhones.map(() => '?').join(',') || "''"})
-                      AND tenant_id != ?
-                    LIMIT 1
-                `).get(...authorizedPhones.map(phone => String(phone.id)), tenantId);
-                if (conflicting) {
-                    return res.status(409).json({
-                        error: 'أحد أرقام WhatsApp مرتبط بحساب آخر على المنصة',
-                        code: 'WHATSAPP_NUMBER_ALREADY_ASSIGNED',
-                    });
-                }
-                database.transaction(() => {
-                    const upsert = database.prepare(`
-                        INSERT INTO tenant_whatsapp_numbers (
-                            tenant_id, phone_number_id, waba_id, business_id,
-                            display_phone_number, verified_name, quality_rating,
-                            platform_status, access_token_encrypted, is_default, is_active
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
-                        ON CONFLICT(tenant_id, phone_number_id) DO UPDATE SET
-                            waba_id = excluded.waba_id,
-                            business_id = COALESCE(excluded.business_id, tenant_whatsapp_numbers.business_id),
-                            display_phone_number = COALESCE(excluded.display_phone_number, tenant_whatsapp_numbers.display_phone_number),
-                            verified_name = COALESCE(excluded.verified_name, tenant_whatsapp_numbers.verified_name),
-                            quality_rating = COALESCE(excluded.quality_rating, tenant_whatsapp_numbers.quality_rating),
-                            platform_status = COALESCE(excluded.platform_status, tenant_whatsapp_numbers.platform_status),
-                            access_token_encrypted = excluded.access_token_encrypted,
-                            is_active = 1,
-                            updated_at = datetime('now', 'localtime')
-                    `);
-                    for (const phone of authorizedPhones) {
-                        upsert.run(
-                            tenantId,
-                            String(phone.id),
-                            wabaId,
-                            businessId,
-                            phone.display_phone_number || null,
-                            phone.verified_name || null,
-                            phone.quality_rating || null,
-                            phone.status || phone.name_status || null,
-                            encryptedToken,
-                        );
-                    }
-                })();
-                importedCount = authorizedPhones.length;
-                const currentDefault = listTenantWhatsAppNumbers(database, tenantId)
-                    .find(number => number.is_default);
-                if (!currentDefault || makeDefault) {
-                    setDefaultTenantWhatsAppNumber(database, tenantId, phoneNumberId);
-                }
-            } else {
-                database.prepare(`
-                    UPDATE tenants
-                    SET waba_id = ?, phone_number_id = ?, business_id = ?,
-                        access_token_encrypted = ?, access_token = NULL,
-                        updated_at = datetime('now', 'localtime')
-                    WHERE id = ?
-                `).run(wabaId, phoneNumberId, businessId, encryptedToken, tenantId);
+            let importedCount;
+            try { ({ importedCount } = persistVerifiedWhatsAppNumbers({ database, tenantId, phones: authorizedPhones,
+                selectedPhoneId: phoneNumberId, wabaId, businessId, encryptedToken, makeDefault, verifyCurrent: assertCurrent })); }
+            catch (error) {
+                if (error.code === 'WHATSAPP_NUMBER_ALREADY_ASSIGNED') return res.status(409).json({
+                    error: 'أحد أرقام WhatsApp مرتبط بحساب آخر على المنصة', code: error.code });
+                throw error;
             }
 
             database.transaction(() => {
+                assertCurrent();
                 database.prepare(`
                     INSERT INTO activity_logs (
                         tenant_id, tenant_name, event_type, description, status
                     ) VALUES (?, ?, 'whatsapp_connected', ?, 'success')
                 `).run(tenantId, tenant?.name, `ربط حساب WhatsApp: ${phoneNumberId} (${importedCount} رقم)`);
-            })();
+                assertCurrent();
+            }).immediate();
 
             try {
-                const subscribeResult = await requestMeta(
+                assertCurrent();
+                const subscribeResult = await fence.requestMeta(
                     `${meta.apiBase}/${encodeURIComponent(wabaId)}/subscribed_apps`,
                     { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
                 );
+                assertCurrent();
                 if (!subscribeResult.ok) {
                     logOnboardingFailure('WABA webhook subscription failed', {
                         status: subscribeResult.status,
@@ -1129,6 +1161,7 @@ export function createTenantMetaOnboardingRouter({
                     }, 'warn');
                 }
             } catch (error) {
+                if (error instanceof NativeMetaOwnerSessionError) throw error;
                 logOnboardingFailure('WABA webhook subscription failed', error, 'warn');
             }
 
@@ -1140,6 +1173,7 @@ export function createTenantMetaOnboardingRouter({
                 status: getTenantWhatsAppStatus(tenantId),
             });
         } catch (error) {
+            if (error instanceof NativeMetaOwnerSessionError) return ownerSessionFailure(res, error);
             logOnboardingFailure('WhatsApp connect error', error);
             return res.status(500).json({ error: 'فشل ربط واتساب' });
         }

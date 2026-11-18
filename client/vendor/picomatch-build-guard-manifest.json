@@ -1,0 +1,104 @@
+{
+  "format": "picomatch-build-guard-prototype-files/1",
+  "version": "4.1.2",
+  "frozen_at_utc": "2026-11-18T07:12:11.136331+00:00",
+  "production_ready": false,
+  "changes_from_p9": "Only reject any nonempty NODE_OPTIONS instead of raw option regex; version/readme. Matching engine, codec, Worker and index unchanged.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 1091,
+      "sha256": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7273,
+      "sha256": "f4ed228000473d0541659a093fe1270c2c97ab83bbdc5c03f90a544d7e09939a"
+    },
+    {
+      "path": "codec.cjs",
+      "bytes": 3706,
+      "sha256": "de76576f083cff31b46fce5be7c0184196512440e7f6734c5e9771bbe27100f2"
+    },
+    {
+      "path": "heap-flags.cjs",
+      "bytes": 1153,
+      "sha256": "243021e4cfeffaa098a8210c7976b5cf79582663d7b0a8bf7c4d5ac67979ef10"
+    },
+    {
+      "path": "index.cjs",
+      "bytes": 11680,
+      "sha256": "1850f299205d639e80e45e38a1a20cb56890ee370cf0faac80eccb766a1f79c1"
+    },
+    {
+      "path": "index.mjs",
+      "bytes": 170,
+      "sha256": "fa297f74a3e33b057a6b39c977a98ea01b4ae0970f9bfa41770dea0b60a40abe"
+    },
+    {
+      "path": "package.json",
+      "bytes": 478,
+      "sha256": "40968f7db0f45b5423f33c6a0f5f33823ec211f29b998f8f50217d70de5984fd"
+    },
+    {
+      "path": "posix.cjs",
+      "bytes": 189,
+      "sha256": "bf2c3f651f925668386081c24684f4a223370dd2cec8d522492ebdc46cbd3dd4"
+    },
+    {
+      "path": "posix.mjs",
+      "bytes": 170,
+      "sha256": "7703494a16f4c43fcf8e4f6b2a69c4c8aa2cc1a3dbaf36780bde5f34f123e7e2"
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 1502,
+      "sha256": "cca441139a78e3b5c9b36d2cbb5899a81436fa4b839aa1f6d4a01590a9abbc31"
+    },
+    {
+      "path": "upstream/LICENSE",
+      "bytes": 1091,
+      "sha256": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9"
+    },
+    {
+      "path": "upstream/index.js",
+      "bytes": 479,
+      "sha256": "02ae26406508e28f9ba0865be16cf77f0b33de6c4d4d49c212c4176df1d5625a"
+    },
+    {
+      "path": "upstream/lib/constants.js",
+      "bytes": 4552,
+      "sha256": "c28f952d2758261fe5428a121add485cc25b03e0193633f649de903dc0e5e222"
+    },
+    {
+      "path": "upstream/lib/parse.js",
+      "bytes": 34668,
+      "sha256": "73211a8ba85ce257b827abd8960e52c9750385b3fd18e8ef1080b114d774eb23"
+    },
+    {
+      "path": "upstream/lib/picomatch.js",
+      "bytes": 10722,
+      "sha256": "fdd249d7ffff853f3bb1c77eafc8baa1a437bea85a94c35877b83c6a40d9ca94"
+    },
+    {
+      "path": "upstream/lib/scan.js",
+      "bytes": 9189,
+      "sha256": "227fcc994a477ea95c5a0435d32783566334c6bd0dcc4a103029735ad8c9c535"
+    },
+    {
+      "path": "upstream/lib/utils.js",
+      "bytes": 1994,
+      "sha256": "f04604f70cd1a3f6ace80b84766468674ff38b4bb83818d2ef1d81fc6355f935"
+    },
+    {
+      "path": "upstream/package.json",
+      "bytes": 1915,
+      "sha256": "fb7766f5f9c724e13e075760a95d16f87cdb327143d153a913135fde267ec615"
+    },
+    {
+      "path": "worker.cjs",
+      "bytes": 7408,
+      "sha256": "2008502e209f2b514034dad19b7d6c90c0ba462cfbfbc6aaa94017c0aa2b493d"
+    }
+  ]
+}

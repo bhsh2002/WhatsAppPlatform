@@ -802,9 +802,11 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     const tenantAutomation = read('server/routes/tenantAutomation.js');
     const tenantBilling = read('server/routes/tenantBilling.js');
     const tenantContacts = read('server/routes/tenantContacts.js');
+    const nativeContacts = read('server/services/nativeContacts.js');
     const tenantDashboard = read('server/routes/tenantDashboard.js');
     const tenantProfile = read('server/routes/tenantProfile.js');
     const tenantAnalytics = read('server/routes/tenantAnalytics.js');
+    const nativeAnalytics = read('server/services/nativeMessageAnalytics.js');
     const tenantQrCodes = read('server/routes/tenantQrCodes.js');
     const tenantConversions = read('server/routes/tenantConversions.js');
     const tenantFacebookMessaging = read('server/routes/tenantFacebookMessaging.js');
@@ -814,6 +816,7 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     const tenantMessengerSync = read('server/routes/tenantMessengerSync.js');
     const metaPagination = read('server/services/metaPagination.js');
     const tenantUnifiedInbox = read('server/routes/tenantUnifiedInbox.js');
+    const nativeMessenger = read('server/services/nativeMessengerMessage.js');
     const tenantWhatsAppMessaging = read('server/routes/tenantWhatsAppMessaging.js');
     const tenantWhatsAppMedia = read('server/routes/tenantWhatsAppMedia.js');
 
@@ -831,7 +834,9 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     assert.match(tenantAutomation, /router\.get\('\/summary'/);
     assert.match(portal, /router\.use\('\/contacts', tenantContactsRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post|put|delete)\('\/contacts/);
-    assert.match(tenantContacts, /ON CONFLICT\(tenant_id, phone\) DO NOTHING/);
+    assert.match(tenantContacts, /createNativeContact\(database,\s*\{\s*tenantId/);
+    assert.match(nativeContacts, /ON CONFLICT\(tenant_id,\s*phone\) DO NOTHING/);
+    assert.match(nativeContacts, /WHERE id=\? AND tenant_id=\?/);
     assert.doesNotMatch(tenantContacts, /SELECT c\.\*/);
     assert.match(portal, /router\.use\('\/billing', tenantBillingRouter\)/);
     assert.doesNotMatch(portal, /router\.get\('\/billing\//);
@@ -847,7 +852,9 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     assert.match(tenantProfile, /requestMeta/);
     assert.match(portal, /router\.use\('\/analytics', tenantAnalyticsRouter\)/);
     assert.doesNotMatch(portal, /router\.get\('\/analytics\/summary'/);
-    assert.match(tenantAnalytics, /SUM\(CASE WHEN direction = 'outgoing'/);
+    assert.match(tenantAnalytics, /readNativeMessageAnalytics\(\{database,tenantId,phoneNumberId\}\)/);
+    assert.match(nativeAnalytics, /SUM\(CASE WHEN direction\s*=\s*'outgoing'/);
+    assert.match(nativeAnalytics, /FROM messages WHERE tenant_id=\?/);
     assert.match(portal, /router\.use\('\/qr-codes', tenantQrCodesRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post|delete)\('\/qr-codes/);
     assert.match(tenantQrCodes, /encodeURIComponent\(qrCodeId\)/);
@@ -865,7 +872,7 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     assert.match(portal, /router\.use\('\/', tenantMetaOnboardingRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post|delete)\('\/(meta|facebook|whatsapp)/);
     assert.doesNotMatch(tenantMetaOnboarding, /setInterval\(/);
-    assert.match(tenantMetaOnboarding, /session\.tenantId !== tenantId \|\| session\.kind !== kind/);
+    assert.match(tenantMetaOnboarding, /session\.tenantId !== principal\.tenantId \|\| session\.principal !== principalBinding\(principal\) \|\| session\.kind !== kind/);
     assert.match(tenantMetaOnboarding, /WHERE id = \? AND tenant_id = \?/);
     assert.match(tenantMetaOnboarding, /phone_numbers\?fields=id,display_phone_number,verified_name,quality_rating,status,name_status&limit=100/);
     assert.match(tenantMetaOnboarding, /authorizedPhoneIds\.has\(phoneNumberId\)/);
@@ -892,7 +899,9 @@ test('all tenant portal mounts apply the centralized tenant policy', () => {
     assert.match(portal, /router\.use\('\/', tenantUnifiedInboxRouter\)/);
     assert.doesNotMatch(portal, /router\.(get|post)\('\/(mark-read|unified)/);
     assert.match(tenantUnifiedInbox, /WHERE id = \? AND tenant_id = \? AND user_psid = \?/);
-    assert.match(tenantUnifiedInbox, /WHERE id = \? AND tenant_id = \? AND is_active = 1/);
+    assert.match(tenantUnifiedInbox, /createNativeMessengerMessageCommand\(\{\s*database/);
+    assert.match(nativeMessenger, /WHERE id = \? AND tenant_id = \? AND is_active = 1/);
+    assert.match(nativeMessenger, /WHERE user_psid = \? AND linked_page_id = \? AND tenant_id = \? AND is_active = 1/);
     assert.match(tenantUnifiedInbox, /normalizeWhatsAppRecipient/);
     assert.match(tenantUnifiedInbox, /'last_message', database/);
     assert.doesNotMatch(tenantUnifiedInbox, /SELECT \* FROM (tenants|tenant_pages|fb_conversations)/);
@@ -1046,7 +1055,15 @@ test('every lazy-loaded route exposes a semantic page title through shared primi
     assert.ok(routeImports.length >= 35, 'expected all public, admin, and tenant lazy routes');
     assert.equal(new Set(routeImports).size, routeImports.length, 'lazy route page imports must be unique');
     for (const routePath of routeImports) {
-        const page = read(routePath);
+        let page = read(routePath);
+        // A pure page re-export must expose the actual delegated component's
+        // title. Do not require a second h1 merely to satisfy a file regex.
+        const delegated = page.match(/^\s*import\s+([A-Za-z_]\w*)\s+from\s+['"]([^'"]+)['"];?\s*export\s+default\s+\1;?\s*$/);
+        if (delegated) {
+            const target = path.resolve(rootDir, path.dirname(routePath), delegated[2] + '.jsx');
+            assert.ok(target.startsWith(path.join(rootDir, 'client/src/') ), 'page delegation must remain inside the actual client source');
+            page = fs.readFileSync(target, 'utf8');
+        }
         assert.match(
             page,
             /(?:component="h1"|<h1\b|<PageTitle\b)/,

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Box, CircularProgress, Typography, Alert } from '@mui/material';
+import { Box, CircularProgress, Typography } from '@mui/material';
 import { Facebook as FacebookIcon } from '@mui/icons-material';
 import { tx } from "../../i18n/tx";
 import { PageTitle } from '../../components/Layout/PageTitle';
@@ -9,6 +9,8 @@ const FacebookOAuthCallback = () => {
     const code = params.get('code');
     const state = params.get('state');
     const errorParam = params.get('error');
+    // Keep the single-use code out of browser history after capturing the relay.
+    window.history.replaceState(null, '', window.location.pathname);
     if (window.opener) {
       if (code && state) {
         window.opener.postMessage({
@@ -19,6 +21,7 @@ const FacebookOAuthCallback = () => {
       } else if (errorParam) {
         window.opener.postMessage({
           type: 'FB_OAUTH_ERROR',
+          state,
           error: errorParam,
           error_description: params.get('error_description') || ''
         }, window.location.origin);

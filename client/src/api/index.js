@@ -4,6 +4,7 @@ import { portalCoreMethods } from './portalCore';
 import { tenantFacebookMethods } from './tenantFacebook';
 import { tenantMetaMethods } from './tenantMeta';
 import { savanaIntegrationMethods } from './savanaIntegrations';
+import { savanaConsentMethods } from './savanaConsents';
 import { notificationMethods } from './notifications';
 
 // Keep browser traffic same-origin by default. In development Vite proxies
@@ -319,6 +320,7 @@ Object.assign(
     tenantFacebookMethods,
     tenantMetaMethods,
     savanaIntegrationMethods,
+    savanaConsentMethods,
     notificationMethods,
 );
 

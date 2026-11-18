@@ -231,7 +231,7 @@ export const translations = {
       inbox: 'الرسائل',
       billing: 'الفوترة والتسعير',
       tenantBilling: 'الرصيد والفوترة',
-      posIntegration: 'ربط منصات سافانا',
+      posIntegration: 'الربط والبيانات',
       whatsappConsole: 'منصة واتساب',
       whatsappConnect: 'ربط WhatsApp',
       whatsappAnalytics: 'تحليلات WhatsApp',
@@ -295,6 +295,7 @@ export const translations = {
       repairSuccess: 'تم تجديد اشتراك Webhook لهذه الصفحة.',
       repairFailed: 'تعذر تجديد اشتراك Webhook. تحقق من صلاحية الربط وأعد المحاولة.',
       webhookMissingLive: 'لم يظهر اشتراك التطبيق لدى Meta. جدّد الاشتراك لاستقبال الأحداث.',
+      messageEchoesMissing: 'الإعداد المسجل لا يتضمن تأكيدات الرسائل المرسلة. أعد التفويض أو استخدم إصلاح الاشتراك لتحديثه.',
       reauthorize: 'إعادة التفويض',
       connectedAt: 'تاريخ الربط: {date}',
       disconnectPartial: 'أُوقف ربط الصفحة محلياً وحُفظت محادثاتها، لكن تعذر إلغاء الاشتراك لدى Meta. أعد ربط الصفحة أو تواصل مع الدعم لإكمال الإلغاء.'
@@ -3021,7 +3022,7 @@ export const translations = {
       inbox: 'Messages',
       billing: 'Billing & Pricing',
       tenantBilling: 'Balance & Billing',
-      posIntegration: 'Savana Platform Integrations',
+      posIntegration: 'Connections & data',
       whatsappConsole: 'WhatsApp Console',
       whatsappConnect: 'Connect WhatsApp',
       whatsappAnalytics: 'WhatsApp Analytics',
@@ -3085,6 +3086,7 @@ export const translations = {
       repairSuccess: 'The page webhook subscription was renewed.',
       repairFailed: 'Could not renew the webhook subscription. Check the connection and try again.',
       webhookMissingLive: 'Meta does not show this app as subscribed. Renew the subscription to receive events.',
+      messageEchoesMissing: 'The saved subscription does not include sent-message confirmations. Reconnect Facebook or repair the subscription to update it.',
       reauthorize: 'Reconnect Facebook',
       connectedAt: 'Connected: {date}',
       disconnectPartial: 'The page was disconnected locally and its conversations were preserved, but Meta did not confirm the unsubscribe. Reconnect the page or contact support to finish it.'

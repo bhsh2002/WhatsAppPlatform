@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { once } from 'node:events';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import { createTenantMetaOnboardingRouter } from '../routes/tenantMetaOnboarding.js';
+import { persistVerifiedWhatsAppNumbers } from '../services/verifiedWhatsAppNumbers.js';
 
-function createDatabase() {
-    const db = new Database(':memory:');
+function createDatabase(filename = ':memory:') {
+    const db = new Database(filename);
     db.exec(`
         CREATE TABLE tenants (
             id INTEGER PRIMARY KEY,
             name TEXT,
+            status TEXT DEFAULT 'Active',
             waba_id TEXT,
             phone_number_id TEXT,
             business_id TEXT,
@@ -96,9 +103,71 @@ function createDatabase() {
             updated_at TEXT
         );
         INSERT INTO tenants (id, name) VALUES (1, 'Tenant A'), (2, 'Tenant B');
+        CREATE TABLE users(id INTEGER PRIMARY KEY,tenant_id INTEGER,role TEXT,is_active INTEGER,auth_version INTEGER,tokens_revoked_at TEXT);
+        INSERT INTO users VALUES(1,1,'tenant',1,0,NULL),(2,2,'tenant',1,0,NULL);
+        CREATE TABLE revoked_tokens(jti TEXT PRIMARY KEY);
     `);
     return db;
 }
+
+const nativeIssuedAt = Math.floor(Date.now() / 1000);
+const nativeOwner = (tenantId = 1) => ({ id: tenantId, tenant_id: tenantId, role: 'tenant',
+    jti: `synthetic-legacy-native-${tenantId}`, auth_version: 0, iat: nativeIssuedAt, exp: nativeIssuedAt + 3600 });
+
+test('legacy WhatsApp real HTTP awaits cannot outlive native role, tenant, auth version, user or JWT revocation', async t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-legacy-owned-auth-'));
+    const db = createDatabase(path.join(directory, 'owned.sqlite')); enableMultipleWhatsAppNumbers(db);
+    let change = () => {}; const calls = [];
+    const provider = http.createServer(async (req, res) => {
+        const url = new URL(req.url, 'http://127.0.0.1'); calls.push({ method: req.method, path: url.pathname });
+        let value;
+        if (req.method === 'POST' && url.pathname === '/v25.0/oauth/access_token') {
+            let raw = ''; for await (const chunk of req) raw += chunk;
+            assert.equal(new URLSearchParams(raw).get('code'), 'owned-legacy-code'); value = { access_token: 'synthetic-legacy-token' };
+        } else if (req.method === 'GET' && url.pathname === '/v25.0/owned-waba/phone_numbers') {
+            assert.equal(req.headers.authorization, 'Bearer synthetic-legacy-token');
+            change(); value = { data: [{ id: 'owned-phone', display_phone_number: '+218 91 000 0000' }] };
+        } else if (req.method === 'POST' && url.pathname === '/v25.0/owned-waba/subscribed_apps') value = { success: true };
+        else { res.writeHead(404).end('{}'); return; }
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
+    });
+    provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
+    t.after(async () => { provider.closeAllConnections(); await new Promise(resolve => provider.close(resolve)); db.close(); fs.rmSync(directory, { recursive: true }); });
+    const router = createTenantMetaOnboardingRouter({ database: db, ...createDependencies({
+        config: { ...config, apiBase: `http://127.0.0.1:${provider.address().port}/v25.0` },
+        requestMeta: async (url, options) => { const response = await fetch(url, options); return { ok: response.ok, status: response.status, data: await response.json() }; },
+    }) });
+    const mutations = [
+        () => db.prepare('UPDATE users SET is_active=0 WHERE id=1').run(),
+        () => db.prepare("UPDATE users SET role='employee' WHERE id=1").run(),
+        () => db.prepare('UPDATE users SET tenant_id=2 WHERE id=1').run(),
+        () => db.prepare('UPDATE users SET auth_version=1 WHERE id=1').run(),
+        () => db.prepare('INSERT INTO revoked_tokens(jti) VALUES(?)').run(nativeOwner().jti),
+    ];
+    for (const mutation of mutations) {
+        change = mutation;
+        const response = await invokeRoute(router, 'post', '/whatsapp/connect', { user: nativeOwner(),
+            body: { code: 'owned-legacy-code', phone_number_id: 'owned-phone', waba_id: 'owned-waba' } });
+        assert.equal(response.statusCode, 403); assert.equal(response.body.code, 'WHATSAPP_OWNER_SESSION_REQUIRED');
+        assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_whatsapp_numbers').get().n, 0);
+        assert.equal(db.prepare("SELECT COUNT(*) n FROM activity_logs WHERE event_type='whatsapp_connected'").get().n, 0);
+        assert.equal(db.prepare('SELECT access_token_encrypted FROM tenants WHERE id=1').get().access_token_encrypted, null);
+        db.prepare("UPDATE users SET is_active=1,role='tenant',tenant_id=1,auth_version=0 WHERE id=1").run(); db.exec('DELETE FROM revoked_tokens');
+    }
+    assert.equal(calls.filter(row => row.path.endsWith('/oauth/access_token')).length, mutations.length);
+    assert.equal(calls.filter(row => row.path.endsWith('/subscribed_apps')).length, 0);
+    const count = calls.length;
+    const expired = await invokeRoute(router, 'post', '/whatsapp/connect', { user: { ...nativeOwner(), exp: 1 },
+        body: { code: 'owned-legacy-code', phone_number_id: 'owned-phone', waba_id: 'owned-waba' } });
+    assert.equal(expired.statusCode, 403); assert.equal(calls.length, count);
+});
+
+test('verified native number command refuses an omitted current-principal verifier before any write', t => {
+    const db = createDatabase(); t.after(() => db.close());
+    assert.throws(() => persistVerifiedWhatsAppNumbers({ database: db, tenantId: 1,
+        phones: [{ id: 'owned-phone' }], selectedPhoneId: 'owned-phone', wabaId: 'owned-waba', encryptedToken: 'synthetic-cipher' }), TypeError);
+    assert.equal(db.prepare('SELECT phone_number_id FROM tenants WHERE id=1').get().phone_number_id, null);
+});
 
 function enableMultipleWhatsAppNumbers(db) {
     db.exec(`
@@ -189,11 +258,11 @@ const invokeRoute = (router, method, routePath, request = {}) => new Promise((re
 
 async function connectFacebook(router, tenantId = 1) {
     const auth = await invokeRoute(router, 'get', '/facebook/auth-url', {
-        user: { tenant_id: tenantId },
+        user: nativeOwner(tenantId),
     });
     assert.equal(auth.statusCode, 200);
     return invokeRoute(router, 'post', '/facebook/connect', {
-        user: { tenant_id: tenantId },
+        user: nativeOwner(tenantId),
         body: { code: 'oauth-code', state: auth.body.state },
     });
 }
@@ -232,27 +301,27 @@ test('Facebook OAuth state is tenant-bound and page tokens never return to the b
     });
 
     const configResult = await invokeRoute(router, 'get', '/meta/config', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
     });
     assert.equal(configResult.body.facebook_oauth_available, true);
     assert.equal(configResult.body.whatsapp_signup_available, true);
     assert.ok(!Object.hasOwn(configResult.body, 'app_secret'));
 
     const auth = await invokeRoute(router, 'get', '/facebook/auth-url', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
     });
     assert.equal(auth.body.state.length, 64);
     assert.match(auth.body.url, /client_id=app-id/);
     assert.doesNotMatch(auth.body.url, /app-secret/);
     const wrongTenant = await invokeRoute(router, 'post', '/facebook/connect', {
-        user: { tenant_id: 2 },
+        user: nativeOwner(2),
         body: { code: 'oauth-code', state: auth.body.state },
     });
     assert.equal(wrongTenant.statusCode, 400);
     assert.equal(calls.length, 0);
 
     const connected = await invokeRoute(router, 'post', '/facebook/connect', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         body: { code: 'oauth-code', state: auth.body.state },
     });
     assert.equal(connected.statusCode, 200);
@@ -335,7 +404,7 @@ test('Facebook account discovery follows bounded cursor pagination without putti
     assert.equal(connected.body.pages_truncated, false);
 
     const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         body: { link_state: connected.body.link_state, page_ids: ['page-2'] },
     });
     assert.equal(linked.statusCode, 200);
@@ -387,7 +456,7 @@ test('Facebook diagnostics and Meta review snapshots remain tenant-scoped and bo
     });
 
     const diagnostics = await invokeRoute(router, 'get', '/facebook/diagnostics', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
     });
     assert.equal(diagnostics.statusCode, 200);
     assert.deepEqual(diagnostics.body.pages.map(page => page.page_id), ['page-a']);
@@ -396,17 +465,17 @@ test('Facebook diagnostics and Meta review snapshots remain tenant-scoped and bo
     assert.doesNotMatch(JSON.stringify(diagnostics.body), /tenant-a|tenant-b|page-a-token|page-b-token/);
 
     const readiness = await invokeRoute(router, 'get', '/meta-review/readiness', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
     });
     assert.equal(readiness.body.tenant_id, 1);
     const snapshots = await invokeRoute(router, 'get', '/meta-review/snapshots', {
-        user: { tenant_id: 2 },
+        user: nativeOwner(2),
         query: { limit: '999' },
     });
     assert.deepEqual(snapshots.body.snapshots, [{ tenant_id: 2 }]);
     assert.deepEqual(snapshotCalls, [{ tenantId: 2, limit: 50 }]);
     const saved = await invokeRoute(router, 'post', '/meta-review/snapshot', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
     });
     assert.equal(saved.statusCode, 201);
     assert.equal(saved.body.snapshot.tenant_id, 1);
@@ -460,7 +529,7 @@ test('page linking keeps tokens server-side, subscribes by authorization and dis
     assert.equal(connected.statusCode, 200);
 
     const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         body: { link_state: connected.body.link_state, page_ids: ['page/1', 'missing-page'] },
     });
     assert.equal(linked.statusCode, 200);
@@ -498,13 +567,13 @@ test('page linking keeps tokens server-side, subscribes by authorization and dis
     assert.doesNotMatch(subscribeCall.url + subscribeCall.init.body, /page-token/);
 
     const otherTenant = await invokeRoute(router, 'delete', '/facebook/disconnect/:linkedPageId', {
-        user: { tenant_id: 2 },
+        user: nativeOwner(2),
         params: { linkedPageId: String(page.id) },
     });
     assert.equal(otherTenant.statusCode, 404);
     const callCountBeforeOwnerDelete = calls.length;
     const disconnected = await invokeRoute(router, 'delete', '/facebook/disconnect/:linkedPageId', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         params: { linkedPageId: String(page.id) },
     });
     assert.equal(disconnected.statusCode, 200);
@@ -531,7 +600,7 @@ test('page linking keeps tokens server-side, subscribes by authorization and dis
 
     const reconnected = await connectFacebook(router);
     const relinked = await invokeRoute(router, 'post', '/facebook/link-pages', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         body: { link_state: reconnected.body.link_state, page_ids: ['page/1'] },
     });
     assert.equal(relinked.body.success, true);
@@ -572,7 +641,7 @@ test('Facebook disconnect reports a partial result when Meta unsubscribe fails w
         }),
     });
     const disconnected = await invokeRoute(router, 'delete', '/facebook/disconnect/:linkedPageId', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         params: { linkedPageId: String(pageId) },
     });
 
@@ -617,7 +686,7 @@ test('Facebook disconnect does not expose a token-bearing transport exception in
     });
 
     const disconnected = await invokeRoute(router, 'delete', '/facebook/disconnect/:linkedPageId', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         params: { linkedPageId: String(pageId) },
     });
 
@@ -663,7 +732,7 @@ test('page linking returns a partial result and the webhook error when subscript
     });
     const connected = await connectFacebook(router);
     const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
         body: { link_state: connected.body.link_state, page_ids: ['page-1'] },
     });
 
@@ -736,7 +805,7 @@ test('page linking rejects ownership by another tenant without exposing that ten
     assert.equal(connected.statusCode, 200);
 
     const linked = await invokeRoute(router, 'post', '/facebook/link-pages', {
-        user: { tenant_id: 2 },
+        user: nativeOwner(2),
         body: { link_state: connected.body.link_state, page_ids: ['page-owned'] },
     });
 
@@ -786,11 +855,11 @@ test('WhatsApp onboarding verifies WABA phone ownership before encrypted tenant 
     });
 
     const initial = await invokeRoute(router, 'get', '/whatsapp/status', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(1),
     });
     assert.equal(initial.body.connected, false);
     const mismatched = await invokeRoute(router, 'post', '/whatsapp/connect', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(),
         body: { code: 'wa-code', waba_id: 'waba-1', phone_number_id: 'phone-other' },
     });
     assert.equal(mismatched.statusCode, 400);
@@ -798,7 +867,7 @@ test('WhatsApp onboarding verifies WABA phone ownership before encrypted tenant 
     assert.equal(db.prepare('SELECT waba_id FROM tenants WHERE id = 1').get().waba_id, null);
 
     const connected = await invokeRoute(router, 'post', '/whatsapp/connect', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(),
         body: {
             code: 'wa-code',
             waba_id: 'waba-1',
@@ -827,7 +896,7 @@ test('WhatsApp onboarding verifies WABA phone ownership before encrypted tenant 
     assert.equal(calls.at(-1).init.headers.Authorization, 'Bearer wa-token');
 
     const conflict = await invokeRoute(router, 'post', '/whatsapp/connect', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(),
         body: { code: 'new-code', waba_id: 'waba-1', phone_number_id: 'phone-1' },
     });
     assert.equal(conflict.statusCode, 409);
@@ -877,7 +946,7 @@ test('WhatsApp onboarding imports every authorized WABA number without replacing
     });
 
     const connected = await invokeRoute(router, 'post', '/whatsapp/connect', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(),
         body: {
             code: 'multi-code',
             waba_id: 'waba-multi',
@@ -957,7 +1026,7 @@ test('WhatsApp onboarding follows phone-number pagination using only the cursor'
         ...createDependencies({ requestMeta }),
     });
     const response = await invokeRoute(router, 'post', '/whatsapp/connect', {
-        user: { tenant_id: 1 },
+        user: nativeOwner(),
         body: { code: 'wa-code', waba_id: 'waba-paged', phone_number_id: 'phone-2' },
     });
     assert.equal(response.statusCode, 200);
@@ -965,4 +1034,38 @@ test('WhatsApp onboarding follows phone-number pagination using only the cursor'
     assert.equal(phoneCalls.length, 2);
     assert.ok(phoneCalls.every(call => call.init.headers.Authorization === 'Bearer paged-token'));
     assert.ok(phoneCalls.every(call => !call.url.includes('private-token') && !call.url.includes('access_token')));
+});
+
+test('server-owned OAuth endpoint supports only explicit owned loopback and browser query cannot change its destination',async t=>{
+    const database=createDatabase();t.after(()=>database.close());
+    const router=createTenantMetaOnboardingRouter({database,...createDependencies(),
+        authorizationEndpoint:'http://127.0.0.1:43123/owned-provider/oauth',allowLoopbackAuthorizationEndpoint:true});
+    const auth=await invokeRoute(router,'get','/facebook/auth-url',{user: nativeOwner(1),query:{authorization_endpoint:'https://untrusted.invalid/oauth'}});
+    const url=new URL(auth.body.url);assert.equal(url.origin,'http://127.0.0.1:43123');assert.equal(url.pathname,'/owned-provider/oauth');
+    assert.equal(url.searchParams.get('client_id'),config.appId);assert.equal(url.searchParams.get('redirect_uri'),config.redirectUri);
+    assert.equal(url.searchParams.get('state'),auth.body.state);assert.equal(url.searchParams.get('scope'),config.reviewScopes.join(','));
+    for(const endpoint of ['http://external.invalid/oauth','http://127.0.0.1:43123/oauth?redirect=untrusted','https://user:password@untrusted.invalid/oauth','https://example.invalid/oauth#fragment']) {
+        assert.throws(()=>createTenantMetaOnboardingRouter({database,...createDependencies(),authorizationEndpoint:endpoint,allowLoopbackAuthorizationEndpoint:true}),TypeError);
+    }
+    assert.throws(()=>createTenantMetaOnboardingRouter({database,...createDependencies(),authorizationEndpoint:'http://127.0.0.1:43123/oauth'}),TypeError);
+});
+
+
+test('page linking requires explicit provider success before storing webhook subscription readiness',async t=>{
+    for(const ack of [{}, {success:false}, {success:'true'}]) {
+        const database=createDatabase();t.after(()=>database.close());
+        const requestMeta=async(url,init={})=>{
+            if(url.endsWith('/oauth/access_token'))return {ok:true,status:200,data:{access_token:new URLSearchParams(init.body).has('grant_type')?'long-token':'short-token'}};
+            if(url.includes('/debug_token'))return {ok:true,status:200,data:{data:{is_valid:true,scopes:config.reviewScopes}}};
+            if(url.includes('/me?fields='))return {ok:true,status:200,data:{id:'synthetic-owner',name:'Synthetic Owner'}};
+            if(url.includes('/me/accounts?'))return {ok:true,status:200,data:{data:[{id:'synthetic-page',name:'Synthetic page',access_token:'synthetic-page-token'}]}};
+            if(url.endsWith('/synthetic-page/subscribed_apps'))return {ok:true,status:200,data:ack};
+            assert.fail('Unexpected synthetic Meta request');
+        };
+        const router=createTenantMetaOnboardingRouter({database,...createDependencies({requestMeta})});
+        const connected=await connectFacebook(router);
+        const response=await invokeRoute(router,'post','/facebook/link-pages',{user: nativeOwner(1),body:{link_state:connected.body.link_state,page_ids:['synthetic-page']}});
+        assert.equal(response.body.ready_count,0);assert.equal(response.body.linked[0].webhook_subscribed,false);
+        assert.deepEqual(database.prepare('SELECT webhook_subscribed,subscribed_fields FROM tenant_pages').get(),{webhook_subscribed:0,subscribed_fields:'[]'});
+    }
 });

@@ -2,7 +2,7 @@ import { META_API_BASE } from '../config/index.js';
 import {
     buildRichTemplateContent,
     buildTemplateComponentsFromMapping,
-} from './messaging.js';
+} from './messageTemplateContent.js';
 
 export const BROADCAST_JOB_COLUMNS = `
     id, tenant_id, status, template_name, template_language,
@@ -84,6 +84,43 @@ export function createBroadcastProcessor({
     };
 
     return async function processBroadcastJob(jobId, params) {
+        if (params.collaboration) {
+            const { tenantId, recipients, collaboration } = params;
+            if (typeof collaboration.sendRecipient !== 'function' || !Array.isArray(recipients)) {
+                throw new TypeError('Collaborative broadcasts require the native fenced recipient command');
+            }
+            const claim = database.prepare(`UPDATE broadcast_jobs SET status = 'running'
+                WHERE id = ? AND tenant_id = ? AND collaborative_execution_id = ? AND status = 'pending'`)
+                .run(jobId, tenantId, collaboration.executionId);
+            if (claim.changes !== 1) throw new Error('Collaborative broadcast already claimed');
+            const results = []; let sent = 0; let failed = 0;
+            for (const recipient of recipients) {
+                try {
+                    const receipt = await collaboration.sendRecipient(recipient);
+                    results.push({ recipient_ref: recipient.recipient_ref, status: receipt.accepted ? 'sent' : 'failed', receipt });
+                    if (receipt.accepted) sent++; else failed++;
+                } catch (error) {
+                    // Keep the job running and the exact recipient unresolved.
+                    // Neither the native worker nor a retry may resend it.
+                    const unresolved = error?.deliveryUncertain === true;
+                    results.push({ recipient_ref: recipient.recipient_ref, status: unresolved ? 'unknown' : 'not_sent' });
+                    database.prepare(`UPDATE broadcast_jobs SET status = ?,sent_count = ?,failed_count = ?,results = ?,error = ?
+                        WHERE id = ? AND tenant_id = ? AND collaborative_execution_id = ?`)
+                        .run(unresolved ? 'running' : 'failed', sent, failed, JSON.stringify(results),
+                            unresolved ? 'native_outcome_unresolved' : 'native_authority_or_resource_changed',
+                            jobId, tenantId, collaboration.executionId);
+                    throw error;
+                }
+                database.prepare(`UPDATE broadcast_jobs SET sent_count = ?,failed_count = ?,progress_pct = ?,results = ?
+                    WHERE id = ? AND tenant_id = ? AND collaborative_execution_id = ?`)
+                    .run(sent, failed, Math.round(results.length / recipients.length * 100), JSON.stringify(results),
+                        jobId, tenantId, collaboration.executionId);
+            }
+            database.prepare(`UPDATE broadcast_jobs SET status = 'completed',completed_at = datetime('now'),progress_pct = 100
+                WHERE id = ? AND tenant_id = ? AND collaborative_execution_id = ?`)
+                .run(jobId, tenantId, collaboration.executionId);
+            return { job_id: String(jobId), sent, failed, results };
+        }
         const {
             tenantId,
             recipients,

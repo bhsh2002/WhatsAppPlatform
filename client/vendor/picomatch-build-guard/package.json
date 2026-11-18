@@ -1,0 +1,18 @@
+{
+  "name": "@savana-internal/picomatch-build-guard",
+  "version": "4.1.2",
+  "private": true,
+  "license": "MIT",
+  "main": "index.cjs",
+  "exports": {
+    ".": {
+      "require": "./index.cjs",
+      "import": "./index.mjs"
+    },
+    "./posix": {
+      "require": "./posix.cjs",
+      "import": "./posix.mjs"
+    }
+  },
+  "description": "Private owned prototype: Picomatch 4.0.5 engine isolated in bounded worker; restricted API, not an official patched upstream release."
+}

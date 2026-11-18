@@ -1,0 +1,2699 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Official fresh owner-journey source factory manifest",
+  "type": "object",
+  "required": [
+    "format",
+    "generation",
+    "platform",
+    "source_revision",
+    "source_sha256",
+    "entrypoint",
+    "factory_owns_state",
+    "loads_real_env_or_shared_database",
+    "services"
+  ],
+  "properties": {
+    "format": {
+      "const": "savana-owner-journey-factory/1"
+    },
+    "generation": {
+      "const": "owner-operational-completion-20261118"
+    },
+    "platform": {
+      "enum": [
+        "core",
+        "catalog",
+        "sawemly",
+        "wa_savana"
+      ]
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interpreter",
+        "script",
+        "sha256",
+        "args"
+      ],
+      "properties": {
+        "interpreter": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "script": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "args": {
+          "const": [
+            "--stdio"
+          ]
+        }
+      }
+    },
+    "factory_owns_state": {
+      "const": true
+    },
+    "loads_real_env_or_shared_database": {
+      "const": false
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "connect": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 0
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "subscriptions": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 1
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "portal": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 2
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "catalog": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 3
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "sawemly": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 4
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "wa_savana": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 5
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "wa_frontend": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 6
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "message_provider": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 7
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "payment_provider": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 8
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        },
+        "catalog_domain_proxy": {
+          "type": "object",
+          "required": [
+            "port_offset"
+          ],
+          "properties": {
+            "port_offset": {
+              "const": 10
+            },
+            "scheme": {
+              "enum": [
+                "http",
+                "https"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "owner_journeys": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ordinary_owner_login": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "native_pkce_accounts": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "named_activity_permissions": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "capability_availability": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "named_source_and_read_setup": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "shared_search_detail_provenance": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "authoritative_product_create_change": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "batch_duplicate_and_price_change": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "deficit_and_reconciliation": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "unknown_outcome_reconciliation": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "native_saw_measurement": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "permission_and_read_withdrawal": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "persisted_reload_resume": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "catalog_domain_owner_lifecycle": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "catalog_source_publish_lifecycle": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "offerings_owner_context": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "units_variants_owner_context": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "price_lists_owner_context": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "media_owner_context": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "inventory_sales_transfers_counts": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "shelves_owner_location": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "orders_request_fulfil_cancel": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "capacity_reservation_owner_lifecycle": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "collections_payment_refund": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "customers_purpose_consent": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "messaging_review_send_result": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "campaign_review_execute_result": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "content_review_publish_result": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "measurement_scoped_read_export": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        },
+        "owner_operations_result_fetch": {
+          "type": "object",
+          "required": [
+            "owner_entrypoints"
+          ],
+          "properties": {
+            "owner_entrypoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "service",
+                  "path"
+                ],
+                "properties": {
+                  "service": {
+                    "enum": [
+                      "connect",
+                      "subscriptions",
+                      "portal",
+                      "catalog",
+                      "sawemly",
+                      "wa_savana",
+                      "wa_frontend",
+                      "message_provider",
+                      "payment_provider",
+                      "controller",
+                      "catalog_domain_proxy"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "description": "Actual human owner flow path on declared owned service, never browser authorization claims."
+                  }
+                }
+              }
+            },
+            "capability_codes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "campaigns.execute",
+                  "campaigns.review",
+                  "collections.manage",
+                  "content.publish",
+                  "content.review",
+                  "customers.manage",
+                  "inventory.count",
+                  "inventory.facts",
+                  "inventory.read",
+                  "inventory.transfer",
+                  "measurement.export",
+                  "measurement.read",
+                  "media.manage",
+                  "messaging.review",
+                  "messaging.send",
+                  "offerings.manage",
+                  "orders.fulfil",
+                  "orders.request",
+                  "owner.operations",
+                  "prices.manage",
+                  "products.read",
+                  "products.write",
+                  "services.reserve",
+                  "shelves.read",
+                  "units.variants"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "oidc_redirect_path": {
+      "type": "string",
+      "pattern": "^/[^?#\\\\\\r\\n]*$"
+    },
+    "oidc_redirect_service": {
+      "enum": [
+        "catalog",
+        "sawemly",
+        "wa_savana",
+        "wa_frontend"
+      ]
+    },
+    "connect_callback_path": {
+      "type": "string",
+      "pattern": "^/[^?#\\\\\\r\\n]*$"
+    },
+    "connect_callback_service": {
+      "enum": [
+        "catalog",
+        "sawemly",
+        "wa_savana",
+        "wa_frontend"
+      ]
+    },
+    "cookie_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{3,80}$"
+    },
+    "command_adapter_service": {
+      "enum": [
+        "catalog",
+        "sawemly",
+        "wa_savana",
+        "wa_frontend"
+      ]
+    },
+    "command_adapter_path": {
+      "type": "string",
+      "pattern": "^/[^?#\\\\\\r\\n]*$",
+      "description": "Actual source-owner-published PUBLIC command adapter prefix, including legitimate reverse-proxy public prefix. Core signs exactly this public target."
+    },
+    "signature_target_prefix": {
+      "type": "string",
+      "description": "Optional fixed source-owned proxy public/internal target mapping; never changes the Core signed public request target and never comes from request headers."
+    },
+    "owner_action_service": {
+      "enum": [
+        "catalog",
+        "sawemly",
+        "wa_savana",
+        "wa_frontend"
+      ],
+      "description": "Actual source-owner frontend service, independent of callback/API listener."
+    },
+    "owner_action_base_path": {
+      "type": "string",
+      "description": "Optional fixed owner frontend path prefix; default empty origin. No callback-path inference."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "core"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "services": {
+            "required": [
+              "connect",
+              "subscriptions",
+              "portal"
+            ],
+            "propertyNames": {
+              "enum": [
+                "connect",
+                "portal",
+                "subscriptions"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "catalog"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "services": {
+            "required": [
+              "catalog"
+            ],
+            "propertyNames": {
+              "enum": [
+                "catalog",
+                "catalog_domain_proxy",
+                "payment_provider"
+              ]
+            }
+          }
+        },
+        "required": [
+          "oidc_redirect_path",
+          "oidc_redirect_service",
+          "connect_callback_path",
+          "connect_callback_service",
+          "cookie_name",
+          "command_adapter_service",
+          "command_adapter_path",
+          "owner_action_service"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "sawemly"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "services": {
+            "required": [
+              "sawemly"
+            ],
+            "propertyNames": {
+              "enum": [
+                "sawemly"
+              ]
+            }
+          }
+        },
+        "required": [
+          "oidc_redirect_path",
+          "oidc_redirect_service",
+          "connect_callback_path",
+          "connect_callback_service",
+          "cookie_name",
+          "command_adapter_service",
+          "command_adapter_path",
+          "owner_action_service"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "wa_savana"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "services": {
+            "required": [
+              "wa_savana"
+            ],
+            "propertyNames": {
+              "enum": [
+                "message_provider",
+                "wa_frontend",
+                "wa_savana"
+              ]
+            }
+          }
+        },
+        "required": [
+          "oidc_redirect_path",
+          "oidc_redirect_service",
+          "connect_callback_path",
+          "connect_callback_service",
+          "cookie_name",
+          "command_adapter_service",
+          "command_adapter_path",
+          "owner_action_service"
+        ]
+      }
+    }
+  ],
+  "$comment": "Manifest owner_journeys and native capability_proofs are acceptance prerequisites per relevant scenario, not readiness declarations. Exact source+script digests are checked by the actual runner; factory recomputes source digest for diagnostics."
+}

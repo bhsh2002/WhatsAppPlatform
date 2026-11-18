@@ -312,8 +312,8 @@ export class SavanaIntegrationService {
         return Object.keys(INTEGRATION_PROFILES);
     }
 
-    async availablePlatforms() {
-        if (!this.config.enabled) return [];
+    async platformDiscoveryFacts() {
+        if (!this.config.enabled) return { verified: true, availablePlatforms: [], error: false, enabled: false };
         try {
             const targets = await this.requestJson(
                 'connect',
@@ -330,16 +330,20 @@ export class SavanaIntegrationService {
             const available = new Set(
                 targets.map(target => String(target?.code || '').trim())
             );
-            return this.knownPlatforms().filter(
+            return { verified: true, availablePlatforms: this.knownPlatforms().filter(
                 platformCode => available.has(platformCode)
-            );
+            ), error: false, enabled: true };
         } catch (error) {
             console.error(
                 '[SavanaIntegrations] Platform target discovery failed closed:',
                 error.message
             );
-            return [];
+            return { verified: false, availablePlatforms: [], error: true, enabled: true };
         }
+    }
+
+    async availablePlatforms() {
+        return (await this.platformDiscoveryFacts()).availablePlatforms;
     }
 
     async bindingContext(tenantId) {

@@ -1,11 +1,15 @@
 FROM node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS build
 WORKDIR /app
+ENV NODE_OPTIONS=""
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+COPY vendor ./vendor
+RUN npm ci --include=dev --include=optional --no-fund
 COPY . .
 ARG VITE_WA_CLIENT_RELEASE
 ENV VITE_WA_CLIENT_RELEASE=${VITE_WA_CLIENT_RELEASE}
 RUN node -e 'if(!/^[0-9a-f]{64}$/.test(process.env.VITE_WA_CLIENT_RELEASE||""))process.exit(1)' \
+    && node scripts/verify-picomatch-build-guard.cjs --mode inspect \
+    && npm ls --all --include=dev --include=optional \
     && npm run build
 
 FROM nginx:alpine@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa

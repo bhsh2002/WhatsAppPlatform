@@ -1,0 +1,571 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exact owner-journey factory JSONL start request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "command",
+    "params"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command": {
+      "const": "start"
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "state_root",
+        "port_base",
+        "urls",
+        "credentials",
+        "peers",
+        "source_revision",
+        "source_sha256"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state_root": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "New owned absolute temporary directory; NOT owned_state_root."
+        },
+        "port_base": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65525
+        },
+        "urls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "connect",
+            "subscriptions",
+            "portal",
+            "catalog",
+            "sawemly",
+            "wa_savana",
+            "wa_frontend",
+            "message_provider",
+            "payment_provider",
+            "controller",
+            "catalog_domain_proxy"
+          ],
+          "properties": {
+            "connect": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "subscriptions": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "portal": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "catalog": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "sawemly": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "wa_savana": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "wa_frontend": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "message_provider": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "payment_provider": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "controller": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            },
+            "catalog_domain_proxy": {
+              "type": "string",
+              "pattern": "^https?://127\\.0\\.0\\.1:[0-9]+$"
+            }
+          }
+        },
+        "credentials": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "platform_token",
+                "callback_token",
+                "subscriptions_platform_token",
+                "subscription_signing"
+              ],
+              "properties": {
+                "platform_token": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "callback_token": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "subscriptions_platform_token": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "subscription_signing": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "connect_admin",
+                "subscriptions_admin",
+                "subscription_signing",
+                "portal_assertion",
+                "platform_tokens",
+                "callback_tokens",
+                "subscriptions_platform_tokens"
+              ],
+              "properties": {
+                "connect_admin": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "subscriptions_admin": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "subscription_signing": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "portal_assertion": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                },
+                "platform_tokens": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana"
+                  ],
+                  "properties": {
+                    "catalog": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    },
+                    "sawemly": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    },
+                    "wa_savana": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    }
+                  }
+                },
+                "callback_tokens": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana"
+                  ],
+                  "properties": {
+                    "catalog": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    },
+                    "sawemly": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    },
+                    "wa_savana": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    }
+                  }
+                },
+                "subscriptions_platform_tokens": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana"
+                  ],
+                  "properties": {
+                    "catalog": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    },
+                    "sawemly": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    },
+                    "wa_savana": {
+                      "type": "string",
+                      "minLength": 32,
+                      "description": "Ephemeral per-run private value delivered only via stdio. Never log, expose to browser, or replace with a production setting."
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "peers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "catalog": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "oidc_redirect_path",
+                "oidc_redirect_service",
+                "connect_callback_path",
+                "connect_callback_service",
+                "cookie_name",
+                "command_adapter_service",
+                "command_adapter_path",
+                "owner_action_service"
+              ],
+              "properties": {
+                "oidc_redirect_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$"
+                },
+                "oidc_redirect_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "connect_callback_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$"
+                },
+                "connect_callback_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "cookie_name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{3,80}$"
+                },
+                "command_adapter_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "command_adapter_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$",
+                  "description": "Actual source-owner-published PUBLIC command adapter prefix, including legitimate reverse-proxy public prefix. Core signs exactly this public target."
+                },
+                "signature_target_prefix": {
+                  "type": "string",
+                  "description": "Optional fixed source-owned proxy public/internal target mapping; never changes the Core signed public request target and never comes from request headers."
+                },
+                "owner_action_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ],
+                  "description": "Actual source-owner frontend service, independent of callback/API listener."
+                },
+                "owner_action_base_path": {
+                  "type": "string",
+                  "description": "Optional fixed owner frontend path prefix; default empty origin. No callback-path inference."
+                }
+              }
+            },
+            "sawemly": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "oidc_redirect_path",
+                "oidc_redirect_service",
+                "connect_callback_path",
+                "connect_callback_service",
+                "cookie_name",
+                "command_adapter_service",
+                "command_adapter_path",
+                "owner_action_service"
+              ],
+              "properties": {
+                "oidc_redirect_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$"
+                },
+                "oidc_redirect_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "connect_callback_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$"
+                },
+                "connect_callback_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "cookie_name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{3,80}$"
+                },
+                "command_adapter_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "command_adapter_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$",
+                  "description": "Actual source-owner-published PUBLIC command adapter prefix, including legitimate reverse-proxy public prefix. Core signs exactly this public target."
+                },
+                "signature_target_prefix": {
+                  "type": "string",
+                  "description": "Optional fixed source-owned proxy public/internal target mapping; never changes the Core signed public request target and never comes from request headers."
+                },
+                "owner_action_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ],
+                  "description": "Actual source-owner frontend service, independent of callback/API listener."
+                },
+                "owner_action_base_path": {
+                  "type": "string",
+                  "description": "Optional fixed owner frontend path prefix; default empty origin. No callback-path inference."
+                }
+              }
+            },
+            "wa_savana": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "oidc_redirect_path",
+                "oidc_redirect_service",
+                "connect_callback_path",
+                "connect_callback_service",
+                "cookie_name",
+                "command_adapter_service",
+                "command_adapter_path",
+                "owner_action_service"
+              ],
+              "properties": {
+                "oidc_redirect_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$"
+                },
+                "oidc_redirect_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "connect_callback_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$"
+                },
+                "connect_callback_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "cookie_name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{3,80}$"
+                },
+                "command_adapter_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ]
+                },
+                "command_adapter_path": {
+                  "type": "string",
+                  "pattern": "^/[^?#\\\\\\r\\n]*$",
+                  "description": "Actual source-owner-published PUBLIC command adapter prefix, including legitimate reverse-proxy public prefix. Core signs exactly this public target."
+                },
+                "signature_target_prefix": {
+                  "type": "string",
+                  "description": "Optional fixed source-owned proxy public/internal target mapping; never changes the Core signed public request target and never comes from request headers."
+                },
+                "owner_action_service": {
+                  "enum": [
+                    "catalog",
+                    "sawemly",
+                    "wa_savana",
+                    "wa_frontend"
+                  ],
+                  "description": "Actual source-owner frontend service, independent of callback/API listener."
+                },
+                "owner_action_base_path": {
+                  "type": "string",
+                  "description": "Optional fixed owner frontend path prefix; default empty origin. No callback-path inference."
+                }
+              }
+            }
+          }
+        },
+        "source_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "client_id",
+            "redirect_uri",
+            "issuer",
+            "discovery_url",
+            "subscriptions_url",
+            "portal_url",
+            "ingress_service",
+            "ingress_url",
+            "api_base_url",
+            "authorization_endpoint",
+            "token_endpoint",
+            "userinfo_endpoint",
+            "jwks_uri"
+          ],
+          "properties": {
+            "client_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "redirect_uri": {
+              "type": "string",
+              "minLength": 1
+            },
+            "issuer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "discovery_url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "subscriptions_url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "portal_url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ingress_service": {
+              "const": "portal"
+            },
+            "ingress_url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_base_url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "authorization_endpoint": {
+              "type": "string",
+              "minLength": 1
+            },
+            "token_endpoint": {
+              "type": "string",
+              "minLength": 1
+            },
+            "userinfo_endpoint": {
+              "type": "string",
+              "minLength": 1
+            },
+            "jwks_uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "This matches the actual runner keys. No owned_state_root, ephemeral_service_credentials or oidc object. Native identity is populated from actual Core HTTP OIDC-client registration. Core-only smoke may have peers:{} and no identity."
+}

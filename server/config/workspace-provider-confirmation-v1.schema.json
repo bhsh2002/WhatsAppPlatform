@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:savana:workspace:provider-confirmation:1",
+  "$defs": {
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch Id"
+        },
+        "warehouse_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warehouse Id"
+        }
+      },
+      "required": [
+        "organization_id",
+        "activity_id"
+      ],
+      "title": "Scope",
+      "type": "object"
+    },
+    "ServiceEnrollmentResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "enrollment_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Enrollment Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "catalog",
+            "wa_savana",
+            "sawemly"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "accepted_scopes": {
+          "items": {
+            "enum": [
+              "savana.products.sync",
+              "savana.collaboration.v1"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Accepted Scopes",
+          "type": "array"
+        },
+        "public_key_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Public Key Fingerprint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enrollment_id",
+        "organization_id",
+        "platform",
+        "external_tenant_id",
+        "display_name",
+        "version",
+        "accepted_scopes",
+        "public_key_fingerprint"
+      ],
+      "title": "ServiceEnrollmentResponse",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "provider_ref": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Provider Ref",
+      "type": "string"
+    },
+    "activity_id": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Activity Id",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope"
+    },
+    "label": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "enrollment_version": {
+      "minimum": 1,
+      "title": "Enrollment Version",
+      "type": "integer"
+    },
+    "enrollment": {
+      "$ref": "#/$defs/ServiceEnrollmentResponse"
+    },
+    "grants_created": {
+      "const": false,
+      "default": false,
+      "title": "Grants Created",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "prepared",
+        "confirmed"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider_ref",
+    "activity_id",
+    "scope",
+    "label",
+    "enrollment_version",
+    "enrollment",
+    "status"
+  ],
+  "title": "WorkspaceProviderConfirmation",
+  "type": "object"
+}

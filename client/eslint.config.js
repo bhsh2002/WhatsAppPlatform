@@ -5,7 +5,9 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Immutable reviewed third-party/adapter bytes are checked by the mandatory
+  // 19-file integrity gate; do not rewrite upstream source for browser lint.
+  globalIgnores(['dist', 'vendor/picomatch-build-guard/**']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

@@ -18,6 +18,9 @@ const CATEGORIES = Object.freeze([
     { name: 'consumer_enrollment', table: 'savana_operational_consumer_enrollments', column: 'state', states: ['prepared', 'inflight', 'unknown'] },
     { name: 'owner_portal_login', table: 'savana_owner_portal_sessions', column: 'state', states: ['authorizing'] },
     { name: 'owner_portal_intents', table: 'savana_owner_portal_intents', column: 'state', states: ['prepared', 'inflight', 'unknown'] },
+    { name: 'collaborative_executions', table: 'savana_collaborative_executions', column: 'state', states: ['executing', 'unknown'] },
+    { name: 'collaborative_effects', table: 'savana_collaborative_effects', column: 'state', states: ['dispatching', 'unknown'] },
+    { name: 'workspace_intents', table: 'savana_workspace_intents', column: 'state', states: ['prepared', 'inflight', 'unknown'] },
 ]);
 
 export const getEgressInflightInventory = database => {

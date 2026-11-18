@@ -1,0 +1,3043 @@
+{
+  "format": "peer-native-command-options-actual-http/1",
+  "recorded_at": "2026-11-18T10:12:03.111533+00:00",
+  "status": "actual_owned_HTTP_nonempty_options_source_stable_during_capture",
+  "source_freeze": false,
+  "joint_run_ready": false,
+  "native_four_application_acceptance": false,
+  "production_accepted": false,
+  "scope": "Response-only owned Core/Portal and actual signed native account/goods fixtures. Existing test utility technical grants/namespace/source setup explicitly permitted; no normal owner browser/native-page acceptance claim.",
+  "source_before": {
+    "services/connect/src/savana_connect/workspace_models.py": "5db04b7aae3f6e661e54382044a15eb66c33ba9bb97d311da75f99b22175c71d",
+    "services/connect/src/savana_connect/workspace_authorization.py": "30c5cab2aa2d0ce5974f11a10edcc89fb4176eb6d9b546cde5b4c74cffa6614e",
+    "services/connect/src/savana_connect/sourceadapter.py": "1fa2626376c3073b1e61ca28b8b573cd7f26d63f91fa4d7de5ed935c87aef453",
+    "services/connect/src/savana_connect/workspace.py": "5e43ee1aaa5cb6c2a43639310259829783205f3f7ae3592fd15790dee7b39fcf"
+  },
+  "source_after": {
+    "services/connect/src/savana_connect/workspace_models.py": "5db04b7aae3f6e661e54382044a15eb66c33ba9bb97d311da75f99b22175c71d",
+    "services/connect/src/savana_connect/workspace_authorization.py": "30c5cab2aa2d0ce5974f11a10edcc89fb4176eb6d9b546cde5b4c74cffa6614e",
+    "services/connect/src/savana_connect/sourceadapter.py": "1fa2626376c3073b1e61ca28b8b573cd7f26d63f91fa4d7de5ed935c87aef453",
+    "services/connect/src/savana_connect/workspace.py": "5e43ee1aaa5cb6c2a43639310259829783205f3f7ae3592fd15790dee7b39fcf"
+  },
+  "http_observations": [
+    {
+      "example": "service_actual_nonempty_native_options",
+      "method": "GET",
+      "route_template": "/api/member/organizations/{organization_id}/integration/workspace",
+      "status": 200
+    },
+    {
+      "example": "service_after_actual_permission_withdrawal",
+      "method": "GET",
+      "route_template": "/api/member/organizations/{organization_id}/integration/workspace",
+      "status": 200
+    },
+    {
+      "example": "physical_actual_nonempty_native_options",
+      "method": "GET",
+      "route_template": "/api/member/organizations/{organization_id}/integration/workspace",
+      "status": 200
+    }
+  ],
+  "actual_closed_native_options_validated": 5,
+  "native_business_validation_or_effect_RPC_during_metadata_GET": 0,
+  "new_durable_command_or_native_business_effects": 0,
+  "product_command_options_unchanged_and_separate": true,
+  "schema": {
+    "path": "peer-owner-workspace-response-options-v3.schema.json",
+    "sha256": "279a8a48322652f5a1ac19f66b0e7ccafb5ebc996d09860453904c50a516b76c"
+  },
+  "examples": {
+    "service_actual_nonempty_native_options": {
+      "spec_version": "1.0",
+      "organization": {
+        "id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+        "name": "Synthetic operational organization A"
+      },
+      "actor": {
+        "account_id": "69f2484e-f001-4937-b00a-995bd5dd326e",
+        "display_name": "Synthetic owner"
+      },
+      "activities": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "label": "Synthetic activity A",
+          "scope": {
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+            "warehouse_id": null
+          },
+          "version": 1,
+          "my_actions": [
+            "source.request",
+            "source.approve",
+            "origin.request",
+            "origin.approve",
+            "read.request",
+            "read.approve",
+            "fields.approve",
+            "source.manage",
+            "read.manage",
+            "reviews.read",
+            "operations.inspect",
+            "commands.read",
+            "commands.request",
+            "commands.approve",
+            "commands.execute",
+            "commands.reconcile"
+          ],
+          "can_manage_people": true,
+          "permissions": [
+            {
+              "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+              "version": 2,
+              "actions": [
+                "source.request",
+                "source.approve",
+                "origin.request",
+                "origin.approve",
+                "read.request",
+                "read.approve",
+                "fields.approve",
+                "source.manage",
+                "read.manage",
+                "reviews.read",
+                "operations.inspect",
+                "commands.read",
+                "commands.request",
+                "commands.approve",
+                "commands.execute",
+                "commands.reconcile"
+              ],
+              "expires_at": "2026-11-18T10:42:01.044998+00:00"
+            },
+            {
+              "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+              "version": 2,
+              "actions": [
+                "source.request",
+                "source.approve",
+                "origin.request",
+                "origin.approve",
+                "read.request",
+                "read.approve",
+                "fields.approve",
+                "source.manage",
+                "read.manage",
+                "reviews.read",
+                "operations.inspect",
+                "commands.read",
+                "commands.request",
+                "commands.approve",
+                "commands.execute",
+                "commands.reconcile"
+              ],
+              "expires_at": "2026-11-18T10:42:01.051244+00:00"
+            }
+          ],
+          "capability_grants": [
+            {
+              "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+              "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+              "capability_code": "services.reserve",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "starts_at",
+                "ends_at",
+                "note"
+              ],
+              "resource_refs": [
+                "native-service-room-1",
+                "native-service-room-2"
+              ],
+              "resource_policy": "selected",
+              "expires_at": "2026-11-18T10:42:01.499059+00:00",
+              "version": 1
+            },
+            {
+              "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+              "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+              "capability_code": "services.reserve",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "starts_at",
+                "ends_at",
+                "note"
+              ],
+              "resource_refs": [
+                "native-service-room-1",
+                "native-service-room-2"
+              ],
+              "resource_policy": "selected",
+              "expires_at": "2026-11-18T10:42:01.513380+00:00",
+              "version": 1
+            }
+          ]
+        }
+      ],
+      "providers": [
+        {
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "tenant_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "external_tenant_id": "owned-services-only-catalog",
+          "platform": "catalog",
+          "label": "حساب خدمات catalog",
+          "activity_id": "synthetic-operational-activity-a",
+          "availability": {
+            "state": "available",
+            "reason_code": "ready",
+            "message": "الحساب موثق وجاهز لاختيار المشاركة",
+            "next_action": {
+              "code": "select_sharing",
+              "label": "اختيار المشاركة",
+              "href": "/?workspace=shared"
+            }
+          },
+          "enrollment_id": "eeea6f4e-c88e-4912-a0a0-6de391fc2742",
+          "enrollment_version": 1,
+          "collaboration_prepared": true,
+          "namespace_version": 1,
+          "namespace_id": "25e32178-ecf7-4288-a1cb-2e3ec1f60002",
+          "installations": [
+            {
+              "installation_id": "fcd89853-0ed0-4a9c-acd5-6c99d21bc8f5",
+              "activity_id": "synthetic-operational-activity-a",
+              "label": "حساب خدمات catalog"
+            }
+          ],
+          "policy_choices": {
+            "unit_codes": [],
+            "currencies": [],
+            "price_lists": [],
+            "channels": []
+          }
+        },
+        {
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "tenant_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "external_tenant_id": "owned-services-only-sawemly",
+          "platform": "sawemly",
+          "label": "حساب خدمات sawemly",
+          "activity_id": "synthetic-operational-activity-a",
+          "availability": {
+            "state": "setup_required",
+            "reason_code": "provider_enrollment_required",
+            "message": "أكمل تهيئة الربط الآمن لهذا الحساب",
+            "next_action": {
+              "code": "prepare_provider",
+              "label": "تهيئة الاتصال",
+              "href": "/?workspace=shared"
+            }
+          },
+          "enrollment_id": "f93822cf-91c2-4fdf-a891-619fac488ef9",
+          "enrollment_version": 1,
+          "collaboration_prepared": false,
+          "namespace_version": 1,
+          "namespace_id": "fa119448-3ce5-4fff-bef6-f660f7404e42",
+          "installations": [
+            {
+              "installation_id": "a2521aee-3021-40e0-91d1-d2b9b5eb6d28",
+              "activity_id": "synthetic-operational-activity-a",
+              "label": "حساب خدمات sawemly"
+            }
+          ],
+          "policy_choices": {
+            "unit_codes": [],
+            "currencies": [],
+            "price_lists": [],
+            "channels": []
+          }
+        }
+      ],
+      "people": [
+        {
+          "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+          "display_name": "Synthetic owner"
+        },
+        {
+          "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+          "display_name": "Synthetic staff"
+        }
+      ],
+      "can_create_activity": true,
+      "command_options": [],
+      "capability_grant_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "capability_code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "fields": [
+            {
+              "value": "starts_at",
+              "label": "البداية"
+            },
+            {
+              "value": "ends_at",
+              "label": "النهاية"
+            },
+            {
+              "value": "note",
+              "label": "الملاحظة"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "native-service-room-1",
+              "label": "قاعة الخدمات الأولى",
+              "resource_kind": "service"
+            },
+            {
+              "resource_ref": "native-service-room-2",
+              "label": "قاعة الخدمات الثانية",
+              "resource_kind": "service"
+            }
+          ],
+          "resource_policies": [
+            "selected"
+          ],
+          "source_authority_required": false
+        }
+      ],
+      "service_registrations": [
+        {
+          "spec_version": "1.0",
+          "namespace_id": "25e32178-ecf7-4288-a1cb-2e3ec1f60002",
+          "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+          "scope": {
+            "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "warehouse_id": null
+          },
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "platform": "catalog",
+          "external_tenant_id": "owned-services-only-catalog",
+          "label": "حساب خدمات catalog",
+          "source_installation_id": "fcd89853-0ed0-4a9c-acd5-6c99d21bc8f5",
+          "enrollment_id": "eeea6f4e-c88e-4912-a0a0-6de391fc2742",
+          "enrollment_version": 1,
+          "authority_domain": "native.service_namespace",
+          "ownership_epoch": 1,
+          "version": 1,
+          "state": "active",
+          "expires_at": "2026-11-18T10:42:01.231645Z",
+          "native_authority_revision": "owned-catalog-owner-v1",
+          "grants_created": false,
+          "product_credentials_created": false,
+          "resource_authority_created": false,
+          "activity_id": "synthetic-operational-activity-a"
+        },
+        {
+          "spec_version": "1.0",
+          "namespace_id": "fa119448-3ce5-4fff-bef6-f660f7404e42",
+          "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+          "scope": {
+            "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "warehouse_id": null
+          },
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "platform": "sawemly",
+          "external_tenant_id": "owned-services-only-sawemly",
+          "label": "حساب خدمات sawemly",
+          "source_installation_id": "a2521aee-3021-40e0-91d1-d2b9b5eb6d28",
+          "enrollment_id": "f93822cf-91c2-4fdf-a891-619fac488ef9",
+          "enrollment_version": 1,
+          "authority_domain": "native.service_namespace",
+          "ownership_epoch": 1,
+          "version": 1,
+          "state": "active",
+          "expires_at": "2026-11-18T10:42:01.442570Z",
+          "native_authority_revision": "owned-sawemly-owner-v1",
+          "grants_created": false,
+          "product_credentials_created": false,
+          "resource_authority_created": false,
+          "activity_id": "synthetic-operational-activity-a"
+        }
+      ],
+      "native_command_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "capability": "services.reserve",
+          "action": "service.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "validator_version": "owned-service-validator-v1",
+          "permission_contract": "parameters_v1",
+          "creates_resource": false,
+          "fields": [
+            {
+              "value": "starts_at",
+              "label": "البداية"
+            },
+            {
+              "value": "ends_at",
+              "label": "النهاية"
+            },
+            {
+              "value": "note",
+              "label": "الملاحظة"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "native-service-room-1",
+              "label": "قاعة الخدمات الأولى",
+              "resource_kind": "service",
+              "scope": null,
+              "authority_epoch": null,
+              "authority_matches_provider": null
+            },
+            {
+              "resource_ref": "native-service-room-2",
+              "label": "قاعة الخدمات الثانية",
+              "resource_kind": "service",
+              "scope": null,
+              "authority_epoch": null,
+              "authority_matches_provider": null
+            }
+          ],
+          "resource_policy": "selected",
+          "resource_refs": [
+            "native-service-room-1",
+            "native-service-room-2"
+          ],
+          "authorization_revision": "0bcda0605c1b3d4f85e943286f86ed522d8bc71615f317798789481258f5e356",
+          "source_installation_id": "fcd89853-0ed0-4a9c-acd5-6c99d21bc8f5",
+          "capability_grant_revision": 1,
+          "availability": {
+            "state": "review_available",
+            "reason_code": "review_available",
+            "message": "يمكن إعداد طلب ضمن الإذن الحالي؛ يعرض التطبيق معاينة المصدر وبيانات المراجعة قبل أي تنفيذ.",
+            "next_action": {
+              "code": "open_native_action",
+              "label": "فتح نموذج العملية",
+              "href": "http://127.0.0.1:50307/catalog/owner/owner/reservations"
+            }
+          },
+          "owner_action_url": "http://127.0.0.1:50307/catalog/owner/owner/reservations"
+        }
+      ],
+      "service_shares": [],
+      "service_share_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "source_provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "source_label": "حساب خدمات catalog",
+          "capability_code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "fields": [
+            {
+              "value": "starts_at",
+              "label": "البداية"
+            },
+            {
+              "value": "ends_at",
+              "label": "النهاية"
+            },
+            {
+              "value": "note",
+              "label": "الملاحظة"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "native-service-room-1",
+              "label": "قاعة الخدمات الأولى",
+              "resource_kind": "service"
+            },
+            {
+              "resource_ref": "native-service-room-2",
+              "label": "قاعة الخدمات الثانية",
+              "resource_kind": "service"
+            }
+          ],
+          "resource_policies": [
+            "selected"
+          ],
+          "people": [
+            {
+              "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+              "label": "Synthetic owner",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "starts_at",
+                "ends_at",
+                "note"
+              ],
+              "resource_refs": [
+                "native-service-room-1",
+                "native-service-room-2"
+              ],
+              "resource_policy": "selected"
+            },
+            {
+              "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+              "label": "Synthetic staff",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "starts_at",
+                "ends_at",
+                "note"
+              ],
+              "resource_refs": [
+                "native-service-room-1",
+                "native-service-room-2"
+              ],
+              "resource_policy": "selected"
+            }
+          ],
+          "consumers": [
+            {
+              "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+              "label": "حساب خدمات sawemly"
+            }
+          ]
+        }
+      ],
+      "owner_action_origins": [
+        "http://127.0.0.1:50307"
+      ],
+      "capabilities": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "products.read",
+          "label": "قراءة وبحث المنتجات",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "products.write",
+          "label": "طلب إنشاء أو تعديل منتج",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "offerings.manage",
+          "label": "المعروضات والشراء والحجز والإيجار",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "units.variants",
+          "label": "الوحدات والمتغيرات والباركود",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "prices.manage",
+          "label": "قوائم الأسعار والعملات والقنوات",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "media.manage",
+          "label": "الميديا وحقوق الوصول والمشتقات",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.read",
+          "label": "الرصيد وحداثته والعجز",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.facts",
+          "label": "وقائع البيع والإرجاع والإلغاء",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.transfer",
+          "label": "تحويل مخزون مرتبط بين مخزنين",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.count",
+          "label": "الجرد وتسوية العجز الموثقة",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "shelves.read",
+          "label": "موقع الرف مستقل عن المخزن",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "orders.request",
+          "label": "طلب من محادثة أو سلة مع مراجعة بشرية",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "orders.fulfil",
+          "label": "تأكيد وتنفيذ وتسليم الطلب",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "availability": {
+            "state": "review_available",
+            "reason_code": "review_available",
+            "message": "يمكن فتح طلب في التطبيق ضمن صلاحياتك؛ تُراجع بياناته ومتطلباته قبل أي تنفيذ.",
+            "next_action": {
+              "code": "service.reserve",
+              "label": "فتح طلب في التطبيق",
+              "href": "http://127.0.0.1:50307/catalog/owner/owner/reservations"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "collections.manage",
+          "label": "تحصيل مشتريات العميل واستردادها",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "customers.manage",
+          "label": "العملاء وموافقات الاتصال دون دمج تلقائي",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "messaging.send",
+          "label": "تنفيذ رسالة وإثبات حالتها",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "campaigns.execute",
+          "label": "تنفيذ حملة بوجهة وتكلفة معتمدتين",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "content.publish",
+          "label": "نشر محتوى معتمد وإثبات النتيجة",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "measurement.read",
+          "label": "إحصاءات وتغطية القياس ومصادرها",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "measurement.export",
+          "label": "تصدير مصرح محدود بالاحتفاظ",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "owner.operations",
+          "label": "متابعة التعثر والعجز والمزامنة والصلاحيات",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "messaging.review",
+          "label": "طلب مراجعة رسالة؛ لم تُرسل بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "campaigns.review",
+          "label": "طلب مراجعة حملة؛ لم تنفذ بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "content.review",
+          "label": "طلب مراجعة محتوى؛ لم يُنشر بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        }
+      ],
+      "policies": {
+        "fields": [
+          {
+            "value": "name",
+            "label": "اسم المنتج"
+          },
+          {
+            "value": "description",
+            "label": "الوصف"
+          },
+          {
+            "value": "sku",
+            "label": "رمز المنتج"
+          },
+          {
+            "value": "barcodes",
+            "label": "الباركود"
+          },
+          {
+            "value": "base_unit",
+            "label": "وحدة القياس"
+          },
+          {
+            "value": "price",
+            "label": "السعر"
+          },
+          {
+            "value": "media",
+            "label": "الصور والوسائط"
+          },
+          {
+            "value": "is_visible",
+            "label": "إتاحة العرض"
+          }
+        ],
+        "operations": [
+          {
+            "value": "upsert",
+            "label": "إضافة وتعديل"
+          },
+          {
+            "value": "hide",
+            "label": "إخفاء"
+          },
+          {
+            "value": "unhide",
+            "label": "إظهار"
+          },
+          {
+            "value": "archive",
+            "label": "أرشفة"
+          },
+          {
+            "value": "tombstone",
+            "label": "حذف موثّق"
+          },
+          {
+            "value": "restore",
+            "label": "استعادة"
+          }
+        ],
+        "unit_codes": [],
+        "currencies": [],
+        "price_lists": [],
+        "channels": []
+      },
+      "existing": {
+        "requests": [],
+        "grants": [],
+        "origin_evidence": []
+      },
+      "selection_revision": "7977d403c857a0b66e11c62a63a100d6684e1320b438f7f2751d2c5a1cb6a4db",
+      "approval_policy": "Explicit scoped permissions; an eligible requester may approve their own request"
+    },
+    "service_after_actual_permission_withdrawal": {
+      "spec_version": "1.0",
+      "organization": {
+        "id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+        "name": "Synthetic operational organization A"
+      },
+      "actor": {
+        "account_id": "69f2484e-f001-4937-b00a-995bd5dd326e",
+        "display_name": "Synthetic owner"
+      },
+      "activities": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "label": "Synthetic activity A",
+          "scope": {
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+            "warehouse_id": null
+          },
+          "version": 1,
+          "my_actions": [
+            "source.request",
+            "source.approve",
+            "origin.request",
+            "origin.approve",
+            "read.request",
+            "read.approve",
+            "fields.approve",
+            "source.manage",
+            "read.manage",
+            "reviews.read",
+            "operations.inspect",
+            "commands.read",
+            "commands.request",
+            "commands.approve",
+            "commands.execute",
+            "commands.reconcile"
+          ],
+          "can_manage_people": true,
+          "permissions": [
+            {
+              "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+              "version": 2,
+              "actions": [
+                "source.request",
+                "source.approve",
+                "origin.request",
+                "origin.approve",
+                "read.request",
+                "read.approve",
+                "fields.approve",
+                "source.manage",
+                "read.manage",
+                "reviews.read",
+                "operations.inspect",
+                "commands.read",
+                "commands.request",
+                "commands.approve",
+                "commands.execute",
+                "commands.reconcile"
+              ],
+              "expires_at": "2026-11-18T10:42:01.044998+00:00"
+            },
+            {
+              "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+              "version": 2,
+              "actions": [
+                "source.request",
+                "source.approve",
+                "origin.request",
+                "origin.approve",
+                "read.request",
+                "read.approve",
+                "fields.approve",
+                "source.manage",
+                "read.manage",
+                "reviews.read",
+                "operations.inspect",
+                "commands.read",
+                "commands.request",
+                "commands.approve",
+                "commands.execute",
+                "commands.reconcile"
+              ],
+              "expires_at": "2026-11-18T10:42:01.051244+00:00"
+            }
+          ],
+          "capability_grants": [
+            {
+              "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+              "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+              "capability_code": "services.reserve",
+              "actions": [],
+              "allowed_fields": [
+                "starts_at"
+              ],
+              "resource_refs": [
+                "native-service-room-1"
+              ],
+              "resource_policy": "selected",
+              "expires_at": "2026-11-18T10:42:01.564755+00:00",
+              "version": 2
+            },
+            {
+              "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+              "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+              "capability_code": "services.reserve",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "starts_at",
+                "ends_at",
+                "note"
+              ],
+              "resource_refs": [
+                "native-service-room-1",
+                "native-service-room-2"
+              ],
+              "resource_policy": "selected",
+              "expires_at": "2026-11-18T10:42:01.513380+00:00",
+              "version": 1
+            }
+          ]
+        }
+      ],
+      "providers": [
+        {
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "tenant_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "external_tenant_id": "owned-services-only-catalog",
+          "platform": "catalog",
+          "label": "حساب خدمات catalog",
+          "activity_id": "synthetic-operational-activity-a",
+          "availability": {
+            "state": "available",
+            "reason_code": "ready",
+            "message": "الحساب موثق وجاهز لاختيار المشاركة",
+            "next_action": {
+              "code": "select_sharing",
+              "label": "اختيار المشاركة",
+              "href": "/?workspace=shared"
+            }
+          },
+          "enrollment_id": "eeea6f4e-c88e-4912-a0a0-6de391fc2742",
+          "enrollment_version": 1,
+          "collaboration_prepared": true,
+          "namespace_version": 1,
+          "namespace_id": "25e32178-ecf7-4288-a1cb-2e3ec1f60002",
+          "installations": [
+            {
+              "installation_id": "fcd89853-0ed0-4a9c-acd5-6c99d21bc8f5",
+              "activity_id": "synthetic-operational-activity-a",
+              "label": "حساب خدمات catalog"
+            }
+          ],
+          "policy_choices": {
+            "unit_codes": [],
+            "currencies": [],
+            "price_lists": [],
+            "channels": []
+          }
+        },
+        {
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "tenant_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "external_tenant_id": "owned-services-only-sawemly",
+          "platform": "sawemly",
+          "label": "حساب خدمات sawemly",
+          "activity_id": "synthetic-operational-activity-a",
+          "availability": {
+            "state": "setup_required",
+            "reason_code": "provider_enrollment_required",
+            "message": "أكمل تهيئة الربط الآمن لهذا الحساب",
+            "next_action": {
+              "code": "prepare_provider",
+              "label": "تهيئة الاتصال",
+              "href": "/?workspace=shared"
+            }
+          },
+          "enrollment_id": "f93822cf-91c2-4fdf-a891-619fac488ef9",
+          "enrollment_version": 1,
+          "collaboration_prepared": false,
+          "namespace_version": 1,
+          "namespace_id": "fa119448-3ce5-4fff-bef6-f660f7404e42",
+          "installations": [
+            {
+              "installation_id": "a2521aee-3021-40e0-91d1-d2b9b5eb6d28",
+              "activity_id": "synthetic-operational-activity-a",
+              "label": "حساب خدمات sawemly"
+            }
+          ],
+          "policy_choices": {
+            "unit_codes": [],
+            "currencies": [],
+            "price_lists": [],
+            "channels": []
+          }
+        }
+      ],
+      "people": [
+        {
+          "person_ref": "69f2484e-f001-4937-b00a-995bd5dd326e",
+          "display_name": "Synthetic owner"
+        },
+        {
+          "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+          "display_name": "Synthetic staff"
+        }
+      ],
+      "can_create_activity": true,
+      "command_options": [],
+      "capability_grant_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "capability_code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "fields": [
+            {
+              "value": "starts_at",
+              "label": "البداية"
+            },
+            {
+              "value": "ends_at",
+              "label": "النهاية"
+            },
+            {
+              "value": "note",
+              "label": "الملاحظة"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "native-service-room-1",
+              "label": "قاعة الخدمات الأولى",
+              "resource_kind": "service"
+            },
+            {
+              "resource_ref": "native-service-room-2",
+              "label": "قاعة الخدمات الثانية",
+              "resource_kind": "service"
+            }
+          ],
+          "resource_policies": [
+            "selected"
+          ],
+          "source_authority_required": false
+        }
+      ],
+      "service_registrations": [
+        {
+          "spec_version": "1.0",
+          "namespace_id": "25e32178-ecf7-4288-a1cb-2e3ec1f60002",
+          "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+          "scope": {
+            "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "warehouse_id": null
+          },
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "platform": "catalog",
+          "external_tenant_id": "owned-services-only-catalog",
+          "label": "حساب خدمات catalog",
+          "source_installation_id": "fcd89853-0ed0-4a9c-acd5-6c99d21bc8f5",
+          "enrollment_id": "eeea6f4e-c88e-4912-a0a0-6de391fc2742",
+          "enrollment_version": 1,
+          "authority_domain": "native.service_namespace",
+          "ownership_epoch": 1,
+          "version": 1,
+          "state": "active",
+          "expires_at": "2026-11-18T10:42:01.231645Z",
+          "native_authority_revision": "owned-catalog-owner-v1",
+          "grants_created": false,
+          "product_credentials_created": false,
+          "resource_authority_created": false,
+          "activity_id": "synthetic-operational-activity-a"
+        },
+        {
+          "spec_version": "1.0",
+          "namespace_id": "fa119448-3ce5-4fff-bef6-f660f7404e42",
+          "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+          "scope": {
+            "organization_id": "d78b199b-1506-4f26-8d57-0995135b7e76",
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "warehouse_id": null
+          },
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "platform": "sawemly",
+          "external_tenant_id": "owned-services-only-sawemly",
+          "label": "حساب خدمات sawemly",
+          "source_installation_id": "a2521aee-3021-40e0-91d1-d2b9b5eb6d28",
+          "enrollment_id": "f93822cf-91c2-4fdf-a891-619fac488ef9",
+          "enrollment_version": 1,
+          "authority_domain": "native.service_namespace",
+          "ownership_epoch": 1,
+          "version": 1,
+          "state": "active",
+          "expires_at": "2026-11-18T10:42:01.442570Z",
+          "native_authority_revision": "owned-sawemly-owner-v1",
+          "grants_created": false,
+          "product_credentials_created": false,
+          "resource_authority_created": false,
+          "activity_id": "synthetic-operational-activity-a"
+        }
+      ],
+      "native_command_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "capability": "services.reserve",
+          "action": "service.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "validator_version": "owned-service-validator-v1",
+          "permission_contract": "parameters_v1",
+          "creates_resource": false,
+          "fields": [],
+          "resources": [],
+          "resource_policy": null,
+          "resource_refs": [],
+          "authorization_revision": null,
+          "source_installation_id": null,
+          "capability_grant_revision": null,
+          "availability": {
+            "state": "permission_required",
+            "reason_code": "workspace_capability_permission_required",
+            "message": "اختر الشخص والحساب والعملية في صلاحيات الفريق لمنح إذن صريح.",
+            "next_action": {
+              "code": "manage_permissions",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=people"
+            }
+          },
+          "owner_action_url": null
+        }
+      ],
+      "service_shares": [],
+      "service_share_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "source_provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "source_label": "حساب خدمات catalog",
+          "capability_code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "fields": [
+            {
+              "value": "starts_at",
+              "label": "البداية"
+            },
+            {
+              "value": "ends_at",
+              "label": "النهاية"
+            },
+            {
+              "value": "note",
+              "label": "الملاحظة"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "native-service-room-1",
+              "label": "قاعة الخدمات الأولى",
+              "resource_kind": "service"
+            },
+            {
+              "resource_ref": "native-service-room-2",
+              "label": "قاعة الخدمات الثانية",
+              "resource_kind": "service"
+            }
+          ],
+          "resource_policies": [
+            "selected"
+          ],
+          "people": [
+            {
+              "person_ref": "eb16fd58-fb99-42af-a1ee-cd55f42c5f01",
+              "label": "Synthetic staff",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "starts_at",
+                "ends_at",
+                "note"
+              ],
+              "resource_refs": [
+                "native-service-room-1",
+                "native-service-room-2"
+              ],
+              "resource_policy": "selected"
+            }
+          ],
+          "consumers": [
+            {
+              "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+              "label": "حساب خدمات sawemly"
+            }
+          ]
+        }
+      ],
+      "owner_action_origins": [
+        "http://127.0.0.1:50307"
+      ],
+      "capabilities": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "products.read",
+          "label": "قراءة وبحث المنتجات",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "products.write",
+          "label": "طلب إنشاء أو تعديل منتج",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "offerings.manage",
+          "label": "المعروضات والشراء والحجز والإيجار",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "units.variants",
+          "label": "الوحدات والمتغيرات والباركود",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "prices.manage",
+          "label": "قوائم الأسعار والعملات والقنوات",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "media.manage",
+          "label": "الميديا وحقوق الوصول والمشتقات",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.read",
+          "label": "الرصيد وحداثته والعجز",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.facts",
+          "label": "وقائع البيع والإرجاع والإلغاء",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.transfer",
+          "label": "تحويل مخزون مرتبط بين مخزنين",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "inventory.count",
+          "label": "الجرد وتسوية العجز الموثقة",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "shelves.read",
+          "label": "موقع الرف مستقل عن المخزن",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "orders.request",
+          "label": "طلب من محادثة أو سلة مع مراجعة بشرية",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "orders.fulfil",
+          "label": "تأكيد وتنفيذ وتسليم الطلب",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "availability": {
+            "state": "permission_required",
+            "reason_code": "workspace_capability_permission_required",
+            "message": "اختر الشخص والحساب والعملية في صلاحيات الفريق لمنح إذن صريح.",
+            "next_action": {
+              "code": "manage_permissions",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=people"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "collections.manage",
+          "label": "تحصيل مشتريات العميل واستردادها",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "8e3170fd-096d-4070-bfb4-b427d842a46e",
+          "provider_label": "حساب خدمات catalog",
+          "code": "customers.manage",
+          "label": "العملاء وموافقات الاتصال دون دمج تلقائي",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "messaging.send",
+          "label": "تنفيذ رسالة وإثبات حالتها",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "campaigns.execute",
+          "label": "تنفيذ حملة بوجهة وتكلفة معتمدتين",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "content.publish",
+          "label": "نشر محتوى معتمد وإثبات النتيجة",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "measurement.read",
+          "label": "إحصاءات وتغطية القياس ومصادرها",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "measurement.export",
+          "label": "تصدير مصرح محدود بالاحتفاظ",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "4f25ccee-e749-4bea-b1bc-72750117ecee",
+          "provider_label": "حساب خدمات sawemly",
+          "code": "owner.operations",
+          "label": "متابعة التعثر والعجز والمزامنة والصلاحيات",
+          "availability": {
+            "state": "configuration_required",
+            "reason_code": "workspace_provider_setup_required",
+            "message": "حدّث تهيئة الاتصال بهذا الحساب لعرض خياراته الموثّقة.",
+            "next_action": {
+              "code": "configure_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "messaging.review",
+          "label": "طلب مراجعة رسالة؛ لم تُرسل بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "campaigns.review",
+          "label": "طلب مراجعة حملة؛ لم تنفذ بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "content.review",
+          "label": "طلب مراجعة محتوى؛ لم يُنشر بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=d78b199b-1506-4f26-8d57-0995135b7e76&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        }
+      ],
+      "policies": {
+        "fields": [
+          {
+            "value": "name",
+            "label": "اسم المنتج"
+          },
+          {
+            "value": "description",
+            "label": "الوصف"
+          },
+          {
+            "value": "sku",
+            "label": "رمز المنتج"
+          },
+          {
+            "value": "barcodes",
+            "label": "الباركود"
+          },
+          {
+            "value": "base_unit",
+            "label": "وحدة القياس"
+          },
+          {
+            "value": "price",
+            "label": "السعر"
+          },
+          {
+            "value": "media",
+            "label": "الصور والوسائط"
+          },
+          {
+            "value": "is_visible",
+            "label": "إتاحة العرض"
+          }
+        ],
+        "operations": [
+          {
+            "value": "upsert",
+            "label": "إضافة وتعديل"
+          },
+          {
+            "value": "hide",
+            "label": "إخفاء"
+          },
+          {
+            "value": "unhide",
+            "label": "إظهار"
+          },
+          {
+            "value": "archive",
+            "label": "أرشفة"
+          },
+          {
+            "value": "tombstone",
+            "label": "حذف موثّق"
+          },
+          {
+            "value": "restore",
+            "label": "استعادة"
+          }
+        ],
+        "unit_codes": [],
+        "currencies": [],
+        "price_lists": [],
+        "channels": []
+      },
+      "existing": {
+        "requests": [],
+        "grants": [],
+        "origin_evidence": []
+      },
+      "selection_revision": "e7db6a9d33a21c4af2e537ceff69244ee4b25ed959ef7f749a53333ff0b477a8",
+      "approval_policy": "Explicit scoped permissions; an eligible requester may approve their own request"
+    },
+    "physical_actual_nonempty_native_options": {
+      "spec_version": "1.0",
+      "organization": {
+        "id": "6e90e399-757b-492d-96af-21a70bc473a6",
+        "name": "Synthetic operational organization A"
+      },
+      "actor": {
+        "account_id": "7c0bc13f-dbb0-4071-8b7f-7781d9420315",
+        "display_name": "Synthetic owner"
+      },
+      "activities": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "label": "Synthetic activity A",
+          "scope": {
+            "activity_id": "synthetic-operational-activity-a",
+            "branch_id": null,
+            "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+            "warehouse_id": null
+          },
+          "version": 1,
+          "my_actions": [
+            "source.request",
+            "source.approve",
+            "origin.request",
+            "origin.approve",
+            "read.request",
+            "read.approve",
+            "fields.approve",
+            "source.manage",
+            "read.manage",
+            "reviews.read",
+            "operations.inspect",
+            "commands.read",
+            "commands.request",
+            "commands.approve",
+            "commands.execute",
+            "commands.reconcile"
+          ],
+          "can_manage_people": true,
+          "permissions": [
+            {
+              "person_ref": "c48e354d-7771-4ce0-ac03-86ede0b70547",
+              "version": 1,
+              "actions": [
+                "source.request",
+                "origin.request",
+                "read.request",
+                "reviews.read"
+              ],
+              "expires_at": "2026-11-18T10:42:02.467298+00:00"
+            },
+            {
+              "person_ref": "7c0bc13f-dbb0-4071-8b7f-7781d9420315",
+              "version": 2,
+              "actions": [
+                "source.request",
+                "source.approve",
+                "origin.request",
+                "origin.approve",
+                "read.request",
+                "read.approve",
+                "fields.approve",
+                "source.manage",
+                "read.manage",
+                "reviews.read",
+                "operations.inspect",
+                "commands.read",
+                "commands.request",
+                "commands.approve",
+                "commands.execute",
+                "commands.reconcile"
+              ],
+              "expires_at": "2026-11-18T10:42:02.578682+00:00"
+            }
+          ],
+          "capability_grants": [
+            {
+              "person_ref": "7c0bc13f-dbb0-4071-8b7f-7781d9420315",
+              "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+              "capability_code": "units.variants",
+              "actions": [
+                "read",
+                "request",
+                "approve",
+                "execute",
+                "reconcile"
+              ],
+              "allowed_fields": [
+                "base_unit"
+              ],
+              "resource_refs": [
+                "synthetic-native-goods-1"
+              ],
+              "resource_policy": "selected",
+              "expires_at": "2026-11-18T10:42:02.588973+00:00",
+              "version": 1
+            }
+          ]
+        }
+      ],
+      "providers": [
+        {
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "tenant_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "external_tenant_id": "synthetic-operational-catalog",
+          "platform": "catalog",
+          "label": "Synthetic catalog",
+          "activity_id": "synthetic-operational-activity-a",
+          "availability": {
+            "state": "available",
+            "reason_code": "ready",
+            "message": "الحساب موثق وجاهز لاختيار المشاركة",
+            "next_action": {
+              "code": "select_sharing",
+              "label": "اختيار المشاركة",
+              "href": "/?workspace=shared"
+            }
+          },
+          "enrollment_id": "37414537-fde6-4432-bb80-9e105403dcb2",
+          "enrollment_version": 1,
+          "collaboration_prepared": false,
+          "namespace_version": 0,
+          "installations": [
+            {
+              "installation_id": "81487264-22ab-48b3-b15d-16726f748f0f",
+              "activity_id": "synthetic-operational-activity-a",
+              "label": "Synthetic native Catalog source"
+            }
+          ],
+          "policy_choices": {
+            "unit_codes": [],
+            "currencies": [],
+            "price_lists": [],
+            "channels": []
+          }
+        }
+      ],
+      "people": [
+        {
+          "person_ref": "7c0bc13f-dbb0-4071-8b7f-7781d9420315",
+          "display_name": "Synthetic owner"
+        },
+        {
+          "person_ref": "c48e354d-7771-4ce0-ac03-86ede0b70547",
+          "display_name": "Synthetic staff"
+        }
+      ],
+      "can_create_activity": true,
+      "command_options": [],
+      "capability_grant_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "capability_code": "units.variants",
+          "label": "الوحدات والمتغيرات والباركود",
+          "fields": [
+            {
+              "value": "base_unit",
+              "label": "base_unit"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "synthetic-native-goods-1",
+              "label": "المنتج المادي الفعلي",
+              "resource_kind": "goods"
+            }
+          ],
+          "resource_policies": [
+            "selected",
+            "activity"
+          ],
+          "source_authority_required": false
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "capability_code": "prices.manage",
+          "label": "قوائم الأسعار والعملات والقنوات",
+          "fields": [
+            {
+              "value": "price",
+              "label": "price"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "synthetic-native-goods-1",
+              "label": "المنتج المادي الفعلي",
+              "resource_kind": "goods"
+            }
+          ],
+          "resource_policies": [
+            "selected",
+            "activity"
+          ],
+          "source_authority_required": false
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "capability_code": "media.manage",
+          "label": "الميديا وحقوق الوصول والمشتقات",
+          "fields": [
+            {
+              "value": "media",
+              "label": "media"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "synthetic-native-goods-1",
+              "label": "المنتج المادي الفعلي",
+              "resource_kind": "goods"
+            }
+          ],
+          "resource_policies": [
+            "selected",
+            "activity"
+          ],
+          "source_authority_required": false
+        }
+      ],
+      "service_registrations": [],
+      "native_command_options": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "capability": "media.manage",
+          "action": "media.replace",
+          "label": "الميديا وحقوق الوصول والمشتقات",
+          "validator_version": "owned-physical-semantic-v1",
+          "permission_contract": "semantic_effects_v1",
+          "creates_resource": false,
+          "fields": [],
+          "resources": [],
+          "resource_policy": null,
+          "resource_refs": [],
+          "authorization_revision": null,
+          "source_installation_id": null,
+          "capability_grant_revision": null,
+          "availability": {
+            "state": "permission_required",
+            "reason_code": "workspace_capability_permission_required",
+            "message": "اختر الشخص والحساب والعملية في صلاحيات الفريق لمنح إذن صريح.",
+            "next_action": {
+              "code": "manage_permissions",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=people"
+            }
+          },
+          "owner_action_url": null
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "capability": "prices.manage",
+          "action": "price.set",
+          "label": "قوائم الأسعار والعملات والقنوات",
+          "validator_version": "owned-physical-semantic-v1",
+          "permission_contract": "semantic_effects_v1",
+          "creates_resource": false,
+          "fields": [],
+          "resources": [],
+          "resource_policy": null,
+          "resource_refs": [],
+          "authorization_revision": null,
+          "source_installation_id": null,
+          "capability_grant_revision": null,
+          "availability": {
+            "state": "permission_required",
+            "reason_code": "workspace_capability_permission_required",
+            "message": "اختر الشخص والحساب والعملية في صلاحيات الفريق لمنح إذن صريح.",
+            "next_action": {
+              "code": "manage_permissions",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=people"
+            }
+          },
+          "owner_action_url": null
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "capability": "units.variants",
+          "action": "unit.define",
+          "label": "الوحدات والمتغيرات والباركود",
+          "validator_version": "owned-physical-semantic-v1",
+          "permission_contract": "semantic_effects_v1",
+          "creates_resource": false,
+          "fields": [
+            {
+              "value": "base_unit",
+              "label": "base_unit"
+            }
+          ],
+          "resources": [
+            {
+              "resource_ref": "synthetic-native-goods-1",
+              "label": "المنتج المادي الفعلي",
+              "resource_kind": "goods",
+              "scope": null,
+              "authority_epoch": null,
+              "authority_matches_provider": null
+            }
+          ],
+          "resource_policy": "selected",
+          "resource_refs": [
+            "synthetic-native-goods-1"
+          ],
+          "authorization_revision": "4e9791c70979d428844a5eea8c14f03ec5e193a42d81feeae267aaed60239e59",
+          "source_installation_id": "81487264-22ab-48b3-b15d-16726f748f0f",
+          "capability_grant_revision": 1,
+          "availability": {
+            "state": "review_available",
+            "reason_code": "review_available",
+            "message": "يمكن إعداد طلب ضمن الإذن الحالي؛ يعرض التطبيق معاينة المصدر وبيانات المراجعة قبل أي تنفيذ.",
+            "next_action": {
+              "code": "open_native_action",
+              "label": "فتح نموذج العملية",
+              "href": "http://127.0.0.1:50370/owner/physical/unit.define"
+            }
+          },
+          "owner_action_url": "http://127.0.0.1:50370/owner/physical/unit.define"
+        }
+      ],
+      "service_shares": [],
+      "service_share_options": [],
+      "owner_action_origins": [
+        "http://127.0.0.1:50370"
+      ],
+      "capabilities": [
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "products.read",
+          "label": "قراءة وبحث المنتجات",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "products.write",
+          "label": "طلب إنشاء أو تعديل منتج",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "offerings.manage",
+          "label": "المعروضات والشراء والحجز والإيجار",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "units.variants",
+          "label": "الوحدات والمتغيرات والباركود",
+          "availability": {
+            "state": "review_available",
+            "reason_code": "review_available",
+            "message": "يمكن فتح طلب في التطبيق ضمن صلاحياتك؛ تُراجع بياناته ومتطلباته قبل أي تنفيذ.",
+            "next_action": {
+              "code": "unit.define",
+              "label": "فتح طلب في التطبيق",
+              "href": "http://127.0.0.1:50370/owner/physical/unit.define"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "prices.manage",
+          "label": "قوائم الأسعار والعملات والقنوات",
+          "availability": {
+            "state": "permission_required",
+            "reason_code": "workspace_capability_permission_required",
+            "message": "اختر الشخص والحساب والعملية في صلاحيات الفريق لمنح إذن صريح.",
+            "next_action": {
+              "code": "manage_permissions",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=people"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "media.manage",
+          "label": "الميديا وحقوق الوصول والمشتقات",
+          "availability": {
+            "state": "permission_required",
+            "reason_code": "workspace_capability_permission_required",
+            "message": "اختر الشخص والحساب والعملية في صلاحيات الفريق لمنح إذن صريح.",
+            "next_action": {
+              "code": "manage_permissions",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=people"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "inventory.read",
+          "label": "الرصيد وحداثته والعجز",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "inventory.facts",
+          "label": "وقائع البيع والإرجاع والإلغاء",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "inventory.transfer",
+          "label": "تحويل مخزون مرتبط بين مخزنين",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "inventory.count",
+          "label": "الجرد وتسوية العجز الموثقة",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "shelves.read",
+          "label": "موقع الرف مستقل عن المخزن",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "orders.request",
+          "label": "طلب من محادثة أو سلة مع مراجعة بشرية",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "orders.fulfil",
+          "label": "تأكيد وتنفيذ وتسليم الطلب",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "services.reserve",
+          "label": "حجز خدمة أو مورد بسعة زمنية",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "collections.manage",
+          "label": "تحصيل مشتريات العميل واستردادها",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "customers.manage",
+          "label": "العملاء وموافقات الاتصال دون دمج تلقائي",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "messaging.send",
+          "label": "تنفيذ رسالة وإثبات حالتها",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "campaigns.execute",
+          "label": "تنفيذ حملة بوجهة وتكلفة معتمدتين",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "content.publish",
+          "label": "نشر محتوى معتمد وإثبات النتيجة",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "measurement.read",
+          "label": "إحصاءات وتغطية القياس ومصادرها",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "measurement.export",
+          "label": "تصدير مصرح محدود بالاحتفاظ",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+          "provider_label": "Synthetic catalog",
+          "code": "owner.operations",
+          "label": "متابعة التعثر والعجز والمزامنة والصلاحيات",
+          "availability": {
+            "state": "implementation_missing",
+            "reason_code": "workspace_capability_handler_unavailable",
+            "message": "لم يثبت وجود مسار مُهيّأ لهذه العملية في الحساب المختار.",
+            "next_action": {
+              "code": "review_provider",
+              "label": "إكمال الخطوة المطلوبة",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "messaging.review",
+          "label": "طلب مراجعة رسالة؛ لم تُرسل بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "campaigns.review",
+          "label": "طلب مراجعة حملة؛ لم تنفذ بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        },
+        {
+          "activity_id": "synthetic-operational-activity-a",
+          "code": "content.review",
+          "label": "طلب مراجعة محتوى؛ لم يُنشر بعد",
+          "availability": {
+            "state": "provider_selection_required",
+            "reason_code": "workspace_provider_selection_required",
+            "message": "اربط حسابًا يدعم هذه العملية واختره لهذا النشاط.",
+            "next_action": {
+              "code": "connect_provider",
+              "label": "ربط حساب مناسب",
+              "href": "/?workspace=shared&organization_id=6e90e399-757b-492d-96af-21a70bc473a6&activity_id=synthetic-operational-activity-a&tab=connections"
+            }
+          }
+        }
+      ],
+      "policies": {
+        "fields": [
+          {
+            "value": "name",
+            "label": "اسم المنتج"
+          },
+          {
+            "value": "description",
+            "label": "الوصف"
+          },
+          {
+            "value": "sku",
+            "label": "رمز المنتج"
+          },
+          {
+            "value": "barcodes",
+            "label": "الباركود"
+          },
+          {
+            "value": "base_unit",
+            "label": "وحدة القياس"
+          },
+          {
+            "value": "price",
+            "label": "السعر"
+          },
+          {
+            "value": "media",
+            "label": "الصور والوسائط"
+          },
+          {
+            "value": "is_visible",
+            "label": "إتاحة العرض"
+          }
+        ],
+        "operations": [
+          {
+            "value": "upsert",
+            "label": "إضافة وتعديل"
+          },
+          {
+            "value": "hide",
+            "label": "إخفاء"
+          },
+          {
+            "value": "unhide",
+            "label": "إظهار"
+          },
+          {
+            "value": "archive",
+            "label": "أرشفة"
+          },
+          {
+            "value": "tombstone",
+            "label": "حذف موثّق"
+          },
+          {
+            "value": "restore",
+            "label": "استعادة"
+          }
+        ],
+        "unit_codes": [],
+        "currencies": [],
+        "price_lists": [],
+        "channels": []
+      },
+      "existing": {
+        "requests": [
+          {
+            "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+            "scope": {
+              "activity_id": "synthetic-operational-activity-a",
+              "branch_id": null,
+              "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+              "warehouse_id": null
+            },
+            "kind": "source_registration",
+            "proposal": {
+              "allow_restore": false,
+              "allowed_operations": [
+                "upsert",
+                "hide",
+                "unhide",
+                "archive",
+                "tombstone"
+              ],
+              "channels": [
+                "catalog"
+              ],
+              "currencies": [
+                "LYD"
+              ],
+              "enrollment_id": "37414537-fde6-4432-bb80-9e105403dcb2",
+              "enrollment_version": 1,
+              "expires_at": "2026-11-18T10:42:02.532029+00:00",
+              "fields": [
+                "name",
+                "description",
+                "sku",
+                "barcodes",
+                "base_unit",
+                "price",
+                "media"
+              ],
+              "installation_label": "Synthetic native Catalog source",
+              "price_list_ids": [
+                "owned-retail"
+              ],
+              "unit_codes": [
+                "each"
+              ]
+            },
+            "version": 1,
+            "state": "approved",
+            "requested_by": "c48e354d-7771-4ce0-ac03-86ede0b70547",
+            "reviewed_by": "7c0bc13f-dbb0-4071-8b7f-7781d9420315",
+            "effective_version": 1,
+            "effective_resource": {
+              "allowed_operations": [
+                "upsert",
+                "hide",
+                "unhide",
+                "archive",
+                "tombstone"
+              ],
+              "delivery_id": "ce7e190c-75d1-45a5-8bdc-71e4c2719645",
+              "expires_at": "2026-11-18T10:42:02.532029+00:00",
+              "fields": [
+                "name",
+                "description",
+                "sku",
+                "barcodes",
+                "base_unit",
+                "price",
+                "media"
+              ],
+              "installation_id": "81487264-22ab-48b3-b15d-16726f748f0f",
+              "ownership_epoch": 1,
+              "publisher_grant_id": "bd707ac1-bf5c-4688-848c-3e096be2fb4c",
+              "revision": 1
+            },
+            "reason": null,
+            "updated_at": "2026-11-18T10:12:02.545974+00:00",
+            "request_id": "934db5f8-3693-4108-8f7a-7cddf0c3e922",
+            "approval_policy": "explicit_current_exact_scope_actions; self_approval_permitted",
+            "activity_id": "synthetic-operational-activity-a",
+            "title": "اعتماد مصدر المنتجات",
+            "selection": {
+              "activity_id": "synthetic-operational-activity-a",
+              "kind": "source_registration",
+              "provider_ref": "d1dea433-6762-458c-ae9f-a8c98676bc0d",
+              "source_installation_ref": null,
+              "consumer_installation_ref": null,
+              "native_product_ref": null,
+              "fields": [
+                "name",
+                "description",
+                "sku",
+                "barcodes",
+                "base_unit",
+                "price",
+                "media"
+              ],
+              "people_refs": [],
+              "allowed_operations": [
+                "upsert",
+                "hide",
+                "unhide",
+                "archive",
+                "tombstone"
+              ],
+              "expires_at": "2026-11-18T10:42:02.532029+00:00",
+              "allow_restore": false,
+              "policy_choices": {
+                "unit_codes": [
+                  "each"
+                ],
+                "currencies": [
+                  "LYD"
+                ],
+                "price_list_ids": [
+                  "owned-retail"
+                ],
+                "channels": [
+                  "catalog"
+                ]
+              }
+            },
+            "summary": [
+              {
+                "label": "الحساب",
+                "value": "Synthetic catalog"
+              },
+              {
+                "label": "الحقول",
+                "value": "اسم المنتج، الوصف، رمز المنتج، الباركود، وحدة القياس، السعر، الصور والوسائط"
+              }
+            ]
+          },
+          {
+            "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+            "scope": {
+              "activity_id": "synthetic-operational-activity-a",
+              "branch_id": null,
+              "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+              "warehouse_id": null
+            },
+            "kind": "native_origin",
+            "proposal": {
+              "approval_reference": "235ce7fc-8874-4d7d-a706-70974404d6ac",
+              "initially_visible": false,
+              "kind": "goods",
+              "local_product_id": "synthetic-native-goods-1",
+              "source_installation_id": "81487264-22ab-48b3-b15d-16726f748f0f"
+            },
+            "version": 1,
+            "state": "approved",
+            "requested_by": "c48e354d-7771-4ce0-ac03-86ede0b70547",
+            "reviewed_by": "7c0bc13f-dbb0-4071-8b7f-7781d9420315",
+            "effective_version": 1,
+            "effective_resource": {
+              "approval_reference": "235ce7fc-8874-4d7d-a706-70974404d6ac",
+              "entity_id": "76815681-f01a-46f6-af91-4024f68d1779",
+              "initially_visible": false,
+              "kind": "goods",
+              "local_product_id": "synthetic-native-goods-1",
+              "origin_evidence": {
+                "enrollment_id": "37414537-fde6-4432-bb80-9e105403dcb2",
+                "enrollment_version": 1,
+                "evidence_id": "235ce7fc-8874-4d7d-a706-70974404d6ac",
+                "kind": "goods",
+                "local_product_id": "synthetic-native-goods-1",
+                "origin_reference": "synthetic-native-audit/synthetic-native-goods-1",
+                "provenance": "native_created",
+                "scope": {
+                  "activity_id": "synthetic-operational-activity-a",
+                  "branch_id": null,
+                  "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+                  "warehouse_id": null
+                },
+                "service_signature_verified": true,
+                "source_evidence_sha256": "b8e7b67016f7271b63101be9dadbe23a84de11ded3bd553b488fb3615d1898ce"
+              },
+              "source_installation_id": "81487264-22ab-48b3-b15d-16726f748f0f"
+            },
+            "reason": null,
+            "updated_at": "2026-11-18T10:12:02.574489+00:00",
+            "request_id": "0f4b047a-d571-45a5-8c59-9f65f8c2ab9e",
+            "approval_policy": "explicit_current_exact_scope_actions; self_approval_permitted",
+            "activity_id": "synthetic-operational-activity-a",
+            "title": "اعتماد منشأ منتج",
+            "selection": {
+              "activity_id": "synthetic-operational-activity-a",
+              "kind": "native_origin",
+              "provider_ref": null,
+              "source_installation_ref": "81487264-22ab-48b3-b15d-16726f748f0f",
+              "consumer_installation_ref": null,
+              "native_product_ref": "235ce7fc-8874-4d7d-a706-70974404d6ac",
+              "fields": [],
+              "people_refs": [],
+              "allowed_operations": [],
+              "expires_at": null,
+              "allow_restore": false,
+              "policy_choices": {
+                "unit_codes": [],
+                "currencies": [],
+                "price_list_ids": [],
+                "channels": []
+              }
+            },
+            "summary": [
+              {
+                "label": "الحساب",
+                "value": "حساب ضمن النشاط"
+              },
+              {
+                "label": "الحقول",
+                "value": ""
+              }
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "id": "bd707ac1-bf5c-4688-848c-3e096be2fb4c",
+            "request_id": "934db5f8-3693-4108-8f7a-7cddf0c3e922",
+            "scope": {
+              "activity_id": "synthetic-operational-activity-a",
+              "branch_id": null,
+              "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+              "warehouse_id": null
+            },
+            "installation_id": "81487264-22ab-48b3-b15d-16726f748f0f",
+            "enrollment_id": "37414537-fde6-4432-bb80-9e105403dcb2",
+            "revision": 1,
+            "active": true,
+            "expires_at": "2026-11-18T10:42:02.532029+00:00",
+            "publisher_grant_id": "bd707ac1-bf5c-4688-848c-3e096be2fb4c",
+            "expired": false,
+            "policy": {
+              "allow_restore": false,
+              "allowed_operations": [
+                "upsert",
+                "hide",
+                "unhide",
+                "archive",
+                "tombstone"
+              ],
+              "channels": [
+                "catalog"
+              ],
+              "currencies": [
+                "LYD"
+              ],
+              "enrollment_id": "37414537-fde6-4432-bb80-9e105403dcb2",
+              "enrollment_version": 1,
+              "expires_at": "2026-11-18T10:42:02.532029+00:00",
+              "fields": [
+                "name",
+                "description",
+                "sku",
+                "barcodes",
+                "base_unit",
+                "price",
+                "media"
+              ],
+              "installation_label": "Synthetic native Catalog source",
+              "price_list_ids": [
+                "owned-retail"
+              ],
+              "unit_codes": [
+                "each"
+              ]
+            },
+            "grant_ref": "bd707ac1-bf5c-4688-848c-3e096be2fb4c",
+            "type": "publisher",
+            "activity_id": "synthetic-operational-activity-a",
+            "source_label": "Synthetic native Catalog source",
+            "consumer_label": "الحساب المستفيد",
+            "fields": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media"
+            ]
+          }
+        ],
+        "origin_evidence": [
+          {
+            "evidence_id": "235ce7fc-8874-4d7d-a706-70974404d6ac",
+            "enrollment_id": "37414537-fde6-4432-bb80-9e105403dcb2",
+            "enrollment_version": 1,
+            "kind": "goods",
+            "local_product_id": "synthetic-native-goods-1",
+            "origin_reference": "synthetic-native-audit/synthetic-native-goods-1",
+            "provenance": "native_created",
+            "scope": {
+              "activity_id": "synthetic-operational-activity-a",
+              "branch_id": null,
+              "organization_id": "6e90e399-757b-492d-96af-21a70bc473a6",
+              "warehouse_id": null
+            },
+            "source_evidence_sha256": "b8e7b67016f7271b63101be9dadbe23a84de11ded3bd553b488fb3615d1898ce",
+            "service_signature_verified": true,
+            "native_product_ref": "235ce7fc-8874-4d7d-a706-70974404d6ac",
+            "product_label": "منتج موثّق من المصدر",
+            "source_installation_ref": "81487264-22ab-48b3-b15d-16726f748f0f",
+            "activity_id": "synthetic-operational-activity-a"
+          }
+        ]
+      },
+      "selection_revision": "f8a29bd95ed64fc883299d9a90885533e8300560ef291e995dee0b84746b8a98",
+      "approval_policy": "Explicit scoped permissions; an eligible requester may approve their own request"
+    }
+  }
+}

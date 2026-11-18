@@ -1,0 +1,1090 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "owner-workspace-contract/1.2",
+  "models": {
+    "NamespaceRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "expected_enrollment_version": {
+          "minimum": 1,
+          "title": "Expected Enrollment Version",
+          "type": "integer"
+        },
+        "expected_version": {
+          "minimum": 0,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "expected_enrollment_version",
+        "expected_version",
+        "expires_at",
+        "idempotency_key"
+      ],
+      "title": "NamespaceRegistration",
+      "type": "object"
+    },
+    "NamespaceResponse": {
+      "$defs": {
+        "Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "activity_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Activity Id",
+              "type": "string"
+            },
+            "branch_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Branch Id"
+            },
+            "organization_id": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Organization Id",
+              "type": "string"
+            },
+            "warehouse_id": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warehouse Id"
+            }
+          },
+          "required": [
+            "organization_id",
+            "activity_id"
+          ],
+          "title": "Scope",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "authority_domain": {
+          "const": "native.service_namespace",
+          "default": "native.service_namespace",
+          "title": "Authority Domain",
+          "type": "string"
+        },
+        "enrollment_id": {
+          "title": "Enrollment Id",
+          "type": "string"
+        },
+        "enrollment_version": {
+          "minimum": 1,
+          "title": "Enrollment Version",
+          "type": "integer"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "grants_created": {
+          "const": false,
+          "default": false,
+          "title": "Grants Created",
+          "type": "boolean"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "namespace_id": {
+          "title": "Namespace Id",
+          "type": "string"
+        },
+        "native_authority_revision": {
+          "title": "Native Authority Revision",
+          "type": "string"
+        },
+        "organization_id": {
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "ownership_epoch": {
+          "minimum": 1,
+          "title": "Ownership Epoch",
+          "type": "integer"
+        },
+        "platform": {
+          "enum": [
+            "catalog",
+            "wa_savana",
+            "sawemly"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "product_credentials_created": {
+          "const": false,
+          "default": false,
+          "title": "Product Credentials Created",
+          "type": "boolean"
+        },
+        "provider_ref": {
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "resource_authority_created": {
+          "const": false,
+          "default": false,
+          "title": "Resource Authority Created",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "source_installation_id": {
+          "title": "Source Installation Id",
+          "type": "string"
+        },
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "namespace_id",
+        "organization_id",
+        "scope",
+        "provider_ref",
+        "platform",
+        "external_tenant_id",
+        "label",
+        "source_installation_id",
+        "enrollment_id",
+        "enrollment_version",
+        "ownership_epoch",
+        "version",
+        "state",
+        "expires_at",
+        "native_authority_revision"
+      ],
+      "title": "NamespaceResponse",
+      "type": "object"
+    },
+    "NamespaceRevocation": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_version",
+        "reason"
+      ],
+      "title": "NamespaceRevocation",
+      "type": "object"
+    },
+    "WorkspaceActivityCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 2,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "idempotency_key"
+      ],
+      "title": "WorkspaceActivityCreate",
+      "type": "object"
+    },
+    "WorkspaceBindingRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "expected_selection_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Selection Revision",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "redirect_uri": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Redirect Uri",
+          "type": "string"
+        },
+        "state": {
+          "maxLength": 255,
+          "minLength": 32,
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "external_tenant_id",
+        "display_name",
+        "redirect_uri",
+        "state",
+        "expected_selection_revision"
+      ],
+      "title": "WorkspaceBindingRequest",
+      "type": "object"
+    },
+    "WorkspaceCapabilityGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "enum": [
+              "read",
+              "request",
+              "approve",
+              "execute",
+              "reconcile"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Actions",
+          "type": "array"
+        },
+        "allowed_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "assign_source_authority": {
+          "default": false,
+          "title": "Assign Source Authority",
+          "type": "boolean"
+        },
+        "capability_code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "expected_authority_epoch": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Expected Authority Epoch",
+          "type": "integer"
+        },
+        "expected_authority_epochs": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Expected Authority Epochs",
+          "type": "object"
+        },
+        "expected_version": {
+          "minimum": 0,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "resource_policy": {
+          "default": "selected",
+          "enum": [
+            "new_only",
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        },
+        "resource_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Resource Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "provider_ref",
+        "capability_code",
+        "actions",
+        "expires_at",
+        "expected_version"
+      ],
+      "title": "WorkspaceCapabilityGrant",
+      "type": "object"
+    },
+    "WorkspacePolicyChoices": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Channels",
+          "type": "array"
+        },
+        "currencies": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Currencies",
+          "type": "array"
+        },
+        "price_list_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Price List Ids",
+          "type": "array"
+        },
+        "unit_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Unit Codes",
+          "type": "array"
+        }
+      },
+      "title": "WorkspacePolicyChoices",
+      "type": "object"
+    },
+    "WorkspaceProviderPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id"
+      ],
+      "title": "WorkspaceProviderPrepare",
+      "type": "object"
+    },
+    "WorkspaceRequestCreate": {
+      "$defs": {
+        "WorkspacePolicyChoices": {
+          "additionalProperties": false,
+          "properties": {
+            "channels": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Channels",
+              "type": "array"
+            },
+            "currencies": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Currencies",
+              "type": "array"
+            },
+            "price_list_ids": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Price List Ids",
+              "type": "array"
+            },
+            "unit_codes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Unit Codes",
+              "type": "array"
+            }
+          },
+          "title": "WorkspacePolicyChoices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "allow_restore": {
+          "default": false,
+          "title": "Allow Restore",
+          "type": "boolean"
+        },
+        "allowed_operations": {
+          "items": {
+            "enum": [
+              "upsert",
+              "hide",
+              "unhide",
+              "archive",
+              "tombstone",
+              "restore"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "consumer_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Installation Ref"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media",
+              "is_visible"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Fields",
+          "type": "array"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source_registration",
+            "consumer_registration",
+            "read_sharing",
+            "native_origin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "native_product_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Product Ref"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "policy_choices": {
+          "$ref": "#/$defs/WorkspacePolicyChoices"
+        },
+        "provider_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Ref"
+        },
+        "source_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Ref"
+        }
+      },
+      "required": [
+        "activity_id",
+        "kind",
+        "idempotency_key"
+      ],
+      "title": "WorkspaceRequestCreate",
+      "type": "object"
+    },
+    "WorkspaceRequestEdit": {
+      "$defs": {
+        "WorkspacePolicyChoices": {
+          "additionalProperties": false,
+          "properties": {
+            "channels": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Channels",
+              "type": "array"
+            },
+            "currencies": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Currencies",
+              "type": "array"
+            },
+            "price_list_ids": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Price List Ids",
+              "type": "array"
+            },
+            "unit_codes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Unit Codes",
+              "type": "array"
+            }
+          },
+          "title": "WorkspacePolicyChoices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "allow_restore": {
+          "default": false,
+          "title": "Allow Restore",
+          "type": "boolean"
+        },
+        "allowed_operations": {
+          "items": {
+            "enum": [
+              "upsert",
+              "hide",
+              "unhide",
+              "archive",
+              "tombstone",
+              "restore"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "consumer_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Installation Ref"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media",
+              "is_visible"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Fields",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "source_registration",
+            "consumer_registration",
+            "read_sharing",
+            "native_origin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "native_product_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Product Ref"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "policy_choices": {
+          "$ref": "#/$defs/WorkspacePolicyChoices"
+        },
+        "provider_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Ref"
+        },
+        "source_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Ref"
+        }
+      },
+      "required": [
+        "activity_id",
+        "kind",
+        "expected_version"
+      ],
+      "title": "WorkspaceRequestEdit",
+      "type": "object"
+    },
+    "WorkspaceRequestSelection": {
+      "$defs": {
+        "WorkspacePolicyChoices": {
+          "additionalProperties": false,
+          "properties": {
+            "channels": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Channels",
+              "type": "array"
+            },
+            "currencies": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Currencies",
+              "type": "array"
+            },
+            "price_list_ids": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Price List Ids",
+              "type": "array"
+            },
+            "unit_codes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Unit Codes",
+              "type": "array"
+            }
+          },
+          "title": "WorkspacePolicyChoices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "allow_restore": {
+          "default": false,
+          "title": "Allow Restore",
+          "type": "boolean"
+        },
+        "allowed_operations": {
+          "items": {
+            "enum": [
+              "upsert",
+              "hide",
+              "unhide",
+              "archive",
+              "tombstone",
+              "restore"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "consumer_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Installation Ref"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "name",
+              "description",
+              "sku",
+              "barcodes",
+              "base_unit",
+              "price",
+              "media",
+              "is_visible"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Fields",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "source_registration",
+            "consumer_registration",
+            "read_sharing",
+            "native_origin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "native_product_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Product Ref"
+        },
+        "people_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "People Refs",
+          "type": "array"
+        },
+        "policy_choices": {
+          "$ref": "#/$defs/WorkspacePolicyChoices"
+        },
+        "provider_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Ref"
+        },
+        "source_installation_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Installation Ref"
+        }
+      },
+      "required": [
+        "activity_id",
+        "kind"
+      ],
+      "title": "WorkspaceRequestSelection",
+      "type": "object"
+    },
+    "WorkspaceSelectionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "expected_selection_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Selection Revision",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "External Tenant Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 255,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "provider_ref",
+        "external_tenant_id",
+        "expected_selection_revision",
+        "idempotency_key"
+      ],
+      "title": "WorkspaceSelectionRequest",
+      "type": "object"
+    }
+  },
+  "status": "Actual closed DTOs. Identity is derived from authenticated sessions; native/production acceptance is separately evidenced."
+}

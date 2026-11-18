@@ -6,6 +6,7 @@ reviewed overlay. Runtime state, workspace dependencies/build output and test
 harnesses never enter the image contexts. Public assets and dependency locks do.
 """
 import argparse
+import base64
 import gzip
 import hashlib
 import io
@@ -28,11 +29,27 @@ DENIED_SUFFIXES = (".db", ".db-wal", ".db-shm", ".db-journal", ".sqlite", ".sqli
 SERVER_DIRS = {"config", "db", "middleware", "presenters", "routes", "runtime", "scripts", "security", "services"}
 SERVER_ROOT = {"Dockerfile", ".dockerignore", "package.json", "package-lock.json", "server.js", "start.js"}
 CLIENT_ROOT = {"Dockerfile", ".dockerignore", "package.json", "package-lock.json", "index.html", "nginx.conf", "vite.config.js", "eslint.config.js"}
+BUILD_GUARD_ARCHIVE = "client/vendor/savana-picomatch-build-guard-4.1.2-p10.tgz"
+BUILD_GUARD_SHA256 = "31d7076b4659842619be2114b3c318e483d67510cdadd82a667133ae1ffe3602"
+BUILD_GUARD_SRI = "sha512-YLAjOZDfo7IIpRHhG7jeL0DFFyClZjOYh3al2bx4DCaOlImZyLxq+UAc5CZqXfKkLaY4WXBgACBRUEp8dRd4UQ=="
+# Exact reviewed build adapter, not a general vendor-directory exception.
+BUILD_GUARD_FILES = {"LICENSE", "README.md", "codec.cjs", "heap-flags.cjs", "index.cjs", "index.mjs", "package.json",
+                     "posix.cjs", "posix.mjs", "provenance.json", "worker.cjs", "upstream/LICENSE", "upstream/index.js",
+                     "upstream/package.json", "upstream/lib/constants.js", "upstream/lib/parse.js",
+                     "upstream/lib/picomatch.js", "upstream/lib/scan.js", "upstream/lib/utils.js"}
+CLIENT_BUILD_INPUTS = {BUILD_GUARD_ARCHIVE, "client/scripts/verify-picomatch-build-guard.cjs",
+                       "client/scripts/picomatch/verify.cjs", "client/scripts/picomatch/bounded-proof.cjs",
+                       "client/vendor/picomatch-build-guard-manifest.json", "client/vendor/picomatch-build-guard-provenance.json",
+                       "client/vendor/picomatch-build-guard-verifier.json", "client/vendor/picomatch-build-guard-portable-r3-files.json",
+                       "client/vendor/picomatch-build-guard-portable-r3.README.md",
+                       "client/vendor/picomatch-build-guard-consumers.json"} | {
+    "client/vendor/picomatch-build-guard/" + name for name in BUILD_GUARD_FILES}
 RELEASE_INPUTS = {
     "tools/package_wa_production_candidate.py": "release/tools/package_wa_production_candidate.py",
     "tools/validate_wa_linux_candidate.py": "release/tools/validate_wa_linux_candidate.py",
     "tools/wa_linux_candidate_runtime.mjs": "release/tools/wa_linux_candidate_runtime.mjs",
     "docs/WA_PRODUCTION_CANDIDATE.md": "release/WA_PRODUCTION_CANDIDATE.md",
+    "docs/WA_PICOMATCH_BUILD_GUARD.md": "release/WA_PICOMATCH_BUILD_GUARD.md",
     "docs/PRODUCTION_CADDY_RUNBOOK.md": "release/PRODUCTION_CADDY_RUNBOOK.md",
     "ops/release/server.Dockerfile": "release/server.Dockerfile",
     "ops/release/client.Dockerfile": "release/client.Dockerfile",
@@ -87,6 +104,8 @@ def runtime_input(name):
             return path.name in SERVER_ROOT
         return len(path.parts) > 2 and path.parts[1] in SERVER_DIRS and path.suffix in {".js", ".mjs", ".cjs", ".json", ".sql"}
     if path.parts[0] == "client":
+        if name in CLIENT_BUILD_INPUTS:
+            return True
         if len(path.parts) == 2:
             return path.name in CLIENT_ROOT
         return len(path.parts) > 2 and path.parts[1] in {"src", "public"} and path.suffix.lower() in {
@@ -182,6 +201,21 @@ def locks(payload):
             if not path:
                 continue
             resolved = value.get("resolved", "")
+            if component == "client" and path == "node_modules/picomatch" and resolved.startswith("file:"):
+                archive = payload.get("source/" + BUILD_GUARD_ARCHIVE)
+                actual_sri = "sha512-" + base64.b64encode(hashlib.sha512(archive[0]).digest()).decode() if archive else None
+                if value.get("name") != "@savana-internal/picomatch-build-guard" or value.get("version") != "4.1.2" \
+                        or resolved != "file:vendor/savana-picomatch-build-guard-4.1.2-p10.tgz" \
+                        or value.get("integrity") != BUILD_GUARD_SRI or not archive \
+                        or sha(archive[0]) != BUILD_GUARD_SHA256 or actual_sri != BUILD_GUARD_SRI \
+                        or package.get("devDependencies", {}).get("picomatch") != resolved \
+                        or package.get("overrides", {}).get("picomatch") != "$picomatch":
+                    raise ValueError("Reviewed build guard archive/alias integrity differs")
+                packages.append({"path": path, "name": value["name"], "version": value["version"], "integrity": value["integrity"],
+                                 "resolved": resolved, "dev": value.get("dev", False), "optional": value.get("optional", False),
+                                 "embedded_component": {"name": "picomatch", "version": "4.0.5", "advisory": "GHSA-fc5q-39xc-vjpf"},
+                                 "official_upstream_patch": False})
+                continue
             if not isinstance(value.get("version"), str) or not resolved.startswith("https://registry.npmjs.org/") \
                     or not re.fullmatch(r"sha(?:1|256|384|512)-[A-Za-z0-9+/=]+", value.get("integrity", "")):
                 raise ValueError("Dependencies must resolve to pinned public npm packages with integrity")
@@ -189,7 +223,7 @@ def locks(payload):
                              "resolved": resolved, "dev": value.get("dev", False), "optional": value.get("optional", False)})
         result[component] = {"package_json_sha256": sha(package_data), "package_lock_sha256": sha(lock_data),
                              "package_count": len(packages), "packages": packages,
-                             "install": "npm ci --omit=dev" if component == "server" else "npm ci; npm run build",
+                             "install": "npm ci --omit=dev" if component == "server" else "NODE_OPTIONS='' npm ci --include=dev --include=optional; node scripts/verify-picomatch-build-guard.cjs; npm ls --all --include=dev --include=optional; npm run build",
                              "workspace_node_modules_included": False}
     return result
 

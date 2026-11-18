@@ -83,6 +83,26 @@ test('identity setup defaults off and makes no HTTP request or grant', async () 
     assert.equal(calls, 0);
 });
 
+test('configured identity infrastructure is available without a second deployment flag; explicit stop remains effective', () => {
+    const env = {
+        SAVANA_CONNECT_PLATFORM_TOKEN: 'synthetic-service-token',
+        SAVANA_SHARED_READ_OIDC_ISSUER: config.oidcIssuer,
+        SAVANA_SHARED_READ_OIDC_CLIENT_ID: config.oidcClientId,
+        SAVANA_SHARED_READ_OIDC_REDIRECT_URI: config.oidcRedirectUri,
+        SAVANA_SHARED_READ_OIDC_AUTHORIZATION_ENDPOINT: config.oidcAuthorizationEndpoint,
+        SAVANA_SHARED_READ_OIDC_TOKEN_ENDPOINT: config.oidcTokenEndpoint,
+        SAVANA_SHARED_READ_OIDC_JWKS_URI: config.oidcJwksUri,
+        SAVANA_SHARED_READ_OIDC_USERINFO_ENDPOINT: config.oidcUserInfoEndpoint,
+    };
+    assert.equal(operationalReadConfigFromEnv(env).enabled, true);
+    assert.equal(operationalReadConfigFromEnv(env).sharedReadsEnabled, true);
+    assert.equal(operationalReadConfigFromEnv(env).ownerPortalEnabled, false);
+    assert.equal(operationalReadConfigFromEnv({ ...env, SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN: 'https://portal.invalid' }).ownerPortalEnabled, true);
+    assert.equal(operationalReadConfigFromEnv({ ...env, SAVANA_SHARED_READ_SETUP_ENABLED: 'false' }).enabled, false);
+    assert.equal(operationalReadConfigFromEnv({ ...env, SAVANA_SHARED_PRODUCT_READS_ENABLED: 'false' }).sharedReadsEnabled, false);
+    assert.equal(operationalReadConfigFromEnv({ ...env, SAVANA_CONNECT_PLATFORM_TOKEN: '' }).enabled, false);
+});
+
 test('PKCE callback validates actual signed ID/access identity but grants no owner action or product read', async t => {
     const f = fixture(t);
     const auth = await f.authorize();

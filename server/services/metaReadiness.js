@@ -23,7 +23,8 @@ export const FACEBOOK_OAUTH_SCOPES = [
     'business_management',
 ];
 
-export const FACEBOOK_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'];
+export const FACEBOOK_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks', 'message_echoes'];
+export const MESSENGER_WEBHOOK_FIELDS = ['messages', 'message_echoes'];
 
 export const CONTENT_REVIEW_SCOPES = [
     'pages_read_user_content',
@@ -216,6 +217,8 @@ export const missingItems = (required, available) => {
 };
 
 export const hasAllItems = (required, available) => missingItems(required, available).length === 0;
+export const isMessengerWebhookReady = page => Boolean(page?.token_ready && page.webhook_subscribed
+    && hasAllItems(MESSENGER_WEBHOOK_FIELDS, parseStoredArray(page.subscribed_fields)));
 
 export const readinessStatus = (isReady, hasPartialSetup = false) => {
     if (isReady) return 'ready';
@@ -586,9 +589,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
     const pagesWithToken = activePages.filter(page => page.token_ready);
     const expiringTokenPages = activePages.filter(page => page.page_access_token_present && page.token_expiring);
     const webhookReadyPages = activePages.filter(page => page.token_ready && page.webhook_ready);
-    const messengerWebhookPages = activePages.filter(page =>
-        page.token_ready && page.webhook_subscribed && page.subscribed_fields.includes('messages')
-    );
+    const messengerWebhookPages = activePages.filter(isMessengerWebhookReady);
 
     const conversationStats = db.prepare(`
         SELECT COUNT(*) as count,
@@ -986,8 +987,9 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             key: 'messenger',
             title: 'Messenger',
             status: readinessStatus(messengerConfigured && messengerHasEvidence, messengerConfigured || activePages.length > 0),
-            action_path: '/portal/inbox',
+            action_path: messengerConfigured ? '/portal/inbox' : '/portal/fb-pages',
             required_permissions: MESSENGER_REVIEW_SCOPES,
+            required_webhook_fields: MESSENGER_WEBHOOK_FIELDS,
             missing_permissions: missingItems(MESSENGER_REVIEW_SCOPES, grantedScopes),
             webhook_pages_ready: messengerWebhookPages.length,
             conversations_count: conversationStats?.count || 0,
@@ -997,7 +999,7 @@ export const buildMetaReviewReadiness = async (tenantId) => {
             webhook_postback_evidence: webhookEvidence.by_field.messaging_postbacks || null,
             review_hint: messengerConfigured && messengerHasEvidence
                 ? 'Messenger جاهز وبداخله دليل نشاط يمكن عرضه للمراجع.'
-                : 'يتطلب صفحة مشتركة في messages ووجود محادثة Messenger فعلية أو مزامنة محادثة قائمة.',
+                : 'تحقق من أذونات Messenger واشتراك استقبال الرسائل وتأكيدات الرسائل المرسلة من صفحات Facebook، ثم تحقق من محادثة فعلية أو مزامنة محادثة قائمة.',
         },
         business_asset_user_profile_access: {
             key: 'business_asset_user_profile_access',

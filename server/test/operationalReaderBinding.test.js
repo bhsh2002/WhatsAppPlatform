@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 import Database from 'better-sqlite3';
 import { createOperationalReadServices } from '../services/operationalReadSetup.js';
 import { createOperationalReadSetupRouter } from '../routes/operationalReadSetup.js';
-import { applyThrough } from '../test-support/savanaMigrationFixture.js';
+import {runMigrationsSync} from '../db/migrator.js';
 
 // Contract-response unit fixtures only. Live owner HTTP enrollment/approval is
 // verified separately; these tests never seed a central registry/read grant.
@@ -38,7 +38,8 @@ const cipher = () => {
 
 const fixture = async t => {
     const database = new Database(':memory:');
-    applyThrough(database, '059_savana_operational_enrollments.sql');
+    database.pragma('foreign_keys=ON');
+    runMigrationsSync(database);
     database.exec(`INSERT INTO tenants(id,name,phone,status) VALUES
         (1,'Synthetic binding activity','15550000001','Active'),
         (2,'Synthetic foreign activity','15550000002','Active');
@@ -107,7 +108,8 @@ const fixture = async t => {
     calls.length = 0;
     const effects = () => Object.fromEntries(['bot_products', 'messages', 'savana_product_projection',
         'savana_service_requests', 'savana_integration_outbox', 'billing_usage_events', 'billing_ledger',
-        'facebook_content_campaigns', 'facebook_content_publications'].map(table => [table,
+        'facebook_content_campaigns', 'facebook_content_publications','billing_payments',
+        'savana_collaborative_executions','savana_collaborative_effects','savana_native_action_facts','savana_native_media_assets'].map(table => [table,
         database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
     return { database, principal, config, service, readService, store, calls, context, native, effects,
         token: () => token, mutate: value => { transform = value; } };
@@ -117,6 +119,8 @@ test('native reader binding verifies server account/current actor/exact scope an
     const f = await fixture(t);
     const before = f.effects();
     assert.equal(f.store.load(f.principal), null);
+    const verifiedOwner=f.database.prepare('SELECT user_id,central_actor_id,organization_id,native_role FROM savana_native_owner_proofs').all();
+    assert.deepEqual(verifiedOwner,[{user_id:1,central_actor_id:centralActor,organization_id:scope.organization_id,native_role:'tenant'}]);
     const result = await f.service.bindReader(f.principal, selection);
     assert.equal(result.bound, true);
     assert.equal(result.read_ready, true);

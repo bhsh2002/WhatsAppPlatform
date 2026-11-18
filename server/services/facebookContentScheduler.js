@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { createContentPublication } from './nativeContentPublication.js';
+export { createContentPublication } from './nativeContentPublication.js';
 import { isEgressMaintenanceActive } from '../runtime/egressMaintenance.js';
 
 import {
@@ -169,51 +171,6 @@ export const selectCampaignSource = (database, campaign, {
     return null;
 };
 
-export const createContentPublication = (database, {
-    tenantId,
-    linkedPageId,
-    campaignId = null,
-    contentItemId = null,
-    productId = null,
-    scheduledFor,
-    renderedMessage,
-    linkUrl = null,
-    mediaUrl = null,
-    createdBy = null,
-    idempotencyKey = crypto.randomUUID(),
-    maxAttempts = 3,
-} = {}) => {
-    const result = database.prepare(`
-        INSERT INTO facebook_content_publications (
-            tenant_id, linked_page_id, campaign_id, content_item_id, product_id,
-            status, scheduled_for, next_attempt_at, max_attempts, idempotency_key,
-            rendered_message, link_url, media_url, created_by
-        ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(idempotency_key) DO NOTHING
-    `).run(
-        tenantId,
-        linkedPageId,
-        campaignId,
-        contentItemId,
-        productId,
-        iso(scheduledFor),
-        iso(scheduledFor),
-        maxAttempts,
-        idempotencyKey,
-        renderedMessage,
-        linkUrl,
-        mediaUrl,
-        createdBy,
-    );
-    if (result.changes === 0) {
-        return database.prepare(`
-            SELECT * FROM facebook_content_publications WHERE idempotency_key = ?
-        `).get(idempotencyKey);
-    }
-    return database.prepare(`
-        SELECT * FROM facebook_content_publications WHERE id = ?
-    `).get(result.lastInsertRowid);
-};
 
 const nextRunForCampaign = (campaign, from) => nextCampaignRun({
     from,
@@ -343,6 +300,7 @@ const recoverStaleClaims = (database, now) => {
         SET status = 'published', published_at = COALESCE(published_at, updated_at),
             claimed_at = NULL, claimed_by = NULL, updated_at = datetime('now')
         WHERE status = 'processing' AND meta_post_id IS NOT NULL
+          AND COALESCE(claimed_by, '') NOT LIKE 'collaborative:%'
           AND claimed_at < ?
     `).run(staleBefore);
     return database.prepare(`
@@ -350,6 +308,7 @@ const recoverStaleClaims = (database, now) => {
         SET status = 'pending', claimed_at = NULL, claimed_by = NULL,
             next_attempt_at = ?, updated_at = datetime('now')
         WHERE status = 'processing' AND meta_post_id IS NULL
+          AND COALESCE(claimed_by, '') NOT LIKE 'collaborative:%'
           AND claimed_at < ?
     `).run(iso(now), staleBefore).changes;
 };

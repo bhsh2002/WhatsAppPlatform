@@ -2,14 +2,18 @@
 FROM node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS build
 
 WORKDIR /app
+ENV NODE_OPTIONS=""
 
 COPY package*.json ./
+COPY vendor ./vendor
 
-RUN npm ci
+RUN npm ci --include=dev --include=optional
 
 COPY . .
 
-RUN npm run build
+RUN node scripts/verify-picomatch-build-guard.cjs --mode inspect \
+    && npm ls --all --include=dev --include=optional \
+    && npm run build
 
 # Production Stage
 FROM nginx:alpine@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa

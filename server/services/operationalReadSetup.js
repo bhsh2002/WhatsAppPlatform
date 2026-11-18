@@ -4,6 +4,8 @@ import { CentralProductReadService, DelegatedReadBindings, SharedProductReadErro
 import { SqliteDelegatedReadBindings } from './delegatedReadSessionStore.js';
 import { OperationalConsumerEnrollmentService } from './operationalConsumerEnrollment.js';
 import { OperationalOwnerPortalService } from './operationalOwnerPortal.js';
+import { NativeOwnerProofs } from './nativeOwnerProofs.js';
+import { createNativePlatformBindingReader } from './nativePlatformBinding.js';
 
 const fail = (code, status = 503) => { throw new SharedProductReadError(code, status); };
 const flags = { read_only: true, execution_ready: false, pricing_use_allowed: false };
@@ -23,10 +25,24 @@ const validEndpoint = (value, config, sameCenter = true) => {
     return url;
 };
 
-export const operationalReadConfigFromEnv = (env = process.env) => ({
-    enabled: ['1', 'true'].includes(String(env.SAVANA_SHARED_READ_SETUP_ENABLED || '').toLowerCase()),
-    sharedReadsEnabled: ['1', 'true'].includes(String(env.SAVANA_SHARED_PRODUCT_READS_ENABLED || '').toLowerCase()),
-    ownerPortalEnabled: ['1', 'true'].includes(String(env.SAVANA_SHARED_READ_OWNER_PORTAL_ENABLED || '').toLowerCase()),
+const configuredSwitch = (value, ready) => value == null || value === '' ? ready
+    : ['1', 'true'].includes(String(value).toLowerCase());
+
+export const operationalReadConfigFromEnv = (env = process.env) => {
+    // Availability follows actual infrastructure configuration. An operator can
+    // still explicitly stop this boundary; enabling it conveys no membership,
+    // scope, read grant or command permission to any owner.
+    const configured = ['SAVANA_CONNECT_PLATFORM_TOKEN', 'SAVANA_SHARED_READ_OIDC_ISSUER',
+        'SAVANA_SHARED_READ_OIDC_CLIENT_ID', 'SAVANA_SHARED_READ_OIDC_REDIRECT_URI',
+        'SAVANA_SHARED_READ_OIDC_AUTHORIZATION_ENDPOINT', 'SAVANA_SHARED_READ_OIDC_TOKEN_ENDPOINT',
+        'SAVANA_SHARED_READ_OIDC_JWKS_URI', 'SAVANA_SHARED_READ_OIDC_USERINFO_ENDPOINT']
+        .every(key => typeof env[key] === 'string' && env[key].trim().length > 0);
+    const enabled = configuredSwitch(env.SAVANA_SHARED_READ_SETUP_ENABLED, configured);
+    return {
+    enabled,
+    sharedReadsEnabled: configuredSwitch(env.SAVANA_SHARED_PRODUCT_READS_ENABLED, enabled),
+    ownerPortalEnabled: configuredSwitch(env.SAVANA_SHARED_READ_OWNER_PORTAL_ENABLED,
+        enabled && !!env.SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN),
     ownerPortalOrigin: env.SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN || '',
     centerOrigin: env.SAVANA_CONNECT_URL || 'http://savana-connect:8010',
     platformToken: env.SAVANA_CONNECT_PLATFORM_TOKEN || '',
@@ -37,7 +53,8 @@ export const operationalReadConfigFromEnv = (env = process.env) => ({
     oidcTokenEndpoint: env.SAVANA_SHARED_READ_OIDC_TOKEN_ENDPOINT || '',
     oidcJwksUri: env.SAVANA_SHARED_READ_OIDC_JWKS_URI || '',
     oidcUserInfoEndpoint: env.SAVANA_SHARED_READ_OIDC_USERINFO_ENDPOINT || '',
-});
+    };
+};
 
 export class OperationalReadSetupService {
     constructor({ database, config = {}, store, fetchImpl = globalThis.fetch,
@@ -51,6 +68,7 @@ export class OperationalReadSetupService {
         this.now = now;
         this.readService = readService;
         this.enrollmentService = enrollmentService;
+        this.nativeOwnerProofs = null;
         this.endpoints = null;
         if (config.enabled === true) {
             const redirect = validEndpoint(config.oidcRedirectUri, { ...config, centerOrigin: config.oidcRedirectUri }, false);
@@ -260,6 +278,9 @@ export class OperationalReadSetupService {
             this.assertLocal(principal);
             this.store.completeOwnerFlow(principal, consumed.flowId, { accessToken: token.access_token,
                 expiresAt: new Date(access.exp * 1000).toISOString(), actorId: identity.sub, organizationId: identity.organization_id });
+            // Retain verified account ownership identity, not a delegation or
+            // a permission. Delegated commands still need explicit Core grants.
+            if (this.nativeOwnerProofs) await this.nativeOwnerProofs.capture(principal);
             return { redirect: '/portal/integrations?shared_read_setup=connected' };
         } catch (failure) {
             // A concurrent disconnect can already have invalidated this flow.
@@ -290,6 +311,13 @@ export const createOperationalReadServices = ({ database, config, fetchImpl = gl
                 && current.actorId === session.actorId && current.organizationId === session.organizationId;
         } });
     setupService.enrollmentService = enrollmentService;
+    const nativeOwnerProofs = config.enabled === true ? new NativeOwnerProofs({ database, verifyLocalPrincipal,
+        currentIdentity: principal => setupService.identity(principal),
+        resolveBinding: createNativePlatformBindingReader({ centerOrigin: config.centerOrigin,
+            platformToken: config.platformToken, allowLoopback: config.allowLoopback === true, fetchImpl }),
+        issuer: config.oidcIssuer, clientId: config.oidcClientId,
+    }) : null;
+    setupService.nativeOwnerProofs = nativeOwnerProofs;
     const ownerPortalService = new OperationalOwnerPortalService({ database, encryption,
         config: { enabled: config.enabled === true && config.ownerPortalEnabled === true,
             portalOrigin: config.ownerPortalOrigin, allowLoopback: config.allowLoopback === true },
@@ -297,5 +325,5 @@ export const createOperationalReadServices = ({ database, config, fetchImpl = gl
         verifyIdentitySession: principal => setupService.identity(principal),
         resolveNativeAccount: (principal, identity) => setupService.nativeAccount(principal, identity, { allowUnbound: true }),
     });
-    return { setupService, readService, store, enrollmentService, ownerPortalService };
+    return { setupService, readService, store, enrollmentService, ownerPortalService, nativeOwnerProofs };
 };
