@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import test from 'node:test';
 import { savanaIntegrationMethods } from '../../api/savanaIntegrations.js';
 
@@ -220,4 +221,111 @@ test('named grant options/review expose no browser version/epoch/actor authority
     await savanaIntegrationMethods.reviewPortalWorkspaceProviderRefresh.call(client, 'opaque/current-provider');
     assert.equal(calls[2][0], '/api/portal/integrations/workspace/provider/refresh/review'); assert.deepEqual(JSON.parse(calls[2][1].body), { provider: 'opaque/current-provider' });
     assert.deepEqual(calls[2][1].headers, { 'X-Savana-Owner-Intent': 'connections-data-v1' });
+});
+
+const previewAt = Date.parse('2026-11-22T12:00:00Z');
+const previewBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+const previewHash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const previewHeaders = (bytes = previewBytes, headers = {}) => ({ 'Content-Type': 'image/png',
+    'X-Savana-Preview-Valid-Until': new Date(previewAt + 5000).toISOString(), 'X-Savana-Preview-SHA256': previewHash(bytes), ...headers });
+const previewFixture = t => {
+    let now = previewAt, respond = () => new Response(previewBytes, { headers: previewHeaders() });
+    t.mock.method(Date, 'now', () => now);
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', async (...args) => { calls.push(args); return respond(...args); });
+    const client = { baseUrl: '', getWhatsAppRequestHeaders: () => ({ 'X-WhatsApp-Phone-Number-Id': 'current-native-number' }),
+        request: () => assert.fail('Binary preview must use the local authenticated fetch boundary'),
+        getCurrentUser: () => assert.fail('No identity round trip is part of a preview fetch'),
+        getMediaToken: () => assert.fail('Preview credentials stay in the normal native session') };
+    return { client, calls, clock: value => { now = value; }, respond: fn => { respond = fn; },
+        run: (preview = 'opaque-preview', activity = 'opaque-activity', options = {}) => savanaIntegrationMethods.getPortalWorkspaceResourcePreview.call(client, preview, activity, options) };
+};
+
+test('shared resource API: JSON reads send only opaque selectors and forward cancellation signals', async () => {
+    const { calls, client } = capture(), controller = new AbortController();
+    await savanaIntegrationMethods.getPortalWorkspaceResources.call(client, { activity: 'opaque/activity', provider: 'opaque/provider', q: 'خدمة & ماء', cursor: 'opaque/cursor',
+        signal: controller.signal, actor_id: 'not-forwarded', provider_ref: 'not-forwarded', ticket: 'not-forwarded', source_origin: 'https://not-forwarded.invalid' });
+    await savanaIntegrationMethods.getPortalWorkspaceResource.call(client, 'opaque/resource', 'opaque/activity', { signal: controller.signal, ticket: 'not-forwarded' });
+    await savanaIntegrationMethods.getPortalWorkspaceProductResource.call(client, 'opaque/record', 'opaque/activity', { signal: controller.signal });
+    const query = new URL(calls[0][0], 'https://own.test').searchParams;
+    assert.deepEqual([...query.keys()], ['activity', 'provider', 'q', 'cursor']); assert.equal(query.get('q'), 'خدمة & ماء');
+    assert.equal(calls[1][0], '/api/portal/integrations/workspace/resources/opaque%2Fresource?activity=opaque%2Factivity');
+    assert.equal(calls[2][0], '/api/portal/integrations/workspace/records/opaque%2Frecord/resource?activity=opaque%2Factivity');
+    for (const [, options] of calls) assert.deepEqual(options, { signal: controller.signal });
+});
+
+test('shared resource API: image preview uses one fixed local cookie fetch and returns bounded SHA-verified Blob bytes', async t => {
+    const f = previewFixture(t), controller = new AbortController(); f.client.baseUrl = 'https://configured-native.test';
+    const value = await f.run('opaque/preview', 'opaque/activity', { signal: controller.signal });
+    assert.equal(value.blob instanceof Blob, true); assert.equal(value.blob.type, 'image/png');
+    assert.deepEqual(new Uint8Array(await value.blob.arrayBuffer()), previewBytes); assert.equal(value.valid_until, new Date(previewAt + 5000).toISOString());
+    assert.equal(f.calls.length, 1); assert.equal(f.calls[0][0], 'https://configured-native.test/api/portal/integrations/workspace/resource-media/opaque%2Fpreview?activity=opaque%2Factivity');
+    assert.deepEqual(f.calls[0][1], { credentials: 'include', cache: 'no-store', redirect: 'error', signal: controller.signal,
+        headers: { 'X-WhatsApp-Phone-Number-Id': 'current-native-number', Accept: 'image/jpeg,image/png,image/webp' } });
+    for (const mime of ['image/jpeg', 'image/webp']) {
+        f.respond(() => new Response(previewBytes, { headers: previewHeaders(previewBytes, { 'Content-Type': mime }) }));
+        assert.equal((await f.run()).blob.type, mime);
+    }
+});
+
+test('shared resource API: oversized headers/streams are discarded and the exact 512KiB boundary remains usable', async t => {
+    const f = previewFixture(t), max = new Uint8Array(524288); max.set(previewBytes);
+    f.respond(() => new Response(max, { headers: previewHeaders(max, { 'Content-Length': String(max.length) }) }));
+    assert.equal((await f.run()).blob.size, max.length);
+    let canceled = false, readerOpened = false;
+    f.respond(() => ({ ok: true, headers: new Headers(previewHeaders(previewBytes, { 'Content-Length': '524289' })), body: {
+        getReader() { readerOpened = true; throw new Error('No oversized-header body read'); }, cancel() { canceled = true; } } }));
+    await assert.rejects(f.run(), { code: 'workspace_resource_media_invalid', status: 502, clear_previous: true });
+    assert.equal(readerOpened, false); assert.equal(canceled, true);
+    canceled = false;
+    f.respond(() => new Response(new ReadableStream({ start(controller) { controller.enqueue(max); controller.enqueue(new Uint8Array([1])); },
+        cancel() { canceled = true; } }), { headers: previewHeaders(max) }));
+    await assert.rejects(f.run(), { code: 'workspace_resource_media_invalid', clear_previous: true }); assert.equal(canceled, true);
+});
+
+test('shared resource API: unsupported MIME, empty body and malformed or mismatched SHA withhold every Blob', async t => {
+    const f = previewFixture(t);
+    for (const headers of [{ 'Content-Type': 'image/svg+xml' }, { 'Content-Type': 'text/html' }, { 'X-Savana-Preview-SHA256': 'not-a-sha' },
+        { 'X-Savana-Preview-SHA256': 'a'.repeat(64) }, { 'Content-Length': '-1' }]) {
+        f.respond(() => new Response(previewBytes, { headers: previewHeaders(previewBytes, headers) }));
+        await assert.rejects(f.run(), { code: 'workspace_resource_media_invalid', status: 502, clear_previous: true });
+    }
+    f.respond(() => new Response(new Uint8Array(), { headers: previewHeaders(new Uint8Array()) }));
+    await assert.rejects(f.run(), { code: 'workspace_resource_media_invalid', clear_previous: true });
+});
+
+test('shared resource API: strict lease validation rejects malformed, elapsed and asynchronously expired previews', async t => {
+    const f = previewFixture(t);
+    for (const deadline of ['', '2030-02-30T12:00:00Z', '2030-01-01', '2030-01-01T24:00:00Z', new Date(previewAt).toISOString()]) {
+        f.respond(() => new Response(previewBytes, { headers: previewHeaders(previewBytes, { 'X-Savana-Preview-Valid-Until': deadline }) }));
+        await assert.rejects(f.run(), { code: 'workspace_resource_read_expired', status: 403, clear_previous: true });
+    }
+    let reads = 0;
+    f.respond(() => ({ ok: true, headers: new Headers(previewHeaders()), body: { getReader: () => ({ async read() {
+        if (++reads === 1) return { done: false, value: previewBytes }; f.clock(previewAt + 5000); return { done: true };
+    }, cancel() {}, releaseLock() {} }) } }));
+    await assert.rejects(f.run(), { code: 'workspace_resource_read_expired', clear_previous: true });
+    f.clock(previewAt); f.respond(() => new Response(previewBytes, { headers: previewHeaders() }));
+    const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    t.mock.method(globalThis.crypto.subtle, 'digest', async (...args) => { const result = await digest(...args); f.clock(previewAt + 5000); return result; });
+    await assert.rejects(f.run(), { code: 'workspace_resource_read_expired', clear_previous: true });
+});
+
+test('shared resource API: HTTP/network/stream errors are sanitized, retain status and clear_previous, and never retry', async t => {
+    const f = previewFixture(t);
+    f.respond(() => new Response(JSON.stringify({ error: { code: 'private-source-code', message: 'private provider body' }, ticket: 'private-ticket' }), { status: 403 }));
+    await assert.rejects(f.run(), error => { assert.equal(error.status, 403); assert.equal(error.clear_previous, true); assert.equal(error.data.clear_previous, true);
+        assert.equal(JSON.stringify(error).includes('private'), false); assert.equal(error.message.includes('private'), false); return true; });
+    f.respond(() => { throw new Error('private transport address'); });
+    await assert.rejects(f.run(), { code: 'workspace_unavailable', status: 503, clear_previous: true });
+    f.respond(() => new Response(new ReadableStream({ start(controller) { controller.error(new Error('private provider stream')); } }), { headers: previewHeaders() }));
+    await assert.rejects(f.run(), { code: 'workspace_resource_media_invalid', status: 502, clear_previous: true });
+    assert.equal(f.calls.length, 3);
+});
+
+test('shared resource API: cancellation before and after fetch discards bytes without extra identity requests', async t => {
+    const f = previewFixture(t), early = new AbortController(); early.abort();
+    await assert.rejects(f.run('opaque-preview', 'opaque-activity', { signal: early.signal }), { name: 'AbortError', clear_previous: true }); assert.equal(f.calls.length, 0);
+    const late = new AbortController(); f.respond(() => { late.abort(); return new Response(previewBytes, { headers: previewHeaders() }); });
+    await assert.rejects(f.run('opaque-preview', 'opaque-activity', { signal: late.signal }), { name: 'AbortError', clear_previous: true }); assert.equal(f.calls.length, 1);
 });

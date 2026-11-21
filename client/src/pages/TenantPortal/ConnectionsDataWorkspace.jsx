@@ -5,12 +5,13 @@ import WorkspaceCapabilityCards from './WorkspaceCapabilityCards';
 import WorkspaceSharedRecords from './WorkspaceSharedRecords';
 import WorkspaceCommandStatus from './WorkspaceCommandStatus';
 import WorkspaceAccessRequests from './WorkspaceAccessRequests';
+import SharedResourceBrowser from './SharedResourceBrowser';
 import { workspaceActionAvailable, workspaceLabel } from './connectionsDataPresentation';
 
 // A view layer only. The platform adapter supplies authenticated context,
 // current allowed actions and callbacks backed by the published Core contract.
 const ConnectionsDataWorkspace = ({ context = {}, connection = {}, capabilities = {}, sharedData = {}, operations = {}, accessRequests = {}, onConnect,
-    actions = [], onWorkspaceAction, onRefresh, refreshing = false, activeTab, onTabChange, language = 'ar' }) => {
+    actions = [], sharedResources, resourceActivity, onWorkspaceAction, onRefresh, refreshing = false, activeTab, onTabChange, language = 'ar' }) => {
     const ar = language === 'ar';
     const [localTab, setLocalTab] = useState('connection');
     const tab = activeTab || localTab;
@@ -47,7 +48,12 @@ const ConnectionsDataWorkspace = ({ context = {}, connection = {}, capabilities 
         {tab === 'connection' && <Box role="tabpanel" id="workspace-connection-panel" aria-labelledby="workspace-connection-tab">{verified
             ? <Stack spacing={3}><GuidedDataConnection key={context.viewKey} {...connection} viewKey={context.viewKey} verified language={language} /><WorkspaceAccessRequests {...accessRequests} verified language={language} /></Stack>
             : <Alert severity="info">{ar ? 'ستظهر الأنشطة والحسابات والبيانات المتاحة بعد التحقق من ربط حسابك.' : 'Activities, accounts and available data appear after your account connection is verified.'}</Alert>}</Box>}
-        {tab === 'data' && <Box role="tabpanel" id="workspace-data-panel" aria-labelledby="workspace-data-tab"><WorkspaceSharedRecords key={context.viewKey} {...sharedData} verified={verified} language={language} /></Box>}
+        {tab === 'data' && <Box role="tabpanel" id="workspace-data-panel" aria-labelledby="workspace-data-tab"><Stack spacing={3}>
+            <WorkspaceSharedRecords key={context.viewKey} {...sharedData} verified={verified} language={language}
+                renderResourceContext={sharedResources ? detail => <SharedResourceBrowser key={`${context.viewKey}:${detail.key}`} context={context} activity={resourceActivity}
+                    sharedResources={sharedResources} productRecord={detail.key} isArabic={ar} /> : undefined} />
+            {sharedResources && <SharedResourceBrowser key={context.viewKey} context={context} activity={resourceActivity} sharedResources={sharedResources} isArabic={ar} />}
+        </Stack></Box>}
         {tab === 'capabilities' && <Box role="tabpanel" id="workspace-capabilities-panel" aria-labelledby="workspace-capabilities-tab"><WorkspaceCapabilityCards {...capabilities} verified={verified} language={language} /></Box>}
         {tab === 'operations' && <Box role="tabpanel" id="workspace-operations-panel" aria-labelledby="workspace-operations-tab"><WorkspaceCommandStatus key={context.viewKey} {...operations} verified={verified} language={language} /></Box>}
     </Stack>;

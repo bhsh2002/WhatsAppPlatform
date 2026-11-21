@@ -12,7 +12,7 @@ const fieldTimestamp = (value, ar) => {
 };
 
 const WorkspaceSharedRecords = ({ records = [], verified = false, loading = false, held = false, query = '', onQueryChange,
-    onSearch, onDetail, onAction, browseAction = null, createAction = null, onCreate, detailRecord, detailLoading = false, onCloseDetail, emptyMessage = '', language = 'ar' }) => {
+    onSearch, onDetail, onAction, browseAction = null, createAction = null, onCreate, detailRecord, detailLoading = false, onCloseDetail, renderResourceContext, emptyMessage = '', language = 'ar' }) => {
     const ar = language === 'ar';
     const [detailKey, setDetailKey] = useState(null);
     const controlledDetail = detailRecord !== undefined;
@@ -64,6 +64,7 @@ const WorkspaceSharedRecords = ({ records = [], verified = false, loading = fals
                         {receivedAt && <Typography variant="caption" color="text.secondary" display="block">{ar ? 'وقت الاستلام: ' : 'Received time: '}<time dateTime={field.received_at}>{receivedAt}</time></Typography>}
                     </Box>;
                 })}
+                {detail && renderResourceContext?.(detail)}
                 {(detail?.actions || []).map(action => <Box key={action.key}>
                     <Button variant="outlined" disabled={!workspaceActionAvailable(action, actionContext)} onClick={() => onAction?.(detail.key, action.key)}>{workspaceLabel(action.label, ar ? 'متابعة' : 'Continue')}</Button>
                     {action.enabled !== true && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{action.reason || (ar ? 'هذا الإجراء غير متاح لهذا السجل حاليًا.' : 'This action is currently unavailable for this record.')}</Typography>}

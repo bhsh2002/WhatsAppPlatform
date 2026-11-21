@@ -10,6 +10,8 @@ import { validateWorkspaceCoreModel } from './workspaceCoreModels.js';
 import { validateNativeCommandModel } from './nativeCommandModels.js';
 import { validateWorkspaceProductPayload } from './workspaceProductPayload.js';
 import { WorkspaceProductReader, workspaceProductOption } from './workspaceProductReader.js';
+import { WorkspaceSharedResourceReader } from './workspaceSharedResourceReader.js';
+import { WorkspaceSharedResourceViews } from './workspaceSharedResourceViews.js';
 import { WorkspaceCapabilityGrants, workspaceGrantChoices } from './workspaceCapabilityGrants.js';
 import { workspaceNativeCapabilityCards } from './workspaceNativeCapabilityCards.js';
 import { createWorkspaceCommandPresenter } from './workspaceCommandPresentation.js';
@@ -51,15 +53,20 @@ const identityProof = identity => hash([identity.actorId, identity.organizationI
 // Core DTOs; all policy decisions remain current Core/source decisions.
 export class OperationalWorkspaceService {
     constructor({ database, encryption, setupService, readService, nativeOwnerProofs, nativeOwnerService = null,
-        verifyLocalPrincipal = createSqliteReadPrincipalVerifier(database), fetchImpl = globalThis.fetch, now = () => Date.now() }) {
+        verifyLocalPrincipal = createSqliteReadPrincipalVerifier(database), fetchImpl = globalThis.fetch, now = () => Date.now(),
+        sharedResourceReadsEnabled = false }) {
         this.db = database; this.setup = setupService; this.reader = readService; this.proofs = nativeOwnerProofs;
         this.nativeOwner = nativeOwnerService; this.businessOwner = null; this.nativeEnrollment = null; this.verify = verifyLocalPrincipal; this.fetch = fetchImpl; this.now = now;
         this.transport = new WorkspaceCoreTransport({ setupService, fetchImpl, now });
         this.products = new WorkspaceProductReader({ gateway: this });
+        this.sharedResourceReader = new WorkspaceSharedResourceReader({ gateway: this });
         this.urlPolicy = { allowLoopback: setupService.config.allowLoopback === true,
             allowedOrigins: [...new Set([setupService.config.centerOrigin, setupService.config.oidcIssuer, setupService.appOrigin].filter(Boolean))] };
         this.receipts = new WorkspaceReceipts({ database, encryption, verifyLocalPrincipal, now });
         this.refs = new WorkspaceReferences({ encryption, verifyLocalPrincipal, currentIdentity: p => this.transport.currentIdentity(p, { allowUnbound: true }), now });
+        // The published producer contract is still a draft. This constructor
+        // seam is exercised by focused consumer tests, never enabled by env.
+        this.sharedResourceViews = new WorkspaceSharedResourceViews({ gateway: this, enabled: sharedResourceReadsEnabled });
         this.choices = new WorkspaceChoices({ encryption, verifyLocalPrincipal, loadContext: p => this.loadContext(p), now });
         this.intents = new WorkspaceIntentStore({ database, encryption, verifyLocalPrincipal, now,
             loadOutcome: input => this.loadOutcome(input) });
@@ -220,6 +227,8 @@ export class OperationalWorkspaceService {
         const businessRequested = input.action && nativeBusinessCapabilities.includes(input.action) ? input.action : null;
         const mediaRequested = input.action === 'media.manage';
         const nativeChoice = native && context.choices.providers.find(row => row.data.provider_ref === native.provider_ref && row.data.activity_id === activity.key);
+        const sharedResources = this.sharedResourceViews.enabled === true && activity
+            ? await this.sharedResourceViews.options(principal, context, activity.data) : null;
         return { spec_version: '1.0', context: { verified: true, ...metadata,
             native_reference: workspaceContextReference(principal, identity), organizationLabel: raw.organization.name,
             actorLabel: raw.actor.display_name, activityLabel: activity?.label || null,
@@ -238,6 +247,8 @@ export class OperationalWorkspaceService {
                         && scopeEqual(context.selection?.scope, activity.data.scope) ? null : 'استخدم هذا النشاط وحدّد إذن القراءة الحالي لهذا الحساب لعرض المنتجات.' },
                 ...(editor.provider && editor.fields.some(row => row.enabled) ? { createAction: { key: 'create', label: 'إضافة منتج إلى المصدر', enabled: bound && !held, effect: 'read' } } : {}) },
             commands: [], productEditor: editor, intents, held,
+            ...(sharedResources ? { sharedResources: { ...sharedResources, browseAction: { enabled: sharedResources.providers.length > 0,
+                label: 'عرض الخدمات والعروض المشتركة' } } } : {}),
             actions: [{ key: 'activity.create', label: 'إضافة نشاط', enabled: raw.can_create_activity && !held, effect: 'read', href: '/portal/integrations?action=activity.create' },
                 ...(activity ? [{ key: 'activity.select', label: 'استخدام هذا النشاط', enabled: bound && !!native && !held, effect: 'read' }] : []),
                 ...(activity && activity.data.can_manage_people && raw.capability_grant_options.some(row => row.activity_id === activity.key)
@@ -858,6 +869,10 @@ export class OperationalWorkspaceService {
         const productEditor = await this.productEditor(principal, context, activity.data, source, result.record);
         return { ...this.readMetadata(context, result, latest), record, productEditor };
     }
+    resourceOfferings(principal, input) { return this.sharedResourceViews.offerings(principal, input); }
+    resourceOffering(principal, input) { return this.sharedResourceViews.offering(principal, input); }
+    resourceProduct(principal, input) { return this.sharedResourceViews.product(principal, input); }
+    resourcePreview(principal, input) { return this.sharedResourceViews.preview(principal, input); }
     async productEditor(principal, context, activity, provider, record = null) {
         if (!activity || !provider) return emptyEditor();
         const option = workspaceProductOption(context, activity, provider, record);

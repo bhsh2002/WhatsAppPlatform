@@ -9,11 +9,17 @@ import { SharedProductReadError } from '../services/centralProductRead.js';
 const fixture = async t => {
     const calls = [];
     const methods = ['overview', 'select', 'reviewActivity', 'reviewProvider', 'reviewConnection', 'reviewProduct',
-        'submit', 'records', 'record', 'commands', 'command', 'approve', 'approveRequest', 'reconcileCommand', 'intent', 'reconcileIntent', 'result'];
+        'submit', 'records', 'record', 'commands', 'command', 'approve', 'approveRequest', 'reconcileCommand', 'intent', 'reconcileIntent', 'result',
+        'resourceOfferings', 'resourceOffering', 'resourceProduct', 'resourcePreview'];
     let failure;
     const service = Object.fromEntries(methods.map(method => [method, async (principal, input) => {
         calls.push({ method, principal, input });
         if (failure) throw failure;
+        if (method === 'resourcePreview') {
+            const bytes = Buffer.from('89504e470d0a1a0a00000000', 'hex');
+            return { bytes, contentType: 'image/png', sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+                validUntil: new Date(Date.now() + 5000).toISOString() };
+        }
         if (method === 'result') {
             const bytes = Buffer.from('"اسم","الحالة"\r\n"عميل تجريبي","مؤكد"\r\n');
             return { bytes, contentType: 'text/csv', sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
@@ -32,6 +38,35 @@ const fixture = async t => {
     return { calls, base, post, fail: value => { failure = value; } };
 };
 const intent = { 'X-Savana-Owner-Intent': 'connections-data-v1', Origin: 'https://wa.invalid' };
+
+test('shared resource reads forward opaque selectors only and private media is authenticated no-store bytes', async t => {
+    const f = await fixture(t);
+    for (const [path, method, input] of [
+        ['/resources?activity=opaque-activity&provider=opaque-provider&q=service', 'resourceOfferings', { activity: 'opaque-activity', provider: 'opaque-provider', q: 'service' }],
+        ['/resources/wr1.resource?activity=opaque-activity', 'resourceOffering', { activity: 'opaque-activity', resource: 'wr1.resource' }],
+        ['/records/wr1.product/resource?activity=opaque-activity', 'resourceProduct', { activity: 'opaque-activity', record: 'wr1.product' }],
+    ]) {
+        assert.equal((await fetch(`${f.base}${path}`)).status, 200);
+        assert.deepEqual(f.calls.at(-1).input, input); assert.equal(f.calls.at(-1).method, method);
+    }
+    const response = await fetch(`${f.base}/resource-media/wr1.preview?activity=opaque-activity`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('content-type'), 'image/png'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), response.headers.get('x-savana-preview-sha256'));
+    assert.ok(Date.parse(response.headers.get('x-savana-preview-valid-until')) > Date.now());
+    const before = f.calls.length;
+    for (const path of ['/resources?source_installation_id=browser', '/resources/wr1.resource?fields=price',
+        '/resource-media/wr1.preview?ticket=browser-ticket', '/records/wr1.product/resource?rights_reference=browser-rights']) {
+        assert.equal((await fetch(`${f.base}${path}`)).status, 422);
+    }
+    assert.equal(f.calls.length, before);
+    f.fail(new SharedProductReadError('workspace_resource_read_expired', 403));
+    const withdrawn = await fetch(`${f.base}/resource-media/wr1.preview?activity=opaque-activity`);
+    assert.equal(withdrawn.status, 403); assert.equal(withdrawn.headers.get('cache-control'), 'no-store');
+    assert.equal((await withdrawn.json()).clear_previous, true);
+});
 
 test('workspace mutations require explicit current-origin intent before any service is called', async t => {
     const f = await fixture(t);

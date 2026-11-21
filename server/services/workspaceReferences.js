@@ -3,7 +3,7 @@ import { canonicalWorkspaceJson } from './workspaceIntents.js';
 
 const TTL = 30 * 24 * 60 * 60 * 1000;
 const MAX_REF_BYTES = 65_536;
-const TYPES = new Set(['intent', 'command', 'record', 'request', 'read_grant']);
+const TYPES = new Set(['intent', 'command', 'record', 'request', 'read_grant', 'resource', 'resource_cursor', 'media_preview']);
 const text = value => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= 255;
 export class WorkspaceReferenceError extends Error {
     constructor(code, status = 403) { super(code); this.code = code; this.status = status; this.statusCode = status; }

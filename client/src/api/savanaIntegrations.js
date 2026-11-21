@@ -1,3 +1,20 @@
+const PREVIEW_MAX_BYTES = 524288;
+const previewFailure = (code, status, name = 'Error') => {
+    const error = new Error('تعذر تأكيد إذن معاينة الصورة. أعد قراءة التفاصيل.');
+    return Object.assign(error, { name, code, status, clear_previous: true,
+        data: { clear_previous: true, error: { code, message: error.message } } });
+};
+const assertPreviewLease = value => {
+    const match = typeof value === 'string' && /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(value);
+    const deadline = match ? Date.parse(value) : NaN;
+    if (!match || Number(match[2]) < 1 || Number(match[2]) > 12 || Number(match[3]) < 1
+        || Number(match[3]) > new Date(Date.UTC(Number(match[1]), Number(match[2]), 0)).getUTCDate()
+        || !Number.isFinite(deadline) || deadline <= Date.now()) throw previewFailure('workspace_resource_read_expired', 403);
+};
+const assertPreviewActive = signal => {
+    if (signal?.aborted) throw previewFailure('workspace_resource_preview_aborted', 503, 'AbortError');
+};
+
 export const savanaIntegrationMethods = {
     async getPortalGuidedWhatsAppSetup() {
         return this.request('/api/portal/whatsapp/setup');
@@ -225,6 +242,74 @@ export const savanaIntegrationMethods = {
 
     async getPortalWorkspaceRecord(record, activity) {
         return this.request(`/api/portal/integrations/workspace/records/${encodeURIComponent(record)}?${new URLSearchParams({ activity })}`);
+    },
+
+    async getPortalWorkspaceResources({ activity, provider, q = '', cursor, signal } = {}) {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries({ activity, provider, q, cursor })) if (value !== undefined && value !== null) params.set(key, value);
+        return this.request(`/api/portal/integrations/workspace/resources?${params}`, { signal });
+    },
+
+    async getPortalWorkspaceResource(resource, activity, { signal } = {}) {
+        return this.request(`/api/portal/integrations/workspace/resources/${encodeURIComponent(resource)}?${new URLSearchParams({ activity })}`, { signal });
+    },
+
+    async getPortalWorkspaceProductResource(record, activity, { signal } = {}) {
+        return this.request(`/api/portal/integrations/workspace/records/${encodeURIComponent(record)}/resource?${new URLSearchParams({ activity })}`, { signal });
+    },
+
+    async getPortalWorkspaceResourcePreview(preview, activity, { signal } = {}) {
+        assertPreviewActive(signal);
+        let response;
+        try {
+            response = await fetch(`${this.baseUrl}/api/portal/integrations/workspace/resource-media/${encodeURIComponent(preview)}?${new URLSearchParams({ activity })}`, {
+                credentials: 'include', cache: 'no-store', redirect: 'error', signal,
+                headers: { ...this.getWhatsAppRequestHeaders(), Accept: 'image/jpeg,image/png,image/webp' },
+            });
+        } catch (error) {
+            if (signal?.aborted || error?.name === 'AbortError') throw previewFailure('workspace_resource_preview_aborted', 503, 'AbortError');
+            throw previewFailure('workspace_unavailable', 503);
+        }
+        let reader;
+        try {
+            assertPreviewActive(signal);
+            if (!response.ok) throw previewFailure('workspace_resource_media_unavailable', response.status);
+            const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            const validUntil = response.headers.get('x-savana-preview-valid-until');
+            const expectedHash = response.headers.get('x-savana-preview-sha256');
+            const length = response.headers.get('content-length');
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType) || !/^[a-f0-9]{64}$/.test(expectedHash || '')
+                || length !== null && (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > PREVIEW_MAX_BYTES)
+                || typeof globalThis.crypto?.subtle?.digest !== 'function' || typeof response.body?.getReader !== 'function') {
+                throw previewFailure('workspace_resource_media_invalid', 502);
+            }
+            assertPreviewLease(validUntil);
+            reader = response.body.getReader();
+            const chunks = []; let size = 0;
+            while (true) {
+                const next = await reader.read();
+                assertPreviewActive(signal);
+                if (next.done) break;
+                size += next.value.byteLength;
+                if (size > PREVIEW_MAX_BYTES) throw previewFailure('workspace_resource_media_invalid', 502);
+                chunks.push(new Uint8Array(next.value));
+            }
+            if (!size) throw previewFailure('workspace_resource_media_invalid', 502);
+            assertPreviewLease(validUntil);
+            const bytes = new Uint8Array(size); let offset = 0;
+            for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+            const actualHash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes));
+            assertPreviewActive(signal);
+            if (Array.from(actualHash, byte => byte.toString(16).padStart(2, '0')).join('') !== expectedHash) throw previewFailure('workspace_resource_media_invalid', 502);
+            const blob = new Blob([bytes], { type: contentType });
+            assertPreviewLease(validUntil);
+            return { blob, valid_until: validUntil };
+        } catch (error) {
+            try { if (reader) await reader.cancel(); else await response.body?.cancel(); } catch { /* Discard all unreturned bytes. */ }
+            if (error?.clear_previous === true) throw error;
+            if (signal?.aborted || error?.name === 'AbortError') throw previewFailure('workspace_resource_preview_aborted', 503, 'AbortError');
+            throw previewFailure('workspace_resource_media_invalid', 502);
+        } finally { reader?.releaseLock(); }
     },
 
     async getPortalWorkspaceCommands(activity) {

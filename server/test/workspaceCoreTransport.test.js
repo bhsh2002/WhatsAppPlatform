@@ -54,6 +54,61 @@ test('private consumer selector is explicit and invalid header values are reject
     assert.equal(f.calls.length, 1);
 });
 
+const sharedSearch = () => ({ authorization: { scope: { organization_id: 'verified-organization', activity_id: 'activity' },
+    provider_ref: 'source', source_platform: 'catalog', source_installation_id: 'source-installation', principal_kind: 'native_oidc',
+    consumer_installation_id: 'verified-consumer', consumer_platform: 'wa_savana', allowed_fields: ['name'],
+    authorization_revision: 'a'.repeat(64), valid_until: '2026-11-18T12:00:05Z' }, records: [] });
+
+test('qualified shared resource GET accepts only the closed public authorization model', async () => {
+    const f = fixture(); const options = { path: '/v1/integration/workspace/resources?activity_id=activity&provider_ref=source&resource_kind=offering&fields=name',
+        sharedResourceModel: 'SharedResourceSearchView', consumerInstallation: 'verified-consumer' };
+    f.reply(async () => Response.json(sharedSearch()));
+    const result = await f.transport.request(f.principal, options);
+    assert.deepEqual(result.payload, sharedSearch());
+    for (const mutate of [p => { p.authorization = 'Bearer private'; },
+        p => { p.authorization.access_token = 'private'; }, p => { p.records = [{ authorization: { password: 'private' } }]; }]) {
+        const payload = sharedSearch(); mutate(payload); f.reply(async () => Response.json(payload));
+        await assert.rejects(f.transport.request(f.principal, options), error => error.status === 502);
+    }
+    f.reply(async () => Response.json(sharedSearch()));
+    await assert.rejects(f.transport.request(f.principal, { path: options.path }), { code: 'workspace_response_invalid' });
+    f.reply(async () => Response.json(sharedSearch(), { status: 403 }));
+    await assert.rejects(f.transport.request(f.principal, options), { code: 'workspace_response_invalid' });
+    const before = f.calls.length;
+    for (const extra of [{ path: '/v1/integration/workspace/discovery' }, { sharedResourceModel: 'SharedResourceReadView' },
+        { method: 'POST', body: {} }, { consumerInstallation: null }, { sharedResourceModel: '__proto__' },
+        { path: '/v1/integration/workspace/resources/%2e%2e' },
+        { sharedResourceModel: 'SharedMediaPreviewView', path: '/v1/integration/workspace/resources/product/media/asset%3Aone/preview' },
+        { sharedResourceModel: 'SharedResourceReadView', path: '/v1/integration/workspace/resources/_noncanonical' }]) {
+        await assert.rejects(f.transport.request(f.principal, { ...options, ...extra }),
+            error => error.code === 'workspace_request_invalid' && error.requestDispatched === false);
+    }
+    assert.equal(f.calls.length, before);
+});
+
+test('qualified resource queries preserve bounded opaque cursor characters without relaxing path traversal checks', async () => {
+    const f = fixture(); f.reply(async () => Response.json(sharedSearch()));
+    const cursor = 'جزء/صفحة.'.repeat(700);
+    const query = new URLSearchParams({ activity_id: 'activity', provider_ref: 'source', resource_kind: 'offering', fields: 'name', cursor });
+    await f.transport.request(f.principal, { path: `/v1/integration/workspace/resources?${query}`,
+        sharedResourceModel: 'SharedResourceSearchView', consumerInstallation: 'verified-consumer' });
+    assert.equal(new URL(f.calls[0].url).searchParams.get('cursor'), cursor);
+    await assert.rejects(f.transport.request(f.principal, { path: `/v1/integration/workspace/discovery?${query}` }),
+        { code: 'workspace_request_invalid' });
+});
+
+test('draft2 resource route identities retain raw source colons on the fixed Core path', async () => {
+    const f = fixture(); const authorization = sharedSearch().authorization;
+    const payload = { resource_kind: 'product', resource_ref: 'product:one', authorization,
+        record: { resource_kind: 'product', scope: authorization.scope,
+            source: { platform: 'catalog', installation_id: 'source-installation', external_tenant_id: 'catalog:tenant' },
+            source_local_id: 'native-product', native_revision: 2, observed_at: '2026-11-18T12:00:00Z', data: { name: 'Actual source value' } } };
+    f.reply(async () => Response.json(payload));
+    await f.transport.request(f.principal, { path: '/v1/integration/workspace/resources/product:one?activity_id=activity&provider_ref=source&resource_kind=product&fields=name',
+        sharedResourceModel: 'SharedResourceReadView', consumerInstallation: 'verified-consumer' });
+    assert.equal(new URL(f.calls[0].url).pathname, '/v1/integration/workspace/resources/product:one');
+});
+
 test('source result uses exact MIME/hash/bytes and current identity; CSV is never mislabeled as a JSON receipt', async () => {
     const f = fixture(); const csv = Buffer.from('"اسم","الحالة"\r\n"عميل تجريبي","مؤكد"\r\n');
     const sha256 = crypto.createHash('sha256').update(csv).digest('hex');

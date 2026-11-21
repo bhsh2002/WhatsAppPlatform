@@ -61,7 +61,26 @@ export const createOperationalWorkspaceRouter = ({ service, appOrigin }) => {
     router.post('/workspace/actions/review', intent, call('reviewAction', body(['activity', 'provider', 'capability', 'action', 'parameters'])));
     router.post('/workspace/submit', intent, call('submit', reviewed));
     router.get('/workspace/records', call('records', query(['activity', 'q', 'cursor'])));
+    router.get('/workspace/records/:record/resource', call('resourceProduct', req => ({ ...query(['activity'])(req), record: req.params.record })));
     router.get('/workspace/records/:record', call('record', req => ({ ...query(['activity'])(req), record: req.params.record })));
+    router.get('/workspace/resources', call('resourceOfferings', query(['activity', 'provider', 'q', 'cursor'])));
+    router.get('/workspace/resources/:resource', call('resourceOffering', req => ({ ...query(['activity'])(req), resource: req.params.resource })));
+    router.get('/workspace/resource-media/:preview', async (req, res) => {
+        try {
+            const result = await service.resourcePreview(localReadPrincipal(req.user), { ...query(['activity'])(req), preview: req.params.preview });
+            if (!Buffer.isBuffer(result?.bytes) || result.bytes.length < 1 || result.bytes.length > 524288
+                || !['image/jpeg', 'image/png', 'image/webp'].includes(result.contentType)
+                || !/^[a-f0-9]{64}$/.test(result.sha256 || '') || !Number.isFinite(Date.parse(result.validUntil))
+                || Date.parse(result.validUntil) <= Date.now()) throw new SharedProductReadError('workspace_resource_read_expired', 403);
+            return res.set({ 'Content-Type': result.contentType, 'X-Savana-Preview-Valid-Until': result.validUntil,
+                'X-Savana-Preview-SHA256': result.sha256, 'X-Content-Type-Options': 'nosniff',
+                'Content-Disposition': 'inline; filename="shared-preview"', 'Referrer-Policy': 'no-referrer' }).send(result.bytes);
+        } catch (error) {
+            const known = error instanceof SharedProductReadError || error instanceof WorkspaceIntentError || error instanceof WorkspaceReferenceError;
+            return res.status(known ? error.status : 503).json({ error: { code: known ? error.code : 'workspace_unavailable',
+                message: 'انتهى إذن المعاينة أو تعذر تأكيده. أعد قراءة تفاصيل المصدر.' }, clear_previous: true });
+        }
+    });
     router.get('/workspace/commands', call('commands', query(['activity'])));
     router.get('/workspace/commands/:command/result', async (req, res) => {
         try {

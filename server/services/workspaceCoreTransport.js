@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { SharedProductReadError } from './centralProductRead.js';
+import { validateSharedResourceModel } from './workspaceSharedResourceModels.js';
 
 const fail = (code, status = 503) => { throw new SharedProductReadError(code, status); };
 const text = (value, max = 1024) => typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -39,7 +40,7 @@ const noSecrets = value => {
     }
 };
 
-const readJson = async response => {
+const readJson = async (response, sharedResourceModel = null) => {
     if (Number(response.headers.get('content-length')) > 1_048_576) fail('workspace_response_invalid', 502);
     const reader = response.body?.getReader();
     if (!reader) fail('workspace_response_invalid', 502);
@@ -57,7 +58,13 @@ const readJson = async response => {
         }
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         if (!payload || typeof payload !== 'object') fail('workspace_response_invalid', 502);
-        noSecrets(payload);
+        if (sharedResourceModel) {
+            // This is a closed public authorization description, never an HTTP
+            // credential. Only a qualified resource read can accept this key.
+            validateSharedResourceModel(sharedResourceModel, payload);
+            const { authorization, ...rest } = payload;
+            noSecrets(rest); noSecrets(authorization);
+        } else noSecrets(payload);
         return payload;
     } catch (error) {
         if (error instanceof SharedProductReadError) throw error;
@@ -132,7 +139,7 @@ export class WorkspaceCoreTransport {
         return { owner, native, externalTenant, proof: { principal: local, identity: ownerHash, nativeAccount: native?.id ?? null } };
     }
     async currentIdentity(principal, options) { return publicIdentity(await this.#current(principal, undefined, options)); }
-    async request(principal, { method = 'GET', path, body, expectedIdentity, notAfter, representation = null, consumerInstallation = null }) {
+    async request(principal, { method = 'GET', path, body, expectedIdentity, notAfter, representation = null, consumerInstallation = null, sharedResourceModel = null }) {
         let target; let bodyJson; let opened;
         // Core explicitly permits discovery/binding before a platform account
         // exists. This is an identity/setup boundary, never a command grant.
@@ -142,13 +149,23 @@ export class WorkspaceCoreTransport {
         try {
         // Encoded slashes/dot segments and caller-selected origins are forbidden.
         if (!['GET', 'POST', 'PATCH', 'PUT'].includes(method) || typeof path !== 'string'
-            || path.length > 4096 || !/^\/v1\/integration\/workspace(?:[/?]|$)/.test(path)
-            || /[\u0000-\u0020\u007f\\#]/.test(path) || /%(?:2f|5c|2e)/i.test(path)
+            || path.length > (sharedResourceModel ? 131072 : 4096) || !/^\/v1\/integration\/workspace(?:[/?]|$)/.test(path)
+            || /[\u0000-\u0020\u007f\\#]/.test(path) || /%(?:2f|5c|2e)/i.test(sharedResourceModel ? path.split('?')[0] : path)
             || /%(?:0[0-9a-f]|1[0-9a-f]|20|7f)/i.test(path.split('?')[0])
             || path.split('?')[0].split('/').some(part => part === '.' || part === '..')
             || (method === 'GET' && body !== undefined)) fail('workspace_request_invalid', 422);
         target = new URL(path, this.origin);
         if (target.origin !== this.origin || !/^\/v1\/integration\/workspace(?:\/|$)/.test(target.pathname)) fail('workspace_request_invalid', 422);
+        if (sharedResourceModel !== null) {
+            const paths = {
+                SharedResourceSearchView: /^\/v1\/integration\/workspace\/resources$/,
+                SharedResourceReadView: /^\/v1\/integration\/workspace\/resources\/[A-Za-z0-9][A-Za-z0-9_.:-]*$/,
+                SharedMediaPreviewView: /^\/v1\/integration\/workspace\/resources\/[A-Za-z0-9][A-Za-z0-9_.:-]*\/media\/[A-Za-z0-9][A-Za-z0-9_.:-]*\/preview$/,
+            };
+            if (method !== 'GET' || representation !== null || typeof sharedResourceModel !== 'string'
+                || !Object.hasOwn(paths, sharedResourceModel) || !paths[sharedResourceModel].test(target.pathname)
+                || consumerInstallation === null) fail('workspace_request_invalid', 422);
+        }
         if (representation !== null && (method !== 'GET' || !['json', 'csv'].includes(representation)
             || !/^\/v1\/integration\/workspace\/commands\/[A-Za-z0-9_:.-]+\/result$/.test(target.pathname)
             || target.searchParams.size !== 1 || target.searchParams.get('format') !== representation)) fail('workspace_request_invalid', 422);
@@ -179,7 +196,8 @@ export class WorkspaceCoreTransport {
             fail(method === 'GET' ? 'workspace_unavailable' : 'workspace_outcome_unknown');
         }
         await this.#current(principal, opened.proof, { allowUnbound });
-        const payload = response.ok && representation ? await readRepresentation(response, representation) : await readJson(response);
+        const payload = response.ok && representation ? await readRepresentation(response, representation)
+            : await readJson(response, response.ok ? sharedResourceModel : null);
         await this.#current(principal, opened.proof, { allowUnbound });
         if (!response.ok) {
             const status = [401, 403, 404, 409, 422, 423, 428, 429, 503].includes(response.status) ? response.status : 503;
