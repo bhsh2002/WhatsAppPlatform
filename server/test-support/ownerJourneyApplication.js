@@ -33,7 +33,7 @@ import { ownerJourneyRouteTemplates } from './ownerJourneyRouteTemplates.js';
 import { GuidedWhatsAppSetupService } from '../services/guidedWhatsAppSetup.js';
 import { createGuidedWhatsAppSetupRouter } from '../routes/guidedWhatsAppSetup.js';
 import { createSqliteReadPrincipalVerifier, SharedProductReadError } from '../services/centralProductRead.js';
-import { createOwnerJourneyCapabilityProofs } from './ownerJourneyCapabilityProofs.js';
+import { createOwnerJourneyCapabilityProofs, createOwnerJourneyReconciliationEvidence } from './ownerJourneyCapabilityProofs.js';
 import { createOwnerJourneyConsumerEvidence } from './ownerJourneyConsumerEvidence.js';
 import { createOwnerJourneyProviderFault } from './ownerJourneyProviderFault.js';
 import { createOwnerJourneyResultDelivery } from './ownerJourneyResultDelivery.js';
@@ -228,6 +228,8 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
     };
     const capabilityEvidence = createOwnerJourneyCapabilityProofs({ database, decrypt, nativeAdapters: runtime.native.nativeAdapters,
         readDiscovery: ({ context }) => runtime.native.discovery.discovery(context) });
+    const reconciliationEvidence = createOwnerJourneyReconciliationEvidence({ database, runId, encrypt, decrypt,
+        protocol: runtime.native.protocol });
     configureCollaborativeWebhookEvidence(runtime.native.effectEvidence);
     configureNativeMessengerProfileTransport({ database, fetchImpl, apiBase: `${urls.message_provider}/v25.0`, allowLoopback: true });
     const traced = prefix => (req, res, next) => {
@@ -248,7 +250,7 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
         return app.use(prefix, traced(prefix), ...handlers);
     };
     mount('/api/integrations/connect', createConnectCallbacksRouter({ service: integrationService }));
-    mount('/api/savana/command-adapter/v1', (req, res, next) => {
+    mount('/api/savana/command-adapter/v1', reconciliationEvidence.middleware, (req, res, next) => {
         if (req.method === 'GET' && /^\/commands\/[^/]+\/result$/.test(req.path)) {
             let returned;
             const send = res.send;
@@ -314,7 +316,7 @@ export const createOwnerJourneyApplication = async ({ app, database, stateRoot, 
             facts[`confirmed_${prefix}_results`] = database.prepare("SELECT COUNT(*) n FROM savana_collaborative_executions WHERE capability_code=? AND state='completed'").get(capability).n;
         }
         facts.authoritative_media_effects = database.prepare("SELECT COUNT(*) n FROM savana_native_media_assets WHERE state='uploaded' AND provider_media_id IS NOT NULL AND provider_receipt_sha256 IS NOT NULL").get().n;
-        facts.lookup_reconciliations = database.prepare("SELECT COUNT(*) n FROM savana_workspace_intent_audit WHERE action='workspace_reconciled_completed'").get().n;
+        facts.lookup_reconciliations = reconciliationEvidence.count();
         const consumer = consumerEvidence.snapshot();
         Object.assign(facts, consumer.facts);
         const resultFetchRows = database.prepare('SELECT id,status,encrypted_result FROM owner_journey_native_result_fetches WHERE run_id=? ORDER BY id').all(runId)

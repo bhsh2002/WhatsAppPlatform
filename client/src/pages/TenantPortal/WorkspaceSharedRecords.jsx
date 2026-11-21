@@ -2,6 +2,15 @@ import React, { useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material';
 import { workspaceActionAvailable, workspaceLabel, workspaceRecordsCanBrowse } from './connectionsDataPresentation';
 
+const fieldTimestamp = (value, ar) => {
+    if (typeof value !== 'string' || value.length > 80
+        || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+        || !Number.isFinite(Date.parse(value))) return null;
+    const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+    if (month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) return null;
+    return new Intl.DateTimeFormat(ar ? 'ar-LY' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+};
+
 const WorkspaceSharedRecords = ({ records = [], verified = false, loading = false, held = false, query = '', onQueryChange,
     onSearch, onDetail, onAction, browseAction = null, createAction = null, onCreate, detailRecord, detailLoading = false, onCloseDetail, emptyMessage = '', language = 'ar' }) => {
     const ar = language === 'ar';
@@ -44,11 +53,17 @@ const WorkspaceSharedRecords = ({ records = [], verified = false, loading = fals
                 {detailLoading && <Typography>{ar ? 'جارٍ التحقق من تفاصيل المصدر…' : 'Checking source details…'}</Typography>}
                 <Typography variant="body2">{ar ? 'مصدر هذا السجل: ' : 'This record comes from: '}{workspaceLabel(detail?.sourceLabel, ar ? 'اسم المصدر غير متاح' : 'Source name unavailable')}</Typography>
                 {detail?.freshnessLabel && <Alert severity={detail.stale === true ? 'warning' : 'info'}>{detail.freshnessLabel}{detail.freshnessDescription ? ` — ${detail.freshnessDescription}` : ''}</Alert>}
-                {(detail?.fields || []).map(field => <Box key={field.key} sx={{ pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-                    <Typography component="h3" variant="subtitle2" fontWeight={800}>{workspaceLabel(field.label, ar ? 'بيان متاح' : 'Available field')}</Typography>
-                    <Typography variant="body1" sx={{ my: 0.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{field.displayValue}</Typography>
-                    <Typography variant="caption" color="text.secondary">{ar ? 'المرجع المعتمد: ' : 'Authoritative source: '}{workspaceLabel(field.sourceLabel, ar ? 'لم يُتحقق المرجع' : 'Source not verified')}</Typography>
-                </Box>)}
+                {(detail?.fields || []).map(field => {
+                    const observedAt = fieldTimestamp(field.observed_at, ar);
+                    const receivedAt = fieldTimestamp(field.received_at, ar);
+                    return <Box key={field.key} sx={{ pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+                        <Typography component="h3" variant="subtitle2" fontWeight={800}>{workspaceLabel(field.label, ar ? 'بيان متاح' : 'Available field')}</Typography>
+                        <Typography variant="body1" sx={{ my: 0.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{field.displayValue}</Typography>
+                        <Typography variant="caption" color="text.secondary">{ar ? 'المرجع المعتمد: ' : 'Authoritative source: '}{workspaceLabel(field.sourceLabel, ar ? 'لم يُتحقق المرجع' : 'Source not verified')}</Typography>
+                        {observedAt && <Typography variant="caption" color="text.secondary" display="block">{ar ? 'وقت الملاحظة في المصدر: ' : 'Source observation time: '}<time dateTime={field.observed_at}>{observedAt}</time></Typography>}
+                        {receivedAt && <Typography variant="caption" color="text.secondary" display="block">{ar ? 'وقت الاستلام: ' : 'Received time: '}<time dateTime={field.received_at}>{receivedAt}</time></Typography>}
+                    </Box>;
+                })}
                 {(detail?.actions || []).map(action => <Box key={action.key}>
                     <Button variant="outlined" disabled={!workspaceActionAvailable(action, actionContext)} onClick={() => onAction?.(detail.key, action.key)}>{workspaceLabel(action.label, ar ? 'متابعة' : 'Continue')}</Button>
                     {action.enabled !== true && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{action.reason || (ar ? 'هذا الإجراء غير متاح لهذا السجل حاليًا.' : 'This action is currently unavailable for this record.')}</Typography>}

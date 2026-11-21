@@ -165,6 +165,13 @@ export class OperationalWorkspaceService {
     }
     metadata(context) { return { viewKey: hash([context.actorId, context.organizationId, context.nativeAccountId,
         context.identity.coreAccountId ?? null, context.identityGeneration, context.revision, context.viewNonce]), valid_until: context.validUntil }; }
+    readMetadata(context, result, latest) {
+        // Formatting must not outlive the shorter authorization of the actual read.
+        const deadlines = [context.validUntil, result.context.valid_until, latest.validUntil].map(value => Date.parse(value));
+        const deadline = Math.min(...deadlines);
+        if (deadlines.some(value => !Number.isFinite(value)) || deadline <= this.now()) fail('workspace_context_changed', 403);
+        return { ...this.metadata(context), valid_until: new Date(deadline).toISOString() };
+    }
     issue(principal, context, kind, option) { return this.choices.issue(principal, context, { kind, key: option.key }); }
     choiceRows(principal, context, kind, predicate = () => true) {
         return context.choices[kind].filter(predicate).map(row => ({ value: this.issue(principal, context, kind, row), label: row.label, enabled: row.selectable === true }));
@@ -836,7 +843,8 @@ export class OperationalWorkspaceService {
         const result = await this.products.search(principal, context, activity.data, { q: input.q || '', cursor: input.cursor || null });
         const latest = await this.loadContext(principal);
         if (latest.revision !== context.revision || !scopeEqual(result.context.scope, activity.data.scope)) fail();
-        return { ...this.metadata(context), records: await Promise.all(result.records.map(row => this.presentRecord(principal, context, row))), cursor: result.next_cursor };
+        const records = await Promise.all(result.records.map(row => this.presentRecord(principal, context, row)));
+        return { ...this.readMetadata(context, result, latest), records, cursor: result.next_cursor };
     }
     async record(principal, input) {
         const resolved = await this.refs.resolve(principal, input.record, 'record');
@@ -846,8 +854,9 @@ export class OperationalWorkspaceService {
         if (result.record.version !== resolved.version || !scopeEqual(result.record.scope, activity.data.scope)) fail();
         const latest = await this.loadContext(principal); if (latest.revision !== context.revision) fail();
         const source = this.sourceFor(context, result.record);
-        return { ...this.metadata(context), record: await this.presentRecord(principal, context, result.record),
-            productEditor: await this.productEditor(principal, context, activity.data, source, result.record) };
+        const record = await this.presentRecord(principal, context, result.record);
+        const productEditor = await this.productEditor(principal, context, activity.data, source, result.record);
+        return { ...this.readMetadata(context, result, latest), record, productEditor };
     }
     async productEditor(principal, context, activity, provider, record = null) {
         if (!activity || !provider) return emptyEditor();

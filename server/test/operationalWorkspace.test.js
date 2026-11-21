@@ -265,6 +265,14 @@ const firstCommand = async f => {
     const overview = await f.service.overview(principal);
     return (await f.service.commands(principal, { activity: overview.connection.selection.activity })).commands[0];
 };
+const selectedProductReadView = async f => {
+    configureShop(f);
+    f.setRecord({ ...sourceRecord(), data: { name: 'اسم المصدر المسموح' } });
+    const initialView = await f.service.overview(principal);
+    const selection = await f.service.reviewSelection(principal, { activity: initialView.connection.selection.activity });
+    await f.service.submit(principal, { review: selection.review.key });
+    return f.service.overview(principal);
+};
 
 test('provider readiness refresh is an explicit sealed operation with its original enrollment and no consumer override', async t => {
     const f = fixture(t); configureShop(f);
@@ -383,6 +391,82 @@ test('authorized product media metadata is visible by count without converting s
     assert.equal(JSON.stringify(row).includes('source-access-private'), false);
     assert.equal(JSON.stringify(row).includes('source-rights-private'), false);
     assert.equal(f.calls.some(call => call.method === 'POST'), false);
+});
+
+for (const [scenario, elapsed, deadline] of [
+    ['actual Core read expires before the owner view', 0, NOW + 30_000],
+    ['existing owner view expires before a fresh Core read', 295_000, NOW + 300_000],
+]) test(`shared product read expiry: list and detail preserve the earliest deadline when ${scenario}`, async t => {
+    const f = fixture(t), view = await selectedProductReadView(f);
+    assert.equal(view.context.valid_until, new Date(NOW + 300_000).toISOString());
+    f.setClock(NOW + elapsed);
+    const list = await f.service.records(principal, { activity: view.connection.selection.activity });
+    const detail = await f.service.record(principal, { activity: view.connection.selection.activity, record: list.records[0].key });
+    for (const response of [list, detail]) {
+        assert.equal(response.valid_until, new Date(deadline).toISOString());
+        assert.equal(response.viewKey, view.context.viewKey);
+        assert.ok(Date.parse(response.valid_until) <= NOW + elapsed + 30_000);
+        assert.ok(Date.parse(response.valid_until) <= Date.parse(view.context.valid_until));
+    }
+    assert.equal(list.records[0].label, 'اسم المصدر المسموح');
+    assert.equal(detail.record.label, 'اسم المصدر المسموح');
+});
+
+test('shared product read expiry: an async list presentation cannot return expired source rows or a prior cached page', async t => {
+    const f = fixture(t), view = await selectedProductReadView(f);
+    const input = { activity: view.connection.selection.activity };
+    const previous = await f.service.records(principal, input);
+    assert.equal(previous.records[0].label, 'اسم المصدر المسموح');
+    const present = f.service.presentRecord.bind(f.service);
+    let enter, release;
+    const entered = new Promise(resolve => { enter = resolve; });
+    const blocked = new Promise(resolve => { release = resolve; });
+    f.service.presentRecord = async (...args) => {
+        const record = await present(...args);
+        enter();
+        await blocked;
+        return record;
+    };
+    const pending = f.service.records(principal, input);
+    await entered;
+    f.setClock(NOW + 30_001);
+    release();
+    await assert.rejects(pending, { code: 'workspace_context_changed', status: 403 });
+    assert.equal(f.calls.filter(call => call.path.endsWith('/workspace/records')).length, 2);
+    f.service.presentRecord = present;
+    f.setRecord({ ...sourceRecord(), data: { name: 'قراءة مصدر جديدة بعد الانتهاء' } });
+    const fresh = await f.service.records(principal, input);
+    assert.equal(fresh.records[0].label, 'قراءة مصدر جديدة بعد الانتهاء');
+    assert.equal(fresh.valid_until, new Date(NOW + 60_001).toISOString());
+});
+
+test('shared product read expiry: an async detail editor cannot expose expired record bytes or a prior cached detail', async t => {
+    const f = fixture(t), view = await selectedProductReadView(f);
+    const list = await f.service.records(principal, { activity: view.connection.selection.activity });
+    const input = { activity: view.connection.selection.activity, record: list.records[0].key };
+    const previous = await f.service.record(principal, input);
+    assert.equal(previous.record.label, 'اسم المصدر المسموح');
+    const productEditor = f.service.productEditor.bind(f.service);
+    let enter, release;
+    const entered = new Promise(resolve => { enter = resolve; });
+    const blocked = new Promise(resolve => { release = resolve; });
+    f.service.productEditor = async (...args) => {
+        const editor = await productEditor(...args);
+        enter();
+        await blocked;
+        return editor;
+    };
+    const pending = f.service.record(principal, input);
+    await entered;
+    f.setClock(NOW + 30_001);
+    release();
+    await assert.rejects(pending, { code: 'workspace_context_changed', status: 403 });
+    assert.equal(f.calls.filter(call => call.path.endsWith('/workspace/records/catalog-product')).length, 2);
+    f.service.productEditor = productEditor;
+    f.setRecord({ ...sourceRecord(), data: { name: 'تفاصيل مصدر جديدة بعد الانتهاء' } });
+    const fresh = await f.service.record(principal, input);
+    assert.equal(fresh.record.label, 'تفاصيل مصدر جديدة بعد الانتهاء');
+    assert.equal(fresh.valid_until, new Date(NOW + 60_001).toISOString());
 });
 
 test('native setup stays available without a goods read grant and never advertises automatic browsing', async t => {

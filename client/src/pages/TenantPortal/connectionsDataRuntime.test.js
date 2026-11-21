@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, releaseWorkspaceHold, retainWorkspaceHold, workspaceAccessRequestIsValid, workspaceBindingAuthorizationUrl, workspaceCommandIsValid, workspaceOverviewIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime.js';
+import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceBindingAuthorizationUrl, workspaceCommandIsValid, workspaceOverviewIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime.js';
 
 const context = { verified: true, native_reference: 'server-native-and-center-partition', viewKey: 'current-view', valid_until: new Date(60_000).toISOString(),
     organizationLabel: 'متجر المدينة', actorLabel: 'سارة', connect: { enabled: false, code: 'connect_core', label: 'ربط الحساب' } };
@@ -11,6 +11,109 @@ const storage = () => {
     const values = new Map();
     return { values, getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
 };
+
+const expiryClock = () => {
+    let time = 1_000, sequence = 0;
+    const tasks = new Map();
+    return {
+        now: () => time,
+        schedule: (callback, delay) => { const id = ++sequence; tasks.set(id, { at: time + delay, callback }); return id; },
+        cancel: id => tasks.delete(id),
+        advance: elapsed => {
+            const target = time + elapsed;
+            while (true) {
+                const next = [...tasks.entries()].filter(([, task]) => task.at <= target).sort((left, right) => left[1].at - right[1].at || left[0] - right[0])[0];
+                if (!next) break;
+                time = next[1].at; tasks.delete(next[0]); next[1].callback();
+            }
+            time = target;
+        },
+    };
+};
+const at = value => new Date(value).toISOString();
+
+test('workspace read expiry clears at the earliest parent, list, detail or review deadline', () => {
+    for (const [list, detail, review, expected] of [[30_000, 10_000, 20_000, 10_000], [8_000, 10_000, 20_000, 8_000],
+        [30_000, 40_000, 5_000, 5_000], [90_000, 80_000, 70_000, 60_000]]) {
+        const clock = expiryClock();
+        const view = { context, recordsValidUntil: at(list), detail: { valid_until: at(detail) }, review: { valid_until: at(review) } };
+        assert.equal(workspaceReadDeadline(view), expected);
+        let visible = true, expired = 0;
+        const stop = watchWorkspaceReadExpiry({ ...view, ...clock, onExpire: () => { visible = false; expired += 1; } });
+        clock.advance(expected - clock.now() - 1);
+        assert.equal(visible, true);
+        clock.advance(1);
+        assert.equal(visible, false); assert.equal(expired, 1);
+        clock.advance(60_000);
+        assert.equal(expired, 1);
+        stop();
+    }
+    assert.equal(workspaceReadDeadline({ context, detail: { valid_until: 'invalid' } }), 0);
+    let invalidated = 0;
+    watchWorkspaceReadExpiry({ context, recordsValidUntil: 'invalid', onExpire: () => { invalidated += 1; } });
+    assert.equal(invalidated, 1);
+});
+
+test('closing product details releases only its timer and cannot extend the remaining parent or list grant', () => {
+    const clock = expiryClock();
+    const currentContext = { ...context, valid_until: at(20_000) };
+    let expired = 0;
+    const onExpire = () => { expired += 1; };
+    const stopDetail = watchWorkspaceReadExpiry({ context: currentContext, recordsValidUntil: at(30_000),
+        detail: { valid_until: at(5_000) }, ...clock, onExpire });
+    clock.advance(1_000);
+    stopDetail();
+    const stopRemaining = watchWorkspaceReadExpiry({ context: currentContext, recordsValidUntil: at(30_000), detail: null, ...clock, onExpire });
+    clock.advance(3_000);
+    assert.equal(expired, 0);
+    clock.advance(14_999);
+    assert.equal(expired, 0);
+    clock.advance(1);
+    assert.equal(expired, 1);
+    stopRemaining();
+});
+
+test('late workspace responses cannot revive an expired or closed detail even with a later response expiry', () => {
+    const clock = expiryClock();
+    let revision = 7, visible = { label: 'Authorized detail' };
+    const requestRevision = revision;
+    const pending = { viewKey: context.viewKey, valid_until: at(40_000), record: { label: 'Late detail' } };
+    const stop = watchWorkspaceReadExpiry({ context, recordsValidUntil: at(30_000), detail: { valid_until: at(10_000) }, ...clock,
+        onExpire: () => { revision += 1; visible = null; } });
+    clock.advance(9_000);
+    const stillCurrent = workspaceReadResponseIsCurrent(pending, context, { now: clock.now(), requestRevision, currentRevision: revision });
+    if (stillCurrent) visible = pending.record;
+    assert.equal(stillCurrent, false); assert.equal(visible, null);
+    assert.equal(workspaceReadResponseIsCurrent({ ...pending, valid_until: at(10_000) }, context,
+        { now: clock.now(), requestRevision: revision, currentRevision: revision }), false);
+    assert.equal(workspaceReadResponseIsCurrent({ ...pending, valid_until: at(60_001) }, context,
+        { now: clock.now(), requestRevision: revision, currentRevision: revision }), false);
+    const beforeClose = revision;
+    revision += 1;
+    assert.equal(workspaceReadResponseIsCurrent(pending, context, { now: clock.now(), requestRevision: beforeClose, currentRevision: revision }), false);
+    assert.equal(workspaceReadResponseIsCurrent(pending, { ...context, viewKey: 'changed-activity' },
+        { now: clock.now(), requestRevision: revision, currentRevision: revision }), false);
+    stop();
+});
+
+test('detail to product editor transition retains the shorter read deadline until the copied data is removed', () => {
+    const clock = expiryClock();
+    const deadline = workspaceReadDeadline({ context, recordsValidUntil: at(30_000), detail: { valid_until: at(10_000) } });
+    let revision = 3, editor = { valid_until: at(deadline), draft: { name: 'Authorized source value' } };
+    const requestRevision = revision;
+    // Closing the detail and even removing its list cannot renew the copied
+    // source fields now visible in the editor under the same read grant.
+    assert.equal(workspaceReadDeadline({ context, detail: null, recordsValidUntil: null, editor }), 10_000);
+    const stop = watchWorkspaceReadExpiry({ context, detail: null, recordsValidUntil: null, editor, ...clock,
+        onExpire: () => { revision += 1; editor = null; } });
+    clock.advance(8_999);
+    assert.equal(editor.draft.name, 'Authorized source value');
+    clock.advance(1);
+    assert.equal(editor, null);
+    assert.equal(workspaceReadResponseIsCurrent({ viewKey: context.viewKey, valid_until: at(40_000) }, context,
+        { now: clock.now(), requestRevision, currentRevision: revision }), false);
+    stop();
+});
 
 test('workspace DTO requires verified named current context and explicit choice/action state', () => {
     const current = overview();

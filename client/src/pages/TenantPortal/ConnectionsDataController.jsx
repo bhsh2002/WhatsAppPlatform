@@ -16,15 +16,13 @@ import { emptyWorkspaceCapabilityGrantDraft, prepareWorkspaceCapabilityGrantRevi
     workspaceCapabilityGrantInput, workspaceCapabilityGrantOptionsIsCurrent } from './workspaceCapabilityGrantPresentation';
 import { emptyWorkspaceSelection, workspaceActionAvailable, workspaceConnectionReviewCanSubmit, workspaceLabel, workspaceRecordsCanBrowse, workspaceReviewSummaryIsValid } from './connectionsDataPresentation';
 import { emptyWorkspaceProductDraft } from './workspaceProductPresentation';
-import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, releaseWorkspaceHold, retainWorkspaceHold, workspaceAccessRequestIsValid, workspaceBindingAuthorizationUrl, workspaceClientError, workspaceCommandIsValid, workspaceIntentResolved, workspaceOverviewIsValid, workspaceProductEditorIsValid, workspaceRecordIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime';
+import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceBindingAuthorizationUrl, workspaceClientError, workspaceCommandIsValid, workspaceIntentResolved, workspaceOverviewIsValid, workspaceProductEditorIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent as currentResponse, workspaceRecordIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime';
 import { sharedReadAuthorizationUrl } from './sharedReadSetupPresentation';
 import { emptyWorkspaceNativeDraft, NATIVE_WORKSPACE_ACTIONS, workspaceNativeOptionsIsCurrent, workspaceNativeParameters, workspaceNativePreviewIsCurrent, workspaceNativeRecipientPageDraft, workspaceNativeReviewedParameters } from './workspaceNativePresentation';
 import { emptyWorkspaceBusinessDraft, WORKSPACE_BUSINESS_CAPABILITIES, workspaceBusinessOptionsIsCurrent, workspaceBusinessPageDraft, workspaceBusinessParameters, workspaceBusinessPreviewIsCurrent, workspaceBusinessReviewedParameters } from './workspaceBusinessPresentation';
 
 const recoveryStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const invalidResponse = () => new Error('Unverified connections workspace response');
-const currentResponse = (value, context) => Boolean(value?.viewKey === context?.viewKey && typeof value.valid_until === 'string'
-    && Date.parse(value.valid_until) > Date.now() && Date.parse(value.valid_until) <= Date.parse(context.valid_until));
 const filtersFor = selection => ({ activity: selection?.activity || undefined, purpose: selection?.purpose || undefined, provider: selection?.provider || undefined, action: selection?.action || undefined });
 const productDraft = source => {
     const draft = emptyWorkspaceProductDraft();
@@ -43,6 +41,7 @@ const ConnectionsDataController = () => {
     const [overview, setOverview] = useState(null);
     const [selection, setSelection] = useState(emptyWorkspaceSelection);
     const [records, setRecords] = useState([]);
+    const [recordsValidUntil, setRecordsValidUntil] = useState(null);
     const [commands, setCommands] = useState([]);
     const [accessRequests, setAccessRequests] = useState([]);
     const [requestDetail, setRequestDetail] = useState(null);
@@ -101,6 +100,7 @@ const ConnectionsDataController = () => {
     const clearView = useCallback(() => {
         latest.current = null;
         setOverview(null); setSelection(emptyWorkspaceSelection()); setRecords([]); setCommands([]); setQuery('');
+        setRecordsValidUntil(null);
         setDetail(null); setDetailLoading(false); setEditor(null); setDraft(emptyWorkspaceProductDraft());
         setAccessRequests([]); setRequestDetail(null); setRequestLoading(false); setEditingRequest(null); setReasonOperation(null); setReason('');
         setReview(null); setReviewKind(null); setCommandReview(null); setActivityOpen(false); setActivityName(''); setNotice('');
@@ -114,6 +114,7 @@ const ConnectionsDataController = () => {
     const applyOverview = useCallback(result => {
         latest.current = result;
         setOverview(result); setSelection(result.connection.selection); setRecords(result.sharedData.records); setCommands(result.commands);
+        setRecordsValidUntil(result.sharedData.valid_until ?? (result.sharedData.records.length ? result.context.valid_until : null));
         setAccessRequests(result.connection.requests);
         setQuery(result.sharedData.query || '');
         setHints(result.context.verified ? readWorkspaceHolds(recoveryStorage(), result.context.native_reference).records : []);
@@ -133,9 +134,10 @@ const ConnectionsDataController = () => {
                 const { recordDocument, commandDocument, requestDocument } = await readWorkspaceLists({ sharedData: result.sharedData, verified: true,
                     readRecords: () => api.getPortalWorkspaceRecords({ activity }), readCommands: () => api.getPortalWorkspaceCommands(activity), readRequests: () => api.getPortalWorkspaceRequests(activity) });
                 if (revision.current !== requestRevision) return null;
-                if ((recordDocument !== null && (!currentResponse(recordDocument, result.context) || !Array.isArray(recordDocument.records) || !recordDocument.records.every(workspaceRecordIsValid)))
-                    || !currentResponse(commandDocument, result.context) || !Array.isArray(commandDocument.commands) || !commandDocument.commands.every(workspaceCommandIsValid)
-                    || !currentResponse(requestDocument, result.context) || !Array.isArray(requestDocument.requests) || !requestDocument.requests.every(workspaceAccessRequestIsValid)) throw invalidResponse();
+                const responseRevision = { requestRevision, currentRevision: revision.current };
+                if ((recordDocument !== null && (!currentResponse(recordDocument, result.context, responseRevision) || !Array.isArray(recordDocument.records) || !recordDocument.records.every(workspaceRecordIsValid)))
+                    || !currentResponse(commandDocument, result.context, responseRevision) || !Array.isArray(commandDocument.commands) || !commandDocument.commands.every(workspaceCommandIsValid)
+                    || !currentResponse(requestDocument, result.context, responseRevision) || !Array.isArray(requestDocument.requests) || !requestDocument.requests.every(workspaceAccessRequestIsValid)) throw invalidResponse();
                 result = { ...result, sharedData: { ...result.sharedData, ...(recordDocument || { records: [] }) }, commands: commandDocument.commands,
                     connection: { ...result.connection, requests: requestDocument.requests } };
                 if (!workspaceOverviewIsValid(result)) throw invalidResponse();
@@ -162,12 +164,10 @@ const ConnectionsDataController = () => {
             window.removeEventListener('savana-shared-read-setup-changed', invalidate); document.removeEventListener('visibilitychange', hidden);
         };
     }, [clearView]);
-    useEffect(() => {
-        const deadlines = [overview?.context?.valid_until, review?.valid_until].filter(Boolean).map(Date.parse).filter(Number.isFinite);
-        if (!deadlines.length) return undefined;
-        const timer = window.setTimeout(() => { revision.current += 1; clearView(); }, Math.min(Math.max(0, Math.min(...deadlines) - Date.now()), 2_147_483_647));
-        return () => window.clearTimeout(timer);
-    }, [overview, review, clearView]);
+    useEffect(() => watchWorkspaceReadExpiry({ context: overview?.context, recordsValidUntil, detail, editor, review,
+        onExpire: () => { revision.current += 1; clearView(); setLoading(false); },
+        schedule: window.setTimeout.bind(window), cancel: window.clearTimeout.bind(window),
+    }), [overview, recordsValidUntil, detail, editor, review, clearView]);
     useEffect(() => {
         const deadlines = [nativeOptions?.valid_until, nativePreview?.valid_until, businessOptions?.valid_until, businessPreview?.valid_until, grantOptions?.valid_until].filter(Boolean).map(Date.parse).filter(Number.isFinite);
         if (!deadlines.length) return undefined;
@@ -271,7 +271,7 @@ const ConnectionsDataController = () => {
                 if (fresh.context.viewKey !== previousViewKey) throw invalidResponse();
                 const result = await api.getPortalWorkspaceRequest(editTarget.key);
                 if (revision.current !== requestRevision) return;
-                if (!currentResponse(result, fresh.context) || !workspaceAccessRequestIsValid(result.request)
+                if (!currentResponse(result, fresh.context, { requestRevision, currentRevision: revision.current }) || !workspaceAccessRequestIsValid(result.request)
                     || !result.request.actions.some(action => action.key === 'edit' && action.enabled === true)) throw invalidResponse();
                 setEditingRequest(result.request);
             } catch (requestError) { if (revision.current === requestRevision) { clearView(); setError(requestError); } }
@@ -340,12 +340,13 @@ const ConnectionsDataController = () => {
         if (!canUse() || busy.current || !selection.activity || !workspaceRecordsCanBrowse(latest.current.sharedData, true)) return;
         const currentContext = latest.current.context;
         const requestRevision = ++revision.current;
-        setLoading(true); setRecords([]); setDetail(null); setError(null);
+        setLoading(true); setRecords([]); setRecordsValidUntil(null); setDetail(null); setError(null);
         try {
             const result = await api.getPortalWorkspaceRecords({ activity: selection.activity, q: query });
             if (revision.current !== requestRevision) return;
-            if (!currentResponse(result, currentContext) || !Array.isArray(result.records) || !result.records.every(workspaceRecordIsValid)) throw invalidResponse();
+            if (!currentResponse(result, currentContext, { requestRevision, currentRevision: revision.current }) || !Array.isArray(result.records) || !result.records.every(workspaceRecordIsValid)) throw invalidResponse();
             setRecords(result.records);
+            setRecordsValidUntil(result.valid_until);
         } catch (requestError) { if (revision.current === requestRevision) { clearView(); setError(requestError); } }
         finally { if (revision.current === requestRevision) setLoading(false); }
     };
@@ -358,17 +359,20 @@ const ConnectionsDataController = () => {
         try {
             const result = await api.getPortalWorkspaceRecord(key, selection.activity);
             if (revision.current !== requestRevision) return;
-            if (!currentResponse(result, currentContext) || !workspaceRecordIsValid(result.record)
+            if (!currentResponse(result, currentContext, { requestRevision, currentRevision: revision.current }) || !workspaceRecordIsValid(result.record)
                 || (result.productEditor && !workspaceProductEditorIsValid(result.productEditor))) throw invalidResponse();
             setDetail(result);
         } catch (requestError) { if (revision.current === requestRevision) { clearView(); setError(requestError); } }
         finally { if (revision.current === requestRevision) setDetailLoading(false); }
     };
 
-    const openProduct = (mode, descriptor, record = null) => {
-        if (!canMutate() || !workspaceProductEditorIsValid(descriptor) || !descriptor.provider) return;
+    const openProduct = (mode, descriptor, record = null, readValidUntil = null) => {
+        if (!canMutate() || context?.viewKey !== latest.current?.context.viewKey || !workspaceProductEditorIsValid(descriptor) || !descriptor.provider) return;
+        const deadline = workspaceReadDeadline({ context, recordsValidUntil,
+            detail: readValidUntil == null ? null : { valid_until: readValidUntil } });
+        if (!Number.isFinite(deadline) || deadline <= Date.now()) { revision.current += 1; clearView(); setLoading(false); return; }
         setReview(null); setReviewKind(null); setDraft(mode === 'change' ? productDraft(descriptor.draft) : emptyWorkspaceProductDraft());
-        setEditor({ descriptor, mode, record, viewKey: context.viewKey }); setActiveTab('data');
+        setEditor({ descriptor, mode, record, viewKey: context.viewKey, valid_until: new Date(deadline).toISOString() }); setActiveTab('data');
     };
     const createProduct = () => {
         if (workspaceActionAvailable(overview?.sharedData.createAction, { verified: context?.verified, held, busy: working })) openProduct('create', overview.productEditor);
@@ -424,7 +428,7 @@ const ConnectionsDataController = () => {
         try {
             const result = await api.getPortalWorkspaceRequest(key);
             if (revision.current !== requestRevision) return;
-            if (!currentResponse(result, currentContext) || !workspaceAccessRequestIsValid(result.request)) throw invalidResponse();
+            if (!currentResponse(result, currentContext, { requestRevision, currentRevision: revision.current }) || !workspaceAccessRequestIsValid(result.request)) throw invalidResponse();
             setRequestDetail(result.request);
         } catch (requestError) { if (revision.current === requestRevision) { clearView(); setError(requestError); } }
         finally { if (revision.current === requestRevision) setRequestLoading(false); }
@@ -567,12 +571,12 @@ const ConnectionsDataController = () => {
         try {
             const result = await api.getPortalWorkspaceCommand(key);
             if (revision.current !== requestRevision) return;
-            if (!currentResponse(result, currentContext) || !workspaceCommandIsValid(result.command)) throw invalidResponse();
+            if (!currentResponse(result, currentContext, { requestRevision, currentRevision: revision.current }) || !workspaceCommandIsValid(result.command)) throw invalidResponse();
             const freshAction = result.command.actions.find(item => item.key === actionKey);
             if (actionKey === 'reject' && workspaceActionAvailable(freshAction, { verified: true, held, busy: false })) {
                 setReasonOperation({ kind: 'command-reject', target: result.command.key, label: freshAction.label }); setReason('');
             } else if (actionKey === 'edit' && workspaceActionAvailable(freshAction, { verified: true, held, busy: false }) && workspaceProductEditorIsValid(result.productEditor)) {
-                setEditor({ descriptor: result.productEditor, mode: 'change', command: result.command.key, viewKey: context.viewKey });
+                setEditor({ descriptor: result.productEditor, mode: 'change', command: result.command.key, viewKey: context.viewKey, valid_until: result.valid_until });
                 setDraft(productDraft(result.productEditor.draft));
             } else setCommandReview(result.command);
         } catch (requestError) { if (revision.current === requestRevision) { clearView(); setError(requestError); } }
@@ -617,7 +621,7 @@ const ConnectionsDataController = () => {
         formQueryHandled.current = formKey;
         if (action === 'product.create' && workspaceActionAvailable(overview.sharedData.createAction, { verified: true, held, busy: working })
             && workspaceProductEditorIsValid(overview.productEditor) && overview.productEditor.provider) {
-            setEditor({ descriptor: overview.productEditor, mode: 'create', record: null, viewKey: overview.context.viewKey });
+            setEditor({ descriptor: overview.productEditor, mode: 'create', record: null, viewKey: overview.context.viewKey, valid_until: overview.context.valid_until });
             setDraft(emptyWorkspaceProductDraft()); setActiveTab('data');
         }
         if (NATIVE_WORKSPACE_ACTIONS.includes(action) && overview.nativeEditor?.action === action && !held) {
@@ -654,8 +658,8 @@ const ConnectionsDataController = () => {
                 capabilities={{ ...overview.capabilities, held, busy: loading || working, onNextAction: nextAction,
                     onAction: (capabilityKey, actionKey) => { const capability = overview.capabilities.capabilities.find(item => item.key === capabilityKey); const action = capability?.actions?.find(item => item.key === actionKey); if (workspaceActionAvailable(action, { verified: true, held, busy: working })) routeNextAction(action.availability?.next_action); }, onRefresh: () => load() }}
                 sharedData={{ ...overview.sharedData, records, query, held, loading, detailRecord: detail?.record || null, detailLoading,
-                    onCloseDetail: () => { revision.current += 1; setDetail(null); setDetailLoading(false); }, onQueryChange: value => { revision.current += 1; setLoading(false); setQuery(value); setRecords([]); setDetail(null); }, onSearch: search, onDetail: showDetail,
-                    onCreate: createProduct, onAction: (_key, actionKey) => { if (['product.change', 'edit'].includes(actionKey) && detail?.productEditor) { const selectedAction = detail.record.actions?.find(action => action.key === actionKey); if (workspaceActionAvailable(selectedAction, { verified: true, held, busy: working })) { const currentDetail = detail; setDetail(null); openProduct('change', currentDetail.productEditor, currentDetail.record.key); } } } }}
+                    onCloseDetail: () => { revision.current += 1; setDetail(null); setDetailLoading(false); }, onQueryChange: value => { revision.current += 1; setLoading(false); setQuery(value); setRecords([]); setRecordsValidUntil(null); setDetail(null); }, onSearch: search, onDetail: showDetail,
+                    onCreate: createProduct, onAction: (_key, actionKey) => { if (['product.change', 'edit'].includes(actionKey) && detail?.productEditor) { const selectedAction = detail.record.actions?.find(action => action.key === actionKey); if (workspaceActionAvailable(selectedAction, { verified: true, held, busy: working })) { const currentDetail = detail; setDetail(null); openProduct('change', currentDetail.productEditor, currentDetail.record.key, currentDetail.valid_until); } } } }}
                 operations={{ commands, held, busy: loading || working, onAction: commandAction }} />
         </>}
         <Dialog open={whatsAppSetupOpen} onClose={() => setWhatsAppSetupOpen(false)} fullWidth maxWidth="md" aria-labelledby="workspace-whatsapp-setup-title">
@@ -674,7 +678,7 @@ const ConnectionsDataController = () => {
             onRefresh={refreshGrantOptions}
             onReview={() => { const input = workspaceCapabilityGrantInput({ context, descriptor: overview?.grantEditor, options: grantOptions, draft: grantDraft, held, busy: working }); if (input) prepareReview('grant', input); }} />
         <WorkspaceProductEditor open={Boolean(editor) && !review && context?.verified === true} {...editor?.descriptor} mode={editor?.mode || 'create'} draft={draft}
-            verified={context?.verified === true} held={held} busy={working} onChange={setDraft} onClose={() => { requestedAction.current = null; setEditor(null); }} language={language}
+            verified={context?.verified === true} held={held} busy={working} onChange={setDraft} onClose={() => { requestedAction.current = null; setEditor(null); setDraft(emptyWorkspaceProductDraft()); }} language={language}
             onReview={values => { if (editor?.viewKey === context?.viewKey) prepareReview(editor.command ? 'command-edit' : 'product', {
                 ...(editor.command ? { command: editor.command } : { activity: selection.activity, provider: editor.descriptor.provider, ...(editor.record ? { record: editor.record } : {}) }),
                 fields: values.values, clearFields: values.clearFields }); }} />

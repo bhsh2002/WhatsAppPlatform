@@ -20,6 +20,34 @@ const productFields = new Set(['name', 'description', 'sku', 'barcodes', 'base_u
 const terminal = new Set(['completed', 'failed']);
 const storagePrefix = 'wa-connections-data:holds:v1:';
 
+export const workspaceReadResponseIsCurrent = (value, context, { now = Date.now(), requestRevision, currentRevision } = {}) => Boolean(
+    context?.verified === true && reference(context.viewKey) && requestRevision === currentRevision && value?.viewKey === context.viewKey
+    && typeof value?.valid_until === 'string' && Date.parse(value.valid_until) > now
+    && Date.parse(value.valid_until) <= Date.parse(context?.valid_until)
+);
+
+export const workspaceReadDeadline = ({ context, recordsValidUntil = null, detail = null, editor = null, review = null } = {}) => {
+    if (context?.verified !== true) return null;
+    const dates = [context.valid_until, ...(recordsValidUntil == null ? [] : [recordsValidUntil]),
+        ...(detail == null ? [] : [detail.valid_until]), ...(editor == null ? [] : [editor.valid_until]),
+        ...(review == null ? [] : [review.valid_until])];
+    if (dates.some(value => typeof value !== 'string' || !Number.isFinite(Date.parse(value)))) return 0;
+    return Math.min(...dates.map(Date.parse));
+};
+
+export const watchWorkspaceReadExpiry = ({ onExpire, now = Date.now, schedule = setTimeout, cancel = clearTimeout, ...view }) => {
+    const deadline = workspaceReadDeadline(view);
+    let active = true, timer = null;
+    const check = () => {
+        if (!active || deadline === null) return;
+        const remaining = deadline - now();
+        if (remaining > 0) timer = schedule(check, Math.min(remaining, 2_147_483_647));
+        else { active = false; timer = null; onExpire(); }
+    };
+    check();
+    return () => { active = false; if (timer !== null) cancel(timer); };
+};
+
 export const workspaceSelectionIsValid = selection => Boolean(selection && ['activity', 'purpose', 'provider'].every(key => typeof selection[key] === 'string')
     && ['fields', 'people'].every(key => Array.isArray(selection[key]) && selection[key].every(reference) && new Set(selection[key]).size === selection[key].length));
 

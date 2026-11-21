@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { validateNativeCommandModel } from '../services/nativeCommandModels.js';
 import { nativeCommandJson } from '../services/nativeCommandProtocol.js';
 import { canonicalWorkspaceJson } from '../services/workspaceIntents.js';
+import { smsApiRequestHash } from '../services/smsApiRequests.js';
 
 const codes = new Set(['messaging.send', 'campaigns.execute', 'content.publish', 'customers.manage',
     'measurement.read', 'measurement.export', 'owner.operations', 'media.manage',
@@ -23,12 +24,7 @@ const open = (decrypt, row, purpose, ciphertext) => {
     return envelope.payload;
 };
 
-// Factory diagnostics only: no handlers, provider calls, default database or
-// permission grants. Missing/unmeasured evidence produces no capability row.
-export const createOwnerJourneyCapabilityProofs = ({ database, decrypt, nativeAdapters, readDiscovery }) => {
-    if (!database || typeof decrypt !== 'function' || !nativeAdapters || typeof readDiscovery !== 'function') {
-        throw new TypeError('Owned capability proofs require explicit source evidence readers');
-    }
+const createNativeEffectConfirmation = ({ database, decrypt }) => {
     const factFor = (command, effect) => {
         const fact = database.prepare('SELECT * FROM savana_native_action_facts WHERE tenant_id=? AND native_idempotency_key=?')
             .get(effect.tenant_id, effect.native_idempotency_key);
@@ -72,6 +68,16 @@ export const createOwnerJourneyCapabilityProofs = ({ database, decrypt, nativeAd
             .get(effect.tenant_id, receipt.native_id, effect.execution_id, receipt.provider_id);
         return false;
     };
+    return effectConfirmed;
+};
+
+// Factory diagnostics only: no handlers, provider calls, default database or
+// permission grants. Missing/unmeasured evidence produces no capability row.
+export const createOwnerJourneyCapabilityProofs = ({ database, decrypt, nativeAdapters, readDiscovery }) => {
+    if (!database || typeof decrypt !== 'function' || !nativeAdapters || typeof readDiscovery !== 'function') {
+        throw new TypeError('Owned capability proofs require explicit source evidence readers');
+    }
+    const effectConfirmed = createNativeEffectConfirmation({ database, decrypt });
     const ownerForms = (command, tenantId) => {
         let count = 0;
         const rows = database.prepare(`SELECT intent.* FROM savana_workspace_intents intent
@@ -165,5 +171,155 @@ export const createOwnerJourneyCapabilityProofs = ({ database, decrypt, nativeAd
             grouped.set(key, proof);
         } catch { /* Unknown source/configuration/schema state is omitted, never a fabricated zero. */ }
         return [...grouped.values()].sort((a, b) => `${a.capability_code}:${a.operation}`.localeCompare(`${b.capability_code}:${b.operation}`));
+    } };
+};
+
+// Observe the real native reconciliation response, not an owner click or a
+// workspace mutation ACK. This table belongs only to the isolated factory.
+export const createOwnerJourneyReconciliationEvidence = ({ database, runId, encrypt, decrypt, protocol }) => {
+    if (!database?.prepare || !/^[A-Za-z0-9_-]{1,200}$/.test(runId || '')
+        || typeof encrypt !== 'function' || typeof decrypt !== 'function'
+        || typeof protocol?.token !== 'string' || !protocol.token || typeof protocol.pathPrefix !== 'string') {
+        throw new TypeError('Owned reconciliation evidence requires explicit native protocol and state');
+    }
+    database.exec(`CREATE TABLE IF NOT EXISTS owner_journey_native_reconciliations(
+        evidence_key TEXT PRIMARY KEY,run_id TEXT NOT NULL,encrypted_evidence TEXT NOT NULL,observed_at TEXT NOT NULL);`);
+    const effectConfirmed = createNativeEffectConfirmation({ database, decrypt });
+    const required = ['savana_collaborative_command_receipts', 'savana_collaborative_executions',
+        'savana_collaborative_effects', 'owner_journey_provider_faults', 'savana_collaborative_nonces'];
+    const ready = () => required.every(name => database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
+    const equalSecret = (left, right) => typeof left === 'string' && typeof right === 'string'
+        && Buffer.byteLength(left) === Buffer.byteLength(right)
+        && crypto.timingSafeEqual(Buffer.from(left), Buffer.from(right));
+    const mac = parts => `v1=${crypto.createHmac('sha256', protocol.token).update(parts.join('\n')).digest('hex')}`;
+    const evidenceKey = command => sha(nativeCommandJson([runId, command.command_id, command.version, command.fingerprint, command.attempt_id]));
+    const effectIdentity = effect => ({ id: effect.id, effect_key: effect.effect_key, native_kind: effect.native_kind,
+        native_idempotency_sha256: sha(effect.native_idempotency_key) });
+    const snapshot = command => {
+        if (!ready() || !['messaging.send', 'campaigns.execute'].includes(command.capability)) return null;
+        const row = database.prepare(`SELECT receipt.*,execution.state AS execution_state,execution.source_command_id,
+            execution.source_command_version,execution.source_fingerprint,execution.capability_code
+            FROM savana_collaborative_command_receipts receipt JOIN savana_collaborative_executions execution
+                ON execution.id=receipt.execution_id AND execution.tenant_id=receipt.tenant_id
+            WHERE receipt.command_id=? AND receipt.version=?`).get(command.command_id, command.version);
+        if (!row || row.command_json !== nativeCommandJson(command) || row.attempt_id !== command.attempt_id
+            || row.fingerprint !== command.fingerprint || row.source_command_id !== command.command_id
+            || row.source_command_version !== command.version || row.source_fingerprint !== command.fingerprint
+            || row.capability_code !== command.capability) return null;
+        const context = validateNativeCommandModel('ExecutionContext', parse(row.context_json));
+        if (context.actor_id !== command.actor_id || context.external_tenant_id !== command.external_tenant_id
+            || context.provider_platform !== 'wa_savana' || context.provider_ref !== command.provider_ref
+            || context.provider_installation_id !== command.provider_installation_id
+            || context.authorization_revision !== command.authorization_revision
+            || !same(scope(context.scope), scope(command.scope))) return null;
+        const effects = database.prepare('SELECT *,? AS tenant_id FROM savana_collaborative_effects WHERE execution_id=? ORDER BY id')
+            .all(row.tenant_id, row.execution_id);
+        for (const key of ['id', 'effect_key', 'native_idempotency_key']) {
+            if (new Set(effects.map(effect => effect[key])).size !== effects.length) return null;
+        }
+        return { row, effects, identity: effects.map(effectIdentity) };
+    };
+    const faultEffects = state => {
+        const faults = new Set(database.prepare("SELECT effect_sha256 FROM owner_journey_provider_faults WHERE run_id=? AND state='applied' AND receipt_sha256 IS NOT NULL AND applied_at IS NOT NULL")
+            .all(runId).map(row => row.effect_sha256));
+        return state.effects.filter(effect => faults.has(sha(effect.id)));
+    };
+    const providerConfirmed = (command, effect) => {
+        const receipt = parse(effect.receipt_json);
+        if (['whatsapp_message', 'messenger_message'].includes(effect.native_kind)) {
+            const correlation = database.prepare('SELECT channel,tenant_id,account_ref FROM savana_collaborative_correlations WHERE effect_id=?').get(effect.id);
+            const expectedChannel = effect.native_kind === 'whatsapp_message' ? 'whatsapp' : 'messenger';
+            return correlation?.channel === expectedChannel && correlation.tenant_id === effect.tenant_id
+                && correlation.account_ref === command.payload.parameters.account_ref
+                && !!database.prepare(`SELECT 1 FROM savana_collaborative_provider_evidence WHERE effect_id=? AND provider_id=?
+                    AND provider_status IN ('sent','delivered','read') AND length(webhook_sha256)=64`).get(effect.id, receipt.provider_id);
+        }
+        if (effect.native_kind === 'sms_message' && receipt.evidence_kind === 'native_gateway_history') {
+            const message = database.prepare('SELECT * FROM sms_messages WHERE tenant_id=? AND id=? AND gateway_message_id=?')
+                .get(effect.tenant_id, effect.native_id, receipt.provider_id);
+            const request = database.prepare('SELECT * FROM sms_api_requests WHERE tenant_id=? AND idempotency_key=?')
+                .get(effect.tenant_id, effect.native_idempotency_key);
+            return message && request && message.sms_account_id === request.sms_account_id
+                && String(message.external_id || '') === effect.native_idempotency_key
+                && request.request_hash === smsApiRequestHash({ smsAccountSelector: request.sms_account_id,
+                    recipient: message.recipient, message: message.content ?? message.message });
+        }
+        return false;
+    };
+    const proven = (command, before, receipt, after) => {
+        if (!after || before.receipt_state !== 'unknown' || before.execution_state !== 'unknown'
+            || before.execution_id !== after.row.execution_id || before.tenant_id !== after.row.tenant_id
+            || after.row.state !== 'applied' || after.row.execution_state !== 'completed'
+            || !same(before.effects, after.identity) || !after.effects.length
+            || receipt.outcome !== 'applied' || receipt.command_id !== command.command_id || receipt.version !== command.version
+            || receipt.fingerprint !== command.fingerprint || !same(receipt, parse(after.row.receipt_json))) return false;
+        const affected = faultEffects(after);
+        return affected.length > 0 && Array.isArray(before.fault_effects) && before.fault_effects.length === affected.length
+            && new Set(before.fault_effects).size === affected.length
+            && affected.every(effect => effectConfirmed(command, effect) && providerConfirmed(command, effect))
+            && before.fault_effects.every(hash => affected.some(effect => sha(effect.id) === hash));
+    };
+    const middleware = (req, res, next) => {
+        let command, before, request;
+        try {
+            const path = /^\/commands\/([^/]+)\/reconcile$/.exec(req.path);
+            const raw = req.rawBody;
+            if (req.method !== 'POST' || !path || !Buffer.isBuffer(raw) || raw.length > 1_048_576) return next();
+            const { context: _context, ...body } = parse(raw.toString('utf8'));
+            command = validateNativeCommandModel('AdapterCommand', body);
+            if (decodeURIComponent(path[1]) !== command.command_id) return next();
+            const timestamp = req.headers['x-savana-command-timestamp'], nonce = req.headers['x-savana-command-nonce'];
+            const publicPath = protocol.pathPrefix + req.originalUrl;
+            if (!/^[0-9]{10,12}$/.test(timestamp || '') || !/^[a-f0-9]{32}$/.test(nonce || '')
+                || !equalSecret(req.headers['x-savana-callback-token'], protocol.token)
+                || !equalSecret(req.headers['x-savana-command-signature'], mac(['savana-command-request-v1', 'POST', publicPath, timestamp, nonce, sha(raw)]))) return next();
+            const state = snapshot(command);
+            if (!state || state.row.state !== 'unknown' || state.row.execution_state !== 'unknown') return next();
+            const affected = faultEffects(state);
+            if (!affected.length) return next();
+            before = { receipt_state: state.row.state, execution_state: state.row.execution_state,
+                execution_id: state.row.execution_id, tenant_id: state.row.tenant_id, effects: state.identity,
+                fault_effects: affected.map(effect => sha(effect.id)) };
+            request = { path: publicPath, nonce, body_sha256: sha(raw) };
+        } catch { return next(); }
+        let returned;
+        const send = res.send;
+        res.send = function (body) {
+            if (typeof body === 'string' || Buffer.isBuffer(body)) {
+                const bytes = Buffer.from(body);
+                if (bytes.length <= 1_048_576) returned = bytes;
+            }
+            return send.call(this, body);
+        };
+        res.once('finish', () => {
+            try {
+                if (res.statusCode !== 200 || !returned || res.get('X-Savana-Command-Nonce') !== request.nonce) return;
+                const timestamp = res.get('X-Savana-Command-Timestamp');
+                if (!/^[0-9]{10,12}$/.test(timestamp || '') || !equalSecret(res.get('X-Savana-Command-Signature'),
+                    mac(['savana-command-response-v1', 'POST', request.path, timestamp, request.nonce, request.body_sha256, '200', sha(returned)]))) return;
+                if (database.prepare('SELECT request_sha256 FROM savana_collaborative_nonces WHERE nonce=?').get(request.nonce)?.request_sha256 !== request.body_sha256) return;
+                const receipt = validateNativeCommandModel('AdapterReceipt', parse(returned.toString('utf8')));
+                if (!proven(command, before, receipt, snapshot(command))) return;
+                const key = evidenceKey(command);
+                const evidence = nativeCommandJson({ key, run_id: runId, command, before, receipt });
+                const encrypted = encrypt(evidence);
+                if (typeof encrypted !== 'string' || encrypted === evidence || decrypt(encrypted) !== evidence) return;
+                database.prepare('INSERT OR IGNORE INTO owner_journey_native_reconciliations VALUES(?,?,?,?)')
+                    .run(key, runId, encrypted, new Date().toISOString());
+            } catch { /* An incomplete/unbound response is not a reconciliation observation. */ }
+        });
+        next();
+    };
+    return { middleware, count: () => {
+        if (!ready()) return 0;
+        let count = 0;
+        for (const row of database.prepare('SELECT * FROM owner_journey_native_reconciliations WHERE run_id=?').all(runId)) try {
+            const evidence = parse(decrypt(row.encrypted_evidence));
+            const command = validateNativeCommandModel('AdapterCommand', evidence.command);
+            const receipt = validateNativeCommandModel('AdapterReceipt', evidence.receipt);
+            if (evidence.run_id === runId && evidence.key === row.evidence_key && evidenceKey(command) === row.evidence_key
+                && proven(command, evidence.before, receipt, snapshot(command))) count++;
+        } catch { /* Malformed private evidence cannot raise the measured count. */ }
+        return count;
     } };
 };
