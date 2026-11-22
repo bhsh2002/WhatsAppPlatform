@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceBindingAuthorizationUrl, workspaceCommandIsValid, workspaceOverviewIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime.js';
+import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, readWorkspaceOverview, readWorkspaceSetupIntent, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceAppliedOverviewIsCurrent, workspaceBindingAuthorizationUrl, workspaceBindingContinuationIsCurrent, workspaceBindingContinuationUrl, workspaceCommandIsValid, workspaceOverviewIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime.js';
 
 const context = { verified: true, native_reference: 'server-native-and-center-partition', viewKey: 'current-view', valid_until: new Date(60_000).toISOString(),
     organizationLabel: 'متجر المدينة', actorLabel: 'سارة', connect: { enabled: false, code: 'connect_core', label: 'ربط الحساب' } };
@@ -221,19 +221,150 @@ test('a permission or page-context change during dispatch cannot restore an earl
 });
 
 test('binding redirect uses only immediate success plus completed intent and same fresh verified owner', async () => {
-    const fresh = overview(); const nativeReference = fresh.context.native_reference;
+    const fresh = overview(); fresh.context.connect = { enabled: true, code: 'native_binding_required', label: 'ربط هذا الحساب بالمؤسسة' };
+    const nativeReference = fresh.context.native_reference;
     const result = await observeWorkspaceEffect({ intentKey: 'preissued-binding', isCurrent: () => true,
         dispatch: async () => ({ result: { authorization_url: 'https://center.example.test/owner/link?request=public-handle' } }),
         readIntent: async () => ({ intent: { state: 'completed' } }), readFresh: async () => fresh });
-    assert.equal(workspaceBindingAuthorizationUrl(result, nativeReference), 'https://center.example.test/owner/link?request=public-handle');
+    const options = { intentKey: 'preissued-binding', currentOverview: fresh, now: 1_000 };
+    assert.equal(workspaceBindingAuthorizationUrl(result, nativeReference, options), 'https://center.example.test/owner/link?request=public-handle');
     for (const invalid of [{ ...result, stale: true }, { ...result, error: new Error('lost response') },
         { ...result, result: null }, { ...result, intent: { state: 'unknown' } }, { ...result, intent: null },
         { ...result, overview: { context: { ...fresh.context, verified: false } } },
         { ...result, result: { authorization_url: 'javascript:alert(1)' } },
         { ...result, result: { authorization_url: 'https://center.example.test/?access_token=private' } }]) {
-        assert.equal(workspaceBindingAuthorizationUrl(invalid, nativeReference), null);
+        assert.equal(workspaceBindingAuthorizationUrl(invalid, nativeReference, options), null);
     }
-    assert.equal(workspaceBindingAuthorizationUrl(result, 'different-owner'), null);
+    assert.equal(workspaceBindingAuthorizationUrl(result, 'different-owner', options), null);
+    assert.equal(workspaceBindingAuthorizationUrl(result, nativeReference, { ...options, intentKey: 'another-attempt' }), null);
+    assert.equal(workspaceBindingAuthorizationUrl(result, nativeReference, { ...options, currentOverview: null }), null);
+    assert.equal(workspaceBindingAuthorizationUrl(result, nativeReference, { ...options, currentOverview: structuredClone(fresh) }), null);
+    assert.equal(workspaceBindingAuthorizationUrl(result, nativeReference, { ...options, now: 60_000 }), null);
+});
+
+test('binding overview workflow refreshes current setup without requesting unavailable command or request lists', async () => {
+    const source = overview();
+    source.context.connect = { enabled: true, code: 'native_binding_required', label: 'ربط هذا الحساب بالمؤسسة' };
+    source.connection.selection.activity = 'actual-selected-activity';
+    let epoch = 1, applied = null;
+    const operationEpoch = epoch, calls = [];
+    const load = async includeLists => {
+        const loadEpoch = ++epoch;
+        const result = await readWorkspaceOverview({ includeLists, now: () => 1_000, isCurrent: () => epoch === loadEpoch,
+            readOverview: async () => { calls.push('overview'); return structuredClone(source); },
+            readRecords: async () => { calls.push('records'); throw new Error('Unavailable before binding'); },
+            readCommands: async () => { calls.push('commands'); throw Object.assign(new Error('Binding required'), { status: 403 }); },
+            readRequests: async () => { calls.push('requests'); throw Object.assign(new Error('Binding required'), { status: 403 }); } });
+        if (result) applied = result;
+        return result;
+    };
+    const observed = await observeWorkspaceEffect({ intentKey: 'original-binding', isCurrent: () => epoch === operationEpoch,
+        dispatch: async () => { calls.push('submit'); return { result: { authorization_url: 'https://center.example.test/owner/link?request=original' } }; },
+        readIntent: async key => { calls.push(`intent:${key}`); return { intent: { state: 'completed' } }; }, readFresh: () => load(false) });
+    assert.deepEqual(calls, ['submit', 'intent:original-binding', 'overview']);
+    assert.equal(workspaceAppliedOverviewIsCurrent(observed.overview, applied, source.context.native_reference, 1_000), true);
+    assert.equal(workspaceBindingAuthorizationUrl(observed, source.context.native_reference, { intentKey: 'original-binding', currentOverview: applied, now: 1_000 }),
+        'https://center.example.test/owner/link?request=original');
+    // Generic refresh is gated by actual setup state too, rather than catching a 403.
+    await load(true);
+    assert.deepEqual(calls.slice(3), ['overview']);
+});
+
+test('connected overview workflow preserves list denial and rejects a superseded current identity', async () => {
+    const source = overview(); source.context.connect.code = 'connected'; source.connection.selection.activity = 'current-activity';
+    const calls = [];
+    await assert.rejects(readWorkspaceOverview({ includeLists: true, now: () => 1_000, isCurrent: () => true,
+        readOverview: async () => { calls.push('overview'); return source; },
+        readRecords: async () => { throw new Error('No product grant'); },
+        readCommands: async activity => { calls.push(`commands:${activity}`); throw Object.assign(new Error('permission withdrawn'), { status: 403 }); },
+        readRequests: async activity => { calls.push(`requests:${activity}`); return {}; } }), { status: 403 });
+    assert.deepEqual(calls, ['overview', 'commands:current-activity', 'requests:current-activity']);
+    let current = true;
+    const result = await readWorkspaceOverview({ includeLists: true, now: () => 1_000, isCurrent: () => current,
+        readOverview: async () => { current = false; return source; }, readCommands: async () => { throw new Error('Stale view must not read lists'); } });
+    assert.equal(result, null);
+});
+
+test('binding continuation accepts only fresh same-attempt current-view authorization and never metadata URL authority', () => {
+    const fresh = overview(); fresh.context.connect = { enabled: true, code: 'native_binding_required', label: 'ربط هذا الحساب بالمؤسسة' };
+    const key = 'original-binding', nativeReference = fresh.context.native_reference;
+    const options = { currentOverview: fresh, nativeReference, now: 1_000 };
+    const value = { viewKey: fresh.context.viewKey, valid_until: at(30_000), native_reference: nativeReference,
+        intent: { key, state: 'completed' }, binding_status: 'pending', authorization_url: 'https://center.example.test/owner/link?request=original' };
+    assert.equal(workspaceBindingContinuationUrl(value, key, fresh, options), value.authorization_url);
+    for (const status of ['approved', 'rejected', 'expired']) {
+        const terminal = { ...value, binding_status: status, authorization_url: null };
+        assert.equal(workspaceBindingContinuationIsCurrent(terminal, key, fresh, options), true);
+        assert.equal(workspaceBindingContinuationUrl(terminal, key, fresh, options), null);
+    }
+    for (const changed of [{ viewKey: 'different-view' }, { native_reference: 'different-owner' }, { valid_until: at(1_000) }, { valid_until: at(60_001) },
+        { intent: { key: 'another-attempt', state: 'completed' } }, { intent: { key, state: 'unknown' } }, { intent: { key, state: 'completed', result: {} } },
+        { binding_status: 'invented' }, { binding_status: 'approved' }, { authorization_url: 'javascript:alert(1)' },
+        { authorization_url: 'https://center.example.test/?access_token=private' }, { historical_url: value.authorization_url }]) {
+        assert.equal(workspaceBindingContinuationUrl({ ...value, ...changed }, key, fresh, options), null);
+        assert.equal(workspaceBindingContinuationIsCurrent({ ...value, ...changed }, key, fresh, options), false);
+    }
+    assert.equal(workspaceBindingContinuationUrl(value, key, fresh, { ...options, currentOverview: null }), null);
+    assert.equal(workspaceBindingContinuationUrl(value, key, fresh, { ...options, currentOverview: structuredClone(fresh) }), null);
+    assert.equal(workspaceBindingContinuationUrl(value, key, fresh, { ...options, now: 60_000 }), null);
+    const bound = { ...fresh, context: { ...fresh.context, connect: { ...fresh.context.connect, code: 'connected' } } };
+    assert.equal(workspaceBindingContinuationUrl(value, key, bound, { ...options, currentOverview: bound }), null);
+    assert.equal(workspaceBindingContinuationIsCurrent({ ...value, authorization_url: null }, key, bound, { ...options, currentOverview: bound }), true);
+    assert.equal(workspaceBindingContinuationUrl({ intent: { key, state: 'completed', result: { authorization_url: value.authorization_url } } }, key, fresh, options), null);
+});
+
+test('prebinding nonbinding activity recovery resolves the same lost-ACK attempt from state only without another submit', async () => {
+    const local = storage(), key = 'original-activity-create', calls = [], source = overview();
+    source.context.connect = { enabled: true, code: 'native_binding_required', label: 'ربط هذا الحساب بالمؤسسة' };
+    source.connection.selection.activity = 'actual-created-activity';
+    retainWorkspaceHold(local, context.native_reference, key);
+    const readFresh = () => readWorkspaceOverview({ includeLists: true, now: () => 1_000, isCurrent: () => true,
+        readOverview: async () => { calls.push('overview'); return source; },
+        readCommands: async () => { throw new Error('No prebinding command reads'); }, readRequests: async () => { throw new Error('No prebinding request reads'); } });
+    const observed = await observeWorkspaceEffect({ intentKey: key, isCurrent: () => true,
+        dispatch: async () => { calls.push('submit-activity'); throw new Error('ACK lost after accepted activity creation'); },
+        readIntent: async value => { calls.push(`initial-state:${value}`); throw Object.assign(new Error('Not observed yet'), { status: 404 }); }, readFresh });
+    assert.equal(observed.intent, null);
+    const recovered = await readWorkspaceSetupIntent({ intentKey: key, isCurrent: () => true,
+        readBindingAuthorization: async value => { calls.push(`binding:${value}`); throw { status: 422, data: { error: { code: 'workspace_binding_authorization_not_applicable' } } }; },
+        readIntent: async value => { calls.push(`state:${value}`); return { intent: { key: value, state: 'completed', authorization_url: 'https://untrusted.invalid/historical' } }; } });
+    assert.deepEqual(recovered, { stale: false, authorization: null, intent: { key, state: 'completed' } });
+    assert.equal(releaseWorkspaceHold(local, context.native_reference, recovered.intent, observed.overview, 1_000), true);
+    assert.deepEqual(readWorkspaceHolds(local, context.native_reference).records, []);
+    assert.deepEqual(calls, ['submit-activity', `initial-state:${key}`, 'overview', `binding:${key}`, `state:${key}`]);
+});
+
+test('prebinding recovery never treats pending binding, generic 422, 409 or 404 as nonbinding operation proof', async () => {
+    let genericReads = 0;
+    const readIntent = async () => { genericReads += 1; return { intent: { key: 'same-attempt', state: 'completed' } }; };
+    const pending = { intent: { key: 'same-attempt', state: 'completed' }, binding_status: 'pending' };
+    assert.deepEqual(await readWorkspaceSetupIntent({ intentKey: 'same-attempt', isCurrent: () => true, readIntent,
+        readBindingAuthorization: async () => pending }), { stale: false, authorization: pending, intent: null });
+    for (const error of [{ status: 422 }, { status: 422, code: 'workspace_binding_authorization_not_applicable' },
+        { status: 422, data: { error: { code: 'workspace_request_invalid' } } },
+        ...[404, 409, 403].map(status => ({ status, data: { error: { code: 'workspace_binding_authorization_not_applicable' } } }))]) {
+        await assert.rejects(readWorkspaceSetupIntent({ intentKey: 'same-attempt', isCurrent: () => true, readIntent,
+            readBindingAuthorization: async () => { throw error; } }), value => value === error);
+    }
+    assert.equal(genericReads, 0);
+});
+
+test('prebinding nonbinding recovery rejects foreign intent state and drops results when the current identity changes', async () => {
+    const notApplicable = { status: 422, data: { error: { code: 'workspace_binding_authorization_not_applicable' } } };
+    const readBindingAuthorization = async () => { throw notApplicable; };
+    await assert.rejects(readWorkspaceSetupIntent({ intentKey: 'original-activity', isCurrent: () => true, readBindingAuthorization,
+        readIntent: async () => ({ intent: { key: 'another-attempt', state: 'completed' } }) }), /Unverified original/);
+    const unknown = await readWorkspaceSetupIntent({ intentKey: 'original-activity', isCurrent: () => true, readBindingAuthorization,
+        readIntent: async () => ({ intent: { key: 'original-activity', state: 'unknown' } }) });
+    assert.deepEqual(unknown, { stale: false, authorization: null, intent: null });
+    let current = true, genericReads = 0;
+    const beforeState = await readWorkspaceSetupIntent({ intentKey: 'original-activity', isCurrent: () => current,
+        readBindingAuthorization: async () => { current = false; throw notApplicable; }, readIntent: async () => { genericReads += 1; } });
+    assert.deepEqual(beforeState, { stale: true, authorization: null, intent: null }); assert.equal(genericReads, 0);
+    current = true;
+    const afterState = await readWorkspaceSetupIntent({ intentKey: 'original-activity', isCurrent: () => current, readBindingAuthorization,
+        readIntent: async () => { current = false; return { intent: { key: 'original-activity', state: 'completed' } }; } });
+    assert.deepEqual(afterState, { stale: true, authorization: null, intent: null });
 });
 
 test('native command without a verified summary remains visible with server-disabled approval', () => {

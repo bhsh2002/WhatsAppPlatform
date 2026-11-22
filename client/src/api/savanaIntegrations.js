@@ -398,6 +398,11 @@ export const savanaIntegrationMethods = {
         return this.request(`/api/portal/integrations/workspace/intents/${encodeURIComponent(intent)}`);
     },
 
+    async getPortalWorkspaceBindingAuthorization(intent) {
+        if (typeof intent !== 'string' || !intent.trim() || intent.length > 180_000) throw new TypeError('A current server intent reference is required');
+        return this.request(`/api/portal/integrations/workspace/intents/${encodeURIComponent(intent)}/binding-authorization`, { method: 'GET', cache: 'no-store' });
+    },
+
     async reconcilePortalWorkspaceIntent(intent) {
         return this.request(`/api/portal/integrations/workspace/intents/${encodeURIComponent(intent)}/reconcile`, {
             method: 'POST', headers: { 'X-Savana-Owner-Intent': 'connections-data-v1' },

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { once } from 'node:events';
+import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { createOperationalWorkspaceRouter } from '../routes/operationalWorkspace.js';
@@ -10,7 +11,7 @@ const fixture = async t => {
     const calls = [];
     const methods = ['overview', 'select', 'reviewActivity', 'reviewProvider', 'reviewConnection', 'reviewProduct',
         'submit', 'records', 'record', 'commands', 'command', 'approve', 'approveRequest', 'reconcileCommand', 'intent', 'reconcileIntent', 'result',
-        'resourceOfferings', 'resourceOffering', 'resourceProduct', 'resourcePreview'];
+        'resourceOfferings', 'resourceOffering', 'resourceProduct', 'resourcePreview', 'bindingAuthorization'];
     let failure;
     const service = Object.fromEntries(methods.map(method => [method, async (principal, input) => {
         calls.push({ method, principal, input });
@@ -38,6 +39,40 @@ const fixture = async t => {
     return { calls, base, post, fail: value => { failure = value; } };
 };
 const intent = { 'X-Savana-Owner-Intent': 'connections-data-v1', Origin: 'https://wa.invalid' };
+
+test('binding authorization: read-only local endpoint forwards only the original opaque attempt and rejects query/body authority', async t => {
+    const f = await fixture(t);
+    const response = await fetch(`${f.base}/intents/wr1.original_attempt/binding-authorization`);
+    assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(f.calls[0].method, 'bindingAuthorization'); assert.deepEqual(f.calls[0].input, { intent: 'wr1.original_attempt' });
+    assert.equal(f.calls[0].principal.userId, 8);
+    for (const query of ['state=browser-state', 'authorization_url=https://foreign.invalid', 'external_tenant_id=browser-tenant', 'actor_id=browser-actor']) {
+        assert.equal((await fetch(`${f.base}/intents/wr1.original_attempt/binding-authorization?${query}`)).status, 422);
+    }
+    const bodyStatus = await new Promise((resolve, reject) => {
+        const body = JSON.stringify({ state: 'browser-state' });
+        const request = http.request(`${f.base}/intents/wr1.original_attempt/binding-authorization`, { method: 'GET',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, result => {
+            result.resume(); result.once('end', () => resolve(result.statusCode));
+        });
+        request.once('error', reject); request.end(body);
+    });
+    assert.equal(bodyStatus, 422); assert.equal(f.calls.length, 1);
+    f.fail(new SharedProductReadError('workspace_binding_authorization_unavailable', 409));
+    const denied = await fetch(`${f.base}/intents/wr1.original_attempt/binding-authorization`);
+    assert.equal(denied.status, 409); assert.equal((await denied.json()).clear_previous, true);
+});
+
+test('nonbinding recovery: current-owner not-applicable discriminator remains distinct from generic invalid input', async t => {
+    const f = await fixture(t);
+    f.fail(new SharedProductReadError('workspace_binding_authorization_not_applicable', 422));
+    const response = await fetch(`${f.base}/intents/wr1.original_activity/binding-authorization`), value = await response.json();
+    assert.equal(response.status, 422); assert.equal(value.error.code, 'workspace_binding_authorization_not_applicable');
+    assert.equal(value.clear_previous, true); assert.equal(response.headers.get('cache-control'), 'no-store');
+    const invalid = await fetch(`${f.base}/intents/wr1.original_activity/binding-authorization?state=browser-state`);
+    assert.equal(invalid.status, 422); assert.equal((await invalid.json()).error.code, 'workspace_request_invalid');
+    assert.equal(f.calls.length, 1);
+});
 
 test('shared resource reads forward opaque selectors only and private media is authenticated no-store bytes', async t => {
     const f = await fixture(t);

@@ -33,6 +33,7 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
     let transformMutation = value => value, dropMutation = false;
     let captureHook = async () => {};
     let previewHook = value => value;
+    let bindingLookupHook = async value => value;
     let selectedReceipt = null, selectionStatus = 200, providerReceipt = null;
     const mutationResponse = value => { if (dropMutation) throw new Error('Synthetic lost mutation acknowledgement after commit'); return Response.json(transformMutation(structuredClone(value))); };
     const calls = [];
@@ -148,7 +149,10 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
             rawContext.existing.requests[0] = rejected; return mutationResponse(rejected);
         }
         if (target.pathname.endsWith('/activities')) return Response.json({ activity_id: 'new-activity', label: JSON.parse(options.body).name, version: 1, grants_created: false, next_action: { label: 'اختيار النشاط', href: '/?workspace=shared' } });
-        if (target.pathname.endsWith('/binding-requests/lookup')) return Response.json(receipt || {}, { status: receipt ? 200 : 404 });
+        if (target.pathname.endsWith('/binding-requests/lookup')) {
+            const value = await bindingLookupHook(structuredClone(receipt));
+            return Response.json(value || {}, { status: value ? 200 : 404 });
+        }
         if (target.pathname.endsWith('/binding-requests')) {
             const body = JSON.parse(options.body);
             receipt = { id: 'binding-request', platform_code: 'wa_savana', external_tenant_id: body.external_tenant_id,
@@ -164,7 +168,7 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
         readService: { record: async (_p, { entityId }) => { assert.equal(entityId, rawRecord.entity_id); return { record: structuredClone(rawRecord) }; } },
         nativeOwnerProofs: { capture: async () => { await captureHook(); return { recorded: true }; } }, verifyLocalPrincipal: () => current, fetchImpl, now: () => clock,
         ...(useFinalReadDefault ? {} : { sharedResourceReadsEnabled }) });
-    return { service, database, calls, disconnect: () => { connected = false; }, unbind: () => { nativeBound = false; },
+    return { service, database, calls, disconnect: () => { connected = false; }, unbind: () => { nativeBound = false; }, bind: () => { nativeBound = true; },
         changeContext: update => { rawContext = update(rawContext); }, dropBinding: () => { dropBinding = true; }, revoke: () => { current = false; },
         changeOwner: update => { currentOwner = { ...currentOwner, ...update }; }, changeBinding: value => { bindingId = value; },
         setCommand: value => { rawCommand = structuredClone(value); }, setRecord: value => { rawRecord = structuredClone(value); },
@@ -173,7 +177,8 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
         transformMutation: value => { transformMutation = value; }, dropMutation: () => { dropMutation = true; },
         selectionStatus: value => { selectionStatus = value; }, selectionReceipt: update => { selectedReceipt = update(selectedReceipt); },
         providerReceipt: update => { providerReceipt = update(providerReceipt); }, captureHook: value => { captureHook = value; },
-        previewHook: value => { previewHook = value; } };
+        previewHook: value => { previewHook = value; }, bindingReceipt: update => { receipt = update(structuredClone(receipt)); },
+        bindingLookupHook: hook => { bindingLookupHook = hook; } };
 };
 
 test('disconnected owner view makes no peer call and never exposes a manual authority selector', async t => {
@@ -210,6 +215,121 @@ test('lost binding ACK is recovered by original readonly lookup with one POST ac
     await f.service.submit(principal, { review: result.review.key });
     assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests')).length, 1);
     assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests/lookup')).length, 1);
+});
+
+test('binding authorization: completed original attempt resumes only from a fresh authenticated Core lookup', async t => {
+    const f = fixture(t); f.unbind();
+    const review = await f.service.reviewBinding(principal), submitted = await f.service.submit(principal, { review: review.review.key });
+    const freshUrl = 'http://127.0.0.1:19502/?authorization_request=binding-request&navigation=current';
+    f.bindingReceipt(value => ({ ...value, authorization_url: freshUrl }));
+    const result = await f.service.bindingAuthorization(principal, { intent: review.review.intentKey });
+    assert.equal(result.authorization_url, freshUrl); assert.notEqual(result.authorization_url, submitted.authorization_url);
+    assert.deepEqual(result.intent, { key: review.review.intentKey, state: 'completed' }); assert.equal(result.binding_status, 'pending');
+    const overview = await f.service.overview(principal);
+    assert.equal(result.viewKey, overview.context.viewKey); assert.equal(result.native_reference, overview.context.native_reference);
+    assert.ok(Date.parse(result.valid_until) > NOW); assert.ok(Date.parse(result.valid_until) <= Date.parse(overview.context.valid_until));
+    assert.deepEqual(await f.service.intent(principal, { intent: review.review.intentKey }), { intent: { key: review.review.intentKey, state: 'completed' } });
+    const post = f.calls.find(call => call.path.endsWith('/binding-requests')), lookup = f.calls.find(call => call.path.endsWith('/binding-requests/lookup'));
+    assert.deepEqual(Object.fromEntries(new URLSearchParams(lookup.query)), { external_tenant_id: 'wa_savana:tenant:1', state: JSON.parse(post.body).state });
+    assert.equal(lookup.method, 'GET'); assert.equal(lookup.headers.Authorization, `Bearer ${owner.accessToken}`);
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests')).length, 1);
+    const before = f.calls.length;
+    await assert.rejects(f.service.transport.request(principal, { path: '/v1/integration/workspace/commands' }), { status: 403 });
+    assert.equal(f.calls.length, before);
+});
+
+test('binding authorization: lost ACK reconciles the same request and returns current navigation with only one POST', async t => {
+    const f = fixture(t); f.unbind(); f.dropBinding();
+    const review = await f.service.reviewBinding(principal);
+    await assert.rejects(f.service.submit(principal, { review: review.review.key }), { code: 'workspace_outcome_unknown' });
+    f.bindingReceipt(value => ({ ...value, authorization_url: 'http://127.0.0.1:19502/?authorization_request=binding-request&navigation=recovered' }));
+    const result = await f.service.bindingAuthorization(principal, { intent: review.review.intentKey });
+    assert.equal(result.intent.state, 'completed'); assert.match(result.authorization_url, /navigation=recovered$/);
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests')).length, 1);
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests/lookup')).length, 2);
+    await f.service.bindingAuthorization(principal, { intent: review.review.intentKey });
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests')).length, 1);
+    assert.equal(f.database.prepare('SELECT COUNT(*) n FROM savana_workspace_intents').get().n, 1);
+});
+
+test('binding authorization: unresolved Core lookup withholds navigation and never invents a completed attempt', async t => {
+    const f = fixture(t); f.unbind(); f.dropBinding(); const review = await f.service.reviewBinding(principal);
+    await assert.rejects(f.service.submit(principal, { review: review.review.key }), { code: 'workspace_outcome_unknown' });
+    f.bindingLookupHook(() => null);
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { code: 'workspace_binding_authorization_unavailable', status: 409 });
+    assert.equal(f.database.prepare('SELECT state FROM savana_workspace_intents').get().state, 'unknown');
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests')).length, 1);
+});
+
+test('binding authorization: rejection, expiry and approved/bound status never replay the original URL', async t => {
+    for (const status of ['rejected', 'expired', 'approved']) {
+        const f = fixture(t); f.unbind(); const review = await f.service.reviewBinding(principal);
+        const original = await f.service.submit(principal, { review: review.review.key }); assert.ok(original.authorization_url);
+        f.bindingReceipt(value => ({ ...value, status, expires_at: status === 'expired' ? new Date(NOW - 1).toISOString() : value.expires_at }));
+        if (status === 'approved') f.bind();
+        const result = await f.service.bindingAuthorization(principal, { intent: review.review.intentKey });
+        assert.equal(result.binding_status, status); assert.equal(result.authorization_url, null); assert.equal(result.intent.state, 'completed');
+    }
+    const f = fixture(t); f.unbind(); const review = await f.service.reviewBinding(principal);
+    await f.service.submit(principal, { review: review.review.key });
+    f.bindingReceipt(value => ({ ...value, expires_at: new Date(NOW).toISOString() }));
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { code: 'workspace_binding_authorization_unavailable', status: 409 });
+});
+
+test('binding authorization: fresh lookup identity/request mismatches cannot supply navigation', async t => {
+    for (const update of [{ id: 'foreign-binding-request' }, { external_tenant_id: 'foreign-native' }, { organization_id: 'foreign-org' }, { created_by_actor: 'foreign-actor' },
+        { display_name: 'A different request' }, { redirect_uri: 'http://127.0.0.1:19506/different-callback' }, { authorization_url: 'https://foreign.invalid/authorize' }]) {
+        const f = fixture(t); f.unbind(); const review = await f.service.reviewBinding(principal);
+        await f.service.submit(principal, { review: review.review.key }); f.bindingReceipt(value => ({ ...value, ...update }));
+        await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { status: 502 });
+        assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests')).length, 1);
+    }
+});
+
+test('binding authorization: changed identity, context or deadline after lookup withholds the fresh URL', async t => {
+    for (const change of [f => f.changeOwner({ generation: 'new-owner-generation' }), f => f.revoke(),
+        f => f.changeContext(value => ({ ...value, can_create_activity: false }))]) {
+        const f = fixture(t); f.unbind(); const review = await f.service.reviewBinding(principal);
+        await f.service.submit(principal, { review: review.review.key });
+        f.bindingLookupHook(value => { change(f); return value; });
+        await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { status: 403 });
+    }
+    const f = fixture(t); f.unbind(); const review = await f.service.reviewBinding(principal);
+    await f.service.submit(principal, { review: review.review.key }); f.bindingReceipt(value => ({ ...value, expires_at: new Date(NOW + 1000).toISOString() }));
+    f.bindingLookupHook(value => { f.setClock(NOW + 1000); return value; });
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { code: 'workspace_binding_authorization_unavailable', status: 409 });
+});
+
+test('binding authorization: absent/nonbinding/corrupted original attempts never query a substitute request', async t => {
+    const f = fixture(t); f.unbind(); const context = await f.service.loadContext(principal);
+    const missing = f.service.refs.issue(principal, context.identity, { type: 'intent', key: 'missing-original-attempt' });
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: missing }), { code: 'workspace_intent_not_found', status: 404 });
+    const activity = await f.service.reviewActivity(principal, { name: 'نشاط من الواجهة' }); await f.service.submit(principal, { review: activity.review.key });
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: activity.review.intentKey }), { code: 'workspace_binding_authorization_not_applicable', status: 422 });
+    const g = fixture(t); g.unbind(); const review = await g.service.reviewBinding(principal); await g.service.submit(principal, { review: review.review.key });
+    const cipher = g.service.intents.cipher;
+    g.service.intents.cipher = { ...cipher, decrypt(value) {
+        const envelope = JSON.parse(cipher.decrypt(value));
+        if (envelope.purpose === 'workspace_request') envelope.payload.bodyJson = JSON.stringify({ ...JSON.parse(envelope.payload.bodyJson), state: 'corrupted-original-state' });
+        return JSON.stringify(envelope);
+    } };
+    await assert.rejects(g.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { code: 'workspace_reconciliation_unverified', status: 409 });
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests/lookup')).length, 0);
+    assert.equal(g.calls.filter(call => call.path.endsWith('/binding-requests/lookup')).length, 0);
+});
+
+test('nonbinding recovery: lost browser ACK for prebinding activity creation has explicit not-applicable proof and exact terminal metadata', async t => {
+    const f = fixture(t); f.unbind(); const review = await f.service.reviewActivity(principal, { name: 'نشاط أُنشئ من الواجهة' });
+    await f.service.submit(principal, { review: review.review.key }); // Server completed; the browser may miss this response.
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }),
+        { code: 'workspace_binding_authorization_not_applicable', status: 422 });
+    assert.deepEqual(await f.service.intent(principal, { intent: review.review.intentKey }),
+        { intent: { key: review.review.intentKey, state: 'completed' } });
+    assert.equal(f.calls.filter(call => call.path.endsWith('/activities') && call.method === 'POST').length, 1);
+    assert.equal(f.calls.filter(call => call.path.endsWith('/binding-requests/lookup')).length, 0);
+    assert.equal(f.database.prepare('SELECT COUNT(*) n FROM savana_workspace_intents').get().n, 1);
+    f.changeOwner({ generation: 'different-current-identity' });
+    await assert.rejects(f.service.bindingAuthorization(principal, { intent: review.review.intentKey }), { status: 403 });
 });
 test('changed current Core policy invalidates the immutable activity review before a mutation', async t => {
     const f = fixture(t); const result = await f.service.reviewActivity(principal, { name: 'نشاط تجريبي' });

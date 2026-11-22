@@ -110,6 +110,7 @@ export const createOperationalWorkspaceRouter = ({ service, appOrigin }) => {
     router.post('/workspace/requests/:request/reject/review', intent, call('reviewRequestReject', req => ({ ...body(['reason'])(req), request: req.params.request })));
     router.post('/workspace/requests/:request/edit/review', intent, call('reviewRequestEdit', req => ({ ...body(['activity', 'purpose', 'provider', 'fields', 'people'])(req), request: req.params.request })));
     router.post('/workspace/read-grants/:grant/revoke/review', intent, call('reviewGrantRevoke', req => ({ ...body(['reason'])(req), grant: req.params.grant })));
+    router.get('/workspace/intents/:intent/binding-authorization', call('bindingAuthorization', req => { empty(req); return { intent: req.params.intent }; }));
     router.get('/workspace/intents/:intent', call('intent', req => { empty(req); return { intent: req.params.intent }; }));
     router.post('/workspace/intents/:intent/reconcile', intent, call('reconcileIntent', req => { empty(req); return { intent: req.params.intent }; }));
     return router;

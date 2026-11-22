@@ -250,6 +250,22 @@ export class WorkspaceIntentStore {
         if (!row) fail('workspace_intent_not_found', 404);
         return { intent: this.#public(row) };
     }
+    bindingRequestByKey(principal, identity, idempotencyKey) {
+        this.#assert(principal, identity);
+        if (!text(idempotencyKey)) fail('workspace_request_invalid', 422);
+        const row = this.db.prepare(`SELECT * FROM savana_workspace_intents WHERE tenant_id=? AND user_id=? AND central_actor_id=? AND organization_id=? AND idempotency_key=?`)
+            .get(principal.tenantId, principal.userId, identity.actorId, identity.organizationId, idempotencyKey);
+        if (!row || !this.#sameUser(row, principal, identity)) fail('workspace_intent_not_found', 404);
+        if (!this.#original(row, principal, identity)) fail('workspace_context_changed', 403);
+        if (row.operation !== 'binding') fail('workspace_binding_authorization_not_applicable', 422);
+        // Private server-only selector access. Never open/replay a historical
+        // result or authorization URL; only the original request can be read.
+        const request = this.#open(row, 'workspace_request', row.encrypted_request);
+        if (hash(canonicalWorkspaceJson(request, MAX_BYTES * 3 + 8192)) !== row.request_sha256
+            || request.method !== 'POST' || request.path !== '/v1/integration/workspace/binding-requests'
+            || typeof request.bodyJson !== 'string') fail('workspace_reconciliation_unverified', 409);
+        return { intent: this.#public(row), request: structuredClone(request) };
+    }
     listForOwner(principal, identity, { limit = 50 } = {}) {
         this.#assert(principal, identity);
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) fail('workspace_request_invalid', 422);

@@ -16,7 +16,7 @@ import { emptyWorkspaceCapabilityGrantDraft, prepareWorkspaceCapabilityGrantRevi
     workspaceCapabilityGrantInput, workspaceCapabilityGrantOptionsIsCurrent } from './workspaceCapabilityGrantPresentation';
 import { emptyWorkspaceSelection, workspaceActionAvailable, workspaceConnectionReviewCanSubmit, workspaceLabel, workspaceRecordsCanBrowse, workspaceReviewSummaryIsValid } from './connectionsDataPresentation';
 import { emptyWorkspaceProductDraft } from './workspaceProductPresentation';
-import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceBindingAuthorizationUrl, workspaceClientError, workspaceCommandIsValid, workspaceIntentResolved, workspaceOverviewIsValid, workspaceProductEditorIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent as currentResponse, workspaceRecordIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime';
+import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceOverview, readWorkspaceSetupIntent, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceAppliedOverviewIsCurrent, workspaceBindingAuthorizationUrl, workspaceBindingContinuationIsCurrent, workspaceBindingContinuationUrl, workspaceClientError, workspaceCommandIsValid, workspaceIntentResolved, workspaceOverviewIsValid, workspaceProductEditorIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent as currentResponse, workspaceRecordIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime';
 import { sharedReadAuthorizationUrl } from './sharedReadSetupPresentation';
 import { emptyWorkspaceNativeDraft, NATIVE_WORKSPACE_ACTIONS, workspaceNativeOptionsIsCurrent, workspaceNativeParameters, workspaceNativePreviewIsCurrent, workspaceNativeRecipientPageDraft, workspaceNativeReviewedParameters } from './workspaceNativePresentation';
 import { emptyWorkspaceBusinessDraft, WORKSPACE_BUSINESS_CAPABILITIES, workspaceBusinessOptionsIsCurrent, workspaceBusinessPageDraft, workspaceBusinessParameters, workspaceBusinessPreviewIsCurrent, workspaceBusinessReviewedParameters } from './workspaceBusinessPresentation';
@@ -92,6 +92,7 @@ const ConnectionsDataController = () => {
     const busy = useRef(false);
     const latest = useRef(null);
     const submitted = useRef(new Set());
+    const bindingNavigations = useRef(new Set());
     const formQueryHandled = useRef(null);
     const requestedAction = useRef(new URLSearchParams(window.location.search).get('action'));
     const recipientSearch = useRef('');
@@ -125,23 +126,11 @@ const ConnectionsDataController = () => {
         setLoading(true); setError(null); clearView();
         try {
             const action = filters.action || requestedAction.current;
-            let result = await api.getPortalConnectionsWorkspace({ ...filtersFor(filters), ...(action ? { action } : {}) });
-            if (revision.current !== requestRevision) return null;
-            if (!workspaceOverviewIsValid(result)) throw invalidResponse();
-            if (!workspaceRecordsCanBrowse(result.sharedData, result.context.verified)) result = { ...result, sharedData: { ...result.sharedData, records: [] } };
-            if (includeLists && result.context.verified && result.connection.selection.activity) {
-                const activity = result.connection.selection.activity;
-                const { recordDocument, commandDocument, requestDocument } = await readWorkspaceLists({ sharedData: result.sharedData, verified: true,
-                    readRecords: () => api.getPortalWorkspaceRecords({ activity }), readCommands: () => api.getPortalWorkspaceCommands(activity), readRequests: () => api.getPortalWorkspaceRequests(activity) });
-                if (revision.current !== requestRevision) return null;
-                const responseRevision = { requestRevision, currentRevision: revision.current };
-                if ((recordDocument !== null && (!currentResponse(recordDocument, result.context, responseRevision) || !Array.isArray(recordDocument.records) || !recordDocument.records.every(workspaceRecordIsValid)))
-                    || !currentResponse(commandDocument, result.context, responseRevision) || !Array.isArray(commandDocument.commands) || !commandDocument.commands.every(workspaceCommandIsValid)
-                    || !currentResponse(requestDocument, result.context, responseRevision) || !Array.isArray(requestDocument.requests) || !requestDocument.requests.every(workspaceAccessRequestIsValid)) throw invalidResponse();
-                result = { ...result, sharedData: { ...result.sharedData, ...(recordDocument || { records: [] }) }, commands: commandDocument.commands,
-                    connection: { ...result.connection, requests: requestDocument.requests } };
-                if (!workspaceOverviewIsValid(result)) throw invalidResponse();
-            }
+            const result = await readWorkspaceOverview({ includeLists,
+                readOverview: () => api.getPortalConnectionsWorkspace({ ...filtersFor(filters), ...(action ? { action } : {}) }),
+                readRecords: activity => api.getPortalWorkspaceRecords({ activity }), readCommands: activity => api.getPortalWorkspaceCommands(activity),
+                readRequests: activity => api.getPortalWorkspaceRequests(activity), isCurrent: () => revision.current === requestRevision });
+            if (result === null) return null;
             applyOverview(result);
             return result;
         } catch (requestError) {
@@ -199,21 +188,56 @@ const ConnectionsDataController = () => {
         if (fresh?.context.native_reference === nativeReference) setHints(readWorkspaceHolds(recoveryStorage(), nativeReference).records);
     };
 
+    const navigateBinding = (destination, intentKey, fresh, nativeReference, expectedRevision, validUntil = fresh?.context.valid_until) => {
+        if (!destination || bindingNavigations.current.has(intentKey) || revision.current !== expectedRevision
+            || !workspaceAppliedOverviewIsCurrent(fresh, latest.current, nativeReference) || !(Date.parse(validUntil) > Date.now())) return false;
+        bindingNavigations.current.add(intentKey);
+        revision.current += 1; clearView(); window.location.assign(destination);
+        return true;
+    };
+
     const checkOutcomes = async () => {
         if (!canUse() || busy.current) return;
-        const operationRevision = revision.current;
-        const nativeReference = latest.current.context.native_reference;
+        const initial = latest.current, nativeReference = initial.context.native_reference;
         const keys = [...new Set([...hints.map(hint => hint.key), ...(memoryHold?.native_reference === nativeReference ? [memoryHold.key] : []), ...latest.current.intents.map(intent => intent.key)])];
         busy.current = true; setWorking(true);
-        const metadata = [];
-        for (const key of keys) {
-            try { const result = await api.getPortalWorkspaceIntent(key); if (result?.intent?.state) metadata.push({ key, state: result.intent.state }); }
-            catch { /* A missing/unknown response cannot prove the earlier effect absent. */ }
+        try {
+            const fresh = await load({}, initial.context.connect.code !== 'native_binding_required');
+            const freshRevision = revision.current;
+            const current = () => revision.current === freshRevision && workspaceAppliedOverviewIsCurrent(fresh, latest.current, nativeReference);
+            if (!current()) return;
+            const metadata = [];
+            for (const key of keys) {
+                if (fresh.context.connect.code === 'native_binding_required') {
+                    try {
+                        const recovered = await readWorkspaceSetupIntent({ intentKey: key, isCurrent: current,
+                            readBindingAuthorization: value => api.getPortalWorkspaceBindingAuthorization(value), readIntent: value => api.getPortalWorkspaceIntent(value) });
+                        if (recovered.stale || !current()) return;
+                        if (recovered.intent) { metadata.push(recovered.intent); continue; }
+                        const result = recovered.authorization;
+                        if (result === null) continue;
+                        const options = { currentOverview: latest.current, nativeReference };
+                        if (!workspaceBindingContinuationIsCurrent(result, key, fresh, options)) throw invalidResponse();
+                        const destination = workspaceBindingContinuationUrl(result, key, fresh, options);
+                        if (destination && navigateBinding(destination, key, fresh, nativeReference, freshRevision, result.valid_until)) return;
+                        if (result.binding_status !== 'pending') metadata.push(result.intent);
+                        else setNotice(ar ? 'الربط الأصلي قيد المتابعة؛ لم يبدأ طلب جديد.' : 'The original binding is still being followed; no new request was started.');
+                    } catch (requestError) {
+                        if (!current()) return;
+                        setError(requestError);
+                    }
+                } else {
+                    try {
+                        const result = await api.getPortalWorkspaceIntent(key);
+                        if (!current()) return;
+                        if (result?.intent?.state) metadata.push({ key, state: result.intent.state });
+                    } catch { /* Missing state cannot clear the original hold. */ }
+                }
+            }
+            if (current()) await resolveHints(nativeReference, metadata, fresh);
+        } finally {
+            busy.current = false; setWorking(false);
         }
-        if (revision.current !== operationRevision) { busy.current = false; setWorking(false); return; }
-        const fresh = await load({}, true);
-        await resolveHints(nativeReference, metadata, fresh);
-        busy.current = false; setWorking(false);
     };
 
     const performEffect = async (intentKey, dispatch, submittedKey, binding = false) => {
@@ -227,15 +251,18 @@ const ConnectionsDataController = () => {
         setHints(readWorkspaceHolds(recoveryStorage(), nativeReference).records);
         busy.current = true; setWorking(true); setError(null);
         const observation = await observeWorkspaceEffect({ intentKey, dispatch, readIntent: key => api.getPortalWorkspaceIntent(key),
-            readFresh: () => load({}, true), isCurrent: () => revision.current === operationRevision });
-        if (observation.stale) { busy.current = false; setWorking(false); return; }
-        await resolveHints(nativeReference, observation.intent ? [observation.intent] : [], observation.overview);
+            readFresh: () => load({}, !binding), isCurrent: () => revision.current === operationRevision });
+        const fresh = observation.overview, freshRevision = revision.current;
+        const current = () => revision.current === freshRevision && workspaceAppliedOverviewIsCurrent(fresh, latest.current, nativeReference);
+        if (observation.stale || !current()) { busy.current = false; setWorking(false); return; }
+        if (!binding || fresh.context.connect.code === 'connected') await resolveHints(nativeReference, observation.intent ? [observation.intent] : [], fresh);
+        if (!current()) { busy.current = false; setWorking(false); return; }
         if (observation.error) setError(observation.error);
         else if (observation.overview) setNotice(ar ? 'تحدّثت الحالة الحالية. تابع نتيجة الطلب وتحديث البيانات أدناه.' : 'The current status was refreshed. Follow the request outcome and data update below.');
         busy.current = false; setWorking(false);
         if (binding) {
-            const destination = workspaceBindingAuthorizationUrl(observation, nativeReference);
-            if (destination) { revision.current += 1; clearView(); window.location.assign(destination); }
+            const destination = workspaceBindingAuthorizationUrl(observation, nativeReference, { intentKey, currentOverview: latest.current });
+            navigateBinding(destination, intentKey, fresh, nativeReference, freshRevision);
         }
     };
 

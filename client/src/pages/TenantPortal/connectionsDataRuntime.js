@@ -191,12 +191,76 @@ export const readWorkspaceLists = async ({ sharedData, verified, readRecords, re
     return { recordDocument, commandDocument, requestDocument };
 };
 
-// Only the immediate, successful binding operation can offer a redirect.
-// Historical metadata and recovery hints never supply a URL or resend it.
-export const workspaceBindingAuthorizationUrl = (observation, nativeReference) => {
-    if (observation?.stale || observation?.error || observation?.intent?.state !== 'completed'
-        || observation?.overview?.context.verified !== true || observation.overview.context.native_reference !== nativeReference) return null;
+// This is the actual Controller load workflow. Setup identity is readable before
+// the native account binding exists; command/request lists still require it.
+export const readWorkspaceOverview = async ({ includeLists = false, readOverview, readRecords, readCommands, readRequests, isCurrent, now = Date.now }) => {
+    let result = await readOverview();
+    if (!isCurrent()) return null;
+    const invalid = () => new Error('Unverified connections workspace response');
+    if (!workspaceOverviewIsValid(result, now())) throw invalid();
+    if (!workspaceRecordsCanBrowse(result.sharedData, result.context.verified)) result = { ...result, sharedData: { ...result.sharedData, records: [] } };
+    if (includeLists && result.context.verified && result.context.connect.code === 'connected' && result.connection.selection.activity) {
+        const activity = result.connection.selection.activity;
+        const { recordDocument, commandDocument, requestDocument } = await readWorkspaceLists({ sharedData: result.sharedData, verified: true,
+            readRecords: () => readRecords(activity), readCommands: () => readCommands(activity), readRequests: () => readRequests(activity) });
+        if (!isCurrent()) return null;
+        const current = value => workspaceReadResponseIsCurrent(value, result.context, { now: now() });
+        if ((recordDocument !== null && (!current(recordDocument) || !Array.isArray(recordDocument.records) || !recordDocument.records.every(workspaceRecordIsValid)))
+            || !current(commandDocument) || !Array.isArray(commandDocument.commands) || !commandDocument.commands.every(workspaceCommandIsValid)
+            || !current(requestDocument) || !Array.isArray(requestDocument.requests) || !requestDocument.requests.every(workspaceAccessRequestIsValid)) throw invalid();
+        result = { ...result, sharedData: { ...result.sharedData, ...(recordDocument || { records: [] }) }, commands: commandDocument.commands,
+            connection: { ...result.connection, requests: requestDocument.requests } };
+        if (!workspaceOverviewIsValid(result, now())) throw invalid();
+    }
+    return result;
+};
+
+export const workspaceAppliedOverviewIsCurrent = (fresh, applied, nativeReference, now = Date.now()) => Boolean(
+    fresh === applied && workspaceOverviewIsValid(fresh, now) && fresh.context.verified === true && fresh.context.native_reference === nativeReference
+);
+
+// Historical generic intent metadata and recovery hints never supply a URL.
+// Immediate submission and fresh same-attempt authorization have separate gates.
+export const workspaceBindingAuthorizationUrl = (observation, nativeReference, { intentKey, currentOverview, now = Date.now() } = {}) => {
+    if (observation?.stale || observation?.error || !reference(intentKey) || observation?.intent?.key !== intentKey || observation.intent.state !== 'completed'
+        || !workspaceAppliedOverviewIsCurrent(observation.overview, currentOverview, nativeReference, now)
+        || observation.overview.context.connect.code !== 'native_binding_required') return null;
     return sharedReadAuthorizationUrl(observation.result?.result?.authorization_url ?? observation.result?.authorization_url);
+};
+
+export const workspaceBindingContinuationIsCurrent = (value, intentKey, fresh, { currentOverview, nativeReference, now = Date.now() } = {}) => {
+    const exact = (document, keys) => Boolean(document && typeof document === 'object' && !Array.isArray(document)
+        && Object.keys(document).length === keys.length && keys.every(key => Object.hasOwn(document, key)));
+    if (!workspaceAppliedOverviewIsCurrent(fresh, currentOverview, nativeReference, now) || !reference(intentKey)
+        || !exact(value, ['viewKey', 'valid_until', 'native_reference', 'intent', 'binding_status', 'authorization_url'])
+        || value.viewKey !== fresh.context.viewKey || value.native_reference !== nativeReference
+        || !workspaceReadResponseIsCurrent(value, fresh.context, { now })
+        || !exact(value.intent, ['key', 'state']) || value.intent.key !== intentKey || value.intent.state !== 'completed'
+        || !['pending', 'approved', 'rejected', 'expired'].includes(value.binding_status)) return false;
+    if (value.authorization_url === null) return true;
+    return value.binding_status === 'pending' && fresh.context.connect.code === 'native_binding_required'
+        && sharedReadAuthorizationUrl(value.authorization_url) !== null;
+};
+
+export const workspaceBindingContinuationUrl = (value, intentKey, fresh, options) => workspaceBindingContinuationIsCurrent(value, intentKey, fresh, options)
+    && value.binding_status === 'pending' ? sharedReadAuthorizationUrl(value.authorization_url) : null;
+
+// Only the authenticated original-operation discriminator permits a state-only
+// lookup for a nonbinding setup effect. Missing/unresolved binding is not one.
+export const readWorkspaceSetupIntent = async ({ intentKey, readBindingAuthorization, readIntent, isCurrent }) => {
+    const stale = () => ({ stale: true, authorization: null, intent: null });
+    if (!isCurrent()) return stale();
+    try {
+        const authorization = await readBindingAuthorization(intentKey);
+        return isCurrent() ? { stale: false, authorization, intent: null } : stale();
+    } catch (error) {
+        if (!isCurrent()) return stale();
+        if (error?.status !== 422 || error?.data?.error?.code !== 'workspace_binding_authorization_not_applicable') throw error;
+        const metadata = await readIntent(intentKey);
+        if (!isCurrent()) return stale();
+        if (metadata?.intent?.key !== intentKey || typeof metadata.intent.state !== 'string') throw new Error('Unverified original workspace intent');
+        return { stale: false, authorization: null, intent: terminal.has(metadata.intent.state) ? { key: intentKey, state: metadata.intent.state } : null };
+    }
 };
 
 export const workspaceClientError = (error, language = 'ar') => {

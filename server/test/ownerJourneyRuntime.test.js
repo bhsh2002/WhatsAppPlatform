@@ -36,16 +36,60 @@ test('browser route metadata comes from actual nested Express routes and matches
     child.get('/:contact', (req, res) => { traces.push('/api/portal' + req.route.path); res.json({ ok: true }); });
     root.use('/contacts', child); app.use('/api/portal', root);
     const rows = ownerJourneyRouteTemplates({ router: root, publicPrefix: '/api/portal' });
-    assert.deepEqual(rows, ['wa_frontend', 'wa_savana'].map(browser_service => ({ browser_service, method: 'GET',
-        public_path_template: '/api/portal/contacts/:contact', trace_service: 'wa_savana', path_template: '/api/portal/:contact' })));
+    assert.deepEqual(rows, ['wa_frontend', 'wa_savana'].flatMap(browser_service => ['', '/'].map(slash => ({ browser_service, method: 'GET',
+        public_path_template: `/api/portal/contacts/:contact${slash}`, trace_service: 'wa_savana', path_template: '/api/portal/:contact' }))));
     const server = await new Promise(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });
     t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
     assert.equal((await fetch(`http://127.0.0.1:${server.address().port}/api/portal/contacts/synthetic-owned`)).status, 200);
-    assert.equal(traces[0], rows[0].path_template);
+    assert.equal((await fetch(`http://127.0.0.1:${server.address().port}/api/portal/contacts/synthetic-owned/?probe=not-retained`)).status, 200);
+    assert.deepEqual(traces, [rows[0].path_template, rows[0].path_template]);
     const context = privateOwnerBrowserContext({ username: 'synthetic', password: 'private' }, undefined, [...rows, ...rows]);
     assert.deepEqual(context.http_route_templates, rows); assert.equal(JSON.stringify(context).includes('synthetic-owned'), false);
+    assert.equal(JSON.stringify(context).includes('not-retained'), false);
     assert.throws(() => privateOwnerBrowserContext({ username: 'synthetic', password: 'private' }, undefined,
         [{ ...rows[0], public_path_template: '/api/portal/contacts?private=secret' }]), { code: 'private_route_templates_invalid' });
+});
+
+test('browser route metadata adds only accepted trailing slash forms and preserves strict nested routes', async t => {
+    const app = express(), root = express.Router(), strict = express.Router({ strict: true });
+    const traces = [], record = status => (req, res) => { traces.push('/api/portal' + req.route.path); res.sendStatus(status); };
+    root.post('/submit', record(201));
+    strict.get('/resource/:resource', record(200));
+    strict.get('/already/', record(200));
+    root.use('/strict', strict);
+    root.get('/unexported/*', record(200));
+    app.use('/api/portal', root);
+    const rows = ownerJourneyRouteTemplates({ router: root, publicPrefix: '/api/portal' });
+    for (const browserService of ['wa_frontend', 'wa_savana']) {
+        const owned = rows.filter(row => row.browser_service === browserService);
+        assert.deepEqual(owned.filter(row => row.method === 'POST').map(row => [row.public_path_template, row.path_template]), [
+            ['/api/portal/submit', '/api/portal/submit'], ['/api/portal/submit/', '/api/portal/submit'],
+        ]);
+        assert.deepEqual(owned.filter(row => row.method === 'GET').map(row => [row.public_path_template, row.path_template]), [
+            ['/api/portal/strict/resource/:resource', '/api/portal/resource/:resource'],
+            ['/api/portal/strict/already/', '/api/portal/already/'],
+        ]);
+    }
+    for (const row of rows) {
+        assert.equal(row.public_path_template.startsWith('/api/portal/'), true);
+        assert.equal(/[?*]/.test(row.public_path_template), false);
+        assert.equal(row.public_path_template.includes('//'), false);
+        assert.equal(row.public_path_template.includes('synthetic-resource'), false);
+    }
+    const server = await new Promise(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });
+    t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    for (const suffix of ['', '/?probe=not-retained']) {
+        assert.equal((await fetch(`${origin}/api/portal/submit${suffix}`, { method: 'POST' })).status, 201);
+    }
+    assert.equal((await fetch(`${origin}/api/portal/strict/resource/synthetic-resource`)).status, 200);
+    assert.equal((await fetch(`${origin}/api/portal/strict/resource/synthetic-resource/?probe=not-retained`)).status, 404);
+    assert.equal((await fetch(`${origin}/api/portal/strict/already/`)).status, 200);
+    assert.equal((await fetch(`${origin}/api/portal/strict/already//`)).status, 404);
+    assert.deepEqual(traces, ['/api/portal/submit', '/api/portal/submit', '/api/portal/resource/:resource', '/api/portal/already/']);
+    const context = privateOwnerBrowserContext({ username: 'synthetic', password: 'private' }, undefined, rows);
+    assert.equal(JSON.stringify(context.http_route_templates).includes('synthetic-resource'), false);
+    assert.equal(JSON.stringify(context.http_route_templates).includes('not-retained'), false);
 });
 
 test('persisted application observations and automatic native auth observations are composed once without collapsing real identical calls', () => {

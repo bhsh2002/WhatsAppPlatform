@@ -54,6 +54,19 @@ test('workspace reads encode opaque references and do not forward browser author
     assert.equal(calls.every(([, options]) => options === undefined), true);
 });
 
+test('binding authorization reads only the exact original opaque attempt without a body, authority claims or retry', async () => {
+    const { calls, client } = capture();
+    await savanaIntegrationMethods.getPortalWorkspaceBindingAuthorization.call(client, 'opaque/intent?original=yes', { organization_id: 'do-not-forward' });
+    assert.deepEqual(calls, [['/api/portal/integrations/workspace/intents/opaque%2Fintent%3Foriginal%3Dyes/binding-authorization', { method: 'GET', cache: 'no-store' }]]);
+    for (const invalid of ['', ' ', null, {}, 'x'.repeat(180_001)]) {
+        await assert.rejects(savanaIntegrationMethods.getPortalWorkspaceBindingAuthorization.call(client, invalid), TypeError);
+    }
+    assert.equal(calls.length, 1);
+    client.request = async (...args) => { calls.push(args); throw Object.assign(new Error('still unresolved'), { status: 409 }); };
+    await assert.rejects(savanaIntegrationMethods.getPortalWorkspaceBindingAuthorization.call(client, 'same-original-intent'), { status: 409 });
+    assert.equal(calls.length, 2);
+});
+
 test('native options, preview and sealed command review use the agreed scoped facade without actor claims', async () => {
     const { calls, client } = capture();
     const input = { activity_ref: 'opaque-activity', channel: 'sms', account_ref: 'opaque-account', recipient_ref: 'opaque-person', actor_id: 'do-not-forward' };

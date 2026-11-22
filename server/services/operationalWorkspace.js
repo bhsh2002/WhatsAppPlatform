@@ -686,6 +686,44 @@ export class OperationalWorkspaceService {
         return { intent: { key: intent, state: result.intent.state } };
     }
     reconcileIntent(principal, input) { return this.intent(principal, input); }
+    async bindingAuthorization(principal, { intent }) {
+        const { key, identity: opened } = await this.refs.resolve(principal, intent, 'intent');
+        const context = await this.loadContext(principal), identity = context.identity;
+        if (['actorId', 'organizationId', 'nativeAccountId', 'generation', 'expiresAt'].some(field => opened[field] !== identity[field])) fail('workspace_context_changed', 403);
+        let original = this.intents.bindingRequestByKey(principal, identity, key);
+        const body = JSON.parse(original.request.bodyJson);
+        validateWorkspaceCoreModel('WorkspaceBindingRequest', body);
+        const expected = this.receipts.read(principal, identity, 'operation_expected', key);
+        if (expected?.operation !== 'binding' || expected.payloadHash !== original.intent.inputHash
+            || expected.payloadHash !== hash(expected.payload) || hash(body) !== hash(expected.payload)
+            || body.external_tenant_id !== identity.nativeAccountId) fail('workspace_reconciliation_unverified', 409);
+        if (!['completed', 'failed'].includes(original.intent.state)) {
+            await this.intents.reconcile(principal, identity, original.intent.id);
+            original = this.intents.bindingRequestByKey(principal, identity, key);
+        }
+        if (original.intent.state !== 'completed') fail('workspace_binding_authorization_unavailable', 409);
+        const { payload } = await this.transport.request(principal, {
+            path: `${BASE}/binding-requests/lookup?${new URLSearchParams({ external_tenant_id: body.external_tenant_id, state: body.state })}`,
+            expectedIdentity: identity, consumerInstallation: null });
+        const binding = decodeWorkspaceBinding(payload, identity, { ...this.urlPolicy, externalTenantId: identity.nativeAccountId });
+        this.assertCorrelatedResult(principal, identity, 'binding', key, binding);
+        const issued = this.receipts.read(principal, identity, 'binding', body.state);
+        if (issued?.receipt && issued.receipt.id !== binding.id) fail('workspace_response_invalid', 502);
+        const latest = await this.loadContext(principal);
+        if (latest.revision !== context.revision || identityProof(latest.identity) !== identityProof(identity)) fail('workspace_context_changed', 403);
+        const current = this.intents.bindingRequestByKey(principal, latest.identity, key);
+        if (current.intent.state !== 'completed' || current.intent.requestHash !== original.intent.requestHash) fail('workspace_binding_authorization_unavailable', 409);
+        const pending = binding.status === 'pending';
+        if (pending && (!Number.isFinite(Date.parse(binding.expires_at)) || Date.parse(binding.expires_at) <= this.now())) fail('workspace_binding_authorization_unavailable', 409);
+        const authorizationUrl = pending && latest.identity.coreAccountId === null ? binding.authorization_url : null;
+        if (pending && latest.identity.coreAccountId === null && !text(authorizationUrl, 8192)) fail('workspace_binding_authorization_unavailable', 409);
+        const until = Math.min(Date.parse(context.validUntil), Date.parse(latest.validUntil), Date.parse(identity.expiresAt),
+            principal.sessionExpiresAt * 1000, ...(pending ? [Date.parse(binding.expires_at)] : []));
+        if (!Number.isFinite(until) || until <= this.now()) fail('workspace_context_changed', 403);
+        return { viewKey: this.metadata(latest).viewKey, valid_until: new Date(until).toISOString(),
+            native_reference: workspaceContextReference(principal, latest.identity), intent: { key: intent, state: current.intent.state },
+            binding_status: binding.status, authorization_url: authorizationUrl ?? null };
+    }
     async requestRows(principal, context, activity) {
         return Promise.all(context.raw.existing.requests.filter(row => row.scope.activity_id === activity.activity_id).map(raw => this.presentRequest(principal, context, activity, raw)));
     }
