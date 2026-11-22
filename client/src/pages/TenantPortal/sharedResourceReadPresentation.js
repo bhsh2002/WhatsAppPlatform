@@ -108,6 +108,20 @@ export const sharedResourcePreviewDeadline = (envelope, descriptor, result = nul
     const values = [envelope?.valid_until, descriptor?.valid_until, ...(result === null ? [] : [result.valid_until])];
     return values.every(date) ? Math.min(...values.map(Date.parse)) : 0;
 };
+export const watchSharedResourcePreviewClock = (envelope, { onChange, now = Date.now, schedule = setTimeout, cancel = clearTimeout }) => {
+    let timer = null, disposed = false, capturedNow = -Infinity;
+    const tick = () => {
+        if (disposed) return;
+        capturedNow = Math.max(capturedNow, now());
+        onChange(capturedNow);
+        if (!sharedResourceEnvelopeIsValid(envelope, capturedNow)) return;
+        const deadlines = [Date.parse(envelope.valid_until), ...(envelope.previews || []).map(row => sharedResourcePreviewDeadline(envelope, row))]
+            .filter(deadline => deadline > capturedNow);
+        if (deadlines.length) timer = schedule(tick, Math.min(Math.min(...deadlines) - capturedNow, 2_147_483_647));
+    };
+    tick();
+    return () => { disposed = true; if (timer !== null) cancel(timer); };
+};
 export const sharedResourcePreviewResultIsValid = (result, envelope, descriptor, now = Date.now()) => Boolean(
     sharedResourcePreviewDescriptorIsValid(descriptor) && shape(result, ['blob', 'valid_until']) && typeof Blob !== 'undefined' && result.blob instanceof Blob
     && SHARED_PREVIEW_TYPES.includes(result.blob.type) && descriptor.content_types.includes(result.blob.type)

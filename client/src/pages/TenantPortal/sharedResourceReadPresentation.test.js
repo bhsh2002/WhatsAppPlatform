@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSharedResourcePreviewController, sharedResourceBrowserBinding, sharedResourceEnvelopeIsValid, sharedResourceFieldProvenance, sharedResourceFieldRows,
     sharedResourceListIsValid, sharedResourceOptionsIsValid, sharedResourcePriceOptionIsValid, sharedResourcePreviewResultIsValid,
-    sharedResourceRecordIsValid, sharedResourceResponseIsCurrent, sharedResourceValueText } from './sharedResourceReadPresentation.js';
+    sharedResourceRecordIsValid, sharedResourceResponseIsCurrent, sharedResourceValueText, watchSharedResourcePreviewClock } from './sharedResourceReadPresentation.js';
 
 const at = value => new Date(value).toISOString();
 const price = overrides => ({ code: 'monthly', process: 'rental', pricing_model: 'fixed', amount: '12.500', currency: 'USD', unit: 'month', ...overrides });
@@ -155,6 +155,41 @@ test('preview props reject Core hrefs, unsupported MIME, oversized bytes and exp
         { blob: new Blob([new Uint8Array(524_289)], { type: 'image/png' }), valid_until: at(4_000) }, preview(1_000), { ...preview(), ticket: 'private' }]) {
         assert.equal(sharedResourcePreviewResultIsValid(result, current, descriptor, 1_000), false);
     }
+});
+
+test('preview render clock captures idle descriptor and envelope expiry and stops after cleanup', () => {
+    const time = clock(), captures = [];
+    const current = envelope({ mediaCount: 2, previews: [
+        { key: 'earlier-preview', valid_until: at(3_000), content_types: ['image/png'] },
+        { key: 'later-preview', valid_until: at(5_000), content_types: ['image/png'] },
+    ] });
+    const stop = watchSharedResourcePreviewClock(current, { ...time, onChange: value => captures.push(value) });
+    assert.deepEqual(captures, [1_000]);
+    time.advance(1_999); assert.deepEqual(captures, [1_000]);
+    time.advance(1); assert.deepEqual(captures, [1_000, 3_000]);
+    time.advance(2_000); assert.deepEqual(captures, [1_000, 3_000, 5_000]);
+    time.advance(5_000); assert.deepEqual(captures, [1_000, 3_000, 5_000, 10_000]);
+    assert.equal(sharedResourceEnvelopeIsValid(current, captures.at(-1)), false);
+    stop();
+    const next = envelope({ valid_until: at(20_000), previews: [{ key: 'next-preview', valid_until: at(15_000), content_types: ['image/png'] }] });
+    const stopNext = watchSharedResourcePreviewClock(next, { ...time, onChange: value => captures.push(value) });
+    const count = captures.length;
+    stopNext(); time.advance(20_000);
+    assert.equal(captures.length, count);
+});
+
+test('preview render clock never moves backward when an elapsed expiry timer observes a wall-clock rollback', () => {
+    let wallTime = 1_000, next = 0;
+    const jobs = new Map(), captures = [];
+    const stop = watchSharedResourcePreviewClock(envelope(), { now: () => wallTime, onChange: value => captures.push(value),
+        schedule: fn => { const id = ++next; jobs.set(id, fn); return id; }, cancel: id => jobs.delete(id) });
+    const elapsedTimer = () => { const [id, fn] = jobs.entries().next().value; jobs.delete(id); fn(); };
+    wallTime = 5_000; elapsedTimer();
+    wallTime = 3_000; elapsedTimer();
+    assert.deepEqual(captures, [1_000, 5_000, 5_000]);
+    wallTime = 10_000; elapsedTimer();
+    assert.equal(sharedResourceEnvelopeIsValid(envelope(), captures.at(-1)), false);
+    stop(); assert.equal(jobs.size, 0);
 });
 
 test('preview owns a transient Blob URL only until the earliest actual access deadline', async () => {
