@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { SharedProductReadError } from './centralProductRead.js';
 
-// Exact draft models only. Loading this decoder does not activate a producer.
-export const SHARED_RESOURCE_PRODUCER_MODELS_SHA256 = '66ab2146f7a34af30373b16d0783f8f55f5913d63bd9c7947478abc195aceb12';
+// Exact published models only. Loading this decoder does not activate a producer.
+export const SHARED_RESOURCE_PRODUCER_MODELS_SHA256 = 'b079a2535fcb7d6c392b6e7d21310c57517a9538463026fddd05958066a7691f';
 export const SHARED_MEDIA_MAX_BYTES = 524_288;
-const source = fs.readFileSync(new URL('../config/shared-resource-producer-models-v1.schema.json', import.meta.url));
+const source = fs.readFileSync(new URL('../config/shared-resource-producer-models-v2-retained.schema.json', import.meta.url));
 if (crypto.createHash('sha256').update(source).digest('hex') !== SHARED_RESOURCE_PRODUCER_MODELS_SHA256) {
     throw new TypeError('Unreviewed shared resource producer schema');
 }
@@ -166,12 +166,23 @@ const record = (value, expected) => {
     }
 };
 
+// Retained fields keep their own source versions and observation times. They
+// describe only returned, permitted fields; a read never fills missing facts.
+const publication = (value, item, allowedFields) => {
+    const versions = Object.keys(value.field_versions), observations = Object.keys(value.field_observed_at);
+    if (!sameSet(versions, observations)
+        || versions.some(field => !Object.hasOwn(item.data, field) || !allowedFields.includes(field))) mismatch();
+};
+
 export const decodeSharedResourceRead = (raw, expected, { now = Date.now() } = {}) => {
     const value = validateSharedResourceModel('SharedResourceReadView', raw);
     authorization(value.authorization, expected, now);
     const until = Date.parse(value.authorization.valid_until);
     if (!text(expected.resourceRef) || value.resource_ref !== expected.resourceRef || value.resource_kind !== expected.resourceKind) mismatch();
     record(value.record, expected);
+    if (value.central_publication !== undefined && value.central_publication !== null) {
+        publication(value.central_publication, value.record, value.authorization.allowed_fields);
+    }
     if (value.resource_kind === 'offering' && (value.resource_ref !== value.record.source_local_id || value.media_previews?.length)) mismatch();
     const previews = value.media_previews || [];
     if (new Set(previews.map(item => item.asset_id)).size !== previews.length) mismatch();
@@ -190,6 +201,12 @@ export const decodeSharedResourceSearch = (raw, expected, { now = Date.now() } =
     if (expected.resourceKind !== 'offering' || (value.resource_kind !== undefined && value.resource_kind !== 'offering')
         || new Set(value.records.map(item => item.source_local_id)).size !== value.records.length) mismatch();
     for (const item of value.records) record(item, expected);
+    const records = new Map(value.records.map(item => [item.source_local_id, item]));
+    for (const [sourceLocalId, provenance] of Object.entries(value.central_publications || {})) {
+        const item = records.get(sourceLocalId);
+        if (!item) mismatch();
+        publication(provenance, item, value.authorization.allowed_fields);
+    }
     return value;
 };
 

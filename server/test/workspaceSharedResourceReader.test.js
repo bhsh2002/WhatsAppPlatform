@@ -219,3 +219,26 @@ test('expiry during response/context awaits discards all data and errors never r
     const h = fixture(); h.onTransport(() => { throw Object.assign(new Error('Synthetic unavailable source'), { code: 'workspace_unavailable' }); });
     await assert.rejects(record(h), { code: 'workspace_unavailable' }); assert.equal(h.calls.length, 1);
 });
+
+test('retained v2: detail preserves actual older field provenance separately from the current read lease', async () => {
+    const f = fixture(), value = f.readView(['name', 'base_unit']);
+    value.central_publication = { source_watermark: 9, field_versions: { name: 2, base_unit: 4 },
+        field_observed_at: { name: '2026-10-01T10:00:00Z', base_unit: '2026-11-01T08:30:00Z' } };
+    f.payload(value); const result = await record(f, ['name', 'base_unit']);
+    assert.deepEqual(result.central_publication, value.central_publication);
+    assert.equal(result.record.observed_at, value.record.observed_at);
+    assert.equal(result.authorization.valid_until, value.authorization.valid_until);
+    f.onLoad(n => { if (n === 4) f.clock(at + 5000); });
+    await assert.rejects(record(f, ['name', 'base_unit']), { code: 'workspace_resource_read_expired' });
+});
+
+test('retained v2: offering search binds each provenance entry to an actually returned source-local record', async () => {
+    const f = fixture('offering'), view = f.readView(['name', 'kind']);
+    const provenance = { source_watermark: 9, field_versions: { name: 2 }, field_observed_at: { name: '2026-09-12T09:00:00Z' } };
+    f.payload({ spec_version: '1.0', resource_kind: 'offering', authorization: view.authorization, records: [view.record], next_cursor: null,
+        central_publications: { [view.record.source_local_id]: provenance } });
+    const result = await f.reader.search({}, f.context, f.activity, f.provider, { fields: ['name', 'kind'] });
+    assert.deepEqual(result.central_publications, { [view.record.source_local_id]: provenance });
+    f.payload({ ...result, central_publications: { 'foreign-source-local-id': provenance } });
+    await assert.rejects(f.reader.search({}, f.context, f.activity, f.provider, { fields: ['name', 'kind'] }), { code: 'workspace_resource_scope_invalid' });
+});

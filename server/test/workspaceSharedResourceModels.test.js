@@ -7,7 +7,7 @@ import { SHARED_RESOURCE_PRODUCER_MODELS_SHA256, SHARED_MEDIA_MAX_BYTES,
     validateSharedResourceModel, decodeSharedResourceRead, decodeSharedResourceSearch,
     decodeSharedMediaPreview } from '../services/workspaceSharedResourceModels.js';
 
-// Exact draft consumer fixtures only; no live producer, Core, grants or runtime.
+// Exact published consumer fixtures only; no live producer, Core, grants or runtime.
 const NOW = Date.parse('2026-11-22T00:00:00Z');
 const at = offset => new Date(NOW + offset).toISOString();
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -43,6 +43,9 @@ const offeringRecord = () => ({ scope: clone(scope), source: clone(source), sour
 const offeringView = () => ({ spec_version: '1.0', resource_kind: 'offering', resource_ref: offeringId,
     authorization: authorization(offeringFields), record: offeringRecord(), media_previews: [] });
 const offeringExpected = () => ({ ...expected('offering', offeringFields), resourceRef: offeringId });
+const publication = (fields = ['name']) => ({ source_watermark: 8,
+    field_versions: Object.fromEntries(fields.map(field => [field, 2])),
+    field_observed_at: Object.fromEntries(fields.map(field => [field, at(-86_400_000)])) });
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+n/ZYAAAAASUVORK5CYII=', 'base64');
 const previewView = (bytes = png, contentType = 'image/png') => ({ spec_version: '1.0', resource_ref: resourceRef,
     authorization: authorization(['media']), source: clone(source), preview: { spec_version: '1.0', context_fingerprint: 'b'.repeat(64),
@@ -54,19 +57,100 @@ const previewExpected = () => ({ ...expected('product', ['media']), nativeRevisi
     accessReference: media.access_reference, rightsReference: media.rights_reference, validUntil: at(2000) });
 const rejects = (call, code = undefined) => assert.throws(call, error => error instanceof SharedProductReadError && (!code || error.code === code));
 
-test('the consumer locks the exact23-definition schema and returns a separate JSON clone', () => {
-    const bytes = fs.readFileSync(new URL('../config/shared-resource-producer-models-v1.schema.json', import.meta.url));
+test('the consumer locks the exact24-definition retained schema and preserves the original models', () => {
+    const bytes = fs.readFileSync(new URL('../config/shared-resource-producer-models-v2-retained.schema.json', import.meta.url));
     assert.equal(sha(bytes), SHARED_RESOURCE_PRODUCER_MODELS_SHA256);
     const schema = JSON.parse(bytes);
-    assert.equal(Object.keys(schema.$defs).length, 23);
-    assert.equal(schema['x-model-source-freeze'], true);
-    assert.equal(schema['x-source-freeze'], false);
+    assert.equal(Object.keys(schema.$defs).length, 24);
+    const originalBytes = fs.readFileSync(new URL('../config/shared-resource-producer-models-v1.schema.json', import.meta.url));
+    assert.equal(sha(originalBytes), '66ab2146f7a34af30373b16d0783f8f55f5913d63bd9c7947478abc195aceb12');
+    const original = JSON.parse(originalBytes);
+    for (const [name, definition] of Object.entries(original.$defs)) {
+        if (['SharedResourceReadView', 'SharedResourceSearchView'].includes(name)) continue;
+        assert.deepEqual(schema.$defs[name], definition, name);
+    }
     const value = productView();
     const decoded = validateSharedResourceModel('SharedResourceReadView', value);
     decoded.record.data.name = 'Only this clone';
     assert.equal(value.record.data.name, 'قهوة المصدر');
     rejects(() => validateSharedResourceModel('UnpublishedModel', value));
     rejects(() => validateSharedResourceModel('SharedResourceReadView', { ...value, authorization_header: 'not-a-public-field' }));
+});
+
+test('retained provenance is a closed typed shape with exact dates and safe positive versions', () => {
+    const value = publication();
+    assert.deepEqual(validateSharedResourceModel('CentralPublicationProvenance', value), value);
+    for (const change of [{ source_watermark: 0 }, { source_watermark: Number.MAX_SAFE_INTEGER + 1 },
+        { field_versions: { name: 1.5 } }, { field_versions: { name: 0 } },
+        { field_versions: { name: Number.MAX_SAFE_INTEGER + 1 } }, { field_versions: {} },
+        { field_observed_at: {} }, { field_observed_at: { name: '2026-02-30T00:00:00Z' } },
+        { field_observed_at: { name: at(-1), private: null } }, { source_scope: scope },
+        { field_versions: Object.fromEntries(Array.from({ length: 33 }, (_, index) => ['field' + index, 1])) }]) {
+        rejects(() => validateSharedResourceModel('CentralPublicationProvenance', { ...value, ...change }));
+    }
+    const badRead = productView(); badRead.central_publication = 'not-provenance';
+    rejects(() => decodeSharedResourceRead(badRead, expected(), { now: NOW }));
+});
+
+test('retained product reads preserve actual older per-field observations without filling absent fields', () => {
+    const value = productView(); value.central_publication = publication(['name', 'price_options', 'media']);
+    value.central_publication.field_observed_at.name = '2026-11-20T17:01:02.123+02:00';
+    const decoded = decodeSharedResourceRead(value, expected(), { now: NOW });
+    assert.deepEqual(decoded, value);
+    assert.notEqual(decoded.central_publication, value.central_publication);
+    assert.equal(decoded.central_publication.field_observed_at.name, '2026-11-20T17:01:02.123+02:00');
+    assert.notEqual(decoded.central_publication.field_observed_at.name, decoded.record.observed_at);
+    const partial = productView(); partial.record.data = { name: partial.record.data.name };
+    partial.authorization = authorization(['name']); partial.media_previews = []; partial.central_publication = publication();
+    const narrow = decodeSharedResourceRead(partial, expected('product', ['name']), { now: NOW });
+    assert.deepEqual(narrow.record.data, { name: 'قهوة المصدر' });
+    assert.equal(Object.hasOwn(narrow.record.data, 'description'), false);
+    const live = productView();
+    assert.equal(Object.hasOwn(decodeSharedResourceRead(live, expected(), { now: NOW }), 'central_publication'), false);
+    live.central_publication = null;
+    assert.equal(decodeSharedResourceRead(live, expected(), { now: NOW }).central_publication, null);
+});
+
+test('retained detail provenance binds paired keys to actual returned permitted fields and exact scope', () => {
+    const base = productView(); base.central_publication = publication();
+    for (const update of [item => { delete item.record.data.name; },
+        item => { item.central_publication.field_versions.private = 2; item.central_publication.field_observed_at.private = at(-100); },
+        item => { item.central_publication.field_observed_at = { description: at(-100) }; },
+        item => { item.central_publication.field_versions.description = 2; },
+        item => { item.record.scope.activity_id = 'foreign'; },
+        item => { item.authorization.scope.organization_id = 'foreign'; },
+        item => { item.central_publication.authorization = clone(item.authorization); }]) {
+        const bad = clone(base); update(bad);
+        rejects(() => decodeSharedResourceRead(bad, expected(), { now: NOW }));
+    }
+    const hidden = offeringView(); hidden.central_publication = publication(['description']);
+    rejects(() => decodeSharedResourceRead(hidden, offeringExpected(), { now: NOW }), 'workspace_resource_scope_invalid');
+    const changedMask = clone(base); changedMask.authorization.allowed_fields = ['name'];
+    rejects(() => decodeSharedResourceRead(changedMask, expected(), { now: NOW }), 'workspace_resource_scope_invalid');
+});
+
+test('retained search provenance belongs only to exact returned source-local records and visible fields', () => {
+    const provenance = { ...publication(['name', 'status']), source_watermark: 3 };
+    const value = { spec_version: '1.0', resource_kind: 'offering', authorization: authorization(offeringFields),
+        records: [offeringRecord()], next_cursor: null, central_publications: { [offeringId]: provenance } };
+    const binding = expected('offering', offeringFields);
+    const decoded = decodeSharedResourceSearch(value, binding, { now: NOW });
+    assert.deepEqual(decoded, value);
+    assert.notEqual(decoded.central_publications[offeringId], provenance);
+    for (const update of [item => { item.central_publications['foreign-source-record'] = clone(provenance); },
+        item => { item.central_publications[resourceRef] = item.central_publications[offeringId]; delete item.central_publications[offeringId]; },
+        item => { item.records = []; },
+        item => { item.central_publications[offeringId] = publication(['description']); },
+        item => { item.central_publications[offeringId].field_observed_at = { status: at(-100) }; },
+        item => { item.central_publications[offeringId] = null; },
+        item => { item.central_publications = null; },
+        item => { item.records[0].source.external_tenant_id = 'foreign-source'; }]) {
+        const bad = clone(value); update(bad);
+        rejects(() => decodeSharedResourceSearch(bad, binding, { now: NOW }));
+    }
+    const noMetadata = clone(value); delete noMetadata.central_publications;
+    assert.equal(Object.hasOwn(decodeSharedResourceSearch(noMetadata, binding, { now: NOW }), 'central_publications'), false);
+    assert.deepEqual(decodeSharedResourceSearch({ ...value, central_publications: {} }, binding, { now: NOW }).central_publications, {});
 });
 
 test('closed authorization enforces paired consumers and mandatory native consumers without invoking getters', () => {

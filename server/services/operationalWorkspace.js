@@ -54,7 +54,7 @@ const identityProof = identity => hash([identity.actorId, identity.organizationI
 export class OperationalWorkspaceService {
     constructor({ database, encryption, setupService, readService, nativeOwnerProofs, nativeOwnerService = null,
         verifyLocalPrincipal = createSqliteReadPrincipalVerifier(database), fetchImpl = globalThis.fetch, now = () => Date.now(),
-        sharedResourceReadsEnabled = false }) {
+        sharedResourceReadsEnabled = true }) {
         this.db = database; this.setup = setupService; this.reader = readService; this.proofs = nativeOwnerProofs;
         this.nativeOwner = nativeOwnerService; this.businessOwner = null; this.nativeEnrollment = null; this.verify = verifyLocalPrincipal; this.fetch = fetchImpl; this.now = now;
         this.transport = new WorkspaceCoreTransport({ setupService, fetchImpl, now });
@@ -64,8 +64,8 @@ export class OperationalWorkspaceService {
             allowedOrigins: [...new Set([setupService.config.centerOrigin, setupService.config.oidcIssuer, setupService.appOrigin].filter(Boolean))] };
         this.receipts = new WorkspaceReceipts({ database, encryption, verifyLocalPrincipal, now });
         this.refs = new WorkspaceReferences({ encryption, verifyLocalPrincipal, currentIdentity: p => this.transport.currentIdentity(p, { allowUnbound: true }), now });
-        // The published producer contract is still a draft. This constructor
-        // seam is exercised by focused consumer tests, never enabled by env.
+        // The final retained-read contract is public. Core still authorizes
+        // every source/consumer/field read; callers can explicitly opt out.
         this.sharedResourceViews = new WorkspaceSharedResourceViews({ gateway: this, enabled: sharedResourceReadsEnabled });
         this.choices = new WorkspaceChoices({ encryption, verifyLocalPrincipal, loadContext: p => this.loadContext(p), now });
         this.intents = new WorkspaceIntentStore({ database, encryption, verifyLocalPrincipal, now,

@@ -97,16 +97,18 @@ test('qualified resource queries preserve bounded opaque cursor characters witho
         { code: 'workspace_request_invalid' });
 });
 
-test('draft2 resource route identities retain raw source colons on the fixed Core path', async () => {
+test('final retained resource responses preserve publication provenance and raw source colons on the fixed Core path', async () => {
     const f = fixture(); const authorization = sharedSearch().authorization;
     const payload = { resource_kind: 'product', resource_ref: 'product:one', authorization,
         record: { resource_kind: 'product', scope: authorization.scope,
             source: { platform: 'catalog', installation_id: 'source-installation', external_tenant_id: 'catalog:tenant' },
-            source_local_id: 'native-product', native_revision: 2, observed_at: '2026-11-18T12:00:00Z', data: { name: 'Actual source value' } } };
+            source_local_id: 'native-product', native_revision: 2, observed_at: '2026-11-18T12:00:00Z', data: { name: 'Actual source value' } },
+        central_publication: { source_watermark: 2, field_versions: { name: 1 }, field_observed_at: { name: '2026-11-17T12:00:00Z' } } };
     f.reply(async () => Response.json(payload));
-    await f.transport.request(f.principal, { path: '/v1/integration/workspace/resources/product:one?activity_id=activity&provider_ref=source&resource_kind=product&fields=name',
+    const result = await f.transport.request(f.principal, { path: '/v1/integration/workspace/resources/product:one?activity_id=activity&provider_ref=source&resource_kind=product&fields=name',
         sharedResourceModel: 'SharedResourceReadView', consumerInstallation: 'verified-consumer' });
     assert.equal(new URL(f.calls[0].url).pathname, '/v1/integration/workspace/resources/product:one');
+    assert.deepEqual(result.payload.central_publication, payload.central_publication);
 });
 
 test('source result uses exact MIME/hash/bytes and current identity; CSV is never mislabeled as a JSON receipt', async () => {

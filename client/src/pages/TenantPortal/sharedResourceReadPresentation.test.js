@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createSharedResourcePreviewController, sharedResourceBrowserBinding, sharedResourceEnvelopeIsValid, sharedResourceFieldRows,
+import { createSharedResourcePreviewController, sharedResourceBrowserBinding, sharedResourceEnvelopeIsValid, sharedResourceFieldProvenance, sharedResourceFieldRows,
     sharedResourceListIsValid, sharedResourceOptionsIsValid, sharedResourcePriceOptionIsValid, sharedResourcePreviewResultIsValid,
     sharedResourceRecordIsValid, sharedResourceResponseIsCurrent, sharedResourceValueText } from './sharedResourceReadPresentation.js';
 
@@ -69,6 +69,49 @@ test('published text limits count Unicode code points for valid astral source na
     assert.equal(sharedResourceRecordIsValid({ ...record, data: { name: '🌿'.repeat(201) } }), false);
     assert.equal(sharedResourceRecordIsValid({ ...record, resource_kind: 'offering', data: { attributes: { ['🌿'.repeat(120)]: 'actual' } } }), true);
     assert.equal(sharedResourceRecordIsValid({ ...record, resource_kind: 'offering', data: { attributes: { ['🌿'.repeat(121)]: 'actual' } } }), false);
+});
+
+test('retained fields preserve their own older observations and source updates without relabeling omitted metadata', () => {
+    const current = envelope();
+    current.record.central_publication = { source_watermark: 2, field_versions: { name: 1, base_unit: 7 },
+        field_observed_at: { name: at(100), base_unit: at(200) } };
+    assert.equal(sharedResourceEnvelopeIsValid(current, 1_000), true);
+    const before = structuredClone(current);
+    assert.deepEqual(sharedResourceFieldProvenance(current.record, 'name'), { observed_at: at(100), version: 1 });
+    assert.deepEqual(sharedResourceFieldProvenance(current.record, 'base_unit'), { observed_at: at(200), version: 7 });
+    assert.equal(sharedResourceFieldProvenance(current.record, 'price_options'), null);
+    assert.equal(sharedResourceFieldProvenance(current.record, 'description'), null);
+    assert.deepEqual(current, before);
+    const live = envelope().record;
+    assert.deepEqual(sharedResourceFieldProvenance(live, 'name'), { observed_at: live.observed_at, version: null });
+    assert.equal(sharedResourceFieldProvenance(live, 'sku'), null);
+});
+
+test('retained provenance rejects private or absent fields, unsafe versions and invalid timestamps', () => {
+    const current = envelope(), publication = { source_watermark: 4, field_versions: { name: 2 }, field_observed_at: { name: at(100) } };
+    const valid = { ...current.record, central_publication: publication };
+    assert.equal(sharedResourceRecordIsValid(valid), true);
+    for (const changed of [null, { ...publication, source_watermark: 0 }, { ...publication, source_watermark: Number.MAX_SAFE_INTEGER + 1 },
+        { ...publication, source_watermark: '4' }, { ...publication, source_local_id: 'private' },
+        { ...publication, field_versions: {} }, { ...publication, field_versions: { name: 1.5 } },
+        { ...publication, field_versions: { name: Number.MAX_SAFE_INTEGER + 1 } }, { ...publication, field_versions: { description: 1 } },
+        { ...publication, field_versions: { name: 2, base_unit: 3 } }, { ...publication, field_observed_at: { name: at(100), base_unit: at(200) } },
+        { ...publication, field_versions: { source_local_id: 1 } }, { ...publication, field_versions: { price: 1 } },
+        { ...publication, field_observed_at: { name: '2026-02-30T10:00:00Z' } }, { ...publication, field_observed_at: { name: null } },
+        { ...publication, field_observed_at: { media: at(100), 'another-record': at(200) } }]) {
+        assert.equal(sharedResourceRecordIsValid({ ...valid, central_publication: changed }), false);
+    }
+});
+
+test('actual media reference provenance requires the product envelope count, including an authorized empty media field', () => {
+    const publication = { source_watermark: 4, field_versions: { media: 2 }, field_observed_at: { media: at(100) } };
+    const current = envelope();
+    const mediaOnly = { ...current, record: { ...current.record, data: {}, central_publication: publication }, mediaCount: 0, previews: [] };
+    assert.equal(sharedResourceEnvelopeIsValid(mediaOnly, 1_000), true);
+    assert.deepEqual(sharedResourceFieldProvenance(mediaOnly.record, 'media'), { observed_at: at(100), version: 2 });
+    const noCount = structuredClone(mediaOnly); delete noCount.mediaCount;
+    assert.equal(sharedResourceEnvelopeIsValid(noCount, 1_000), false);
+    assert.equal(sharedResourceEnvelopeIsValid({ ...mediaOnly, record: { ...mediaOnly.record, resource_kind: 'offering' } }, 1_000), false);
 });
 
 test('browser reads are fenced by actual auth session, activity, product selection and source options', () => {
@@ -159,4 +202,22 @@ test('a denied or malformed replacement clears the previous image without a cach
     deny = true; assert.equal(await f.owned.load('wa-preview-ref'), false);
     assert.deepEqual(f.revoked, ['blob:owned-0']); assert.equal(f.states.at(-1).status, 'unavailable'); assert.equal(f.states.at(-1).url, null);
     assert.equal(invalidations, 1); f.owned.dispose();
+});
+
+test('a retained field withdrawal replaces the old values and revokes a preview even under the same opaque record selector', async () => {
+    const current = envelope();
+    current.record.central_publication = { source_watermark: 3, field_versions: { name: 1, base_unit: 2, price_options: 3, media: 2 },
+        field_observed_at: { name: at(100), base_unit: at(200), price_options: at(300), media: at(200) } };
+    const f = controller({ onPreview: async () => preview() });
+    f.owned.setEnvelope(current); assert.equal(await f.owned.load('wa-preview-ref'), true);
+    const replacement = { ...current, record: { ...current.record, data: { name: 'Current permitted name' },
+        central_publication: { source_watermark: 4, field_versions: { name: 4, media: 2 }, field_observed_at: { name: at(400), media: at(200) } } } };
+    assert.equal(sharedResourceEnvelopeIsValid(replacement, 1_000), true);
+    f.owned.setEnvelope(replacement);
+    assert.deepEqual(f.revoked, ['blob:owned-0']); assert.equal(f.states.at(-1).url, null);
+    assert.deepEqual(sharedResourceFieldRows(replacement.record, false).map(row => row.key), ['name']);
+    assert.equal(sharedResourceFieldProvenance(replacement.record, 'price_options'), null);
+    assert.equal(sharedResourceFieldProvenance(replacement.record, 'base_unit'), null);
+    assert.equal(Object.hasOwn(replacement.record.data, 'price_options'), false);
+    f.owned.dispose();
 });

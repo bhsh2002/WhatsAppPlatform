@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, CircularProgress, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import api from '../../api';
 import { useAuth } from '../../context/AuthContext';
-import SharedResourceReadPanel from './SharedResourceReadPanel';
+import SharedResourceReadPanel, { SharedResourceFieldObservation } from './SharedResourceReadPanel';
 import { sharedResourceBrowserBinding, sharedResourceEnvelopeIsValid, sharedResourceEnumLabel, sharedResourceListIsValid,
     sharedResourceOptionsIsValid, sharedResourceResponseIsCurrent } from './sharedResourceReadPresentation';
 
@@ -112,9 +112,12 @@ const SharedResourceBrowser = ({ context, activity, sharedResources, productReco
         {error && <Alert severity="info">{isArabic ? 'تعذر التحقق من القراءة الحالية. أُخفيت البيانات السابقة؛ هذا لا يعني حذفها من المصدر.' : 'The current read could not be verified. Previous data was hidden; no source deletion is implied.'}</Alert>}
         {currentPage?.document.records.map(record => <Card key={record.key} component="article" variant="outlined"><CardContent><Stack spacing={1}>
             <Typography component="h3" fontWeight={800}>{record.data.name || (isArabic ? 'عرض مشترك' : 'Shared offering')}</Typography>
+            {Object.hasOwn(record.data, 'name') && <SharedResourceFieldObservation record={record} field="name" isArabic={isArabic} />}
             <Typography variant="body2">{record.sourceLabel}</Typography>
-            {record.data.kind && <Typography variant="body2">{sharedResourceEnumLabel('kind', record.data.kind, isArabic)}</Typography>}
-            {record.data.status && <Typography variant="body2">{sharedResourceEnumLabel('status', record.data.status, isArabic)}</Typography>}
+            {record.data.kind && <Box><Typography variant="body2">{sharedResourceEnumLabel('kind', record.data.kind, isArabic)}</Typography>
+                <SharedResourceFieldObservation record={record} field="kind" isArabic={isArabic} /></Box>}
+            {record.data.status && <Box><Typography variant="body2">{sharedResourceEnumLabel('status', record.data.status, isArabic)}</Typography>
+                <SharedResourceFieldObservation record={record} field="status" isArabic={isArabic} /></Box>}
             <Box><Button disabled={loading} onClick={() => read('detail', record.key)}>{isArabic ? 'تفاصيل المصدر' : 'Source details'}</Button></Box>
         </Stack></CardContent></Card>)}
         {currentPage?.document.records.length === 0 && <Typography>{isArabic ? 'لا توجد نتائج مرئية في هذه القراءة.' : 'No results are visible in this read.'}</Typography>}

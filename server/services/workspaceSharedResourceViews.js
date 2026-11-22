@@ -105,6 +105,9 @@ export class WorkspaceSharedResourceViews {
             { provider, resourceRef: view.resource_ref, tuple: sourceTuple(view.record), canonical });
         const result = { record: { key, resource_kind: view.resource_kind, sourceLabel: provider.label,
             observed_at: view.record.observed_at, data: this.#publicData(view.record) }, previews: [] };
+        // This is the retained source field's own provenance. In particular,
+        // an older field observation is never replaced by this read's time.
+        if (view.central_publication != null) result.record.central_publication = clone(view.central_publication);
         if (view.resource_kind === 'product' && Object.hasOwn(view.record.data, 'media')) {
             result.mediaCount = view.record.data.media.length;
             for (const descriptor of view.media_previews || []) {
@@ -155,7 +158,9 @@ export class WorkspaceSharedResourceViews {
         const view = await this.gateway.sharedResourceReader.search(principal, context, activity, provider, { fields: policy.fields, q, cursor });
         const metadata = await this.#fresh(principal, context, lease.validUntil, policy.expiresAt, view.authorization.valid_until);
         const records = view.records.map(record => this.#present(principal, context, activity, provider,
-            { resource_kind: 'offering', resource_ref: record.source_local_id, record }, metadata.valid_until).record);
+            { resource_kind: 'offering', resource_ref: record.source_local_id, record,
+                ...(Object.hasOwn(view.central_publications || {}, record.source_local_id)
+                    ? { central_publication: view.central_publications[record.source_local_id] } : {}) }, metadata.valid_until).record);
         const next = view.next_cursor ? this.#save(principal, context, activity, 'shared_cursor', 'resource_cursor', 'offering_cursor', metadata.valid_until,
             { provider, fields: policy.fields, q, cursor: view.next_cursor }) : null;
         return { ...metadata, records, cursor: next };

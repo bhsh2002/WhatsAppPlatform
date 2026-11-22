@@ -1,0 +1,2060 @@
+{
+  "$defs": {
+    "BaseUnitRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "each",
+            "kilogram",
+            "meter"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "metadata_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Metadata Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "metadata_version"
+      ],
+      "title": "BaseUnitRelation",
+      "type": "object"
+    },
+    "CentralPublicationProvenance": {
+      "additionalProperties": false,
+      "description": "Actual published field versions, separate from the short read proof.",
+      "properties": {
+        "source_watermark": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Watermark",
+          "type": "integer"
+        },
+        "field_versions": {
+          "additionalProperties": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxProperties": 32,
+          "minProperties": 1,
+          "propertyNames": {
+            "maxLength": 255,
+            "minLength": 1
+          },
+          "title": "Field Versions",
+          "type": "object"
+        },
+        "field_observed_at": {
+          "additionalProperties": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "maxProperties": 32,
+          "minProperties": 1,
+          "propertyNames": {
+            "maxLength": 255,
+            "minLength": 1
+          },
+          "title": "Field Observed At",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_watermark",
+        "field_versions",
+        "field_observed_at"
+      ],
+      "title": "CentralPublicationProvenance",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MediaPreviewDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "rights_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Rights Reference",
+          "type": "string"
+        },
+        "href": {
+          "description": "Core-created fixed relative preview route; exact unique query keys activity_id, provider_ref, resource_kind=product, ticket, and optional consumer_installation_id (required for Portal). Never an asset access URL.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "^/(?:v1/integration/workspace|api/member/organizations/[^/?#]+/integration/workspace)/resources/[^/?#]+/media/[^/?#]+/preview\\?[^#]+$",
+          "title": "Href",
+          "type": "string"
+        },
+        "fetch_mode": {
+          "const": "authenticated_json_base64",
+          "default": "authenticated_json_base64",
+          "title": "Fetch Mode",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "content_types": {
+          "items": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Content Types",
+          "type": "array"
+        }
+      },
+      "required": [
+        "asset_id",
+        "rights_reference",
+        "href",
+        "valid_until",
+        "content_types"
+      ],
+      "title": "MediaPreviewDescriptor",
+      "type": "object"
+    },
+    "MediaReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Local Id",
+          "type": "string"
+        },
+        "expected_source_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Expected Source Revision",
+          "type": "integer"
+        },
+        "asset_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "access_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Access Reference",
+          "type": "string"
+        },
+        "rights_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Rights Reference",
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/NativeReadContext"
+        }
+      },
+      "required": [
+        "source_local_id",
+        "expected_source_revision",
+        "asset_id",
+        "access_reference",
+        "rights_reference",
+        "context"
+      ],
+      "title": "MediaReadRequest",
+      "type": "object"
+    },
+    "MediaReadResponse": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "content_type": {
+                "type": "null"
+              },
+              "byte_length": {
+                "type": "null"
+              },
+              "content_sha256": {
+                "type": "null"
+              },
+              "content_base64": {
+                "type": "null"
+              },
+              "rights_active": {
+                "const": false
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "state": {
+                "const": "available"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "content_type": {
+                "type": "string"
+              },
+              "byte_length": {
+                "type": "integer"
+              },
+              "content_sha256": {
+                "type": "string"
+              },
+              "content_base64": {
+                "type": "string"
+              },
+              "source_revision": {
+                "type": "integer"
+              },
+              "rights_active": {
+                "const": true
+              }
+            },
+            "required": [
+              "content_type",
+              "byte_length",
+              "content_sha256",
+              "content_base64",
+              "source_revision"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "context_fingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Context Fingerprint",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "missing",
+            "withdrawn"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Local Id",
+          "type": "string"
+        },
+        "source_revision": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Revision"
+        },
+        "asset_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "access_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Access Reference",
+          "type": "string"
+        },
+        "rights_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Rights Reference",
+          "type": "string"
+        },
+        "content_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Type"
+        },
+        "byte_length": {
+          "anyOf": [
+            {
+              "maximum": 524288,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Byte Length"
+        },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sha256"
+        },
+        "content_base64": {
+          "anyOf": [
+            {
+              "maxLength": 699052,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Base64"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "valid_until": {
+          "description": "Current authorized access deadline after checked_at and within 5 seconds; no asset expiry is inferred.",
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "rights_active": {
+          "title": "Rights Active",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "context_fingerprint",
+        "state",
+        "source_local_id",
+        "asset_id",
+        "access_reference",
+        "rights_reference",
+        "checked_at",
+        "valid_until",
+        "rights_active"
+      ],
+      "title": "MediaReadResponse",
+      "type": "object"
+    },
+    "NativeReadContext": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "ownership_epoch": {
+                "type": "integer"
+              },
+              "canonical_product_id": {
+                "type": "string"
+              },
+              "base_record_version": {
+                "type": "integer"
+              },
+              "namespace_installation_id": {
+                "type": "null"
+              },
+              "namespace_epoch": {
+                "type": "null"
+              },
+              "namespace_version": {
+                "type": "null"
+              },
+              "capability_code": {
+                "const": "products.read"
+              },
+              "operation": {
+                "enum": [
+                  "product.context.read",
+                  "product.media.read"
+                ]
+              },
+              "allowed_fields": {
+                "items": {
+                  "enum": [
+                    "barcodes",
+                    "base_unit",
+                    "description",
+                    "media",
+                    "name",
+                    "price",
+                    "price_options",
+                    "sku",
+                    "variant_ref"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ownership_epoch",
+              "canonical_product_id",
+              "base_record_version"
+            ]
+          },
+          "if": {
+            "properties": {
+              "authority_kind": {
+                "const": "native.service_namespace"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "namespace_installation_id": {
+                "type": "string"
+              },
+              "namespace_epoch": {
+                "type": "integer"
+              },
+              "namespace_version": {
+                "type": "integer"
+              },
+              "ownership_epoch": {
+                "type": "null"
+              },
+              "canonical_product_id": {
+                "type": "null"
+              },
+              "base_record_version": {
+                "type": "null"
+              },
+              "capability_code": {
+                "const": "offerings.manage"
+              },
+              "operation": {
+                "const": "offering.read"
+              },
+              "allowed_fields": {
+                "items": {
+                  "enum": [
+                    "attribute_schema_key",
+                    "attributes",
+                    "category_key",
+                    "description",
+                    "kind",
+                    "name",
+                    "status"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "namespace_installation_id",
+              "namespace_epoch",
+              "namespace_version"
+            ]
+          }
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "consumer_installation_id": {
+                  "type": "null"
+                },
+                "consumer_platform": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "consumer_installation_id": {
+                  "type": "string"
+                },
+                "consumer_platform": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "principal_kind": {
+                    "const": "native_oidc"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "authority_kind": {
+                    "const": "products.goods"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "consumer_installation_id": {
+                "type": "string"
+              },
+              "consumer_platform": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "consumer_installation_id": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "consumer_authorization_revision": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "grant_approved_by": {
+                  "type": "null"
+                },
+                "native_authority_revision": {
+                  "type": "null"
+                },
+                "capability_grant_revision": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "grant_approved_by": {
+                  "type": "string"
+                },
+                "native_authority_revision": {
+                  "type": "string"
+                },
+                "capability_grant_revision": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "grant_approved_by",
+                "native_authority_revision",
+                "capability_grant_revision"
+              ]
+            }
+          ]
+        },
+        {
+          "else": {
+            "properties": {
+              "resource_refs": {
+                "maxItems": 0
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "resource_policy": {
+                "const": "selected"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resource_refs": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "session_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Session Version",
+          "type": "integer"
+        },
+        "principal_kind": {
+          "enum": [
+            "native_oidc",
+            "portal_owner"
+          ],
+          "title": "Principal Kind",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "source_platform": {
+          "enum": [
+            "catalog",
+            "sawemly",
+            "wa_savana"
+          ],
+          "title": "Source Platform",
+          "type": "string"
+        },
+        "source_provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Provider Ref",
+          "type": "string"
+        },
+        "source_installation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Installation Id",
+          "type": "string"
+        },
+        "source_external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source External Tenant Id",
+          "type": "string"
+        },
+        "consumer_installation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Consumer Installation Id"
+        },
+        "consumer_platform": {
+          "anyOf": [
+            {
+              "enum": [
+                "catalog",
+                "sawemly",
+                "wa_savana"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Consumer Platform"
+        },
+        "consumer_authorization_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumer Authorization Revision"
+        },
+        "grant_approved_by": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Grant Approved By"
+        },
+        "native_authority_revision": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Authority Revision"
+        },
+        "capability_grant_revision": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Grant Revision"
+        },
+        "authorization_revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Authorization Revision",
+          "type": "string"
+        },
+        "capability_code": {
+          "enum": [
+            "offerings.manage",
+            "products.read"
+          ],
+          "title": "Capability Code",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "offering.read",
+            "product.context.read",
+            "product.media.read"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "allowed_fields": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "resource_policy": {
+          "enum": [
+            "selected",
+            "activity"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        },
+        "resource_refs": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Resource Refs",
+          "type": "array"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "valid_until": {
+          "description": "Actual access deadline after checked_at and no later than checked_at + 5 seconds; not an asset expiry.",
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "authority_kind": {
+          "enum": [
+            "native.service_namespace",
+            "products.goods"
+          ],
+          "title": "Authority Kind",
+          "type": "string"
+        },
+        "namespace_installation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Namespace Installation Id"
+        },
+        "namespace_epoch": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Namespace Epoch"
+        },
+        "namespace_version": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Namespace Version"
+        },
+        "ownership_epoch": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ownership Epoch"
+        },
+        "canonical_product_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Product Id"
+        },
+        "base_record_version": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Record Version"
+        }
+      },
+      "required": [
+        "actor_id",
+        "session_version",
+        "principal_kind",
+        "scope",
+        "source_platform",
+        "source_provider_ref",
+        "source_installation_id",
+        "source_external_tenant_id",
+        "consumer_installation_id",
+        "consumer_platform",
+        "authorization_revision",
+        "capability_code",
+        "operation",
+        "allowed_fields",
+        "resource_policy",
+        "resource_refs",
+        "checked_at",
+        "valid_until",
+        "authority_kind"
+      ],
+      "title": "NativeReadContext",
+      "type": "object"
+    },
+    "NativeResourceReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "resource_kind": {
+          "enum": [
+            "offering",
+            "product"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Local Id",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/$defs/NativeReadContext"
+        }
+      },
+      "required": [
+        "resource_kind",
+        "source_local_id",
+        "fields",
+        "context"
+      ],
+      "title": "NativeResourceReadRequest",
+      "type": "object"
+    },
+    "NativeResourceReadResponse": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "record": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "state": {
+                "const": "available"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "record": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "context_fingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Context Fingerprint",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "missing",
+            "withdrawn"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SharedResourceRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "context_fingerprint",
+        "state",
+        "record"
+      ],
+      "title": "NativeResourceReadResponse",
+      "type": "object"
+    },
+    "NativeResourceSearchRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "resource_kind": {
+          "const": "offering",
+          "default": "offering",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Query",
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "fields": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/$defs/NativeReadContext"
+        }
+      },
+      "required": [
+        "fields",
+        "context"
+      ],
+      "title": "NativeResourceSearchRequest",
+      "type": "object"
+    },
+    "NativeResourceSearchResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "context_fingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Context Fingerprint",
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/OfferingResourceRecord"
+          },
+          "maxItems": 50,
+          "title": "Records",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "context_fingerprint",
+        "records"
+      ],
+      "title": "NativeResourceSearchResponse",
+      "type": "object"
+    },
+    "OfferingFields": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": null,
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "kind": {
+          "default": null,
+          "enum": [
+            "digital_good",
+            "service",
+            "experience",
+            "event",
+            "accommodation",
+            "property",
+            "vehicle",
+            "equipment",
+            "space",
+            "membership",
+            "content",
+            "custom"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "default": null,
+          "enum": [
+            "active",
+            "draft",
+            "paused",
+            "retired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "category_key": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category Key"
+        },
+        "attribute_schema_key": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attribute Schema Key"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "default": null,
+          "maxProperties": 100,
+          "propertyNames": {
+            "maxLength": 120,
+            "minLength": 1
+          },
+          "title": "Attributes",
+          "type": "object"
+        }
+      },
+      "title": "OfferingFields",
+      "type": "object"
+    },
+    "OfferingResourceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "source": {
+          "$ref": "#/$defs/SharedResourceSource"
+        },
+        "source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Local Id",
+          "type": "string"
+        },
+        "native_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Native Revision",
+          "type": "integer"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "resource_kind": {
+          "const": "offering",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/OfferingFields"
+        }
+      },
+      "required": [
+        "scope",
+        "source",
+        "source_local_id",
+        "native_revision",
+        "observed_at",
+        "resource_kind",
+        "data"
+      ],
+      "title": "OfferingResourceRecord",
+      "type": "object"
+    },
+    "PriceOption": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "pricing_model": {
+                "enum": [
+                  "fixed",
+                  "starting_from"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "amount": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "pricing_model": {
+                "enum": [
+                  "quote",
+                  "negotiated"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "amount": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "pricing_model": {
+                "const": "free"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "amount": {
+                "enum": [
+                  null,
+                  "0",
+                  "0.0",
+                  "0.00",
+                  "0.000"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "option_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Option Ref",
+          "type": "string"
+        },
+        "parent_source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Parent Source Local Id",
+          "type": "string"
+        },
+        "code": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "process": {
+          "enum": [
+            "purchase",
+            "rental",
+            "booking",
+            "subscription",
+            "quote",
+            "inquiry",
+            "negotiation"
+          ],
+          "title": "Process",
+          "type": "string"
+        },
+        "pricing_model": {
+          "enum": [
+            "fixed",
+            "starting_from",
+            "free",
+            "quote",
+            "negotiated"
+          ],
+          "title": "Pricing Model",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "pattern": "^(0|[1-9][0-9]{0,10})(\\.[0-9]{1,3})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Amount"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Currency"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "enum": [
+                "each",
+                "hour",
+                "day",
+                "night",
+                "week",
+                "month",
+                "year",
+                "session",
+                "seat",
+                "project",
+                "kilogram",
+                "meter",
+                "custom"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "option_ref",
+        "parent_source_local_id",
+        "code",
+        "process",
+        "pricing_model",
+        "amount",
+        "currency",
+        "unit"
+      ],
+      "title": "PriceOption",
+      "type": "object"
+    },
+    "ProductContextFields": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": null,
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "sku": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sku"
+        },
+        "barcodes": {
+          "default": null,
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Barcodes",
+          "type": "array"
+        },
+        "base_unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BaseUnitRelation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "price_options": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/PriceOption"
+          },
+          "maxItems": 100,
+          "title": "Price Options",
+          "type": "array"
+        },
+        "media": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/ResourceMedia"
+          },
+          "maxItems": 20,
+          "title": "Media",
+          "type": "array"
+        },
+        "variant_ref": {
+          "default": null,
+          "title": "Variant Ref",
+          "type": "null"
+        }
+      },
+      "title": "ProductContextFields",
+      "type": "object"
+    },
+    "ProductResourceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "source": {
+          "$ref": "#/$defs/SharedResourceSource"
+        },
+        "source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Local Id",
+          "type": "string"
+        },
+        "native_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Native Revision",
+          "type": "integer"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "resource_kind": {
+          "const": "product",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ProductContextFields"
+        }
+      },
+      "required": [
+        "scope",
+        "source",
+        "source_local_id",
+        "native_revision",
+        "observed_at",
+        "resource_kind",
+        "data"
+      ],
+      "title": "ProductResourceRecord",
+      "type": "object"
+    },
+    "ResourceMedia": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "access_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Access Reference",
+          "type": "string"
+        },
+        "rights_reference": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Rights Reference",
+          "type": "string"
+        },
+        "parent_source_local_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Parent Source Local Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "access_reference",
+        "rights_reference",
+        "parent_source_local_id"
+      ],
+      "title": "ResourceMedia",
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "organization_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "activity_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch Id"
+        },
+        "warehouse_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warehouse Id"
+        }
+      },
+      "required": [
+        "organization_id",
+        "activity_id"
+      ],
+      "title": "Scope",
+      "type": "object"
+    },
+    "SharedMediaPreviewView": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "resource_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Resource Ref",
+          "type": "string"
+        },
+        "authorization": {
+          "$ref": "#/$defs/SharedReadAuthorization"
+        },
+        "source": {
+          "$ref": "#/$defs/SharedResourceSource"
+        },
+        "preview": {
+          "$ref": "#/$defs/MediaReadResponse"
+        }
+      },
+      "required": [
+        "resource_ref",
+        "authorization",
+        "source",
+        "preview"
+      ],
+      "title": "SharedMediaPreviewView",
+      "type": "object"
+    },
+    "SharedReadAuthorization": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "consumer_installation_id": {
+                  "type": "null"
+                },
+                "consumer_platform": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "consumer_installation_id": {
+                  "type": "string"
+                },
+                "consumer_platform": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "principal_kind": {
+                "const": "native_oidc"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "consumer_installation_id": {
+                "type": "string"
+              },
+              "consumer_platform": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Public current read scope, with projected native field names only.",
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "provider_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Provider Ref",
+          "type": "string"
+        },
+        "source_platform": {
+          "enum": [
+            "catalog",
+            "sawemly",
+            "wa_savana"
+          ],
+          "title": "Source Platform",
+          "type": "string"
+        },
+        "source_installation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Installation Id",
+          "type": "string"
+        },
+        "principal_kind": {
+          "enum": [
+            "native_oidc",
+            "portal_owner"
+          ],
+          "title": "Principal Kind",
+          "type": "string"
+        },
+        "consumer_installation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Consumer Installation Id"
+        },
+        "consumer_platform": {
+          "anyOf": [
+            {
+              "enum": [
+                "catalog",
+                "sawemly",
+                "wa_savana"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Consumer Platform"
+        },
+        "allowed_fields": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Allowed Fields",
+          "type": "array"
+        },
+        "authorization_revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Authorization Revision",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "provider_ref",
+        "source_platform",
+        "source_installation_id",
+        "principal_kind",
+        "consumer_installation_id",
+        "consumer_platform",
+        "allowed_fields",
+        "authorization_revision",
+        "valid_until"
+      ],
+      "title": "SharedReadAuthorization",
+      "type": "object"
+    },
+    "SharedResourceReadView": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "resource_kind": {
+          "enum": [
+            "offering",
+            "product"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "resource_ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Resource Ref",
+          "type": "string"
+        },
+        "authorization": {
+          "$ref": "#/$defs/SharedReadAuthorization"
+        },
+        "record": {
+          "$ref": "#/$defs/SharedResourceRecord"
+        },
+        "media_previews": {
+          "items": {
+            "$ref": "#/$defs/MediaPreviewDescriptor"
+          },
+          "maxItems": 20,
+          "title": "Media Previews",
+          "type": "array"
+        },
+        "central_publication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CentralPublicationProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "resource_kind",
+        "resource_ref",
+        "authorization",
+        "record"
+      ],
+      "title": "SharedResourceReadView",
+      "type": "object"
+    },
+    "SharedResourceRecord": {
+      "description": "A discriminated source record; typed fields are available through .root.",
+      "discriminator": {
+        "mapping": {
+          "offering": "#/$defs/OfferingResourceRecord",
+          "product": "#/$defs/ProductResourceRecord"
+        },
+        "propertyName": "resource_kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OfferingResourceRecord"
+        },
+        {
+          "$ref": "#/$defs/ProductResourceRecord"
+        }
+      ],
+      "title": "SharedResourceRecord"
+    },
+    "SharedResourceSearchView": {
+      "additionalProperties": false,
+      "properties": {
+        "spec_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "resource_kind": {
+          "const": "offering",
+          "default": "offering",
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "authorization": {
+          "$ref": "#/$defs/SharedReadAuthorization"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/OfferingResourceRecord"
+          },
+          "maxItems": 50,
+          "title": "Records",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        },
+        "central_publications": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CentralPublicationProvenance"
+          },
+          "maxProperties": 50,
+          "propertyNames": {
+            "maxLength": 255,
+            "minLength": 1
+          },
+          "title": "Central Publications",
+          "type": "object"
+        }
+      },
+      "required": [
+        "authorization",
+        "records"
+      ],
+      "title": "SharedResourceSearchView",
+      "type": "object"
+    },
+    "SharedResourceSource": {
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "enum": [
+            "catalog",
+            "sawemly",
+            "wa_savana"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "installation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Installation Id",
+          "type": "string"
+        },
+        "external_tenant_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "External Tenant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platform",
+        "installation_id",
+        "external_tenant_id"
+      ],
+      "title": "SharedResourceSource",
+      "type": "object"
+    }
+  }
+}

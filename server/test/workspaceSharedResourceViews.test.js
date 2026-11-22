@@ -193,3 +193,91 @@ test('final asynchronous expiry or permission withdrawal discards read data and 
     h.onWire((_payload, input) => { if (input.path.includes('/preview?')) h.change(context => { context.raw.existing.grants[0].active = false; }); });
     await assert.rejects(h.views.preview(principal, { activity: 'opaque-activity-choice', preview: previous.previews[0].key }), { code: 'workspace_context_changed' });
 });
+
+test('retained v2: product exposes exact older per-field provenance including actual media-reference provenance without private tuples', async t => {
+    const f = fixture(t), publication = { source_watermark: 9, field_versions: { name: 2, base_unit: 4, media: 1 },
+        field_observed_at: { name: '2026-09-01T08:00:00Z', base_unit: '2026-10-10T09:30:00Z', media: '2026-08-07T12:00:00Z' } };
+    f.onWire(payload => { payload.central_publication = structuredClone(publication); });
+    const result = await f.product();
+    assert.deepEqual(result.record.central_publication, publication); assert.equal(result.mediaCount, 1);
+    assert.equal(result.record.observed_at, until(-10)); assert.equal(Object.hasOwn(result.record.data, 'media'), false);
+    const publicBytes = JSON.stringify(result.record.central_publication);
+    assert.equal(publicBytes.includes('private-'), false); assert.equal(publicBytes.includes('source_local_id'), false);
+    for (const row of f.db.prepare('SELECT encrypted_payload FROM savana_workspace_receipts').all()) {
+        const stored = f.encryption.decrypt(row.encrypted_payload);
+        assert.equal(stored.includes('field_observed_at'), false); assert.equal(stored.includes('central_publication'), false);
+    }
+});
+
+test('retained v2: offering list and detail move only their actual provenance onto opaque public records', async t => {
+    const f = fixture(t), publication = { source_watermark: 9, field_versions: { name: 2 }, field_observed_at: { name: '2026-10-01T08:00:00Z' } };
+    const options = await f.views.options(principal, f.context(), f.activity());
+    f.onWire(payload => {
+        if (payload.records) payload.central_publications = { [payload.records[0].source_local_id]: structuredClone(publication) };
+        else payload.central_publication = structuredClone(publication);
+    });
+    const input = { activity: 'opaque-activity-choice', provider: options.providers[0].value };
+    const list = await f.views.offerings(principal, input);
+    assert.deepEqual(list.records[0].central_publication, publication); assert.equal(Object.hasOwn(list, 'central_publications'), false);
+    assert.equal(JSON.stringify(list).includes('ce38ee02-4c88-42e3-bd4d-a4cb4b017095'), false);
+    const detail = await f.views.offering(principal, { activity: input.activity, resource: list.records[0].key });
+    assert.deepEqual(detail.record.central_publication, publication);
+    assert.equal(Object.hasOwn(detail.record.central_publication.field_observed_at, 'description'), false);
+});
+
+test('retained v2: partial field replacements and absent provenance never merge prior data or media selectors', async t => {
+    const f = fixture(t); let phase = 1;
+    f.onWire(payload => {
+        if (phase === 1) payload.central_publication = { source_watermark: 9, field_versions: { name: 2, description: 1 },
+            field_observed_at: { name: '2026-10-01T08:00:00Z', description: '2026-09-01T08:00:00Z' } };
+        else {
+            payload.record.data = { name: 'اسم حالي بعد سحب الحقل' }; payload.media_previews = [];
+            if (phase === 2) payload.central_publication = { source_watermark: 10, field_versions: { name: 3 }, field_observed_at: { name: '2026-10-20T08:00:00Z' } };
+        }
+    });
+    const original = await f.product(); assert.equal(typeof original.record.data.description, 'string'); assert.equal(original.previews.length, 1);
+    phase = 2; f.revise(); const replacement = await f.product();
+    assert.deepEqual(replacement.record.data, { name: 'اسم حالي بعد سحب الحقل' });
+    assert.deepEqual(replacement.record.central_publication.field_versions, { name: 3 });
+    assert.equal(Object.hasOwn(replacement, 'mediaCount'), false); assert.deepEqual(replacement.previews, []);
+    phase = 3; const noProvenance = await f.product();
+    assert.equal(Object.hasOwn(noProvenance.record, 'central_publication'), false);
+    assert.equal(Object.hasOwn(noProvenance.record.data, 'description'), false);
+});
+
+test('retained v2: authorized absence or withdrawal replaces prior offering data and has no prior-field fallback', async t => {
+    const f = fixture(t), options = await f.views.options(principal, f.context(), f.activity());
+    const input = { activity: 'opaque-activity-choice', provider: options.providers[0].value };
+    const first = await f.views.offerings(principal, input); assert.equal(first.records.length, 1);
+    f.onWire(payload => { payload.records = []; payload.next_cursor = null; payload.central_publications = {}; });
+    const empty = await f.views.offerings(principal, input); assert.deepEqual(empty.records, []); assert.equal(empty.cursor, null);
+    f.onWire(() => { throw Object.assign(new Error('Synthetic current retained access withdrawn'), { code: 'workspace_rejected', status: 403 }); });
+    await assert.rejects(f.views.offerings(principal, input), { code: 'workspace_rejected', status: 403 });
+    assert.equal(f.requests.length, 3);
+});
+
+test('retained v2: actual field-grant loss removes that field and its provenance from a fresh product view', async t => {
+    const f = fixture(t);
+    f.onWire(payload => { payload.central_publication = { source_watermark: 9, field_versions: { name: 2 }, field_observed_at: { name: '2026-10-01T08:00:00Z' } }; });
+    const original = await f.product(); assert.equal(typeof original.record.data.description, 'string');
+    f.change(context => {
+        context.revision = 'current-without-description';
+        context.raw.existing.grants[0].fields = context.raw.existing.grants[0].fields.filter(field => field !== 'description');
+        context.raw.existing.grants[0].policy.fields = context.raw.existing.grants[0].policy.fields.filter(field => field !== 'description');
+    });
+    const fresh = await f.product();
+    assert.equal(Object.hasOwn(fresh.record.data, 'description'), false);
+    assert.equal(Object.hasOwn(fresh.record.central_publication.field_versions, 'description'), false);
+    assert.equal(new URL(f.requests.at(-1).path, 'https://fixed-core.invalid').searchParams.get('fields').split(',').includes('description'), false);
+});
+
+test('retained v2: media-reference provenance never substitutes for current Native image rights', async t => {
+    const f = fixture(t);
+    f.onWire(payload => { if (payload.record) payload.central_publication = { source_watermark: 9, field_versions: { media: 1 },
+        field_observed_at: { media: '2026-08-07T12:00:00Z' } }; });
+    const original = await f.product(); assert.equal(original.record.central_publication.field_versions.media, 1);
+    f.withdraw();
+    await assert.rejects(f.views.preview(principal, { activity: 'opaque-activity-choice', preview: original.previews[0].key }),
+        { code: 'workspace_resource_media_unavailable', status: 404 });
+    assert.equal(f.requests.filter(row => row.path.includes('/preview?')).length, 1);
+});

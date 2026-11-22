@@ -58,20 +58,33 @@ const productData = data => shape(data, [], ['name', 'description', 'sku', 'barc
         && ['each', 'kilogram', 'meter'].includes(data.base_unit.code) && safePositive(data.base_unit.metadata_version)))
     && (!has(data, 'price_options') || (Array.isArray(data.price_options) && data.price_options.length <= 100 && data.price_options.every(sharedResourcePriceOptionIsValid)))
     && (!has(data, 'variant_ref') || data.variant_ref === null);
-export const sharedResourceRecordIsValid = record => shape(record, ['key', 'resource_kind', 'sourceLabel', 'observed_at', 'data'])
+export const sharedResourcePublicationIsValid = (publication, record) => {
+    if (!record?.data || !shape(publication, ['source_watermark', 'field_versions', 'field_observed_at']) || !safePositive(publication.source_watermark)) return false;
+    const permitted = [...Object.keys(record.data), ...(record.resource_kind === 'product' ? ['media'] : [])];
+    return [['field_versions', safePositive], ['field_observed_at', date]].every(([key, validate]) => {
+        const values = publication[key];
+        return shape(values, [], permitted) && Object.keys(values).length >= 1 && Object.keys(values).length <= 32
+            && Object.values(values).every(validate);
+    }) && Object.keys(publication.field_versions).length === Object.keys(publication.field_observed_at).length
+        && Object.keys(publication.field_versions).every(field => has(publication.field_observed_at, field));
+};
+export const sharedResourceRecordIsValid = record => shape(record, ['key', 'resource_kind', 'sourceLabel', 'observed_at', 'data'], ['central_publication'])
     && opaque(record.key) && Boolean(workspaceLabel(record.sourceLabel, null)) && date(record.observed_at)
-    && (record.resource_kind === 'offering' ? offeringData(record.data) : record.resource_kind === 'product' && productData(record.data));
+    && (record.resource_kind === 'offering' ? offeringData(record.data) : record.resource_kind === 'product' && productData(record.data))
+    && (!has(record, 'central_publication') || sharedResourcePublicationIsValid(record.central_publication, record));
 export const sharedResourcePreviewDescriptorIsValid = value => shape(value, ['key', 'valid_until', 'content_types']) && opaque(value.key) && date(value.valid_until)
     && Array.isArray(value.content_types) && value.content_types.length >= 1 && value.content_types.length <= 3
     && value.content_types.every(type => SHARED_PREVIEW_TYPES.includes(type)) && new Set(value.content_types).size === value.content_types.length;
 export const sharedResourceEnvelopeIsValid = (value, now = Date.now()) => Boolean(shape(value, ['viewKey', 'valid_until', 'record'], ['mediaCount', 'previews'])
     && opaque(value.viewKey) && date(value.valid_until) && Date.parse(value.valid_until) > now && sharedResourceRecordIsValid(value.record)
     && (!has(value, 'mediaCount') || (value.record.resource_kind === 'product' && Number.isSafeInteger(value.mediaCount) && value.mediaCount >= 0 && value.mediaCount <= 20))
+    && (!['field_versions', 'field_observed_at'].some(key => has(value.record.central_publication?.[key] || {}, 'media')) || has(value, 'mediaCount'))
     && (!has(value, 'previews') || (Array.isArray(value.previews) && value.previews.length <= 20 && value.previews.every(sharedResourcePreviewDescriptorIsValid)
         && new Set(value.previews.map(row => row.key)).size === value.previews.length
         && (value.record.resource_kind === 'product' || value.previews.length === 0)
         && (!has(value, 'mediaCount') || value.previews.length <= value.mediaCount))));
-export const sharedResourceEnvelopeKey = envelope => envelope ? JSON.stringify([envelope.viewKey, envelope.valid_until, envelope.record?.key, envelope.previews || []]) : null;
+export const sharedResourceEnvelopeKey = envelope => envelope ? JSON.stringify([envelope.viewKey, envelope.valid_until, envelope.record,
+    envelope.mediaCount ?? null, envelope.previews || []]) : null;
 export const sharedResourceBrowserBinding = ({ context, activity, auth, productRecord = null }, now = Date.now()) => {
     if (context?.verified !== true || !opaque(context.viewKey) || !opaque(context.native_reference) || !date(context.valid_until)
         || Date.parse(context.valid_until) <= now || !opaque(activity) || auth?.loading !== false || !auth.user
@@ -114,10 +127,17 @@ export const sharedResourceValueText = (value, isArabic = true) => value === nul
     : typeof value === 'string' ? value || (isArabic ? 'قيمة فارغة من المصدر' : 'Empty source value') : JSON.stringify(value, null, 2);
 export const sharedResourceTimestamp = (value, isArabic = true) => date(value)
     ? new Intl.DateTimeFormat(isArabic ? 'ar-LY' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : null;
+export const sharedResourceFieldProvenance = (record, field) => {
+    if (!sharedResourceRecordIsValid(record) || (!has(record.data, field) && !(record.resource_kind === 'product' && field === 'media'))) return null;
+    if (!has(record, 'central_publication')) return { observed_at: record.observed_at, version: null };
+    const publication = record.central_publication;
+    const observed_at = publication.field_observed_at[field] ?? null, version = publication.field_versions[field] ?? null;
+    return observed_at !== null || version !== null ? { observed_at, version } : null;
+};
 export const sharedResourceFieldRows = (record, isArabic = true) => {
     if (!sharedResourceRecordIsValid(record)) return [];
     const names = { name: ['الاسم', 'Name'], description: ['الوصف', 'Description'], sku: ['رمز المنتج', 'SKU'], barcodes: ['الباركود', 'Barcodes'], kind: ['النوع', 'Kind'], status: ['الحالة', 'Status'], category_key: ['تصنيف المصدر', 'Source category'], attribute_schema_key: ['مرجع خصائص المصدر', 'Source attribute schema'] };
-    return Object.entries(record.data).filter(([key]) => has(names, key)).map(([key, value]) => ({ key, label: names[key][isArabic ? 0 : 1],
+    return Object.entries(record.data).filter(([key]) => has(names, key)).map(([key, value]) => ({ key, label: names[key][isArabic ? 0 : 1], sourceValue: value,
         value: ['kind', 'status'].includes(key) ? sharedResourceEnumLabel(key, value, isArabic) : sharedResourceValueText(value, isArabic) }));
 };
 

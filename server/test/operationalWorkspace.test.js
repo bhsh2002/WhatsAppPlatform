@@ -15,7 +15,7 @@ const initial = () => ({ spec_version: '1.0', organization: { id: owner.organiza
     command_options: [], capability_grant_options: [], service_registrations: [], service_shares: [], service_share_options: [], owner_action_origins: [], capabilities: [],
     policies: { fields: [{ value: 'name', label: 'اسم المنتج' }], operations: [], unit_codes: [], currencies: [], price_lists: [], channels: [] },
     existing: { requests: [], grants: [], origin_evidence: [] }, selection_revision: 'a'.repeat(64), approval_policy: 'Explicit current scoped actions' });
-const fixture = (t, { sharedResourceReadsEnabled } = {}) => {
+const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = false } = {}) => {
     const database = new Database(':memory:'); database.pragma('foreign_keys=ON');
     database.exec("CREATE TABLE tenants(id INTEGER PRIMARY KEY,name TEXT,status TEXT); CREATE TABLE users(id INTEGER PRIMARY KEY,tenant_id INTEGER); INSERT INTO tenants VALUES(1,'الحساب التجريبي','Active'); INSERT INTO users VALUES(1,1)");
     for (const migration of ['062_workspace_intents.sql', '066_workspace_receipts.sql', '067_workspace_review_fences.sql']) database.exec(fs.readFileSync(new URL(`../db/migrations/${migration}`, import.meta.url), 'utf8'));
@@ -163,7 +163,7 @@ const fixture = (t, { sharedResourceReadsEnabled } = {}) => {
     const service = new OperationalWorkspaceService({ database, encryption, setupService,
         readService: { record: async (_p, { entityId }) => { assert.equal(entityId, rawRecord.entity_id); return { record: structuredClone(rawRecord) }; } },
         nativeOwnerProofs: { capture: async () => { await captureHook(); return { recorded: true }; } }, verifyLocalPrincipal: () => current, fetchImpl, now: () => clock,
-        sharedResourceReadsEnabled });
+        ...(useFinalReadDefault ? {} : { sharedResourceReadsEnabled }) });
     return { service, database, calls, disconnect: () => { connected = false; }, unbind: () => { nativeBound = false; },
         changeContext: update => { rawContext = update(rawContext); }, dropBinding: () => { dropBinding = true; }, revoke: () => { current = false; },
         changeOwner: update => { currentOwner = { ...currentOwner, ...update }; }, changeBinding: value => { bindingId = value; },
@@ -275,11 +275,11 @@ const selectedProductReadView = async f => {
     return f.service.overview(principal);
 };
 
-test('draft consumer overview stays disabled by default and explicitly enabled metadata satisfies the actual UI boundary', async t => {
+test('final consumer overview uses the published default and explicit opt-out without inventing an offering grant', async t => {
     const disabled = fixture(t); configureShop(disabled);
     assert.equal(Object.hasOwn(await disabled.service.overview(principal), 'sharedResources'), false);
     await assert.rejects(disabled.service.resourceOfferings(principal, {}), { code: 'workspace_resource_contract_unavailable', status: 503 });
-    const enabled = fixture(t, { sharedResourceReadsEnabled: true }); configureShop(enabled);
+    const enabled = fixture(t, { useFinalReadDefault: true }); configureShop(enabled);
     const view = await enabled.service.overview(principal);
     const { sharedResourceOptionsIsValid } = await import('../../client/src/pages/TenantPortal/sharedResourceReadPresentation.js');
     assert.equal(sharedResourceOptionsIsValid(view.sharedResources), true);
