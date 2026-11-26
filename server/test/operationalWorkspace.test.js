@@ -617,6 +617,32 @@ test('native setup stays available without a goods read grant and never advertis
     assert.equal(f.calls.some(call => call.method === 'POST'), false);
 });
 
+test('approved request lists share overlapping Core reads and still reject a change at the final fence', async t => {
+    const f = fixture(t); configureShop(f);
+    f.changeContext(raw => ({ ...raw, existing: { ...raw.existing, requests: Array.from({ length: 6 }, (_unused, index) => {
+        const request = sharingRequest();
+        return { ...request, request_id: `approved-request-${index}`, state: 'approved', reviewed_by: owner.actorId,
+            effective_version: request.version, effective_resource: { ...request.proposal, read_grant_id: `approved-grant-${index}`, revision: 1 } };
+    }) } }));
+    const loadContext = f.service.loadContext.bind(f.service);
+    const verifyRequestRead = f.service.verifyRequestRead.bind(f.service);
+    let requestChecks = 0;
+    f.service.verifyRequestRead = (...args) => { requestChecks++; return verifyRequestRead(...args); };
+    const current = await f.service.overview(principal);
+    assert.equal(current.connection.requests.length, 6);
+    assert.equal(requestChecks, 18);
+    assert.equal(f.calls.filter(call => call.path.endsWith('/discovery')).length, 4);
+
+    let contextLoads = 0;
+    f.service.loadContext = (...args) => {
+        contextLoads++;
+        if (contextLoads === 4) f.changeContext(raw => ({ ...raw, existing: { ...raw.existing, requests: raw.existing.requests.slice(1) } }));
+        return loadContext(...args);
+    };
+    await assert.rejects(f.service.overview(principal), { code: 'workspace_request_read_forbidden', status: 403 });
+    assert.equal(contextLoads, 4);
+});
+
 test('approved unclaimed dispatch needs explicit review and recovers lost ACK through original command without another dispatch', async t => {
     const f = fixture(t); configureShop(f);
     f.changeContext(raw => ({ ...raw, activities: raw.activities.map(row => ({ ...row, my_actions: [...row.my_actions, 'commands.execute'] })) }));
