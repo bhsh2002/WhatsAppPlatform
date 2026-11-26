@@ -738,20 +738,31 @@ export class OperationalWorkspaceService {
             binding_status: binding.status, authorization_url: authorizationUrl ?? null };
     }
     async requestRows(principal, context, activity) {
-        return Promise.all(context.raw.existing.requests.filter(row => row.scope.activity_id === activity.activity_id).map(raw => this.presentRequest(principal, context, activity, raw)));
+        let inFlightContext = null;
+        const loadCurrent = () => {
+            // Share only a read in progress. A later verification fence must
+            // start a new Core read after the previous one has settled.
+            inFlightContext ??= this.loadContext(principal).finally(() => { inFlightContext = null; });
+            return inFlightContext;
+        };
+        const requests = context.raw.existing.requests.filter(row => row.scope.activity_id === activity.activity_id);
+        // Pending rows may issue approval reviews. Their checks must start
+        // independently before and after issuing each review.
+        return Promise.all(requests.map(raw => this.presentRequest(principal, context, activity, raw,
+            raw.state === 'pending' ? undefined : loadCurrent)));
     }
-    async verifyRequestRead({ principal, context: previous, activity, request }) {
-        const current = await this.loadContext(principal);
+    async verifyRequestRead({ principal, context: previous, activity, request }, loadCurrent = () => this.loadContext(principal)) {
+        const current = await loadCurrent();
         const scope = current.raw.activities.find(row => row.activity_id === activity.activity_id)?.scope;
         const visible = current.raw.existing.requests.find(row => row.request_id === request.request_id);
         return identityProof(current.identity) === identityProof(previous.identity) && current.revision === previous.revision
             && this.metadata(current).viewKey === this.metadata(previous).viewKey && scopeEqual(scope, request.scope)
             && visible != null && hash(visible) === hash(request);
     }
-    async presentRequest(principal, context, activity, raw) {
+    async presentRequest(principal, context, activity, raw, loadCurrent) {
         const result = await presentWorkspaceRequest({ principal, context, activity, raw, refs: this.refs, now: this.now,
             issueChoice: (kind, option) => this.issue(principal, context, kind, option),
-            verifyCurrent: input => this.verifyRequestRead(input),
+            verifyCurrent: input => this.verifyRequestRead(input, loadCurrent),
             issueReview: (operation, payload, summary) => this.stableApprovalReview(principal, context,
                 { kind: 'request', raw, operation, payload, summary }) });
         return result.request;
