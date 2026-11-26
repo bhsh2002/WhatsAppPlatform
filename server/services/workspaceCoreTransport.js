@@ -2,6 +2,9 @@ import crypto from 'node:crypto';
 import { SharedProductReadError } from './centralProductRead.js';
 import { validateSharedResourceModel } from './workspaceSharedResourceModels.js';
 
+const REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 12_000;
+const MAX_DISCOVERY_TIMEOUT_MS = 20_000;
 const fail = (code, status = 503) => { throw new SharedProductReadError(code, status); };
 const text = (value, max = 1024) => typeof value === 'string' && value.length > 0 && value.length <= max;
 const stamp = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -105,6 +108,10 @@ export class WorkspaceCoreTransport {
             throw new TypeError('Workspace transport requires current native identity and account binding');
         }
         this.setup = setupService; this.fetch = fetchImpl; this.now = now;
+        const configuredDiscoveryTimeout = Number(setupService.config.workspaceDiscoveryTimeoutMs);
+        this.discoveryTimeoutMs = Number.isSafeInteger(configuredDiscoveryTimeout)
+            && configuredDiscoveryTimeout >= REQUEST_TIMEOUT_MS && configuredDiscoveryTimeout <= MAX_DISCOVERY_TIMEOUT_MS
+            ? configuredDiscoveryTimeout : DEFAULT_DISCOVERY_TIMEOUT_MS;
         const url = new URL(setupService.config.centerOrigin);
         const loopback = setupService.config.allowLoopback === true && url.protocol === 'http:'
             && ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
@@ -184,8 +191,9 @@ export class WorkspaceCoreTransport {
         }
         let response;
         try {
+            const discovery = method === 'GET' && target.pathname === '/v1/integration/workspace/discovery' && !target.search;
             response = await this.fetch(target.href, { method, redirect: 'error', cache: 'no-store',
-                signal: AbortSignal.timeout(5000), headers: {
+                signal: AbortSignal.timeout(discovery ? this.discoveryTimeoutMs : REQUEST_TIMEOUT_MS), headers: {
                     'X-Savana-Platform-Code': 'wa_savana', 'X-Savana-Platform-Token': this.setup.config.platformToken,
                     Authorization: `Bearer ${opened.owner.accessToken}`,
                     ...(consumerInstallation === null ? {} : { 'X-Savana-Consumer-Installation': consumerInstallation }),

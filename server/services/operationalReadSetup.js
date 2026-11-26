@@ -45,6 +45,7 @@ export const operationalReadConfigFromEnv = (env = process.env) => {
         enabled && !!env.SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN),
     ownerPortalOrigin: env.SAVANA_SHARED_READ_OWNER_PORTAL_ORIGIN || '',
     centerOrigin: env.SAVANA_CONNECT_URL || 'http://savana-connect:8010',
+    workspaceDiscoveryTimeoutMs: env.SAVANA_WORKSPACE_DISCOVERY_TIMEOUT_MS,
     platformToken: env.SAVANA_CONNECT_PLATFORM_TOKEN || '',
     oidcIssuer: env.SAVANA_SHARED_READ_OIDC_ISSUER || '',
     oidcClientId: env.SAVANA_SHARED_READ_OIDC_CLIENT_ID || '',

@@ -4,7 +4,7 @@ import test from 'node:test';
 import { WorkspaceCoreTransport } from '../services/workspaceCoreTransport.js';
 import { SharedProductReadError } from '../services/centralProductRead.js';
 
-const fixture = () => {
+const fixture = (config = {}) => {
     const now = Date.parse('2026-11-18T12:00:00Z');
     const principal = { tenantId: 4, userId: 8, sessionId: 'native-session', role: 'tenant', authVersion: 2,
         sessionExpiresAt: now / 1000 + 600 };
@@ -14,14 +14,14 @@ const fixture = () => {
         status: 'active', external_tenant_id: 'wa_savana:tenant:4' };
     let local = true; let current = true; let send = async () => Response.json({ organization: { label: 'المؤسسة' } });
     const calls = []; let checks = 0;
-    const setupService = { config: { centerOrigin: 'https://core.invalid', platformToken: 'synthetic-server-secret' },
+    const setupService = { config: { centerOrigin: 'https://core.invalid', platformToken: 'synthetic-server-secret', ...config },
         assertLocal(p) { if (!local || p.sessionExpiresAt * 1000 <= now) throw Object.assign(new Error('revoked'), { code: 'native_revoked' }); },
         async identity() { checks++; return { ...owner }; },
         async nativeAccount() { return { ...native }; },
         store: { ownerCurrent: () => current },
     };
     const transport = new WorkspaceCoreTransport({ setupService, now: () => now, fetchImpl: async (url, options) => {
-        calls.push({ url, options }); return send();
+        calls.push({ url, options }); return send(url, options);
     } });
     return { transport, principal, owner, native, calls, setupService, now,
         revoke: () => { local = false; }, disconnect: () => { current = false; },
@@ -41,6 +41,34 @@ test('workspace transport uses only trusted platform/OIDC credentials and return
     assert.equal(f.calls[0].options.redirect, 'error');
     assert.equal(f.calls[0].options.cache, 'no-store');
     assert.equal(f.checks(), 3);
+});
+
+test('only workspace discovery can wait for the slow metadata response', async t => {
+    const timeout = t.mock.method(AbortSignal, 'timeout', ms => {
+        const controller = new AbortController();
+        if (ms < 9_500) controller.abort(new DOMException('Synthetic deadline reached', 'TimeoutError'));
+        return controller.signal;
+    });
+    const reply = async (_url, options) => {
+        options.signal.throwIfAborted();
+        return Response.json({ organization: { label: 'المؤسسة' } });
+    };
+    const defaultBudget = fixture();
+    defaultBudget.reply(reply);
+    await defaultBudget.transport.request(defaultBudget.principal, { path: '/v1/integration/workspace/discovery' });
+    const configuredBudget = fixture({ workspaceDiscoveryTimeoutMs: '14000' });
+    configuredBudget.reply(reply);
+    await configuredBudget.transport.request(configuredBudget.principal, { path: '/v1/integration/workspace/discovery' });
+    await assert.rejects(configuredBudget.transport.request(configuredBudget.principal, {
+        path: '/v1/integration/workspace/records?activity_id=activity',
+    }), { code: 'workspace_unavailable' });
+    await assert.rejects(configuredBudget.transport.request(configuredBudget.principal, {
+        method: 'POST', path: '/v1/integration/workspace/providers/source/prepare', body: {},
+    }), { code: 'workspace_outcome_unknown' });
+    const invalidBudget = fixture({ workspaceDiscoveryTimeoutMs: 100_000 });
+    invalidBudget.reply(reply);
+    await invalidBudget.transport.request(invalidBudget.principal, { path: '/v1/integration/workspace/discovery' });
+    assert.deepEqual(timeout.mock.calls.map(call => call.arguments[0]), [12_000, 14_000, 5_000, 5_000, 12_000]);
 });
 
 test('private consumer selector is explicit and invalid header values are rejected before HTTP', async () => {
