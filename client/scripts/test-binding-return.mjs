@@ -1,4 +1,4 @@
-// Mounted product-controller regression with a synthetic loopback HTTP boundary.
+// Mounted owner-workspace regressions with a synthetic loopback HTTP boundary.
 // No application server, Core, provider, credentials, or joint factory is used.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -16,24 +16,36 @@ const chromePath = process.env.WA_TEST_CHROME || '/Applications/Google Chrome.ap
 const cases = new Map();
 const fixturePath = '/browser-tests/binding-return-fixture.html';
 const prefix = '/api/portal/integrations/workspace';
+const receptionAction = 'provider.products.prepare';
+const receptionLabel = 'تهيئة استقبال المنتجات';
+const receptionDoneLabel = 'استقبال المنتجات مهيأ';
+const receptionSubmitLabel = 'إرسال الطلب المراجع';
+const receptionProvider = 'synthetic-own-wa-provider';
+const receptionReviewPath = prefix + '/provider/products/review';
+const receptionReviewLabel = 'تهيئة استقبال المنتجات مع الاحتفاظ بتسجيل الخدمة ومفتاحها الحاليين';
 let origin;
 const reply = (res, status, value) => {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(value));
 };
+const receptionHeld = state => state.reception && state.submitted && !state.configured;
 const overview = state => ({
-  spec_version: '1.0', held: false,
+  spec_version: '1.0', held: receptionHeld(state),
   context: { verified: true, native_reference: state.native, viewKey: state.view, valid_until: state.deadline,
     organizationLabel: 'المؤسسة التجريبية', actorLabel: 'المالك التجريبي',
     connect: { enabled: !state.bound, code: state.bound ? 'connected' : 'native_binding_required', label: 'ربط الحساب التجريبي' } },
   connection: { choices: { activities: [{ value: 'synthetic-activity', label: 'النشاط التجريبي', enabled: true }],
     purposes: [], providers: [], fields: [], people: [] },
     selection: { activity: 'synthetic-activity', purpose: '', provider: '', fields: [], people: [] },
-    requests: [], held: false, busy: false, requirements: { fields: false, people: false } },
+    requests: [], held: receptionHeld(state), busy: false, requirements: { fields: false, people: false } },
   capabilities: { capabilities: [] }, sharedData: { records: [] }, commands: [],
   productEditor: { fields: [], units: [], priceChoices: [], mediaChoices: [] },
-  intents: state.submitted ? [{ key: state.intent, state: 'completed' }] : [],
-  actions: state.name === 'activity' ? [{ key: 'activity.create', label: 'إضافة نشاط تجريبي', enabled: true }] : [],
+  intents: state.submitted ? [{ key: state.intent, state: receptionHeld(state) ? 'unknown' : 'completed' }] : [],
+  actions: state.reception ? [{ key: receptionAction,
+    label: state.configured ? receptionDoneLabel : receptionLabel,
+    enabled: !state.submitted, provider: receptionProvider,
+    ...(state.configured ? { reason: 'لا يمنح هذا الإعداد قراءة المنتجات. اطلب مشاركة القراءة بصورة مستقلة.' } : {}) }]
+    : state.name === 'activity' ? [{ key: 'activity.create', label: 'إضافة نشاط تجريبي', enabled: true }] : [],
 });
 const server = await createServer({
   root, configFile: false, envDir: false, define: { 'import.meta.env.VITE_API_URL': '""' },
@@ -76,18 +88,29 @@ const server = await createServer({
             valid_until: state.deadline, canSubmit: true, summary: [{ label: 'المحاولة', value: 'ربط الحساب بعد تأكيد النشاط' }] } });
           return;
         }
-        if (path === prefix + (state.name === 'activity' ? '/activity/review' : '/binding/review') && req.method === 'POST') {
+        const reviewPath = state.reception ? receptionReviewPath : prefix + (state.name === 'activity' ? '/activity/review' : '/binding/review');
+        if (path === reviewPath && req.method === 'POST') {
           assert.equal(req.headers['x-savana-owner-intent'], 'connections-data-v1');
+          if (state.reception) assert.deepEqual(JSON.parse(body), { provider: receptionProvider });
           state.reviews += 1;
           reply(res, 200, { review: { key: state.review, intentKey: state.intent, viewKey: state.view,
-            valid_until: state.deadline, canSubmit: true, summary: [{ label: 'المحاولة', value: 'ربط الحساب التجريبي بالمؤسسة' }],
-            submitLabel: 'تقديم الطلب المراجع' } });
+            valid_until: state.deadline, canSubmit: true, summary: [{ label: 'المحاولة',
+              value: state.reception ? receptionReviewLabel : 'ربط الحساب التجريبي بالمؤسسة' }],
+            submitLabel: state.reception ? receptionSubmitLabel : 'تقديم الطلب المراجع' } });
           return;
         }
         if (path === prefix + '/submit' && req.method === 'POST') {
           assert.equal(req.headers['x-savana-owner-intent'], 'connections-data-v1');
           assert.deepEqual(JSON.parse(body), { review: state.review });
           state.submits += 1; state.submitted = true;
+          if (state.reception) {
+            state.coreConfigured = true;
+            state.configured = state.name === 'reception';
+            if (state.configured) state.view += '-products-configured';
+            reply(res, state.configured ? 200 : 503, state.configured
+              ? { state: 'completed' } : { error: 'Synthetic acknowledgement lost after product setup' });
+            return;
+          }
           reply(res, state.name === 'immediate' ? 200 : 503, state.name === 'immediate'
             ? { state: 'completed', authorization_url: state.approval }
             : { error: 'Synthetic acknowledgement lost after acceptance' });
@@ -95,7 +118,12 @@ const server = await createServer({
         }
         if (path === prefix + '/intents/' + state.intent && req.method === 'GET' && state.submitted) {
           state.intentReads += 1;
-          reply(res, 200, { intent: { key: state.intent, state: state.name === 'activity' && state.intentReads === 1 ? 'unknown' : 'completed' } }); return;
+          if (state.name === 'reception-lost-ack' && state.intentReads === 2) {
+            assert.equal(state.coreConfigured, true);
+            state.configured = true; state.view += '-products-configured';
+          }
+          const unknown = receptionHeld(state) || (state.name === 'activity' && state.intentReads === 1);
+          reply(res, 200, { intent: { key: state.intent, state: unknown ? 'unknown' : 'completed' } }); return;
         }
         if (path === prefix + '/intents/' + state.intent + '/binding-authorization' && req.method === 'GET' && state.submitted) {
           state.continuations += 1;
@@ -162,11 +190,16 @@ try {
     }
   });
   await cdp('Browser.getVersion');
-  for (const name of ['immediate', 'lost-ack', 'foreign', 'expired', 'activity']) {
+  const receptionCases = ['reception', 'reception-lost-ack'];
+  const testCases = process.argv.includes('--product-reception')
+    ? receptionCases : ['immediate', 'lost-ack', 'foreign', 'expired', 'activity', ...receptionCases];
+  for (const name of testCases) {
+    const reception = receptionCases.includes(name);
     const state = { name, native: 'synthetic-native-' + name, view: 'synthetic-view-' + name,
       deadline: new Date(Date.now() + 180_000).toISOString(), intent: 'wr1.synthetic-binding-' + name,
       review: 'synthetic-binding-review-' + name, approval: origin + '/synthetic-approval?case=' + name,
-      submitted: false, bound: false, reviews: 0, submits: 0, intentReads: 0, continuations: 0, arrivals: 0, listReads: 0, requests: [] };
+      reception, coreConfigured: false, configured: false, submitted: false, bound: reception,
+      reviews: 0, submits: 0, intentReads: 0, continuations: 0, arrivals: 0, listReads: 0, requests: [] };
     cases.set(name, state);
     const { browserContextId } = await cdp('Target.createBrowserContext');
     const { targetId } = await cdp('Target.createTarget', { url: 'about:blank', browserContextId });
@@ -175,6 +208,26 @@ try {
     await cdp('Network.setExtraHTTPHeaders', { headers: { 'X-WA-Binding-Test-Case': name } }, sessionId);
     await cdp('Page.bringToFront', {}, sessionId);
     await cdp('Page.navigate', { url: origin + fixturePath }, sessionId);
+    if (reception) {
+      await click(sessionId, receptionLabel);
+      await waitFor(sessionId, 'document.body.innerText.includes(' + JSON.stringify(receptionReviewLabel) + ')', 'Product reception review');
+      assert.equal(state.reviews, 1); assert.equal(state.submits, 0, 'review does not submit a mutation');
+      await click(sessionId, receptionSubmitLabel);
+      if (name === 'reception-lost-ack') {
+        await click(sessionId, 'التحقق من النتيجة');
+      }
+      await waitFor(sessionId, 'Array.from(document.querySelectorAll("button")).some(b => b.disabled && b.textContent.trim() === ' + JSON.stringify(receptionDoneLabel) + ')', 'Already configured product reception is not actionable');
+      await waitFor(sessionId, '!document.body.innerText.includes("توجد عملية قيد التحقق")', 'Original product setup hold resolves');
+      assert.equal(await evaluate(sessionId, 'document.body.innerText.includes("لا يمنح هذا الإعداد قراءة المنتجات.")'), true);
+      assert.equal(state.reviews, 1); assert.equal(state.submits, 1);
+      assert.equal(state.intentReads, name === 'reception-lost-ack' ? 2 : 1);
+      assert.equal(state.continuations, 0); assert.equal(state.arrivals, 0);
+      assert.deepEqual(state.requests.filter(req => req.method === 'POST').map(req => req.path), [receptionReviewPath + '/', prefix + '/submit/']);
+      assert.equal(await evaluate(sessionId, 'Object.keys(sessionStorage).some(k => k.startsWith("wa-connections-data:holds:v1:"))'), false);
+      console.log('PASS mounted product reception journey: ' + name);
+      await cdp('Target.disposeBrowserContext', { browserContextId });
+      continue;
+    }
     if (name === 'activity') {
       await click(sessionId, 'إضافة نشاط تجريبي');
       // Input through the browser event path, with React retaining normal form state.

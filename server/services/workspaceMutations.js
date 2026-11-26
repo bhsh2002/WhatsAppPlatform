@@ -17,6 +17,7 @@ export class WorkspaceMutations {
             || !Object.keys(planners).length || Object.entries(planners).some(([operation, planner]) =>
                 !/^[a-z][a-z0-9_.]{0,99}$/.test(operation) || typeof planner?.request !== 'function'
                 || typeof planner?.result !== 'function' || (planner.includeConsumer !== undefined && typeof planner.includeConsumer !== 'boolean')
+                || (planner.dispatch !== undefined && typeof planner.dispatch !== 'function')
                 || (planner.rejected !== undefined && typeof planner.rejected !== 'function'))) throw new TypeError('Workspace mutations require verified protocol planners and durable intents');
         this.choices = choices; this.transport = transport; this.intents = intents; this.planners = Object.freeze({ ...planners });
     }
@@ -37,10 +38,15 @@ export class WorkspaceMutations {
         if (!prepared.dispatch) return { intent: prepared.intent, result: null };
         const claimedRequest = { method: prepared.dispatch.method, path: prepared.dispatch.path,
             ...(prepared.dispatch.body === undefined ? {} : { body: prepared.dispatch.body }) };
-        let result;
+        let result, sendInvoked = false;
         try {
-            const response = await this.transport.request(principal, { ...claimedRequest, expectedIdentity: identity, notAfter: current.expiresAt,
-                consumerInstallation: planner.includeConsumer === false ? null : current.context.consumerInstallationId ?? null });
+            const send = () => {
+                if (sendInvoked) fail();
+                sendInvoked = true;
+                return this.transport.request(principal, { ...claimedRequest, expectedIdentity: identity, notAfter: current.expiresAt,
+                    consumerInstallation: planner.includeConsumer === false ? null : current.context.consumerInstallationId ?? null });
+            };
+            const response = planner.dispatch ? await planner.dispatch({ principal, reviewed: current, request: claimedRequest, send }) : await send();
             result = await planner.result({ principal, reviewed: current, request: claimedRequest, response: response.payload });
             // Result validation may also await current evidence. A changed
             // session cannot leave an approval/result visible in the old view.
@@ -53,7 +59,8 @@ export class WorkspaceMutations {
                 try { definitive = await planner.rejected({ error, reviewed: current, request: claimedRequest }) === true; }
                 catch { /* An unverified rejection remains an unknown outcome. */ }
             }
-            const notDispatched = error instanceof SharedProductReadError && error.requestDispatched === false;
+            const notDispatched = (planner.dispatch && !sendInvoked)
+                || (error instanceof SharedProductReadError && error.requestDispatched === false);
             const localReason = ['workspace_review_expired', 'workspace_request_invalid', 'workspace_configuration_required'].includes(error?.code)
                 ? error.code : 'workspace_context_changed';
             this.intents.finish(principal, identity, prepared.intent.id, { state: definitive || notDispatched ? 'failed' : 'unknown',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emptyWorkspaceSelection, updateWorkspaceSelection, workspaceActionAvailable, workspaceAvailabilityLabel, workspaceChoiceAvailable, workspaceConnectionReviewCanSubmit, workspaceLabel, workspaceSelectionCanReview, workspaceSelectionKey, workspaceSelectionSummary } from './connectionsDataPresentation.js';
+import { emptyWorkspaceSelection, updateWorkspaceSelection, workspaceActionAvailable, workspaceAvailabilityLabel, workspaceChoiceAvailable, workspaceConnectionReviewCanSubmit, workspaceLabel, workspaceProductReceptionInput, workspaceSelectionCanReview, workspaceSelectionKey, workspaceSelectionSummary } from './connectionsDataPresentation.js';
 
 const choice = (value, label, enabled = true) => ({ value, label, enabled });
 const choices = {
@@ -78,6 +78,22 @@ test('capability actions require explicit current availability; a title or subsc
     assert.equal(workspaceActionAvailable(action, { verified: true, held: true }), false);
     assert.equal(workspaceActionAvailable({ ...action, effect: 'read' }, { verified: true, held: true }), true);
     assert.equal(workspaceActionAvailable({ ...action, effect: 'read', enabled: false }, { verified: true, held: true }), false);
+});
+
+test('product reception uses the server-owned account without a read-sharing selection or browser scopes', () => {
+    const action = { key: 'provider.products.prepare', provider: 'opaque-own-provider', label: 'تهيئة استقبال المنتجات', enabled: true,
+        scopes: ['*'], activity_id: 'injected', read_grant: true };
+    const state = { verified: true, held: false, busy: false, selection: emptyWorkspaceSelection() };
+    assert.deepEqual(workspaceProductReceptionInput(action, state), { provider: 'opaque-own-provider' });
+    assert.equal(workspaceProductReceptionInput({ ...action, provider: undefined }, state), null);
+    assert.equal(workspaceProductReceptionInput({ ...action, key: 'provider.prepare' }, state), null);
+    for (const blocked of [{ held: true }, { busy: true }, { verified: false }]) {
+        assert.equal(workspaceProductReceptionInput({ ...action, effect: 'read' }, { ...state, ...blocked }), null);
+    }
+    const done = { ...action, label: 'استقبال المنتجات مهيأ', enabled: false,
+        reason: 'اطلب مشاركة القراءة بصورة مستقلة.' };
+    assert.equal(workspaceProductReceptionInput(done, state), null);
+    assert.equal(workspaceProductReceptionInput({ ...action, enabled: undefined }, state), null);
 });
 
 test('canonical review availability is distinct from execution and unknown vocabulary stays unverified', () => {

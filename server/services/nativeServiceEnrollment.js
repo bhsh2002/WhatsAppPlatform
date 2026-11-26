@@ -17,6 +17,8 @@ const acceptedScopes = value => Array.isArray(value) && value.length > 0 && valu
 const sameScopes = (left, right) => acceptedScopes(left) && acceptedScopes(right)
     && left.length === right.length && left.every(scope => right.includes(scope));
 const collaborationExtension = (before, after) => sameScopes(before, [PRODUCT_SCOPE]) && sameScopes(after, [PRODUCT_SCOPE, COLLABORATION_SCOPE]);
+const productExtension = (before, after) => sameScopes(before, [COLLABORATION_SCOPE]) && sameScopes(after, [PRODUCT_SCOPE, COLLABORATION_SCOPE]);
+const sameScope = (left, right) => ['organization_id', 'activity_id', 'branch_id', 'warehouse_id'].every(key => (left?.[key] ?? null) === (right?.[key] ?? null));
 const readBounded = async response => {
     if (Number(response.headers.get('content-length')) > 32_768) fail('native_service_enrollment_registration_invalid', 502);
     if (!response.body?.getReader) {
@@ -55,6 +57,7 @@ export class NativeServiceEnrollment {
         this.fetch = fetchImpl; this.now = now; this.lookup = lookupRegistration;
         this.origin = origin.origin; this.url = `${origin.origin}/v1/integration/operational/enrollments`;
         this.platformToken = config.platformToken;
+        this.productScopeProjections = new Map();
     }
     #stamp() { return new Date(this.now()).toISOString(); }
     #input(context) {
@@ -125,7 +128,8 @@ export class NativeServiceEnrollment {
             || payload.platform !== 'wa_savana' || payload.external_tenant_id !== row.external_tenant_id || payload.display_name !== body.display_name
             || !Number.isSafeInteger(payload.version) || payload.version < 1 || !acceptedScopes(payload.accepted_scopes)
             || !(sameScopes(payload.accepted_scopes, body.accepted_scopes)
-                || (allowScopeExtension && collaborationExtension(body.accepted_scopes, payload.accepted_scopes)))
+                || (allowScopeExtension && (collaborationExtension(body.accepted_scopes, payload.accepted_scopes)
+                    || productExtension(body.accepted_scopes, payload.accepted_scopes))))
             || payload.public_key_fingerprint !== row.public_key_fingerprint) fail('native_service_enrollment_registration_invalid', 502);
         return Object.fromEntries(responseFields.map(key => [key, payload[key]]));
     }
@@ -226,29 +230,94 @@ export class NativeServiceEnrollment {
         await this.#authority(input, 'read', proof);
         return validateNativeCommandModel('AdapterEnrollments', { spec_version: '1.0', platform: 'wa_savana', enrollments: row ? [this.#public(row)] : [] });
     }
+    #productScopeExpected(row, expected) {
+        if (!exact(expected, ['enrollment_id', 'enrollment_version', 'public_key_fingerprint'])
+            || !text(expected.enrollment_id) || !Number.isSafeInteger(expected.enrollment_version) || expected.enrollment_version < 1
+            || !/^[a-f0-9]{64}$/.test(expected.public_key_fingerprint || '') || !row || row.state !== 'completed') {
+            fail('native_service_enrollment_product_scope_unavailable', 409);
+        }
+        const registration = this.#registration(JSON.parse(row.response_json), row, true);
+        if (registration.enrollment_id !== expected.enrollment_id || registration.version !== expected.enrollment_version
+            || registration.public_key_fingerprint !== expected.public_key_fingerprint
+            || !sameScopes(registration.accepted_scopes, [COLLABORATION_SCOPE])) {
+            fail('native_service_enrollment_product_scope_changed', 409);
+        }
+        return registration;
+    }
+    // Explicit reviewed BFF only. Durable intent pins reopen this short window
+    // around readonly lost-ACK recovery; the saved enrollment stays unchanged.
+    async withProductScopeProjection(context, expected, action, { assertCurrent } = {}) {
+        if (typeof action !== 'function' || typeof assertCurrent !== 'function') fail('native_service_enrollment_request_invalid', 422);
+        const input = this.#input(context);
+        const expectedStamp = nativeCommandJson(expected);
+        if (!Number.isSafeInteger(context.session_version) || context.session_version < 1
+            || input.actorId !== input.grantApprovedBy) fail('native_service_enrollment_product_scope_owner_required', 403);
+        const fence = () => {
+            if (assertCurrent() !== true) fail('native_service_enrollment_session_changed', 403);
+            this.#unchanged(input);
+        };
+        fence();
+        const proof = await this.#authority(input, 'product_scope');
+        fence();
+        if (nativeCommandJson(expected) !== expectedStamp) fail('native_service_enrollment_product_scope_changed', 409);
+        const row = this.#row(input);
+        this.#productScopeExpected(row, expected);
+        if (this.productScopeProjections.has(input.nativeTenantId)) fail('native_service_enrollment_product_scope_busy', 409);
+        const projection = { input, expected: structuredClone(expected), rowId: row.id, proof, fence,
+            validUntil: Math.min(this.now() + 15_000, Date.parse(proof.validUntil)) };
+        this.productScopeProjections.set(input.nativeTenantId, projection);
+        try { const result = await action(); fence(); return result; }
+        finally { if (this.productScopeProjections.get(input.nativeTenantId) === projection) this.productScopeProjections.delete(input.nativeTenantId); }
+    }
+    // Used only by authenticated NativeRPC GET. Local read/enroll stay factual.
+    async readForCore(context) {
+        const input = this.#input(context), projection = this.productScopeProjections.get(input.nativeTenantId);
+        if (!projection) return this.read(context);
+        projection.fence();
+        if (projection.validUntil <= this.now() || input.actorId !== projection.input.actorId
+            || input.grantApprovedBy !== input.actorId || !sameScope(input.scope, projection.input.scope)
+            || input.externalTenantId !== projection.input.externalTenantId
+            || context.session_version !== projection.input.context.session_version) {
+            fail('native_service_enrollment_product_scope_context_changed', 403);
+        }
+        const proof = await this.#authority(input, 'product_scope_read', projection.proof);
+        projection.fence();
+        const row = this.#row(input);
+        if (this.productScopeProjections.get(input.nativeTenantId) !== projection
+            || projection.validUntil <= this.now() || Date.parse(proof.validUntil) <= this.now() || row?.id !== projection.rowId) {
+            fail('native_service_enrollment_product_scope_context_changed', 403);
+        }
+        this.#productScopeExpected(row, projection.expected);
+        const enrollment = this.#public(row);
+        enrollment.accepted_scopes = [PRODUCT_SCOPE, COLLABORATION_SCOPE];
+        return validateNativeCommandModel('AdapterEnrollments', { spec_version: '1.0', platform: 'wa_savana', enrollments: [enrollment] });
+    }
     // Internal BFF callback ONLY after actual owner prepare-provider returned
     // authenticated complete Core registration metadata. No HTTP route, scope
     // advertisement, key replacement or registration POST is inferred here.
-    async acceptVerifiedRegistration(context, options = {}, {assertCurrent=null}={}) {
+    async acceptVerifiedRegistration(context, options = {}, {assertCurrent=null, productScopeExpected=null}={}) {
         if(assertCurrent!==null&&typeof assertCurrent!=='function')fail('native_service_enrollment_request_invalid',422);
+        if(productScopeExpected!==null&&typeof assertCurrent!=='function')fail('native_service_enrollment_request_invalid',422);
         const fence=()=>{if(assertCurrent!==null){let result;try{result=assertCurrent();}catch{fail('native_service_enrollment_session_changed',403);}
             if(result!==true)fail('native_service_enrollment_session_changed',403);}};
         fence();
         if (!exact(options, ['registration', 'expectedEnrollmentVersion'])
             || !(options.expectedEnrollmentVersion === null || (Number.isSafeInteger(options.expectedEnrollmentVersion)
                 && options.expectedEnrollmentVersion >= 1))) fail('native_service_enrollment_request_invalid', 422);
-        let receiptStamp;
+        let receiptStamp, productScopeStamp;
         try { receiptStamp = nativeCommandJson(options.registration); } catch { fail('native_service_enrollment_registration_invalid', 502); }
+        try { productScopeStamp = nativeCommandJson(productScopeExpected); } catch { fail('native_service_enrollment_registration_invalid', 502); }
         const input = this.#input(context);
         const proof = await this.#authority(input, 'accept_registration');
         fence();
         if (proof.grantApprovedBy !== input.actorId) fail('native_service_enrollment_initial_owner_required', 403);
-        if (nativeCommandJson(options.registration) !== receiptStamp) fail('native_service_enrollment_context_changed', 403);
+        if (nativeCommandJson(options.registration) !== receiptStamp || nativeCommandJson(productScopeExpected) !== productScopeStamp) fail('native_service_enrollment_context_changed', 403);
         // Finish every awaited authority check before the atomic local receipt
         // write, so losing the original BFF session cannot leave a late update.
         fence();const currentProof=await this.#authority(input,'accept_registration',proof);fence();
         const row = this.db.transaction(() => {
             fence();
+            if (nativeCommandJson(options.registration) !== receiptStamp || nativeCommandJson(productScopeExpected) !== productScopeStamp) fail('native_service_enrollment_context_changed', 403);
             this.#unchanged(input);
             if (Date.parse(currentProof.validUntil) <= this.now()) fail('native_service_enrollment_owner_changed', 403);
             const saved = this.#row(input);
@@ -257,6 +326,9 @@ export class NativeServiceEnrollment {
             if (body.display_name !== input.tenantName) fail('native_service_enrollment_content_conflict', 409);
             const registration = this.#registration(options.registration, saved, true);
             if(saved.state !== 'completed') {
+                // An unresolved protected collaboration create has no reviewed
+                // product-scope baseline. It cannot adopt this union implicitly.
+                if (productExtension(body.accepted_scopes, registration.accepted_scopes)) fail('native_service_enrollment_extension_invalid', 409);
                 if(options.expectedEnrollmentVersion !== null||saved.attempt_count<1)fail('native_service_enrollment_version_conflict',409);
                 const extended=collaborationExtension(body.accepted_scopes,registration.accepted_scopes);
                 if(extended&&registration.version<2)fail('native_service_enrollment_extension_invalid',409);
@@ -274,13 +346,23 @@ export class NativeServiceEnrollment {
             catch { fail('native_service_enrollment_registration_invalid', 502); }
             const sameReceipt=responseFields.every(key=>key==='accepted_scopes'?sameScopes(prior[key],registration[key]):prior[key]===registration[key]);
             if(sameReceipt) {
+                if (productScopeExpected !== null && (!exact(productScopeExpected, ['enrollment_id', 'enrollment_version', 'public_key_fingerprint'])
+                    || productScopeExpected.enrollment_id !== prior.enrollment_id
+                    || productScopeExpected.public_key_fingerprint !== prior.public_key_fingerprint
+                    || productScopeExpected.enrollment_version + 1 !== prior.version
+                    || options.expectedEnrollmentVersion !== productScopeExpected.enrollment_version
+                    || !sameScopes(prior.accepted_scopes, [PRODUCT_SCOPE, COLLABORATION_SCOPE])
+                    || !sameScopes(body.accepted_scopes, [COLLABORATION_SCOPE]))) fail('native_service_enrollment_product_scope_changed', 409);
                 if(options.expectedEnrollmentVersion !== null&&options.expectedEnrollmentVersion>prior.version)fail('native_service_enrollment_version_conflict',409);
                 fence();
                 return saved;
             }
             if (prior.version !== options.expectedEnrollmentVersion) fail('native_service_enrollment_version_conflict', 409);
+            const addProducts = productScopeExpected !== null;
+            if (addProducts) this.#productScopeExpected(saved, productScopeExpected);
             if (registration.enrollment_id !== prior.enrollment_id || registration.version !== prior.version + 1
-                || !collaborationExtension(prior.accepted_scopes, registration.accepted_scopes)) {
+                || !(collaborationExtension(prior.accepted_scopes, registration.accepted_scopes)
+                    || (addProducts && productExtension(prior.accepted_scopes, registration.accepted_scopes)))) {
                 fail('native_service_enrollment_extension_invalid', 409);
             }
             const changed = this.db.prepare(`UPDATE savana_operational_consumer_enrollments SET response_json=?,updated_at=?

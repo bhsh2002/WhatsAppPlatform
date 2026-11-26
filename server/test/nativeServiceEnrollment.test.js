@@ -53,6 +53,7 @@ const fixture = (t, { filename = ':memory:', encryption = cipher() } = {}) => {
     const before = sourceState(database);
     t.after(() => { if (database.open) database.close(); });
     const calls = []; const proofCalls = [];
+    let clock = now;
     let fetchHook = async () => {};
     let proofHook = async () => {};
     let transform = value => value;
@@ -65,8 +66,8 @@ const fixture = (t, { filename = ':memory:', encryption = cipher() } = {}) => {
             currentIdentity: async () => { throw new Error('NativeRPC must not fabricate a native JWT or call PKCE capture'); },
             resolveBinding: async ({ nativeTenantId, organizationId }) => ({ id: bindingId, platform_code: 'wa_savana', status: 'active',
                 organization_id: organizationId, external_tenant_id: `wa_savana:tenant:${nativeTenantId}` }),
-            issuer: 'https://synthetic-issuer.invalid', clientId: 'synthetic-client', now: () => now });
-        return new NativeServiceEnrollment({ database: db, encryption, config, now: () => now,
+            issuer: 'https://synthetic-issuer.invalid', clientId: 'synthetic-client', now: () => clock });
+        return new NativeServiceEnrollment({ database: db, encryption, config, now: () => clock,
             verifyOwnerAuthority: async args => { proofCalls.push(args); await proofHook(args); return proofStore.authority(args); },
             fetchImpl: async (url, options) => {
                 calls.push({ url, options }); await fetchHook();
@@ -79,15 +80,16 @@ const fixture = (t, { filename = ':memory:', encryption = cipher() } = {}) => {
         audit: () => database.prepare('SELECT * FROM savana_native_enrollment_service_audit ORDER BY id').all(),
         duringFetch: hook => { fetchHook = hook; }, duringProof: hook => { proofHook = hook; },
         transform: fn => { transform = fn; }, responseStatus: value => { status = value; },
-        responseHeaders: value => { headers = value; }, changeBinding: value => { bindingId = value; } };
+        responseHeaders: value => { headers = value; }, changeBinding: value => { bindingId = value; },
+        setClock: value => { clock = value; } };
 };
 
-const seedRetained = (f, state = 'prepared') => {
+const seedRetained = (f, state = 'prepared', acceptedScopes = ['savana.products.sync']) => {
     const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048,
         publicKeyEncoding: { format: 'pem', type: 'spki' }, privateKeyEncoding: { format: 'pem', type: 'pkcs8' } });
     const displayName = f.database.prepare('SELECT name FROM tenants WHERE id=1').get().name;
     const body = { organization_id: 'synthetic-org', external_tenant_id: 'wa_savana:tenant:1', display_name: displayName,
-        public_key_pem: keys.publicKey, accepted_scopes: ['savana.products.sync'] };
+        public_key_pem: keys.publicKey, accepted_scopes: [...acceptedScopes] };
     const request = JSON.stringify(body);
     const envelope = JSON.stringify({ purpose: 'wa_consumer_enrollment_key', enrollment_id: 'synthetic-retained-key', tenant_id: 1,
         organization_id: 'synthetic-org', private_key_pem: keys.privateKey });
@@ -446,4 +448,175 @@ test('plaintext cipher and malformed input cannot create a key row, and native s
     assert.equal(columns.includes('actor_user_id'), false); assert.equal(columns.includes('session_reference'), false);
     assert.throws(() => f.database.prepare("UPDATE savana_native_enrollment_service_audit SET central_actor_id='changed'").run(), /immutable/);
     assert.throws(() => f.database.prepare('DELETE FROM savana_native_enrollment_service_audit').run(), /retained/);
+});
+
+const productScopeExpectation = request => ({
+    enrollment_id: registration(request).enrollment_id,
+    enrollment_version: 1,
+    public_key_fingerprint: sha(request.public_key_pem),
+});
+const collaborationOnly = ['savana.collaboration.v1'];
+const productAndCollaboration = ['savana.products.sync', 'savana.collaboration.v1'];
+const assertNoProductGrant = f => {
+    assert.equal(f.database.prepare('SELECT COUNT(*) count FROM savana_delegated_read_sessions').get().count, 0);
+    assert.deepEqual(sourceState(f.database), f.before);
+    assert.equal(f.calls.length, 0);
+};
+
+test('product-scope extension exposes a transient exact-context Core projection while ordinary enrollment stays unchanged', async t => {
+    const f = fixture(t), request = seedRetained(f, 'completed', collaborationOnly), before = { ...f.row() };
+    const expected = productScopeExpectation(request);
+    const original = (await f.service.read(context())).enrollments[0];
+    assert.deepEqual(original.accepted_scopes, collaborationOnly);
+    await f.service.withProductScopeProjection(context(), expected, async () => {
+        assert.deepEqual((await f.service.read(context())).enrollments[0], original);
+        assert.deepEqual(await f.service.enroll(context(), {}), original);
+        const projected = (await f.service.readForCore(context())).enrollments[0];
+        validateNativeCommandModel('AdapterEnrollment', projected);
+        assert.deepEqual(new Set(projected.accepted_scopes), new Set(productAndCollaboration));
+        assert.equal(projected.enrollment_id, original.enrollment_id);
+        assert.equal(projected.enrollment_version, original.enrollment_version);
+        assert.equal(projected.public_key_pem, original.public_key_pem);
+        assert.deepEqual(f.row(), before);
+        assertNoProductGrant(f);
+        for (const changed of [
+            { activity_id: 'another-activity' }, { branch_id: 'another-branch' },
+            { actor_id: 'another-actor' }, { session_version: 2 },
+        ]) {
+            let other;
+            try { other = await f.service.readForCore({ ...context(), ...changed }); }
+            catch (error) { assert.equal(error.status, 403); continue; }
+            assert.ok(other.enrollments.every(item => !item.accepted_scopes.includes('savana.products.sync')));
+        }
+    }, { assertCurrent: () => true });
+    assert.deepEqual((await f.service.readForCore(context())).enrollments[0], original);
+    assert.deepEqual(f.row(), before);
+    assertNoProductGrant(f);
+});
+
+test('product-scope extension adopts only the reviewed next Core receipt with the retained enrollment and RSA identity', async t => {
+    const f = fixture(t), request = seedRetained(f, 'completed', collaborationOnly);
+    const before = immutable(f.row()), expected = productScopeExpectation(request);
+    const accepted = { ...registration(request), version: 2, accepted_scopes: productAndCollaboration };
+    await assert.rejects(f.service.acceptVerifiedRegistration(context(), {
+        registration: accepted, expectedEnrollmentVersion: 1,
+    }));
+    assert.deepEqual(immutable(f.row()), before);
+    const result = await f.service.withProductScopeProjection(context(), expected, () =>
+        f.service.acceptVerifiedRegistration(context(), { registration: accepted, expectedEnrollmentVersion: 1 }, {
+            assertCurrent: () => true, productScopeExpected: expected,
+        }), { assertCurrent: () => true });
+    assert.equal(result.enrollment_id, accepted.enrollment_id);
+    assert.equal(result.enrollment_version, 2);
+    assert.deepEqual(new Set(result.accepted_scopes), new Set(productAndCollaboration));
+    assert.equal(result.public_key_pem, request.public_key_pem);
+    assert.deepEqual(immutable(f.row()), before);
+    assert.deepEqual(JSON.parse(f.row().request_json).accepted_scopes, collaborationOnly);
+    assert.equal(f.row().attempt_count, 1);
+    assert.equal(f.audit().filter(row => row.action === 'registration_extended').length, 1);
+    const saved = { ...f.row() }, auditLength = f.audit().length;
+    const replay = await f.service.acceptVerifiedRegistration(context(), {
+        registration: { ...accepted, accepted_scopes: [...accepted.accepted_scopes].reverse() }, expectedEnrollmentVersion: 1,
+    }, { assertCurrent: () => true, productScopeExpected: expected });
+    assert.equal(replay.enrollment_version, 2);
+    assert.deepEqual(f.row(), saved);
+    assert.equal(f.audit().length, auditLength);
+    assertNoProductGrant(f);
+});
+
+test('product-scope extension lost ACK closes the projection and accepts a later verified receipt without a registration mutation', async t => {
+    const f = fixture(t), request = seedRetained(f, 'completed', collaborationOnly), before = { ...f.row() };
+    const expected = productScopeExpectation(request), projected = [];
+    const lostAck = new Error('Synthetic Core prepare ACK lost after its durable result');
+    await assert.rejects(f.service.withProductScopeProjection(context(), expected, async () => {
+        projected.push((await f.service.readForCore(context())).enrollments[0]);
+        throw lostAck;
+    }, { assertCurrent: () => true }), error => error === lostAck);
+    assert.deepEqual(f.row(), before);
+    assert.deepEqual((await f.service.readForCore(context())).enrollments[0].accepted_scopes, collaborationOnly);
+    const result = await f.service.withProductScopeProjection(context(), expected, async () => {
+        projected.push((await f.service.readForCore(context())).enrollments[0]);
+        return f.service.acceptVerifiedRegistration(context(), {
+            registration: { ...registration(request), version: 2, accepted_scopes: productAndCollaboration },
+            expectedEnrollmentVersion: 1,
+        }, { assertCurrent: () => true, productScopeExpected: expected });
+    }, { assertCurrent: () => true });
+    assert.deepEqual(projected[0], projected[1]);
+    assert.equal(result.enrollment_version, 2);
+    assert.deepEqual(immutable(f.row()), immutable(before));
+    assert.equal(f.row().attempt_count, 1);
+    assertNoProductGrant(f);
+});
+
+test('product-scope extension rejects delegates, foreign organization, stale identity, client scope claims and revoked owners', async t => {
+    const f = fixture(t), request = seedRetained(f, 'completed', collaborationOnly), before = { ...f.row() };
+    const expected = productScopeExpectation(request);
+    let actions = 0;
+    const action = async () => { actions++; };
+    const current = { assertCurrent: () => true };
+    const delegated = { ...context(), actor_id: 'synthetic-delegate', grant_approved_by: context().actor_id };
+    await assert.rejects(f.service.withProductScopeProjection(delegated, expected, action, current));
+    await assert.rejects(f.service.withProductScopeProjection({ ...context(), organization_id: 'foreign-org' }, expected, action, current));
+    for (const patch of [
+        { enrollment_id: 'another-enrollment' }, { enrollment_version: 2 },
+        { public_key_fingerprint: '0'.repeat(64) }, { accepted_scopes: productAndCollaboration },
+    ]) await assert.rejects(f.service.withProductScopeProjection(context(), { ...expected, ...patch }, action, current));
+    await assert.rejects(f.service.enroll(context(), { accepted_scopes: productAndCollaboration }), {
+        code: 'native_service_enrollment_request_invalid',
+    });
+    await assert.rejects(f.service.withProductScopeProjection(context(), expected, action, { assertCurrent: () => false }));
+    assert.equal(actions, 0);
+    assert.deepEqual(f.row(), before);
+    f.database.prepare("UPDATE users SET role='user' WHERE id=1").run();
+    await assert.rejects(f.service.withProductScopeProjection(context(), expected, action, current));
+    assert.equal(actions, 0);
+    assert.deepEqual(f.row(), before);
+    assertNoProductGrant(f);
+});
+
+test('product-scope extension cannot adopt an ACK after the native owner session changes during its scoped window', async t => {
+    const f = fixture(t), request = seedRetained(f, 'completed', collaborationOnly), before = { ...f.row() };
+    const expected = productScopeExpectation(request);
+    let live = true;
+    await assert.rejects(f.service.withProductScopeProjection(context(), expected, async () => {
+        assert.deepEqual(new Set((await f.service.readForCore(context())).enrollments[0].accepted_scopes), new Set(productAndCollaboration));
+        live = false;
+        return f.service.acceptVerifiedRegistration(context(), {
+            registration: { ...registration(request), version: 2, accepted_scopes: productAndCollaboration }, expectedEnrollmentVersion: 1,
+        }, { assertCurrent: () => live, productScopeExpected: expected });
+    }, { assertCurrent: () => live }));
+    assert.deepEqual(f.row(), before);
+    assert.deepEqual((await f.service.readForCore(context())).enrollments[0].accepted_scopes, collaborationOnly);
+    assertNoProductGrant(f);
+});
+
+test('product-scope extension expires its exact-owner projection without changing the retained enrollment', async t => {
+    const f = fixture(t), request = seedRetained(f, 'completed', collaborationOnly), before = { ...f.row() };
+    await f.service.withProductScopeProjection(context(), productScopeExpectation(request), async () => {
+        f.setClock(now + 15_001);
+        await assert.rejects(f.service.readForCore(context()), { code: 'native_service_enrollment_product_scope_context_changed' });
+        assert.deepEqual((await f.service.read(context())).enrollments[0].accepted_scopes, collaborationOnly);
+    }, { assertCurrent: () => true });
+    assert.deepEqual(f.row(), before);
+    assert.deepEqual((await f.service.readForCore(context())).enrollments[0].accepted_scopes, collaborationOnly);
+    assertNoProductGrant(f);
+});
+
+test('product-scope extension cannot be smuggled into recovery of an unknown initial collaboration-only ACK', async t => {
+    for (const state of ['unknown', 'inflight']) await t.test(state, async child => {
+        const f = fixture(child), request = seedRetained(f, state, collaborationOnly), before = { ...f.row() };
+        await assert.rejects(f.service.acceptVerifiedRegistration(context(), {
+            registration: { ...registration(request), version: 2, accepted_scopes: productAndCollaboration },
+            expectedEnrollmentVersion: null,
+        }));
+        assert.deepEqual(f.row(), before);
+        assert.equal(f.audit().length, 0);
+        const recovered = await f.service.acceptVerifiedRegistration(context(), {
+            registration: registration(request), expectedEnrollmentVersion: null,
+        });
+        assert.deepEqual(recovered.accepted_scopes, collaborationOnly);
+        assert.deepEqual(immutable(f.row()), immutable(before));
+        assert.equal(f.audit().some(row => row.action === 'registration_extended'), false);
+        assertNoProductGrant(f);
+    });
 });

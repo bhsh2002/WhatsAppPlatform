@@ -145,6 +145,14 @@ export const savanaIntegrationMethods = {
         });
     },
 
+    async reviewPortalWorkspaceProductReception(provider) {
+        if (typeof provider !== 'string' || !provider.trim() || provider.length > 180_000) throw new TypeError('A current provider reference is required');
+        return this.request('/api/portal/integrations/workspace/provider/products/review', {
+            method: 'POST', headers: { 'X-Savana-Owner-Intent': 'connections-data-v1' },
+            body: JSON.stringify({ provider }),
+        });
+    },
+
     async reviewPortalWorkspaceProviderRefresh(provider) {
         return this.request('/api/portal/integrations/workspace/provider/refresh/review', {
             method: 'POST', headers: { 'X-Savana-Owner-Intent': 'connections-data-v1' }, body: JSON.stringify({ provider }) });

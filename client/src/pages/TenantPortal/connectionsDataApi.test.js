@@ -33,6 +33,23 @@ test('workspace submission forwards the server review handle without rebuilding 
     assert.equal(calls.length, 2);
 });
 
+test('product reception requests only an opaque provider review and uses the common sealed submit', async () => {
+    const { calls, client } = capture();
+    const browserClaims = { accepted_scopes: ['*'], scopes: ['*'], enrollment_id: 'do-not-forward', expected_version: 99,
+        activity_id: 'do-not-forward', actor_id: 'do-not-forward', read_grant: true, public_key: 'do-not-forward' };
+    await savanaIntegrationMethods.reviewPortalWorkspaceProductReception.call(client, 'opaque-own-provider', browserClaims);
+    assert.deepEqual(calls, [['/api/portal/integrations/workspace/provider/products/review', {
+        method: 'POST', headers: { 'X-Savana-Owner-Intent': 'connections-data-v1' }, body: JSON.stringify({ provider: 'opaque-own-provider' }),
+    }]]);
+    await savanaIntegrationMethods.submitPortalWorkspaceReview.call(client, 'opaque-server-product-reception-review', browserClaims);
+    assert.equal(calls[1][0], '/api/portal/integrations/workspace/submit');
+    assert.deepEqual(JSON.parse(calls[1][1].body), { review: 'opaque-server-product-reception-review' });
+    for (const provider of [undefined, null, '', ' ', browserClaims, 'x'.repeat(180_001)]) {
+        await assert.rejects(savanaIntegrationMethods.reviewPortalWorkspaceProductReception.call(client, provider), TypeError);
+    }
+    assert.equal(calls.length, 2);
+});
+
 test('workspace reads encode opaque references and do not forward browser authority', async () => {
     const { calls, client } = capture();
     await savanaIntegrationMethods.getPortalConnectionsWorkspace.call(client);

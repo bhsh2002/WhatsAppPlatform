@@ -9,7 +9,7 @@ import { SharedProductReadError } from '../services/centralProductRead.js';
 
 const fixture = async t => {
     const calls = [];
-    const methods = ['overview', 'select', 'reviewActivity', 'reviewProvider', 'reviewConnection', 'reviewProduct',
+    const methods = ['overview', 'select', 'reviewActivity', 'reviewProvider', 'reviewProductReception', 'reviewConnection', 'reviewProduct',
         'submit', 'records', 'record', 'commands', 'command', 'approve', 'approveRequest', 'reconcileCommand', 'intent', 'reconcileIntent', 'result',
         'resourceOfferings', 'resourceOffering', 'resourceProduct', 'resourcePreview', 'bindingAuthorization'];
     let failure;
@@ -170,4 +170,32 @@ test('scoped result download preserves actual CSV bytes, digest, MIME and no-sto
     const denied = await fetch(`${f.base}/commands/wr1.current_command/result?format=csv`);
     assert.equal(denied.status, 403); assert.equal(denied.headers.get('cache-control'), 'no-store');
     assert.equal((await denied.json()).clear_previous, true);
+});
+
+test('product-scope extension review accepts only a named provider selector and never browser scope authority', async t => {
+    const f = await fixture(t);
+    for (const headers of [{}, { ...intent, Origin: 'https://another.invalid' }]) {
+        assert.equal((await f.post('/provider/products/review', { provider: 'opaque-provider' }, headers)).status, 403);
+    }
+    assert.equal(f.calls.length, 0);
+    const valid = await f.post('/provider/products/review', { provider: 'opaque-provider' }, intent);
+    assert.equal(valid.status, 200);
+    assert.equal(valid.headers.get('cache-control'), 'no-store');
+    assert.equal(f.calls[0].method, 'reviewProductReception');
+    assert.deepEqual(f.calls[0].input, { provider: 'opaque-provider' });
+    assert.equal(f.calls[0].principal.userId, 8);
+    for (const injected of [
+        { scope: { organization_id: 'browser-org', activity_id: 'browser-activity' } },
+        { activity: 'another-activity' }, { activity_id: 'another-activity' },
+        { accepted_scopes: ['savana.products.sync', 'savana.collaboration.v1'] },
+        { enrollment_id: 'browser-enrollment' }, { enrollment_version: 3 },
+        { public_key_pem: 'browser-key' }, { organization_id: 'browser-org' },
+        { actor_id: 'browser-actor' }, { expected_version: 1 }, { grants_created: true },
+    ]) {
+        const response = await f.post('/provider/products/review', { provider: 'opaque-provider', ...injected }, intent);
+        assert.equal(response.status, 422);
+        assert.equal((await response.json()).error.code, 'workspace_request_invalid');
+    }
+    assert.equal((await f.post('/provider/products/review?scope=browser', { provider: 'opaque-provider' }, intent)).status, 422);
+    assert.equal(f.calls.length, 1);
 });

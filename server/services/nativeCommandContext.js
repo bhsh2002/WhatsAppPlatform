@@ -75,8 +75,9 @@ export const createNativeCommandContextVerifier = ({ database, encryption, autho
             const request = JSON.parse(enrollment.request_json); const response = JSON.parse(enrollment.response_json);
             const sameAcceptedScopes = enrollmentScopes(request.accepted_scopes) && enrollmentScopes(response.accepted_scopes)
                 && same([...response.accepted_scopes].sort(), [...request.accepted_scopes].sort());
-            const extendedAcceptedScopes = same(request.accepted_scopes, ['savana.products.sync'])
-                && enrollmentScopes(response.accepted_scopes) && response.accepted_scopes.length === 2 && response.version >= 2
+            const extendedAcceptedScopes = enrollmentScopes(request.accepted_scopes) && request.accepted_scopes.length === 1
+                && enrollmentScopes(response.accepted_scopes) && response.accepted_scopes.length === 2
+                && response.accepted_scopes.includes(request.accepted_scopes[0]) && response.version >= 2
                 && database.prepare(`SELECT 1 FROM savana_native_enrollment_service_audit WHERE enrollment_id=? AND tenant_id=?
                     AND organization_id=? AND action='registration_extended' AND state='completed' LIMIT 1`)
                     .get(enrollment.id, tenantId, context.organization_id);

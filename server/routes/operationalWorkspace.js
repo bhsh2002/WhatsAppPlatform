@@ -54,6 +54,7 @@ export const createOperationalWorkspaceRouter = ({ service, appOrigin }) => {
     router.post('/workspace/binding/review', intent, call('reviewBinding', empty));
     router.post('/workspace/provider/review', intent, call('reviewProvider', body(['provider'])));
     router.post('/workspace/provider/refresh/review', intent, call('reviewProviderRefresh', body(['provider'])));
+    router.post('/workspace/provider/products/review', intent, call('reviewProductReception', body(['provider'])));
     router.get('/workspace/grant-options', call('grantOptions', query(['activity', 'grant', 'person'])));
     router.post('/workspace/grants/review', intent, call('reviewCapabilityGrant', body(['activity', 'grant', 'person', 'actions', 'fields', 'resources', 'resourcePolicy', 'expiresAt', 'assignSourceAuthority'])));
     router.post('/workspace/connection/review', intent, call('reviewConnection', body(['activity', 'purpose', 'provider', 'fields', 'people'])));

@@ -35,6 +35,7 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
     let previewHook = value => value;
     let bindingLookupHook = async value => value;
     let selectedReceipt = null, selectionStatus = 200, providerReceipt = null;
+    let providerPrepareCommit = () => {};
     const mutationResponse = value => { if (dropMutation) throw new Error('Synthetic lost mutation acknowledgement after commit'); return Response.json(transformMutation(structuredClone(value))); };
     const calls = [];
     const setupService = { config: { enabled: true, centerOrigin: 'http://127.0.0.1:19502', platformToken: 'owned-platform-token', allowLoopback: true, oidcIssuer: 'http://127.0.0.1:19502' },
@@ -89,6 +90,7 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
                     platform: provider.platform, external_tenant_id: provider.external_tenant_id, display_name: 'الحساب التجريبي', version: 2,
                     accepted_scopes: ['savana.products.sync', 'savana.collaboration.v1'], public_key_fingerprint: 'f'.repeat(64) }, grants_created: false };
             const value = { ...providerReceipt, status: options.method === 'POST' ? 'prepared' : 'confirmed' };
+            if (options.method === 'POST') providerPrepareCommit();
             return options.method === 'POST' ? mutationResponse(value) : Response.json(value);
         }
         if (/\/commands\/[^/]+\/result$/.test(target.pathname)) {
@@ -177,6 +179,7 @@ const fixture = (t, { sharedResourceReadsEnabled = false, useFinalReadDefault = 
         transformMutation: value => { transformMutation = value; }, dropMutation: () => { dropMutation = true; },
         selectionStatus: value => { selectionStatus = value; }, selectionReceipt: update => { selectedReceipt = update(selectedReceipt); },
         providerReceipt: update => { providerReceipt = update(providerReceipt); }, captureHook: value => { captureHook = value; },
+        providerPrepareCommit: value => { providerPrepareCommit = value; }, contextSnapshot: () => structuredClone(rawContext),
         previewHook: value => { previewHook = value; }, bindingReceipt: update => { receipt = update(structuredClone(receipt)); },
         bindingLookupHook: hook => { bindingLookupHook = hook; } };
 };
@@ -1087,4 +1090,201 @@ test('withdrawal during a native preview invalidates the human review before an 
     { code: 'workspace_native_preview_changed', status: 409 });
     assert.equal(f.database.prepare('SELECT COUNT(*) n FROM savana_workspace_review_fences').get().n, 1); // Existing read-request approval review only.
     assert.equal(f.calls.some(call => call.method === 'POST'), false);
+});
+
+const productReceptionFixture = t => {
+    const f = fixture(t);
+    configureShop(f);
+    f.changeContext(base => ({ ...base,
+        activities: base.activities.map(activity => ({ ...activity, can_manage_people: true })),
+        providers: base.providers.map(provider => provider.platform === 'wa_savana' ? { ...provider, installations: [] } : provider),
+    }));
+    f.providerPrepareCommit(() => f.changeContext(base => ({ ...base,
+        providers: base.providers.map(provider => provider.provider_ref === 'core-wa-account'
+            ? { ...provider, enrollment_version: 2 } : provider),
+    })));
+    const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048,
+        publicKeyEncoding: { format: 'pem', type: 'spki' }, privateKeyEncoding: { format: 'pem', type: 'pkcs8' } });
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const claims = Buffer.from(JSON.stringify({ sub: owner.actorId, organization_id: owner.organizationId, session_version: 1 })).toString('base64url');
+    const signed = `${header}.${claims}`;
+    f.changeOwner({ accessToken: `${signed}.${crypto.sign('RSA-SHA256', Buffer.from(signed), keys.privateKey).toString('base64url')}` });
+    const keyFingerprint = crypto.createHash('sha256').update(keys.publicKey).digest('hex');
+    let retained = { spec_version: '1.0', organization_id: owner.organizationId, platform: 'wa_savana',
+        external_tenant_id: 'wa_savana:tenant:1', display_name: 'الحساب التجريبي', public_key_pem: keys.publicKey,
+        accepted_scopes: ['savana.collaboration.v1'], enrollment_id: 'wa-enrollment', enrollment_version: 1 };
+    const projections = [], accepted = [];
+    f.service.setNativeEnrollmentService({
+        async read(context) {
+            assert.equal(context.organization_id, owner.organizationId);
+            assert.equal(context.external_tenant_id, 'wa_savana:tenant:1');
+            return { spec_version: '1.0', platform: 'wa_savana', enrollments: [structuredClone(retained)] };
+        },
+        async withProductScopeProjection(context, expected, action, { assertCurrent }) {
+            assert.equal(assertCurrent(), true);
+            assert.equal(retained.enrollment_version, 1);
+            assert.deepEqual(retained.accepted_scopes, ['savana.collaboration.v1']);
+            projections.push({ context: structuredClone(context), expected: structuredClone(expected) });
+            return action();
+        },
+        async acceptVerifiedRegistration(context, options, controls) {
+            assert.equal(controls.assertCurrent(), true);
+            accepted.push({ context: structuredClone(context), options: structuredClone(options),
+                productScopeExpected: structuredClone(controls.productScopeExpected) });
+            retained = { ...retained, accepted_scopes: [...options.registration.accepted_scopes], enrollment_version: options.registration.version };
+        },
+    });
+    f.providerReceipt(() => ({ provider_ref: 'core-wa-account', activity_id: 'shop-activity', scope: shopScope(), label: 'رسائل المتجر',
+        enrollment_version: 2, enrollment: { enrollment_id: 'wa-enrollment', organization_id: owner.organizationId,
+            platform: 'wa_savana', external_tenant_id: 'wa_savana:tenant:1', display_name: retained.display_name, version: 2,
+            accepted_scopes: ['savana.products.sync', 'savana.collaboration.v1'], public_key_fingerprint: keyFingerprint }, grants_created: false }));
+    return { ...f, projections, accepted, keyFingerprint, retained: () => structuredClone(retained) };
+};
+const productReceptionReview = async f => {
+    const overview = await f.service.overview(principal);
+    const provider = overview.connection.choices.providers.find(row => row.label.includes('رسائل'));
+    assert.ok(provider);
+    return { overview, provider, ...(await f.service.reviewProductReception(principal, { provider: provider.value })) };
+};
+const productReceptionMutations = f => f.calls.filter(call => call.method === 'POST' && call.path.endsWith('/prepare'));
+
+test('product-scope extension workspace review pins one existing native registration without creating read authority', async t => {
+    const f = productReceptionFixture(t), reviewed = await productReceptionReview(f);
+    const beforeContext = f.contextSnapshot();
+    assert.equal(reviewed.overview.connection.selection.provider, '');
+    assert.equal(reviewed.overview.actions.find(row => row.key === 'provider.products.prepare').enabled, true);
+    assert.equal(reviewed.overview.sharedData.browseAction.enabled, false);
+    assert.ok(reviewed.review.summary.some(row => row.value.includes('لا يمنح')));
+    assert.equal(f.calls.some(row => row.method === 'POST'), false);
+    assert.deepEqual(await f.service.submit(principal, { review: reviewed.review.key }), { state: 'completed' });
+    assert.equal(productReceptionMutations(f).length, 1);
+    const [mutation] = productReceptionMutations(f);
+    assert.equal(mutation.path, '/v1/integration/workspace/providers/core-wa-account/prepare');
+    assert.deepEqual(JSON.parse(mutation.body), { activity_id: 'shop-activity' });
+    assert.equal(mutation.headers['X-Savana-Consumer-Installation'], undefined);
+    assert.equal(f.accepted.length, 1);
+    assert.deepEqual(f.accepted[0].productScopeExpected, { enrollment_id: 'wa-enrollment', enrollment_version: 1, public_key_fingerprint: f.keyFingerprint });
+    assert.equal(f.accepted[0].options.registration.version, 2);
+    assert.equal(f.accepted[0].context.activity_id, 'shop-activity');
+    assert.equal(f.projections[0].context.session_version, 1);
+    const stored = f.database.prepare('SELECT * FROM savana_workspace_intents').get();
+    assert.equal(stored.operation, 'provider_products');
+    assert.equal(stored.state, 'completed');
+    // A changed discovery revision may reject an old sealed review before it
+    // reaches the completed intent. It must never create another prepare.
+    try { assert.deepEqual(await f.service.submit(principal, { review: reviewed.review.key }), { state: 'completed' }); }
+    catch (error) { assert.equal(error.code, 'workspace_choice_changed'); }
+    assert.deepEqual(f.database.prepare('SELECT * FROM savana_workspace_intents').get(), stored);
+    assert.equal(productReceptionMutations(f).length, 1);
+    assert.equal(f.accepted.length, 1);
+    const view = await f.service.overview(principal);
+    assert.equal(view.sharedData.browseAction.enabled, false);
+    const done = view.actions.find(row => row.key === 'provider.products.prepare');
+    assert.equal(done.enabled, false);
+    assert.equal(done.label, 'استقبال المنتجات مهيأ');
+    assert.deepEqual(f.contextSnapshot().existing, beforeContext.existing);
+    assert.deepEqual(f.contextSnapshot().providers.find(row => row.platform === 'catalog'), beforeContext.providers.find(row => row.platform === 'catalog'));
+    assert.equal(f.calls.some(call => call.path.endsWith('/requests') || call.path.endsWith('/selection') || call.path.endsWith('/operational/enrollments')), false);
+    f.changeContext(base => ({ ...base, providers: base.providers.map(provider => provider.provider_ref === 'core-wa-account'
+        ? { ...provider, enrollment_version: 3 } : provider) }));
+    const disagreed = (await f.service.overview(principal)).actions.find(row => row.key === 'provider.products.prepare');
+    assert.equal(disagreed.enabled, false);
+    assert.notEqual(disagreed.label, 'استقبال المنتجات مهيأ');
+});
+
+test('product-scope extension lost ACK finishes the original intent by one exact readonly lookup', async t => {
+    const f = productReceptionFixture(t), reviewed = await productReceptionReview(f);
+    f.dropMutation();
+    await assert.rejects(f.service.submit(principal, { review: reviewed.review.key }), { code: 'workspace_outcome_unknown' });
+    const before = f.database.prepare('SELECT * FROM savana_workspace_intents').get();
+    assert.equal(before.state, 'unknown');
+    assert.equal(f.accepted.length, 0);
+    assert.deepEqual(await f.service.intent(principal, { intent: reviewed.review.intentKey }), {
+        intent: { key: reviewed.review.intentKey, state: 'completed' },
+    });
+    const lookup = f.calls.filter(call => call.method === 'GET' && call.path.endsWith('/enrollment'));
+    assert.equal(productReceptionMutations(f).length, 1);
+    assert.equal(lookup.length, 1);
+    assert.equal(lookup[0].path, '/v1/integration/workspace/providers/core-wa-account/enrollment');
+    assert.equal(lookup[0].query, '?activity_id=shop-activity');
+    assert.equal(f.accepted.length, 1);
+    const after = f.database.prepare('SELECT * FROM savana_workspace_intents').get();
+    for (const field of ['id', 'operation', 'idempotency_key', 'input_sha256', 'request_sha256', 'encrypted_request']) assert.equal(after[field], before[field]);
+    await f.service.intent(principal, { intent: reviewed.review.intentKey });
+    assert.equal(productReceptionMutations(f).length, 1);
+    assert.equal(f.calls.filter(call => call.method === 'GET' && call.path.endsWith('/enrollment')).length, 1);
+    assert.equal(f.accepted.length, 1);
+});
+
+test('product-scope extension recovers a crash after native receipt acceptance without reopening projection or mutating twice', async t => {
+    const f = productReceptionFixture(t), reviewed = await productReceptionReview(f);
+    const finish = f.service.intents.finish.bind(f.service.intents);
+    let loseFinish = true;
+    f.service.intents.finish = (...args) => {
+        if (loseFinish && args[3]?.state === 'completed') { loseFinish = false; throw new Error('Synthetic crash before intent completion'); }
+        return finish(...args);
+    };
+    await assert.rejects(f.service.submit(principal, { review: reviewed.review.key }), /Synthetic crash before intent completion/);
+    assert.equal(f.retained().enrollment_version, 2);
+    assert.equal(f.accepted.length, 1);
+    assert.equal(f.projections.length, 1);
+    assert.equal(f.database.prepare('SELECT state FROM savana_workspace_intents').get().state, 'inflight');
+    const recovered = await f.service.intent(principal, { intent: reviewed.review.intentKey });
+    assert.equal(recovered.intent.state, 'completed');
+    assert.equal(productReceptionMutations(f).length, 1);
+    assert.equal(f.calls.filter(call => call.method === 'GET' && call.path.endsWith('/enrollment')).length, 1);
+    assert.equal(f.projections.length, 1);
+    // The BFF may pass the identical ACK to the idempotent native callback;
+    // the real native-service test proves this produces no second audit/write.
+    assert.ok(f.accepted.length <= 2);
+    await f.service.intent(principal, { intent: reviewed.review.intentKey });
+    assert.equal(productReceptionMutations(f).length, 1);
+});
+
+test('product-scope extension rejects changed owner, wrong scope and non-owner choices before any prepare', async t => {
+    await t.test('current role does not authorize management of this activity', async child => {
+        const f = productReceptionFixture(child);
+        f.changeContext(base => ({ ...base, activities: base.activities.map(row => ({ ...row, can_manage_people: false })) }));
+        const overview = await f.service.overview(principal), provider = overview.connection.choices.providers.find(row => row.label.includes('رسائل'));
+        await assert.rejects(f.service.reviewProductReception(principal, { provider: provider.value }), { code: 'workspace_product_reception_owner_required' });
+        assert.equal(productReceptionMutations(f).length, 0);
+    });
+    for (const patch of ['owner', 'scope', 'organization']) await t.test(patch, async child => {
+        const f = productReceptionFixture(child), reviewed = await productReceptionReview(f);
+        if (patch === 'owner') f.changeOwner({ generation: 'new-owner-session' });
+        else if (patch === 'organization') f.changeOwner({ organizationId: 'another-organization' });
+        else f.changeContext(base => ({ ...base, activities: base.activities.map(row => ({ ...row, scope: { ...row.scope, branch_id: 'another-branch' } })) }));
+        await assert.rejects(f.service.submit(principal, { review: reviewed.review.key }));
+        assert.equal(productReceptionMutations(f).length, 0);
+        assert.equal(f.accepted.length, 0);
+    });
+});
+
+test('product-scope extension refuses a mismatched Core scope receipt and retains an explicit unknown attempt', async t => {
+    const f = productReceptionFixture(t), reviewed = await productReceptionReview(f);
+    f.providerReceipt(value => ({ ...value, scope: { ...value.scope, branch_id: 'different-branch' } }));
+    await assert.rejects(f.service.submit(principal, { review: reviewed.review.key }));
+    assert.equal(f.database.prepare('SELECT state FROM savana_workspace_intents').get().state, 'unknown');
+    assert.equal(f.accepted.length, 0);
+    assert.deepEqual(f.retained().accepted_scopes, ['savana.collaboration.v1']);
+    assert.equal((await f.service.intent(principal, { intent: reviewed.review.intentKey })).intent.state, 'unknown');
+    assert.equal(f.accepted.length, 0);
+    assert.equal(productReceptionMutations(f).length, 1);
+});
+
+test('product-scope extension proven local rejection before dispatch closes the intent without a stuck hold or mutation', async t => {
+    const f = productReceptionFixture(t), reviewed = await productReceptionReview(f);
+    f.service.nativeEnrollment.withProductScopeProjection = async () => {
+        const { SharedProductReadError } = await import('../services/centralProductRead.js');
+        throw new SharedProductReadError('workspace_product_reception_owner_changed', 403);
+    };
+    await assert.rejects(f.service.submit(principal, { review: reviewed.review.key }), { code: 'workspace_product_reception_owner_changed' });
+    assert.equal(productReceptionMutations(f).length, 0);
+    assert.equal(f.accepted.length, 0);
+    const row = f.database.prepare('SELECT * FROM savana_workspace_intents').get();
+    assert.equal(row.state, 'failed');
+    assert.equal(row.operation, 'provider_products');
+    assert.deepEqual(await f.service.submit(principal, { review: reviewed.review.key }), { state: 'failed' });
+    assert.equal(productReceptionMutations(f).length, 0);
+    assert.equal((await f.service.overview(principal)).held, false);
 });

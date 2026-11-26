@@ -139,6 +139,42 @@ test('actual service namespace resolves a distinct namespace ID and binds exact 
     assert.equal(result.executionContext.authority_domain,'native.service_namespace');
 });
 
+test('audited product reception accepts the new enrollment while collaboration still requires a current namespace', async t => {
+    let current;
+    const f = fixture(t, { namespaceReader: async input => {
+        assert.equal(input.enrollmentId, 'actual-core-enrollment');
+        assert.equal(input.enrollmentVersion, retainedVersion);
+        return structuredClone(current);
+    } });
+    let retainedVersion = 1;
+    current = scopedNamespace(f);
+    await f.verify({ command: f.command, context: f.context, action: 'execute' });
+    const row = f.database.prepare('SELECT * FROM savana_operational_consumer_enrollments WHERE tenant_id=1').get();
+    const extended = { ...JSON.parse(row.response_json), version: 2, accepted_scopes: ['savana.collaboration.v1', 'savana.products.sync'] };
+    f.database.prepare('UPDATE savana_operational_consumer_enrollments SET response_json=? WHERE id=?').run(JSON.stringify(extended), row.id);
+    retainedVersion = 2;
+    await assert.rejects(f.verify({ command: f.command, context: f.context, action: 'execute' }), { code: 'native_enrollment_key_unavailable' });
+    assert.equal(f.authCalls(), 1);
+
+    f.database.prepare('INSERT INTO savana_native_enrollment_service_audit'
+        + ' (enrollment_id,tenant_id,organization_id,central_actor_id,authority_revision,action,state,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(row.id, 1, 'org', 'actual-native-owner', 'actual-owner-snapshot', 'registration_extended', 'completed', new Date(f.clock()).toISOString());
+    await assert.rejects(f.verify({ command: f.command, context: f.context, action: 'execute' }), { code: 'native_namespace_execution_stale' });
+    assert.equal(f.authCalls(), 1);
+
+    // Core's separate reviewed namespace renewal returns current enrollment and
+    // scope versions. A freshly reviewed command uses those new pins.
+    Object.assign(current, { enrollment_version: 2, ownership_epoch: 5, version: 8 });
+    const newPins = { namespace_installation_id: current.source_installation_id, namespace_epoch: 5, namespace_version: 8 };
+    Object.assign(f.command, newPins, { command_id: 'after-namespace-renewal' });
+    Object.assign(f.context, newPins);
+    f.onAuthorize(proof => Object.assign(proof, newPins));
+    const result = await f.verify({ command: f.command, context: f.context, action: 'execute' });
+    assert.equal(result.executionContext.namespace_installation_id, f.command.namespace_installation_id);
+    assert.equal(result.executionContext.authorization_revision, f.command.authorization_revision);
+    assert.equal(f.authCalls(), 2);
+});
+
 test('namespace missing resolver, partial pins, wrong identity/scope/key/version, revoked or expired effect proof fail closed',async t=>{
     const without=fixture(t,{acceptedScopes:['savana.collaboration.v1']});scopedNamespace(without);
     await assert.rejects(without.verify({command:without.command,context:without.context,action:'execute'}),{code:'native_namespace_lookup_required'});

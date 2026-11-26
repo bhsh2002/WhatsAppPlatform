@@ -14,9 +14,9 @@ import WorkspaceMediaActionEditor from './WorkspaceMediaActionEditor';
 import WorkspaceCapabilityGrantEditor from './WorkspaceCapabilityGrantEditor';
 import { emptyWorkspaceCapabilityGrantDraft, prepareWorkspaceCapabilityGrantReview, updateWorkspaceCapabilityGrantDraft, workspaceCapabilityGrantChoicesChanged, workspaceCapabilityGrantDraftFromOptions,
     workspaceCapabilityGrantInput, workspaceCapabilityGrantOptionsIsCurrent } from './workspaceCapabilityGrantPresentation';
-import { emptyWorkspaceSelection, workspaceActionAvailable, workspaceConnectionReviewCanSubmit, workspaceLabel, workspaceRecordsCanBrowse, workspaceReviewSummaryIsValid } from './connectionsDataPresentation';
+import { emptyWorkspaceSelection, workspaceActionAvailable, workspaceConnectionReviewCanSubmit, workspaceLabel, workspaceProductReceptionInput, workspaceRecordsCanBrowse, workspaceReviewSummaryIsValid } from './connectionsDataPresentation';
 import { emptyWorkspaceProductDraft } from './workspaceProductPresentation';
-import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceOverview, readWorkspaceSetupIntent, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceAppliedOverviewIsCurrent, workspaceBindingAuthorizationUrl, workspaceBindingContinuationIsCurrent, workspaceBindingContinuationUrl, workspaceClientError, workspaceCommandIsValid, workspaceIntentResolved, workspaceOverviewIsValid, workspaceProductEditorIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent as currentResponse, workspaceRecordIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime';
+import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceOverview, readWorkspaceSetupIntent, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceAppliedOverviewIsCurrent, workspaceBindingAuthorizationUrl, workspaceBindingContinuationIsCurrent, workspaceBindingContinuationUrl, workspaceClientError, workspaceCommandIsValid, workspaceIntentResolved, workspaceOutcomeRefreshNeeded, workspaceOverviewIsValid, workspaceProductEditorIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent as currentResponse, workspaceRecordIsValid, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime';
 import { sharedReadAuthorizationUrl } from './sharedReadSetupPresentation';
 import { emptyWorkspaceNativeDraft, NATIVE_WORKSPACE_ACTIONS, workspaceNativeOptionsIsCurrent, workspaceNativeParameters, workspaceNativePreviewIsCurrent, workspaceNativeRecipientPageDraft, workspaceNativeReviewedParameters } from './workspaceNativePresentation';
 import { emptyWorkspaceBusinessDraft, WORKSPACE_BUSINESS_CAPABILITIES, workspaceBusinessOptionsIsCurrent, workspaceBusinessPageDraft, workspaceBusinessParameters, workspaceBusinessPreviewIsCurrent, workspaceBusinessReviewedParameters } from './workspaceBusinessPresentation';
@@ -202,8 +202,8 @@ const ConnectionsDataController = () => {
         const keys = [...new Set([...hints.map(hint => hint.key), ...(memoryHold?.native_reference === nativeReference ? [memoryHold.key] : []), ...latest.current.intents.map(intent => intent.key)])];
         busy.current = true; setWorking(true);
         try {
-            const fresh = await load({}, initial.context.connect.code !== 'native_binding_required');
-            const freshRevision = revision.current;
+            let fresh = await load({}, initial.context.connect.code !== 'native_binding_required');
+            let freshRevision = revision.current;
             const current = () => revision.current === freshRevision && workspaceAppliedOverviewIsCurrent(fresh, latest.current, nativeReference);
             if (!current()) return;
             const metadata = [];
@@ -233,6 +233,12 @@ const ConnectionsDataController = () => {
                         if (result?.intent?.state) metadata.push({ key, state: result.intent.state });
                     } catch { /* Missing state cannot clear the original hold. */ }
                 }
+            }
+            // Reading the original intent can reconcile a lost acknowledgement.
+            // Re-read current state once so this same check can release its hold.
+            if (current() && workspaceOutcomeRefreshNeeded(fresh, metadata)) {
+                fresh = await load({}, fresh.context.connect.code !== 'native_binding_required');
+                freshRevision = revision.current;
             }
             if (current()) await resolveHints(nativeReference, metadata, fresh);
         } finally {
@@ -340,6 +346,7 @@ const ConnectionsDataController = () => {
                 case 'native': result = await api.reviewPortalWorkspaceNativeAction(body); break;
                 case 'activity': result = await api.reviewPortalWorkspaceActivity(body.name); break;
                 case 'provider': result = await api.reviewPortalWorkspaceProvider(body.provider); break;
+                case 'provider-products': result = await api.reviewPortalWorkspaceProductReception(body.provider); break;
                 case 'provider-refresh': result = await api.reviewPortalWorkspaceProviderRefresh(body.provider); break;
                 default: throw invalidResponse();
             }
@@ -410,6 +417,10 @@ const ConnectionsDataController = () => {
         if (key === 'activity.create') setActivityOpen(true);
         if (key === 'activity.select' && selection.activity) prepareReview('selection', { activity: selection.activity });
         if (key === 'capability-grants.manage' && overview.grantEditor) loadGrantOptions(overview.grantEditor);
+        if (key === 'provider.products.prepare') {
+            const input = workspaceProductReceptionInput(action, { verified: context?.verified, held, busy: working });
+            if (input) prepareReview('provider-products', input);
+        }
         if (key === 'provider.prepare' && selection.provider) prepareReview('provider', { provider: selection.provider });
         if (key === 'provider.refresh' && selection.provider) prepareReview('provider-refresh', { provider: selection.provider });
     };
@@ -629,6 +640,7 @@ const ConnectionsDataController = () => {
             else if (action === 'capability-grants.manage') workspaceAction('capability-grants.manage');
             else if (action === 'provider.prepare' && selection.provider) prepareReview('provider', { provider: selection.provider });
             else if (action === 'provider.refresh') workspaceAction('provider.refresh');
+            else if (action === 'provider.products.prepare') workspaceAction('provider.products.prepare');
             else if (['products.read', 'products.browse', 'product.browse'].includes(action)) setActiveTab('data');
             else if (!action || action === 'connection.setup') setActiveTab('connection');
             else setError(new Error('Current native action form unavailable'));

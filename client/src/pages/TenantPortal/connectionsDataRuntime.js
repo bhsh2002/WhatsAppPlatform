@@ -14,6 +14,8 @@ const choice = value => reference(value?.value) && named(value.label) && typeof 
 const choices = values => Array.isArray(values) && values.every(choice) && new Set(values.map(value => value.value)).size === values.length;
 const action = value => text(value?.key) && named(value.label) && typeof value.enabled === 'boolean'
     && optionalText(value.reason) && (value.intentKey === undefined || reference(value.intentKey))
+    && (value.provider === undefined || reference(value.provider))
+    && (value.key !== 'provider.products.prepare' || value.enabled === false || reference(value.provider))
     && availability(value.availability) && (value.effect === undefined || ['read', 'write'].includes(value.effect));
 const actions = values => Array.isArray(values) && values.every(action);
 const productFields = new Set(['name', 'description', 'sku', 'barcodes', 'base_unit', 'price', 'media']);
@@ -120,6 +122,9 @@ export const workspaceReviewIsCurrent = (review, context, now = Date.now()) => B
 
 export const workspaceServerHeld = overview => Boolean(overview?.held || overview?.connection?.held
     || overview?.intents?.some(intent => !terminal.has(intent.state)));
+
+export const workspaceOutcomeRefreshNeeded = (overview, intents) => workspaceServerHeld(overview)
+    && Array.isArray(intents) && intents.some(intent => reference(intent?.key) && terminal.has(intent.state));
 
 const storageKey = nativeReference => reference(nativeReference) && nativeReference.length <= 2048
     ? `${storagePrefix}${encodeURIComponent(nativeReference)}` : null;

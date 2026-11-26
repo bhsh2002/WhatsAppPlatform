@@ -66,6 +66,14 @@ export const workspaceActionAvailable = (action, { verified = false, held = true
     && verified === true && (held === false || action.effect === 'read') && busy === false
 );
 
+// Product reception setup targets the account named by the current server
+// action. It needs no read-sharing selection, fields, people or browser scopes.
+export const workspaceProductReceptionInput = (action, state = {}) => (
+    action?.key === 'provider.products.prepare' && state.held === false
+    && workspaceActionAvailable(action, state) && text(action.provider) && action.provider.length <= 180_000
+        ? { provider: action.provider } : null
+);
+
 export const workspaceRecordsCanBrowse = (sharedData, verified = false) => sharedData?.browseAction?.key === 'records.browse'
     && sharedData.browseAction.effect === 'read'
     && workspaceActionAvailable(sharedData.browseAction, { verified, held: false, busy: false });

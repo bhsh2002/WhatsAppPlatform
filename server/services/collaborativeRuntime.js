@@ -109,7 +109,8 @@ export const createCollaborativeRuntime = ({ database, encryption, config, nativ
         ownerActions: ownerApiReady ? ownerActions : {}, now,
         loadSubscriptionFacts: input => loadNativeSubscriptionFacts({ ...input, integrationService, now }) });
     const nativeRouter = createNativeCommandAdapterRouter({ protocol, service, discovery: discovery.discovery,
-        products: discovery.products, enrollments: { read: context => nativeEnrollmentService.read(context),
+        products: discovery.products, enrollments: { read: context => typeof nativeEnrollmentService.readForCore === 'function'
+            ? nativeEnrollmentService.readForCore(context) : nativeEnrollmentService.read(context),
             enroll: (context, options) => nativeEnrollmentService.enroll(context, options) } });
     const ownerService = ownerApiReady ? new CollaborativeNativeOwnerService({ database, nativeAdapters, consents,
         verifyOwnerContext, verifyLocalPrincipal, now }) : null;

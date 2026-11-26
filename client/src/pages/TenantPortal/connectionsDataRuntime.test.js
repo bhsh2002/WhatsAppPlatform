@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, readWorkspaceOverview, readWorkspaceSetupIntent, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceAppliedOverviewIsCurrent, workspaceBindingAuthorizationUrl, workspaceBindingContinuationIsCurrent, workspaceBindingContinuationUrl, workspaceCommandIsValid, workspaceOverviewIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime.js';
+import { observeWorkspaceEffect, readWorkspaceHolds, readWorkspaceLists, readWorkspaceOverview, readWorkspaceSetupIntent, releaseWorkspaceHold, retainWorkspaceHold, watchWorkspaceReadExpiry, workspaceAccessRequestIsValid, workspaceAppliedOverviewIsCurrent, workspaceBindingAuthorizationUrl, workspaceBindingContinuationIsCurrent, workspaceBindingContinuationUrl, workspaceCommandIsValid, workspaceOutcomeRefreshNeeded, workspaceOverviewIsValid, workspaceReadDeadline, workspaceReadResponseIsCurrent, workspaceReviewIsCurrent, workspaceServerHeld } from './connectionsDataRuntime.js';
 
 const context = { verified: true, native_reference: 'server-native-and-center-partition', viewKey: 'current-view', valid_until: new Date(60_000).toISOString(),
     organizationLabel: 'متجر المدينة', actorLabel: 'سارة', connect: { enabled: false, code: 'connect_core', label: 'ربط الحساب' } };
@@ -31,6 +31,37 @@ const expiryClock = () => {
     };
 };
 const at = value => new Date(value).toISOString();
+
+test('product reception action can be shown before a read purpose but needs its current opaque provider', () => {
+    const current = overview();
+    current.actions = [{ key: 'provider.products.prepare', label: 'تهيئة استقبال المنتجات', enabled: true,
+        effect: 'read', provider: 'opaque-own-provider' }];
+    assert.equal(workspaceOverviewIsValid(current, 1_000), true);
+    for (const provider of [undefined, '', null, { accepted_scopes: ['*'] }]) {
+        const changed = structuredClone(current);
+        changed.actions[0].provider = provider;
+        assert.equal(workspaceOverviewIsValid(changed, 1_000), false);
+    }
+    const done = structuredClone(current);
+    done.actions[0] = { key: 'provider.products.prepare', label: 'استقبال المنتجات مهيأ', enabled: false,
+        reason: 'تهيئة الاستقبال منفصلة عن طلب مشاركة القراءة.' };
+    assert.equal(workspaceOverviewIsValid(done, 1_000), true);
+});
+
+test('a reconciled original intent requires current held context to be read once again before releasing its hold', () => {
+    const fresh = overview(); fresh.held = true;
+    const metadata = [{ key: 'original-attempt', state: 'completed' }];
+    assert.equal(workspaceOutcomeRefreshNeeded(fresh, metadata), true);
+    assert.equal(workspaceOutcomeRefreshNeeded({ ...fresh, held: false }, metadata), false);
+    for (const intents of [[], [{ key: 'original-attempt', state: 'unknown' }], [{ state: 'completed' }], null]) {
+        assert.equal(workspaceOutcomeRefreshNeeded(fresh, intents), false);
+    }
+    const local = storage(); retainWorkspaceHold(local, fresh.context.native_reference, 'original-attempt');
+    assert.equal(releaseWorkspaceHold(local, fresh.context.native_reference, metadata[0], fresh, 1_000), false);
+    const current = { ...fresh, held: false };
+    assert.equal(releaseWorkspaceHold(local, 'different-partition', metadata[0], current, 1_000), false);
+    assert.equal(releaseWorkspaceHold(local, fresh.context.native_reference, metadata[0], current, 1_000), true);
+});
 
 test('workspace read expiry clears at the earliest parent, list, detail or review deadline', () => {
     for (const [list, detail, review, expected] of [[30_000, 10_000, 20_000, 10_000], [8_000, 10_000, 20_000, 8_000],

@@ -12,6 +12,7 @@ import { validateWorkspaceProductPayload } from './workspaceProductPayload.js';
 import { WorkspaceProductReader, workspaceProductOption } from './workspaceProductReader.js';
 import { WorkspaceSharedResourceReader } from './workspaceSharedResourceReader.js';
 import { WorkspaceSharedResourceViews } from './workspaceSharedResourceViews.js';
+import { WorkspaceProductReception } from './workspaceProductReception.js';
 import { WorkspaceCapabilityGrants, workspaceGrantChoices } from './workspaceCapabilityGrants.js';
 import { workspaceNativeCapabilityCards } from './workspaceNativeCapabilityCards.js';
 import { createWorkspaceCommandPresenter } from './workspaceCommandPresentation.js';
@@ -71,6 +72,7 @@ export class OperationalWorkspaceService {
         this.intents = new WorkspaceIntentStore({ database, encryption, verifyLocalPrincipal, now,
             loadOutcome: input => this.loadOutcome(input) });
         this.grants = new WorkspaceCapabilityGrants({ gateway: this });
+        this.productReception = new WorkspaceProductReception({ gateway: this });
         this.mutations = new WorkspaceMutations({ choices: this.choices, transport: this.transport,
             intents: this.intents, planners: this.planners() });
         this.presentCommand = createWorkspaceCommandPresenter({ refs: this.refs, now,
@@ -227,6 +229,7 @@ export class OperationalWorkspaceService {
         const businessRequested = input.action && nativeBusinessCapabilities.includes(input.action) ? input.action : null;
         const mediaRequested = input.action === 'media.manage';
         const nativeChoice = native && context.choices.providers.find(row => row.data.provider_ref === native.provider_ref && row.data.activity_id === activity.key);
+        const productReceptionAction = nativeChoice ? await this.productReception.action(principal, context, nativeChoice, held) : null;
         const sharedResources = this.sharedResourceViews.enabled === true && activity
             ? await this.sharedResourceViews.options(principal, context, activity.data) : null;
         return { spec_version: '1.0', context: { verified: true, ...metadata,
@@ -250,6 +253,7 @@ export class OperationalWorkspaceService {
             ...(sharedResources ? { sharedResources: { ...sharedResources, browseAction: { enabled: sharedResources.providers.length > 0,
                 label: 'عرض الخدمات والعروض المشتركة' } } } : {}),
             actions: [{ key: 'activity.create', label: 'إضافة نشاط', enabled: raw.can_create_activity && !held, effect: 'read', href: '/portal/integrations?action=activity.create' },
+                ...(productReceptionAction ? [productReceptionAction] : []),
                 ...(activity ? [{ key: 'activity.select', label: 'استخدام هذا النشاط', enabled: bound && !!native && !held, effect: 'read' }] : []),
                 ...(activity && activity.data.can_manage_people && raw.capability_grant_options.some(row => row.activity_id === activity.key)
                     ? [{ key: 'capability-grants.manage', label: 'الأشخاص وصلاحيات الخدمات', enabled: bound && !held, effect: 'read' }] : []),
@@ -370,6 +374,7 @@ export class OperationalWorkspaceService {
         return this.review(principal, context, 'provider_refresh', { provider_ref: option.data.provider_ref, activity_id: option.data.activity_id },
             [{ label: 'الخدمة', value: option.label }, { label: 'الإجراء', value: 'إعادة فحص الجاهزية والاشتراك الحاليين من الخدمة المسجلة؛ لا يُنشئ صلاحيات أو ينفّذ عملية تجارية' }]);
     }
+    reviewProductReception(principal, input) { return this.productReception.review(principal, input); }
     grantOptions(principal, input) { return this.grants.options(principal, input); }
     reviewCapabilityGrant(principal, input) { return this.grants.review(principal, input); }
     async resolveMany(principal, context, tokens, kind) {
@@ -577,6 +582,7 @@ export class OperationalWorkspaceService {
             binding: plan('binding', 'POST', '/binding-requests', 'WorkspaceBindingRequest', decodeWorkspaceBinding),
             selection: plan('selection', 'POST', '/selection', 'WorkspaceSelectionRequest', decodeWorkspaceSelection),
             provider: plan('provider', 'POST', body => `/providers/${pathId(body.provider_ref)}/prepare`, 'WorkspaceProviderPrepare', decodeWorkspaceProviderPrepare),
+            provider_products: this.productReception.planner(),
             provider_refresh: plan('provider_refresh', 'POST', body => `/providers/${pathId(body.provider_ref)}/refresh`, 'WorkspaceProviderPrepare', (raw, identity) => {
                 validateWorkspaceCoreModel('WorkspaceProviderReadinessRefresh', raw);
                 if (raw.scope.organization_id !== identity.organizationId || !text(raw.checked_at) || !Number.isFinite(Date.parse(raw.checked_at))
@@ -632,7 +638,7 @@ export class OperationalWorkspaceService {
             if (operation === 'binding') {
                 path = `/binding-requests/lookup?${new URLSearchParams({ external_tenant_id: identity.nativeAccountId, state: body.state })}`;
                 decode = decodeWorkspaceBinding;
-            } else if (operation === 'provider') {
+            } else if (operation === 'provider' || operation === 'provider_products') {
                 path = `/providers/${pathId(expected.payload.provider_ref)}/enrollment?${new URLSearchParams({ activity_id: expected.payload.activity_id })}`;
                 decode = decodeWorkspaceProviderPrepare;
             } else if (['selection', 'connection', 'namespace', 'command_create'].includes(operation)) {
@@ -656,7 +662,14 @@ export class OperationalWorkspaceService {
                 }
             } else return unknown(); // No published activity history lookup.
             if (path) {
-                const response = await this.transport.request(principal, { path: BASE + path, expectedIdentity: identity, consumerInstallation });
+                const get = () => this.transport.request(principal, { path: BASE + path, expectedIdentity: identity, consumerInstallation });
+                const response = operation === 'provider_products'
+                    ? await this.productReception.project(principal, identity, idempotencyKey, get, { recover: true }) : await get();
+                if (operation === 'provider_products') {
+                    result = this.productReception.decode(principal, identity, idempotencyKey, response.payload, 'confirmed');
+                    await this.productReception.accept(principal, identity, idempotencyKey, result);
+                    return { state: 'completed', result, correlation };
+                }
                 result = decode(response.payload, identity, operation === 'provider'
                     ? this.providerDecodeOptions(principal, identity, idempotencyKey, 'confirmed')
                     : { ...this.urlPolicy, externalTenantId: identity.nativeAccountId });
