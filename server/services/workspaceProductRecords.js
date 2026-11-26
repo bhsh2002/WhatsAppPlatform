@@ -72,10 +72,13 @@ const record = (value, expected) => {
         for (const raw of value.available_actions) {
             let action;
             try { action = decodeWorkspaceCommandOption(raw); } catch { fail(); }
-            if (action.action !== 'product.change' || action.available !== true || action.activity_id !== value.scope.activity_id
-                || action.record_ref !== value.entity_id || action.record_version !== value.version
-                || action.source_installation_id !== value.source.installation_id
+            if (action.action !== 'product.change' || action.activity_id !== value.scope.activity_id
                 || (expected.providerRef && action.provider_ref !== expected.providerRef)) fail();
+            if (action.available) {
+                if (action.record_ref !== value.entity_id || action.record_version !== value.version
+                    || action.source_installation_id !== value.source.installation_id) fail();
+            } else if (action.allowed_fields.length || action.authorization_revision !== null || action.source_installation_id !== null
+                || Object.hasOwn(action, 'record_ref') || Object.hasOwn(action, 'record_version')) fail();
         }
     }
 };

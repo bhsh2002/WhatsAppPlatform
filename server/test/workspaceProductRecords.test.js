@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { decodeWorkspaceProductRecords } from '../services/workspaceProductRecords.js';
+import { workspaceProductOption } from '../services/workspaceProductReader.js';
 
 const examples = JSON.parse(fs.readFileSync(new URL('../test-fixtures/peer-owner-workspace-responses-v4.json', import.meta.url))).examples;
 const expectedFor = value => ({ scope: value.context.scope, actorId: value.context.actor_id, consumerPlatform: value.context.consumer_platform,
@@ -39,4 +40,26 @@ test('a record-specific change hint cannot substitute another record, source ins
     rejects(copy => { copy.record.fields[0].value = 'value-not-in-current-record'; });
     rejects(copy => { copy.record.fields[0].authoritative = false; });
     rejects(copy => { copy.context.permissions = []; });
+});
+
+test('a shared record remains readable when Core returns an unavailable product change', () => {
+    const value = structuredClone(examples.portal_record_detail_for_saw_consumer);
+    const enabled = value.record.available_actions[0];
+    const action = { activity_id: enabled.activity_id, provider_ref: enabled.provider_ref, capability: 'products.write',
+        action: 'product.change', available: false, allowed_fields: [], authorization_revision: null,
+        source_installation_id: null, reason_code: 'workspace_capability_permission_required', message: 'تلزم صلاحية تعديل المنتج.' };
+    value.record.available_actions = [action];
+    const expected = { ...expectedFor(value), providerRef: enabled.provider_ref };
+    const options = { detail: true, now: Date.parse(value.context.checked_at) + 1 };
+    const parsed = decodeWorkspaceProductRecords(value, expected, options);
+    assert.deepEqual(parsed, value);
+    assert.equal(workspaceProductOption({}, { activity_id: action.activity_id, scope: value.record.scope },
+        { provider_ref: action.provider_ref }, parsed.record), null);
+    for (const change of [{ activity_id: 'different-activity' }, { provider_ref: 'different-provider' }, { action: 'product.create' },
+        { allowed_fields: ['name'] }, { authorization_revision: 'a'.repeat(64) }, { record_ref: null },
+        { source_installation_id: value.record.source.installation_id }, { record_version: value.record.version }]) {
+        const invalidValue = structuredClone(value);
+        Object.assign(invalidValue.record.available_actions[0], change);
+        assert.throws(() => decodeWorkspaceProductRecords(invalidValue, expected, options), invalid);
+    }
 });
